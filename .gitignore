@@ -16,3 +16,10 @@ test-results/
 .DS_Store
 npm-debug.log*
 docs/superpowers/
+
+# Rohausgaben der Bildgenerierung. Nur die ausgewaehlten Master unter
+# src/assets/provenance/muapi/masters/ und die Prompts unter
+# src/assets/provenance/prompts/ gehoeren ins Repo.
+src/assets/provenance/muapi/mockups/
+src/assets/provenance/muapi/parts/
+docs/design/classic-unitframe-mockups.html

@@ -103,7 +103,15 @@ export const parseOverlayState = (input: unknown): ChannelState | null => {
     input.schemaVersion !== 1 ||
     !isInteger(input.revision, 1, Number.MAX_SAFE_INTEGER) ||
     typeof input.overlayEnabled !== "boolean" ||
-    !["classic-remix", "modern-compact", "modern-minimal"].includes(String(input.themeId))
+    ![
+      "trail-wood",
+      "field-journal",
+      "forged-compass",
+      "classic-simple",
+      "modern-compact",
+      "modern-minimal",
+      "classic-remix",
+    ].includes(String(input.themeId))
   ) return null;
 
   const placement = input.placement;
@@ -114,7 +122,7 @@ export const parseOverlayState = (input: unknown): ChannelState | null => {
     !isInteger(placement.y, 0, 216) ||
     typeof placement.scale !== "number" ||
     placement.scale < 0.75 ||
-    placement.scale > 1.25
+    placement.scale > 2
   ) return null;
 
   const player = input.player;
@@ -173,7 +181,9 @@ export const parseOverlayState = (input: unknown): ChannelState | null => {
     !/^\d+$/.test(input.updatedBy.twitchUserId) ||
     !isText(input.updatedBy.displayName, 1, 32)
   ) return null;
-  return input as ChannelState;
+  return input.themeId === "classic-remix"
+    ? { ...input, themeId: "trail-wood" } as ChannelState
+    : input as ChannelState;
 };
 
 export const parseOverlayMessage = (input: unknown): OverlayMessage | null => {

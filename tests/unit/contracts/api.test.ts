@@ -72,7 +72,7 @@ describe("API contracts", () => {
       },
       capabilities: {
         phase: "v1a",
-        enabledThemes: ["classic-remix"],
+        enabledThemes: ["trail-wood"],
         petEditor: false,
         groupEditor: false,
         undo: false,

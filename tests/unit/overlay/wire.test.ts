@@ -11,8 +11,26 @@ describe("lightweight overlay wire boundary", () => {
 
   it("accepts complete schema-v1 snapshots without loading the Admin contract bundle", () => {
     expect(parseOverlayState(state)).toEqual(state);
+    expect(parseOverlayState({
+      ...state,
+      placement: { ...state.placement, scale: 2 },
+    })?.placement.scale).toBe(2);
     expect(parseOverlayMessage({ type: "snapshot", state })).toEqual({ type: "snapshot", state });
     expect(parseOverlayMessage({ type: "token_revoked" })).toEqual({ type: "token_revoked" });
+  });
+
+  it("normalizes legacy classic-remix snapshots at the lightweight overlay boundary", () => {
+    expect(parseOverlayState({ ...state, themeId: "classic-remix" })).toEqual({
+      ...state,
+      themeId: "trail-wood",
+    });
+    expect(parseOverlayMessage({
+      type: "snapshot",
+      state: { ...state, themeId: "classic-remix" },
+    })).toEqual({
+      type: "snapshot",
+      state: { ...state, themeId: "trail-wood" },
+    });
   });
 
   it("fails closed on malformed schema, unsafe numbers and unknown messages", () => {
@@ -81,6 +99,7 @@ describe("lightweight overlay wire boundary", () => {
       { ...state, placement: { ...state.placement, y: 217 } },
       { ...state, placement: { ...state.placement, scale: "1" } },
       { ...state, placement: { ...state.placement, scale: 0.5 } },
+      { ...state, placement: { ...state.placement, scale: 2.01 } },
       { ...state, player: null },
       { ...state, player: { ...state.player, name: "" } },
       { ...state, player: { ...state.player, title: 12 } },

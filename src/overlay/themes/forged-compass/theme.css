@@ -1,0 +1,99 @@
+/*
+ * Variante: Forged Compass.
+ * Geschwaerztes Metall mit mattem Goldrand, Kompassrose und Hoehenlinien.
+ *
+ * Die Geometrie folgt exakt den Aussparungen des Assets
+ * (Master 620 x 292, dargestellt 372 x 175, Faktor 0.599). Der Trog kommt aus
+ * der Grafik, deshalb ist der CSS-Trog transparent und nur die Fuellung sichtbar.
+ * Diese Datei setzt ausschliesslich Custom Properties aus src/overlay/hud.css.
+ */
+
+.hud-theme--forged-compass {
+  --hud-player-chrome-image: url("/assets/themes/forged-compass/player-chrome.webp");
+  --hud-level-chrome-image: url("/assets/themes/forged-compass/level-medallion.webp");
+  --hud-pet-chrome-image: url("/assets/themes/forged-compass/pet-frame.webp");
+  --hud-party-chrome-image: url("/assets/themes/forged-compass/party-frame.webp");
+  --hud-effect-bezel-image: url("/assets/themes/forged-compass/effect-frame.webp");
+
+  --hud-player-w: 372px;
+  --hud-portrait-x: 15px;
+  --hud-portrait-y: 14px;
+  --hud-portrait-size: 116px;
+  --hud-name-x: 181px;
+  --hud-name-y: 44px;
+  --hud-name-w: 128px;
+  --hud-name-h: 15px;
+  --hud-name-size: 11px;
+  --hud-title-x: 152px;
+  --hud-title-y: 59px;
+  --hud-title-w: 196px;
+  --hud-title-size: 8px;
+  --hud-hp-x: 152px;
+  --hud-hp-y: 68px;
+  --hud-hp-w: 196px;
+  --hud-hp-h: 27px;
+  --hud-resource-y: 104px;
+  --hud-resource-h: 26px;
+  --hud-level-x: 57px;
+  --hud-level-y: 138px;
+  --hud-level-size: 33px;
+  --hud-level-size-text: 12px;
+
+  --hud-pet-w: 142px;
+  --hud-pet-h: 44px;
+  --hud-pet-portrait-x: 8px;
+  --hud-pet-portrait-y: 6px;
+  --hud-pet-portrait-size: 31px;
+  --hud-pet-name-x: 51px;
+  --hud-pet-name-y: 8px;
+  --hud-pet-name-w: 78px;
+  --hud-pet-name-h: 11px;
+  --hud-pet-bar-x: 51px;
+  --hud-pet-bar-y: 33px;
+  --hud-pet-bar-w: 78px;
+  --hud-pet-bar-h: 7px;
+
+  --hud-party-w: 166px;
+  --hud-party-portrait-x: 7px;
+  --hud-party-portrait-y: 8px;
+  --hud-party-portrait-size: 27px;
+  --hud-party-name-x: 43px;
+  --hud-party-name-y: 8px;
+  --hud-party-name-w: 111px;
+  --hud-party-name-h: 12px;
+  --hud-party-bar-x: 43px;
+  --hud-party-bar-y: 35px;
+  --hud-party-bar-w: 111px;
+  --hud-party-bar-h: 6px;
+  --hud-compact-name-size: 10px;
+
+  --hud-text: #f7f2e6;
+  --hud-name-color: #f6dc95;
+  --hud-title-color: #aeb7bb;
+  --hud-level-color: #f9e2a0;
+  --hud-line: rgba(200, 165, 90, 0.55);
+  --hud-panel: linear-gradient(#151b21, #090c0f);
+  --hud-panel-radius: 3px;
+  --hud-portrait-ring: inset 0 0 12px rgba(0, 0, 0, 0.9);
+
+  /* Der Trog ist Teil der Grafik. */
+  --hud-trough-bg: transparent;
+  --hud-trough-border: 0 solid transparent;
+  --hud-trough-shadow: none;
+  --hud-trough-radius: 2px;
+  --hud-trough-pad: 2px;
+  --hud-health-healthy: #43846c;
+  --hud-health-warning: #b08a46;
+  --hud-health-critical: #9f4d50;
+  --hud-resource-blend: #313842;
+  --hud-resource-color-weight: 66%;
+  --hud-fill-radius: 3px;
+  --hud-fill-texture:
+    linear-gradient(to bottom, rgba(225, 211, 171, 0.2), rgba(255, 255, 255, 0.04) 34%, rgba(11, 15, 18, 0.2) 58%, rgba(5, 7, 9, 0.38)),
+    linear-gradient(to right, rgba(199, 164, 91, 0.09), transparent 34%, rgba(5, 7, 9, 0.16));
+  --hud-fill-shadow: inset 0 1px rgba(232, 216, 174, 0.18), inset 0 -2px rgba(4, 6, 8, 0.36);
+  --hud-shine-bg: rgba(222, 207, 168, 0.06);
+
+  --hud-effect-bezel-border: 0 solid transparent;
+  --hud-effect-bezel-border-debuff: 0 solid transparent;
+}

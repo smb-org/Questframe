@@ -83,11 +83,20 @@ const largestEightEffectBytes = (
     (await readdir(effectDirectory)).map(async (name) => (await stat(path.join(effectDirectory, name))).size),
   )
 ).sort((left, right) => right - left).slice(0, 8).reduce((total, size) => total + size, 0);
-const commonHudMedia = (
-  await Promise.all([
-    stat(path.join(clientRoot, "assets/themes/classic-remix-surface.webp")),
-  ])
-).reduce((total, file) => total + file.size, 0);
+const themeRoot = path.join(clientRoot, "assets/themes");
+// Es wird immer nur eine Variante gerendert, also zaehlt die groesste.
+const variantSizes = await Promise.all(
+  (await readdir(themeRoot, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory())
+    .map(async (entry) => {
+      const files = await readdir(path.join(themeRoot, entry.name));
+      const sizes = await Promise.all(
+        files.map(async (name) => (await stat(path.join(themeRoot, entry.name, name))).size),
+      );
+      return sizes.reduce((total, size) => total + size, 0);
+    }),
+);
+const commonHudMedia = Math.max(0, ...variantSizes);
 const fontBytes = (await stat(
   path.join(clientRoot, "fonts/AtkinsonHyperlegibleNext-variable.woff2"),
 )).size;

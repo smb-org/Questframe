@@ -28,7 +28,7 @@ Der Broadcaster und ein aktueller Moderator bedienen gemeinsam den Staging-Kandi
 - Einmal die Netzwerkverbindung trennen, lokalen Snapshot und Countdown beobachten, dann Reconnect und vollständigen Snapshot prüfen.
 - Zwei Admin-Tabs öffnen, einen Konflikt erzeugen und beide Konfliktaktionen nachvollziehen.
 - OBS-Token rotieren: alte verbundene Anzeige muss leer werden; neue URL muss funktionieren.
-- Pet, fünf Gäste, acht Effekte und jede der drei Themes auf Überlauf prüfen, sobald V1b aktiviert wird.
+- Pet, fünf Gäste, acht Effekte und jede der sechs Themes auf Überlauf prüfen, sobald V1b aktiviert wird.
 - Auf `<50 %` gelb sowie `<20 %` rot und dezent pulsierend prüfen; exakt 50 bleibt grün, exakt 20 gelb.
 
 Jede Unsicherheit wird mit Uhrzeit, Browser, Revision und beobachtetem Verhalten notiert. Ein ungelöster Severity-1-Fehler — falscher veröffentlichter Zustand, unberechtigter Zugriff, nicht widerrufbares Overlay oder sichtbarer Zwischenstand — stoppt die Promotion.

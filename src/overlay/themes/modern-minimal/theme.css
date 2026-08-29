@@ -1,0 +1,78 @@
+/*
+ * Variante: Modern Minimal.
+ * Flache, halbtransparente Flaechen ohne Bildassets.
+ * Die Flaechen entstehen ausschliesslich aus den Material-Slots in
+ * src/overlay/hud.css.
+ */
+
+.hud-theme--modern-minimal {
+  --hud-text: #fff;
+  --hud-name-color: #fff;
+  --hud-name-font: inherit;
+  --hud-name-size: 15px;
+  --hud-title-color: rgba(255, 255, 255, 0.62);
+  --hud-level-color: #fff;
+  --hud-line: rgba(255, 255, 255, 0.2);
+  --hud-panel: rgba(15, 17, 21, 0.82);
+  --hud-panel-radius: 10px;
+  --hud-panel-border: 1px solid var(--hud-line);
+  --hud-panel-shadow: none;
+
+  --hud-body-bg: rgba(15, 17, 21, 0.82);
+  --hud-body-border: 1px solid var(--hud-line);
+  --hud-body-radius: 10px;
+
+  --hud-portrait-radius: 8px;
+  --hud-portrait-ring: 0 0 0 2px rgba(255, 255, 255, 0.5);
+  --hud-portrait-x: 2px;
+  --hud-portrait-y: 10px;
+  --hud-portrait-size: 148px;
+  --hud-body-x: 150px;
+  --hud-body-y: 16px;
+  --hud-body-w: 280px;
+  --hud-body-h: 143px;
+  --hud-name-x: 164px;
+  --hud-name-y: 28px;
+  --hud-name-w: 248px;
+  --hud-name-h: 24px;
+  --hud-title-x: 164px;
+  --hud-title-y: 54px;
+  --hud-title-w: 248px;
+  --hud-hp-x: 164px;
+  --hud-hp-y: 74px;
+  --hud-hp-w: 248px;
+  --hud-hp-h: 30px;
+  --hud-resource-y: 110px;
+  --hud-resource-h: 22px;
+
+  --hud-level-bg: rgba(15, 17, 21, 0.9);
+  --hud-level-border: 1px solid rgba(255, 255, 255, 0.45);
+  --hud-level-radius: 8px;
+  --hud-level-size: 34px;
+  --hud-level-x: 116px;
+  --hud-level-y: 124px;
+
+  --hud-compact-bg: rgba(15, 17, 21, 0.82);
+  --hud-compact-border: 1px solid var(--hud-line);
+  --hud-compact-radius: 10px;
+  --hud-compact-backdrop: blur(7px);
+  --hud-compact-portrait-radius: 6px;
+
+  --hud-trough-bg: rgba(0, 0, 0, 0.55);
+  --hud-trough-border: 0 solid transparent;
+  --hud-trough-radius: 6px;
+  --hud-trough-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  --hud-trough-pad: 2px;
+  --hud-health-healthy: #5e9c87;
+  --hud-health-warning: #b79058;
+  --hud-health-critical: #b55f6a;
+  --hud-resource-blend: #25262b;
+  --hud-resource-color-weight: 68%;
+  --hud-fill-radius: 999px;
+  --hud-fill-texture:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.025) 46%, rgba(0, 0, 0, 0.18)),
+    linear-gradient(to right, rgba(255, 255, 255, 0.035), transparent 58%, rgba(0, 0, 0, 0.08));
+
+  --hud-effect-bezel-border: 1px solid rgba(255, 255, 255, 0.35);
+  --hud-effect-bezel-border-debuff: 1px solid rgba(243, 109, 116, 0.6);
+}

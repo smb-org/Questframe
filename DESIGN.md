@@ -31,23 +31,71 @@ Dieses Dokument ist die verbindliche visuelle Referenz für Admin-Konsole und OB
 | Fehler | `#f36d74` | kritisch, getrennt |
 | Twitch | `#a970ff` | ausschließlich Twitch-Herkunft |
 
-Classic Remix verwendet nahezu schwarzes Metall (`#0a0d10`), warmes Messing (`#d6a84d`) und cremefarbenen Text (`#f7f2e6`). Die HP-Bar ist bei `50–100 %` grün, bei `20–49 %` gelb und unter `20 %` rot mit dezenter Leuchtanimation. Ressourcentyp und -farbe sind konfigurierbar; der Name steht nicht in der Bar.
+Die HP-Bar ist bei `50–100 %` grün, bei `20–49 %` gelb und unter `20 %` rot mit dezenter Leuchtanimation. Jede Variante stimmt Sättigung, Materialgradient, Rundung und Glanz auf ihren Rahmen ab. Konfigurierbare Ressourcenfarben werden mit der Materialfarbe der Variante gemischt, damit sie nicht wie ein Fremdkörper wirken. Der Name steht nie in der Bar.
 
 ## Geometrie und Rhythmus
 
 - Admin-Raster Desktop: `238 px` Audit, flexible Vorschau, `390 px` Editor; Topbar `64 px`.
 - Basiseinheit: `4 px`; häufige Abstände `8`, `12`, `16`, `20`, `24 px`.
 - Bedienelemente: mindestens `38 px` hoch, primäres Speichern `44 px`; Fokusrahmen `2 px` mit sichtbarem Offset.
-- OBS: Spielerframe `408 × 92 px`; Supportreihe beginnt bei `y=99`; Buffs, Pet und kompakter Tooltip teilen sich bewusst den linken Block. Gruppe bleibt rechts kompakt und auf fünf Frames begrenzt.
-- Portraits sind kreisförmig im Classic Remix und abgerundete Rechtecke in den modernen Varianten. Zuschnitt ist immer `object-fit: cover`.
+- Portraits sind kreisförmig in den Bildvarianten und abgerundete Rechtecke in den modernen Varianten. Zuschnitt ist immer `object-fit: cover`.
 
-## Themes
+### OBS-Geometrievertrag
 
-- **Classic Remix** ist Standard: dunkles Metall, Messingkontur, runde Hauptportraits, klare zweiteilige Bars.
-- **Modern Compact** reduziert Ornament, nutzt kühles Cyan und kompakte Broadcast-Karten.
-- **Modern Minimal** verwendet flache Flächen, ruhiges Mauve und die geringste visuelle Masse.
+Die Stage bleibt `630 × 259 px` bei einer OBS-Fläche von `1920 × 1080`. Alle Werte sind
+Custom Properties in [src/overlay/hud.css](src/overlay/hud.css) und liegen im Koordinatensystem
+der Stage beziehungsweise des Spielerframes.
 
-Alle drei Themes verändern nur Darstellung. Zustand, Schwellen, Informationsreihenfolge, Maße der OBS-Fläche und Fallbacks bleiben identisch.
+| Bauteil | Position und Größe | Zweck |
+| --- | --- | --- |
+| Spielerframe | `x=0, y=0`, Höhe `175`; Breite `307–430` | aspektwahrende Hauptsilhouette je Variante |
+| Portrait, Name und Bars | variantenspezifische Aperturwerte | sitzen innerhalb der gezeichneten beziehungsweise CSS-basierten Aussparungen |
+| Levelmedaillon | variantenspezifisch im Spielerframe | eigenes Frame-Bauteil, kein Portraitkind |
+| Effektreihe | `x=0, y=179, 285 × 34` | acht Icons à `33 px` mit `3 px` Abstand |
+| Pet | `x=0, y=215`, Höhe `44`; Breite `138–214` | Companion als kompaktes Unitframe |
+| Featured Effect | `x=294, y=179, 136 × 80` | Beschreibungsframe |
+| Gruppe | `x=440, y=0`, Höhe `259`; Breite `148–190` | fünf Frames à `47 px` mit `6 px` Abstand |
+
+Die veröffentlichbare HUD-Skalierung reicht von `75 %` bis `200 %`. Die gesamte Stage wird um
+ihren linken oberen Ursprung skaliert; Aperturpositionen, Portraitgrößen, Balkenabstände und
+Medaillons bleiben dadurch proportional. Der Browservertrag prüft den vollständigen API-Pfad
+für `75 / 100 / 125 / 150 / 175 / 200 %` und normalisiert die Trail-Aperturen auf ihre Basiswerte.
+
+Das Levelmedaillon ist ein Geschwisterelement von Portrait und Body. Es darf niemals Kind des
+geclippten Portraits sein, sonst wird die Zahl beschnitten.
+
+## Varianten
+
+Es gibt sechs Unitframe-Varianten. Drei tragen generierte Rahmengrafik, drei sind rein aus CSS gebaut.
+
+| ID | Name | Material |
+| --- | --- | --- |
+| `trail-wood` | Trail Wood | geschnitztes Walnuss- und Eichenholz, Hanfseil, Moos |
+| `field-journal` | Field Journal | gealtertes Leder, gewachstes Segeltuch, geprägte Höhenlinien |
+| `forged-compass` | Forged Compass | geschwärztes Metall, matter Goldrand, Kompassrose |
+| `classic-simple` | Classic Simple | transparente Zwischenräume; lokale Stahlplatten für Name und Bars, runde Portraits, klassische gewölbte Füllungen |
+| `modern-compact` | Modern Compact | kühles Cyan, kompakte Broadcast-Karten, ohne Bildassets |
+| `modern-minimal` | Modern Minimal | flache halbtransparente Flächen, ohne Bildassets |
+
+`trail-wood` ist Standard. Die historische ID `classic-remix` wird beim Lesen automatisch auf
+`trail-wood` abgebildet.
+
+Alle sechs Varianten verändern nur Darstellung. Zustand, Schwellen, Informationsreihenfolge, Maße
+der OBS-Fläche und Fallbacks bleiben identisch.
+
+### Modulare Trennung
+
+[src/overlay/hud.css](src/overlay/hud.css) trägt das gesamte Layout und kennt keine Variante.
+Jede Variante liegt in einem eigenen Verzeichnis unter `src/overlay/themes/<variante>/theme.css`
+und setzt ausschließlich Custom Properties:
+
+- **Asset-Slots** — `--hud-player-chrome-image`, `--hud-level-chrome-image`, `--hud-pet-chrome-image`, `--hud-party-chrome-image`, `--hud-effect-bezel-image`.
+- **Material-Slots für Varianten ohne Bildassets** — `--hud-body-*`, `--hud-compact-*`, `--hud-level-*`, `--hud-portrait-ring`, `--hud-portrait-radius`.
+- **Geometrie** — dieselben Positionsvariablen wie der Geometrievertrag, falls eine Variante ihr Medaillon oder ihre Namensplatte auf ihr eigenes Asset ausrichten muss.
+- **Farben, Bar-Material und Typografie** — `--hud-name-*`, `--hud-level-color`, `--hud-trough-*`, `--hud-health-*`, `--hud-fill-*`, `--hud-resource-*`.
+
+Eine Variante fasst keine Selektoren aus `hud.css` an. Das Portrait sitzt über dem Chrome-Layer
+in der Rahmenöffnung; das Asset braucht daher keinen Alphaausschnitt.
 
 ## Interaktion und Bewegung
 
@@ -70,4 +118,4 @@ Unter `760 px` wird die Konsole zur Notfallansicht: Status, globaler Sichtbarkei
 
 ## Assets und Änderungen
 
-Produktionsassets und ihre MuAPI/Grok-Herkunft sind unter [src/assets/provenance/README.md](src/assets/provenance/README.md) dokumentiert. Der deterministische Build erzeugt die WebP-Derivate; direkte manuelle Änderungen an generierten Dateien sind nicht zulässig. Jede Änderung an Tokens, HUD-Geometrie oder Interaktionsmustern muss dieses Dokument und die betroffenen Komponenten-/Browserprüfungen gemeinsam aktualisieren.
+Produktionsassets und ihre MuAPI/Grok-Herkunft sind unter [src/assets/provenance/README.md](src/assets/provenance/README.md) dokumentiert. Die Bar-Tröge und Portraitöffnungen sind in jedem Master leer; Füllung, Name und Levelzahl kommen ausschließlich aus CSS. Der deterministische Build erzeugt die WebP-Derivate; direkte manuelle Änderungen an generierten Dateien sind nicht zulässig. Jede Änderung an Tokens, HUD-Geometrie oder Interaktionsmustern muss dieses Dokument und die betroffenen Komponenten-/Browserprüfungen gemeinsam aktualisieren.

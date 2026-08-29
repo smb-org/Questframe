@@ -8,6 +8,12 @@ import type {
 import { formatRemainingTime, getRemainingSeconds } from "../shared/domain/effects";
 import { getHealthTier } from "./health";
 import "./hud.css";
+import "./themes/trail-wood/theme.css";
+import "./themes/field-journal/theme.css";
+import "./themes/forged-compass/theme.css";
+import "./themes/classic-simple/theme.css";
+import "./themes/modern-compact/theme.css";
+import "./themes/modern-minimal/theme.css";
 
 type HudStyle = CSSProperties & {
   "--hud-x": string;
@@ -98,7 +104,7 @@ const EffectIcon = ({ effect, remaining }: { effect: ActiveEffect; remaining: nu
   return (
     <div className={`hud-effect hud-effect--${effect.kind}`} title={effect.description ?? effect.name}>
       {failed ? (
-        <span className="hud-effect-fallback">{effect.kind === "buff" ? "+" : "−"}</span>
+        <span className="hud-effect-fallback">{effect.kind === "buff" ? "+" : "\u2212"}</span>
       ) : (
         <img
           alt=""
@@ -109,6 +115,7 @@ const EffectIcon = ({ effect, remaining }: { effect: ActiveEffect; remaining: nu
           }}
         />
       )}
+      <span className="hud-effect-bezel" aria-hidden="true" />
       <span className="hud-sr-only">{effect.name}</span>
       {effect.stacks !== null && <span className="hud-effect-stacks">{effect.stacks}</span>}
       {remaining !== null && <span className="hud-effect-time">{formatRemainingTime(remaining)}</span>}
@@ -118,37 +125,37 @@ const EffectIcon = ({ effect, remaining }: { effect: ActiveEffect; remaining: nu
 
 const CompactUnit = ({
   name,
-  subtitle,
   portrait,
   hpPercent,
+  unitKind,
   mediaUrls,
   twitch = false,
   className = "",
 }: {
   name: string;
-  subtitle?: string | null;
   portrait: PortraitRef;
   hpPercent: number;
+  unitKind: "pet" | "party";
   mediaUrls?: ReadonlyMap<string, string> | undefined;
   twitch?: boolean;
   className?: string;
 }) => (
-  <div className={`hud-compact-unit ${className}`}>
+  <div className={`hud-compact-unit ${className}`} data-unit-kind={unitKind}>
     <div className="hud-compact-portrait">
-      <Portrait portrait={portrait} name={name} mediaUrls={mediaUrls} />
-    </div>
-    <div className="hud-compact-body">
-      <div className="hud-compact-name-row">
-        <span className="hud-compact-name">{name}</span>
-        {twitch && (
-          <span className="hud-twitch-mark" aria-label="Twitch-Gast" title="Twitch">
-            ◧
-          </span>
-        )}
+      <div className="hud-compact-portrait-clip">
+        <Portrait portrait={portrait} name={name} mediaUrls={mediaUrls} />
       </div>
-      {subtitle !== undefined && subtitle !== null && (
-        <span className="hud-compact-subtitle">{subtitle}</span>
+    </div>
+    <span className="hud-compact-chrome" aria-hidden="true" />
+    <div className="hud-compact-name-row">
+      <span className="hud-compact-name">{name}</span>
+      {twitch && (
+        <span className="hud-twitch-mark" aria-label="Twitch-Gast" title="Twitch">
+          ◧
+        </span>
       )}
+    </div>
+    <div className="hud-compact-bar">
       <Bar percent={hpPercent} kind="health" label={`${name} Gesundheit`} compact />
     </div>
   </div>
@@ -190,28 +197,35 @@ export const HudRenderer = ({
     >
       <div className="hud-stage">
         <section className="hud-player" aria-label={`${state.player.name} Unitframe`}>
-          <div className="hud-trail-mark" aria-hidden="true" />
           <div className="hud-player-portrait">
-            <Portrait portrait={state.player.portrait} name={state.player.name} mediaUrls={mediaUrls} />
-            <span className="hud-level">{state.player.level}</span>
+            <div className="hud-player-portrait-clip">
+              <Portrait portrait={state.player.portrait} name={state.player.name} mediaUrls={mediaUrls} />
+            </div>
           </div>
+          <span className="hud-player-chrome" aria-hidden="true" />
           <div className="hud-player-body">
             <div className="hud-player-heading">
               <span className="hud-player-name">{state.player.name}</span>
-              {state.player.title !== null && <span className="hud-player-title">{state.player.title}</span>}
             </div>
-            <Bar
-              percent={state.player.hpPercent}
-              kind="health"
-              label="Gesundheit"
-              testId="player-health"
-            />
-            <Bar
-              percent={state.player.resource.percent}
-              kind="resource"
-              label={state.player.resource.name}
-              color={state.player.resource.color}
-            />
+            {state.player.title !== null && <span className="hud-player-title">{state.player.title}</span>}
+            <div className="hud-player-bars">
+              <Bar
+                percent={state.player.hpPercent}
+                kind="health"
+                label="Gesundheit"
+                testId="player-health"
+              />
+              <Bar
+                percent={state.player.resource.percent}
+                kind="resource"
+                label={state.player.resource.name}
+                color={state.player.resource.color}
+              />
+            </div>
+          </div>
+          <div className="hud-level-medallion" data-testid="player-level">
+            <span className="hud-level-chrome" aria-hidden="true" />
+            <span className="hud-level-value">{state.player.level}</span>
           </div>
         </section>
 
@@ -227,9 +241,9 @@ export const HudRenderer = ({
                 <CompactUnit
                   className="hud-pet"
                   name={state.pet.name}
-                  subtitle={state.pet.subtitle}
                   portrait={state.pet.portrait}
                   hpPercent={state.pet.hpPercent}
+                  unitKind="pet"
                   mediaUrls={mediaUrls}
                 />
               )}
@@ -259,6 +273,7 @@ export const HudRenderer = ({
               name={member.name}
               portrait={member.portrait}
               hpPercent={member.hpPercent}
+              unitKind="party"
               mediaUrls={mediaUrls}
               twitch={member.source === "twitch"}
             />

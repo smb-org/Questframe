@@ -1,0 +1,99 @@
+/*
+ * Variante: Trail Wood.
+ * Geschnitztes Walnuss- und Eichenholz, Hanfseil, Moos in den Vertiefungen.
+ *
+ * Die Geometrie folgt exakt den Aussparungen des Assets
+ * (Master 512 x 292, dargestellt 307 x 175, Faktor 0.599). Der Trog kommt aus
+ * der Grafik, deshalb ist der CSS-Trog transparent und nur die Fuellung sichtbar.
+ * Diese Datei setzt ausschliesslich Custom Properties aus src/overlay/hud.css.
+ */
+
+.hud-theme--trail-wood {
+  --hud-player-chrome-image: url("/assets/themes/trail-wood/player-chrome.webp");
+  --hud-level-chrome-image: url("/assets/themes/trail-wood/level-medallion.webp");
+  --hud-pet-chrome-image: url("/assets/themes/trail-wood/pet-frame.webp");
+  --hud-party-chrome-image: url("/assets/themes/trail-wood/party-frame.webp");
+  --hud-effect-bezel-image: url("/assets/themes/trail-wood/effect-frame.webp");
+
+  --hud-player-w: 307px;
+  --hud-portrait-x: 18px;
+  --hud-portrait-y: 19px;
+  --hud-portrait-size: 92px;
+  --hud-name-x: 158px;
+  --hud-name-y: 29px;
+  --hud-name-w: 83px;
+  --hud-name-h: 17px;
+  --hud-name-size: 11px;
+  --hud-title-x: 135px;
+  --hud-title-y: 47px;
+  --hud-title-w: 138px;
+  --hud-title-size: 8px;
+  --hud-hp-x: 135px;
+  --hud-hp-y: 57px;
+  --hud-hp-w: 138px;
+  --hud-hp-h: 15px;
+  --hud-resource-y: 86px;
+  --hud-resource-h: 15px;
+  --hud-level-x: 18px;
+  --hud-level-y: 136px;
+  --hud-level-size: 38px;
+  --hud-level-size-text: 13px;
+
+  --hud-pet-w: 170px;
+  --hud-pet-h: 44px;
+  --hud-pet-portrait-x: 11px;
+  --hud-pet-portrait-y: 11px;
+  --hud-pet-portrait-size: 26px;
+  --hud-pet-name-x: 46px;
+  --hud-pet-name-y: 10px;
+  --hud-pet-name-w: 105px;
+  --hud-pet-name-h: 14px;
+  --hud-pet-bar-x: 45px;
+  --hud-pet-bar-y: 31px;
+  --hud-pet-bar-w: 106px;
+  --hud-pet-bar-h: 8px;
+
+  --hud-party-w: 178px;
+  --hud-party-portrait-x: 10px;
+  --hud-party-portrait-y: 14px;
+  --hud-party-portrait-size: 22px;
+  --hud-party-name-x: 42px;
+  --hud-party-name-y: 13px;
+  --hud-party-name-w: 121px;
+  --hud-party-name-h: 13px;
+  --hud-party-bar-x: 41px;
+  --hud-party-bar-y: 33px;
+  --hud-party-bar-w: 123px;
+  --hud-party-bar-h: 8px;
+  --hud-compact-name-size: 10px;
+
+  --hud-text: #f2e7d4;
+  --hud-name-color: #f0dcb4;
+  --hud-title-color: #b3a58c;
+  --hud-level-color: #f4e2b6;
+  --hud-line: rgba(196, 150, 92, 0.5);
+  --hud-panel: linear-gradient(#1d1710, #100c08);
+  --hud-panel-radius: 5px;
+  --hud-portrait-ring: inset 0 0 12px rgba(0, 0, 0, 0.85);
+
+  /* Der Trog ist Teil der Grafik. */
+  --hud-trough-bg: transparent;
+  --hud-trough-border: 0 solid transparent;
+  --hud-trough-shadow: none;
+  --hud-trough-radius: 1px;
+  --hud-trough-pad: 1px;
+  --hud-health-healthy: #5f8746;
+  --hud-health-warning: #b9873f;
+  --hud-health-critical: #9f4938;
+  --hud-resource-blend: #4a3a27;
+  --hud-resource-color-weight: 64%;
+  --hud-fill-radius: 3px;
+  --hud-fill-texture:
+    linear-gradient(to bottom, rgba(240, 222, 184, 0.2), rgba(255, 255, 255, 0.02) 42%, rgba(32, 20, 10, 0.22) 58%, rgba(22, 13, 7, 0.38)),
+    linear-gradient(to right, rgba(92, 63, 32, 0.12), transparent 30%, rgba(23, 15, 8, 0.14));
+  --hud-fill-shadow: inset 0 1px rgba(247, 226, 184, 0.18), inset 0 -2px rgba(20, 12, 6, 0.32);
+  --hud-shine-bg: rgba(239, 220, 181, 0.06);
+
+  --hud-effect-bezel-border: 0 solid transparent;
+  --hud-effect-bezel-border-debuff: 0 solid transparent;
+}

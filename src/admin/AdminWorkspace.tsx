@@ -44,11 +44,23 @@ import type {
   ChannelStateDraft,
   GroupMember,
   PortraitRef,
+  ThemeId,
 } from "../shared/contracts/state";
 import { EFFECT_CATALOG, type EffectDefinition } from "../shared/domain/effects";
 import { HudRenderer } from "../overlay/HudRenderer";
 import { expiryToLocalInput, resolveLocalExpiry } from "./time";
 import "./admin.css";
+
+const THEME_LABELS: Record<ThemeId, string> = {
+  "trail-wood": "Trail Wood",
+  "field-journal": "Field Journal",
+  "forged-compass": "Forged Compass",
+  "classic-simple": "Classic Simple",
+  "modern-compact": "Modern Compact",
+  "modern-minimal": "Modern Minimal",
+};
+
+const HUD_SCALE_OPTIONS = [0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2] as const;
 
 export type AdminApi = {
   save: (request: SaveRequest) => Promise<SaveResponse>;
@@ -880,7 +892,7 @@ export const AdminWorkspace = ({
           </div>
           <div className="preview-foot">
             <span><i className="anchor-dot" />Oben links verankert</span>
-            <span>{draft.themeId === "classic-remix" ? "Classic Remix" : draft.themeId === "modern-compact" ? "Modern Compact" : "Modern Minimal"}</span>
+            <span>{THEME_LABELS[draft.themeId]}</span>
           </div>
         </section>
       </main>
@@ -979,14 +991,14 @@ export const AdminWorkspace = ({
             <div className="theme-picker" aria-label="Theme">
               {initialBootstrap.capabilities.enabledThemes.map((theme) => (
                 <button className={draft.themeId === theme ? "theme-card is-selected" : "theme-card"} disabled={locked} key={theme} onClick={() => setDraft((current) => ({ ...current, themeId: theme }))} type="button">
-                  <span className={`theme-swatch theme-swatch--${theme}`} /><strong>{theme === "classic-remix" ? "Classic Remix" : theme === "modern-compact" ? "Modern Compact" : "Modern Minimal"}</strong>
+                  <span className={`theme-swatch theme-swatch--${theme}`} /><strong>{THEME_LABELS[theme]}</strong>
                 </button>
               ))}
             </div>
             <div className="placement-grid">
               <label><span>X</span><input disabled={locked} max={384} min={0} type="number" value={draft.placement.x} onChange={(event) => setDraft((current) => ({ ...current, placement: { ...current.placement, x: Number(event.target.value) } }))} /></label>
               <label><span>Y</span><input disabled={locked} max={216} min={0} type="number" value={draft.placement.y} onChange={(event) => setDraft((current) => ({ ...current, placement: { ...current.placement, y: Number(event.target.value) } }))} /></label>
-              <label><span>Skalierung</span><select disabled={locked} value={draft.placement.scale} onChange={(event) => setDraft((current) => ({ ...current, placement: { ...current.placement, scale: Number(event.target.value) } }))}><option value="0.75">75%</option><option value="0.9">90%</option><option value="1">100%</option><option value="1.1">110%</option><option value="1.25">125%</option></select></label>
+              <label><span>Skalierung</span><select disabled={locked} value={draft.placement.scale} onChange={(event) => setDraft((current) => ({ ...current, placement: { ...current.placement, scale: Number(event.target.value) } }))}>{HUD_SCALE_OPTIONS.map((scale) => <option key={scale} value={scale}>{Math.round(scale * 100)}%</option>)}</select></label>
             </div>
           </Section>
           </div>

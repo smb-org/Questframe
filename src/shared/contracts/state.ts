@@ -78,11 +78,25 @@ export const activeEffectSchema = z.strictObject({
   order: z.number().int().min(0).max(7),
 });
 
-const themeIdSchema = z.enum([
-  "classic-remix",
+const THEME_IDS = [
+  "trail-wood",
+  "field-journal",
+  "forged-compass",
+  "classic-simple",
   "modern-compact",
   "modern-minimal",
-]);
+] as const;
+
+// Vor der Dreifach-Bildvariante hieß die Standarddarstellung "classic-remix".
+const LEGACY_THEME_IDS: Record<string, (typeof THEME_IDS)[number]> = {
+  "classic-remix": "trail-wood",
+};
+
+const themeIdSchema = z.preprocess(
+  (value) =>
+    typeof value === "string" && value in LEGACY_THEME_IDS ? LEGACY_THEME_IDS[value] : value,
+  z.enum(THEME_IDS),
+);
 
 const stateContentShape = {
   schemaVersion: z.literal(1),
@@ -90,7 +104,7 @@ const stateContentShape = {
   placement: z.strictObject({
     x: z.number().int().min(0).max(384),
     y: z.number().int().min(0).max(216),
-    scale: z.number().min(0.75).max(1.25).multipleOf(0.01),
+    scale: z.number().min(0.75).max(2).multipleOf(0.01),
   }),
   player: z.strictObject({
     name: normalizedText(1, 32),
@@ -211,11 +225,13 @@ export const channelStateSchema = z
 
 export const releaseCapabilitiesSchema = z.strictObject({
   phase: z.enum(["v1a", "v1b"]),
-  enabledThemes: z.array(themeIdSchema).min(1).max(3),
+  enabledThemes: z.array(themeIdSchema).min(1).max(THEME_IDS.length),
   petEditor: z.boolean(),
   groupEditor: z.boolean(),
   undo: z.boolean(),
 });
+
+export type ThemeId = (typeof THEME_IDS)[number];
 
 export type TwitchUserId = z.infer<typeof twitchUserIdSchema>;
 export type PortraitRef = z.infer<typeof portraitRefSchema>;
@@ -234,7 +250,7 @@ export const createDefaultState = (
     schemaVersion: 1,
     revision: 1,
     overlayEnabled: true,
-    themeId: "classic-remix",
+    themeId: "trail-wood",
     placement: { x: 12, y: 12, scale: 1 },
     player: {
       name: "Streamer",
@@ -281,18 +297,14 @@ export const getReleaseCapabilities = (
   stage === "v1a"
     ? {
         phase: "v1a",
-        enabledThemes: ["classic-remix"],
+        enabledThemes: ["trail-wood"],
         petEditor: false,
         groupEditor: false,
         undo: false,
       }
     : {
         phase: "v1b",
-        enabledThemes: [
-          "classic-remix",
-          "modern-compact",
-          "modern-minimal",
-        ],
+        enabledThemes: [...THEME_IDS],
         petEditor: true,
         groupEditor: true,
         undo: true,
@@ -305,11 +317,11 @@ export const validateDraftForRelease = (
   const draft = channelStateDraftSchema.parse(input);
   if (
     stage === "v1a" &&
-    (draft.themeId !== "classic-remix" ||
+    (draft.themeId !== "trail-wood" ||
       draft.pet !== null ||
       draft.group.length > 0)
   ) {
-    throw new Error("V1a erlaubt nur Classic Remix ohne Pet oder Gruppe.");
+    throw new Error("V1a erlaubt nur das Standardtheme ohne Pet oder Gruppe.");
   }
   return draft;
 };

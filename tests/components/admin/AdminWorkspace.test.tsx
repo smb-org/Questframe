@@ -63,7 +63,7 @@ describe("Admin workspace publication boundary", () => {
 
     fireEvent.change(zoom, { target: { value: "150" } });
 
-    expect(screen.getByText("150%")).toBeInTheDocument();
+    expect(screen.getByText("150%", { selector: "output" })).toBeInTheDocument();
     expect(previewPanel).toHaveStyle({ maxWidth: "1470px" });
     expect(screen.getByRole("button", { name: "Änderungen speichern" })).toBeDisabled();
   });
@@ -346,7 +346,7 @@ describe("Admin workspace publication boundary", () => {
     await user.click(screen.getByRole("button", { name: "Modern Compact" }));
     fireEvent.change(screen.getByLabelText("X"), { target: { value: "20" } });
     fireEvent.change(screen.getByLabelText("Y"), { target: { value: "30" } });
-    await user.selectOptions(screen.getByLabelText("Skalierung"), "1.1");
+    await user.selectOptions(screen.getByLabelText("Skalierung"), "2");
 
     await user.click(screen.getByRole("button", { name: "Pet einrichten" }));
     const companionHealth = screen.getByRole("slider", { name: "Begleiter Gesundheit" });
@@ -381,7 +381,7 @@ describe("Admin workspace publication boundary", () => {
     await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
     expect(save.mock.calls[0]?.[0].state).toMatchObject({
       themeId: "modern-compact",
-      placement: { x: 20, y: 30, scale: 1.1 },
+      placement: { x: 20, y: 30, scale: 2 },
       player: { name: "Live-Charakter", title: null, level: 31, resource: { name: "Fokus", color: "#123456" } },
       pet: { name: "Wegbegleiter", subtitle: "Spürhund", hpPercent: 80 },
     });

@@ -86,6 +86,60 @@ describe("HUD renderer", () => {
     expect(screen.getByLabelText("Twitch-Gast")).toBeInTheDocument();
   });
 
+  it("keeps the level medallion outside the clipped portrait and separates chrome from content", () => {
+    const state = createDefaultState(actor, "2026-08-29T12:00:00.000Z");
+    const { container } = render(
+      <HudRenderer state={{ ...state, player: { ...state.player, level: 999 } }} />,
+    );
+
+    const player = container.querySelector(".hud-player");
+    const portrait = container.querySelector(".hud-player-portrait");
+    const medallion = container.querySelector(".hud-level-medallion");
+
+    expect(medallion?.parentElement).toBe(player);
+    expect(portrait?.contains(medallion ?? null)).toBe(false);
+    expect(container.querySelector(".hud-level-value")?.textContent).toBe("999");
+    expect(container.querySelector(".hud-player-portrait-clip")).not.toBeNull();
+
+    for (const selector of [".hud-player-chrome", ".hud-level-chrome", ".hud-effect-bezel"]) {
+      const chrome = container.querySelector(selector);
+      if (chrome !== null) {
+        expect(chrome.getAttribute("aria-hidden")).toBe("true");
+        expect(chrome.textContent).toBe("");
+      }
+    }
+  });
+
+  it("tags pet and party frames with their unit kind", () => {
+    const state = createDefaultState(actor, "2026-08-29T12:00:00.000Z");
+    const { container } = render(
+      <HudRenderer
+        state={{
+          ...state,
+          pet: {
+            name: "Begleiter",
+            subtitle: null,
+            portrait: { kind: "initials", text: "BE" },
+            hpPercent: 88,
+          },
+          group: [
+            {
+              id: "guest-1",
+              source: "manual",
+              twitchUserId: null,
+              name: "Gast",
+              portrait: { kind: "bundled", assetId: "default-avatar" },
+              hpPercent: 74,
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(container.querySelector('.hud-pet-slot [data-unit-kind="pet"]')).not.toBeNull();
+    expect(container.querySelector('.hud-party [data-unit-kind="party"]')).not.toBeNull();
+  });
+
   it("is fully transparent when disabled and hides locally expired effects", () => {
     const state = createDefaultState(actor, "2026-08-29T12:00:00.000Z");
     const { container, rerender } = render(<HudRenderer state={{ ...state, overlayEnabled: false }} />);

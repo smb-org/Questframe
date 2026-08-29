@@ -1,12 +1,170 @@
+/*
+ * Basis-Layout des HUD. Diese Datei kennt keine Variante.
+ *
+ * Alle Positionen liegen als Custom Properties im Koordinatensystem der Stage
+ * (630 x 259) beziehungsweise des Spielerframes (430 x 146) vor. Eine Variante
+ * ueberschreibt in src/overlay/themes/<variante>/theme.css nur diese Werte und
+ * ihre Asset-URLs; sie fasst keine Selektoren dieser Datei an.
+ */
+
 .hud-root {
-  --gold: #d6a84d;
-  --ink: #0a0d10;
-  --panel: rgba(16, 21, 27, 0.96);
-  --line: rgba(223, 189, 112, 0.55);
+  /* Stage */
+  --hud-stage-w: 630px;
+  --hud-stage-h: 259px;
+
+  /* Spielerframe. Bildvarianten setzen --hud-player-w auf die Breite, die das
+     Seitenverhaeltnis ihres Assets bei dieser Hoehe ergibt. */
+  --hud-player-w: 430px;
+  --hud-player-h: 175px;
+  --hud-portrait-x: 0px;
+  --hud-portrait-y: 4px;
+  --hud-portrait-size: 160px;
+  --hud-portrait-inset: 0px;
+  --hud-body-x: 0px;
+  --hud-body-y: 0px;
+  --hud-body-w: var(--hud-player-w);
+  --hud-body-h: var(--hud-player-h);
+  --hud-name-x: 160px;
+  --hud-name-y: 24px;
+  --hud-name-w: 250px;
+  --hud-name-h: 34px;
+  --hud-title-x: var(--hud-name-x);
+  --hud-title-y: 58px;
+  --hud-title-w: var(--hud-name-w);
+  --hud-title-size: 9px;
+  --hud-title-display: block;
+  --hud-hp-x: 160px;
+  --hud-hp-y: 70px;
+  --hud-hp-w: 250px;
+  --hud-hp-h: 30px;
+  --hud-resource-y: 106px;
+  --hud-resource-h: 24px;
+  --hud-level-x: 8px;
+  --hud-level-y: 128px;
+  --hud-level-size: 44px;
+  --hud-level-size-text: 15px;
+
+  /* Supportreihe. Ihre Breite ist unabhaengig von der Variantenbreite des Spielers. */
+  --hud-support-y: 179px;
+  --hud-support-w: 430px;
+  --hud-support-h: 80px;
+  --hud-effect-size: 33px;
+  --hud-effect-gap: 3px;
+  --hud-effects-h: 34px;
+  --hud-pet-y: 215px;
+  --hud-pet-w: 214px;
+  --hud-pet-h: 44px;
+  --hud-feature-x: 294px;
+  --hud-feature-w: 136px;
+  --hud-feature-h: 80px;
+
+  /* Gruppe */
+  --hud-party-x: 440px;
+  --hud-party-w: 190px;
+  --hud-party-row-h: 47px;
+  --hud-party-gap: 6px;
+
+  /* Kompaktframes. Pet und Party werden getrennt ausgerichtet. */
+  --hud-compact-portrait-radius: 50%;
+  --hud-compact-name-size: 11px;
+  --hud-pet-portrait-x: 4px;
+  --hud-pet-portrait-y: 4px;
+  --hud-pet-portrait-size: 36px;
+  --hud-pet-name-x: 48px;
+  --hud-pet-name-y: 5px;
+  --hud-pet-name-w: 158px;
+  --hud-pet-name-h: 14px;
+  --hud-pet-bar-x: 48px;
+  --hud-pet-bar-y: 23px;
+  --hud-pet-bar-w: 158px;
+  --hud-pet-bar-h: 14px;
+  --hud-party-portrait-x: 4px;
+  --hud-party-portrait-y: 4px;
+  --hud-party-portrait-size: 39px;
+  --hud-party-name-x: 50px;
+  --hud-party-name-y: 6px;
+  --hud-party-name-w: 132px;
+  --hud-party-name-h: 14px;
+  --hud-party-bar-x: 50px;
+  --hud-party-bar-y: 25px;
+  --hud-party-bar-w: 132px;
+  --hud-party-bar-h: 14px;
+
+  /* Asset-Slots: leer, solange eine Variante nichts setzt */
+  --hud-player-chrome-image: none;
+  --hud-level-chrome-image: none;
+  --hud-pet-chrome-image: none;
+  --hud-party-chrome-image: none;
+  --hud-effect-bezel-image: none;
+
+  /* Material und Typografie */
+  --hud-text: #f7f2e6;
+  --hud-name-color: #f3d57e;
+  --hud-name-font: Georgia, serif;
+  --hud-name-size: 17px;
+  --hud-title-color: #aeb7bb;
+  --hud-level-color: #f6d568;
+  --hud-line: rgba(223, 189, 112, 0.55);
+  --hud-panel: linear-gradient(#151b21, #090c0f);
+  --hud-panel-radius: 4px;
+  --hud-panel-border: 1px solid var(--hud-line);
+  --hud-panel-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.75), inset 0 1px rgba(255, 255, 255, 0.06);
+  --hud-portrait-ring: none;
+  --hud-portrait-radius: 50%;
+  --hud-effect-bezel-border: 2px solid #b39355;
+  --hud-effect-bezel-border-debuff: 2px solid #91434b;
+
+  /*
+   * Material-Slots fuer Varianten ohne Bildassets. Bildvarianten lassen sie
+   * leer und liefern die Flaeche ueber die Chrome-Layer.
+   */
+  --hud-body-bg: none;
+  --hud-body-border: 0 solid transparent;
+  --hud-body-radius: 0;
+  --hud-body-shadow: none;
+  --hud-name-bg: none;
+  --hud-name-border: 0 solid transparent;
+  --hud-name-radius: 0;
+  --hud-name-shadow: none;
+  --hud-name-padding: 0;
+  --hud-title-shadow: none;
+  --hud-title-z: 4;
+  --hud-compact-bg: none;
+  --hud-compact-border: 0 solid transparent;
+  --hud-compact-radius: 0;
+  --hud-compact-shadow: none;
+  --hud-compact-backdrop: none;
+  --hud-compact-name-bg: none;
+  --hud-compact-name-border: 0 solid transparent;
+  --hud-compact-name-radius: 0;
+  --hud-compact-name-shadow: none;
+  --hud-compact-portrait-ring: none;
+  --hud-level-bg: none;
+  --hud-level-border: 0 solid transparent;
+  --hud-level-radius: 50%;
+
+  /* Bar-Troege */
+  --hud-trough-bg: #05070a;
+  --hud-trough-border: 1px solid rgba(0, 0, 0, 0.92);
+  --hud-trough-radius: 2px;
+  --hud-trough-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.85), inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+  --hud-trough-pad: 2px;
+  --hud-health-healthy: #20bb52;
+  --hud-health-warning: #e2b326;
+  --hud-health-critical: #dc2d35;
+  --hud-fill-radius: 2px;
+  --hud-fill-texture:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.05) 38%, rgba(0, 0, 0, 0.16) 58%, rgba(0, 0, 0, 0.3)),
+    linear-gradient(to right, rgba(255, 255, 255, 0.06), transparent 24%, rgba(0, 0, 0, 0.08));
+  --hud-fill-shadow: inset 0 1px rgba(255, 255, 255, 0.2), inset 0 -2px rgba(0, 0, 0, 0.24);
+  --hud-shine-bg: rgba(255, 255, 255, 0.08);
+  --hud-resource-blend: #1a1d20;
+  --hud-resource-color-weight: 72%;
+
   position: fixed;
   inset: 0;
   pointer-events: none;
-  color: #f7f2e6;
+  color: var(--hud-text);
   font-family: "Atkinson Hyperlegible Next", "Segoe UI", sans-serif;
 }
 
@@ -14,82 +172,168 @@
   position: absolute;
   left: var(--hud-x);
   top: var(--hud-y);
-  width: 630px;
-  height: 259px;
+  width: var(--hud-stage-w);
+  height: var(--hud-stage-h);
   transform: scale(var(--hud-scale));
   transform-origin: top left;
   filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.72));
 }
 
+/* ---------------------------------------------------------------- Spieler */
+
 .hud-player {
   position: absolute;
   left: 0;
   top: 0;
-  width: 408px;
-  height: 92px;
+  width: var(--hud-player-w);
+  height: var(--hud-player-h);
+}
+
+/*
+ * Das Portrait sitzt IN der Rahmenoeffnung, nicht darunter. Eine Variante
+ * richtet es ueber --hud-portrait-x/y/size/inset auf die Oeffnung ihres
+ * Chrome-Assets aus; das Asset braucht dafuer keinen Alphaausschnitt.
+ */
+.hud-player-portrait {
+  position: absolute;
+  z-index: 3;
+  left: var(--hud-portrait-x);
+  top: var(--hud-portrait-y);
+  width: var(--hud-portrait-size);
+  height: var(--hud-portrait-size);
+}
+
+.hud-player-portrait-clip {
+  position: absolute;
+  inset: var(--hud-portrait-inset);
+  overflow: hidden;
+  border-radius: var(--hud-portrait-radius);
+  background: #0d1318;
+  box-shadow: var(--hud-portrait-ring);
+}
+
+/* Dekoratives Frame-Overlay der Variante. */
+.hud-player-chrome {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  background: var(--hud-player-chrome-image) 0 0 / 100% 100% no-repeat;
 }
 
 .hud-player-body {
   position: absolute;
-  left: 72px;
-  right: 0;
-  top: 7px;
-  height: 78px;
-  padding: 7px 10px 8px 19px;
-  border: 1px solid var(--line);
-  border-radius: 4px 13px 6px 3px;
-  background:
-    linear-gradient(115deg, rgba(255, 255, 255, 0.04), transparent 45%),
-    linear-gradient(#151b21, #090c0f);
-  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.75), inset 0 1px rgba(255, 255, 255, 0.06);
+  z-index: 4;
+  left: var(--hud-body-x);
+  top: var(--hud-body-y);
+  width: var(--hud-body-w);
+  height: var(--hud-body-h);
+  box-sizing: border-box;
+  border: var(--hud-body-border);
+  border-radius: var(--hud-body-radius);
+  background: var(--hud-body-bg);
+  box-shadow: var(--hud-body-shadow);
 }
 
 .hud-player-heading {
-  height: 27px;
+  position: absolute;
+  z-index: 4;
+  left: calc(var(--hud-name-x) - var(--hud-body-x));
+  top: calc(var(--hud-name-y) - var(--hud-body-y));
+  width: var(--hud-name-w);
+  height: var(--hud-name-h);
   display: flex;
-  align-items: baseline;
-  gap: 9px;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: var(--hud-name-border);
+  border-radius: var(--hud-name-radius);
+  background: var(--hud-name-bg);
+  box-shadow: var(--hud-name-shadow);
+  padding: var(--hud-name-padding);
   min-width: 0;
 }
 
 .hud-player-name {
+  max-width: 100%;
   overflow: hidden;
-  max-width: 185px;
-  color: #f3d57e;
-  font-family: Georgia, serif;
-  font-size: 17px;
+  color: var(--hud-name-color);
+  font-family: var(--hud-name-font);
+  font-size: var(--hud-name-size);
   font-weight: 700;
   letter-spacing: 0.01em;
-  line-height: 1;
+  line-height: 1.05;
   text-overflow: ellipsis;
   text-shadow: 0 2px 2px #000;
   white-space: nowrap;
 }
 
 .hud-player-title {
+  position: absolute;
+  z-index: var(--hud-title-z);
+  left: calc(var(--hud-title-x) - var(--hud-body-x));
+  top: calc(var(--hud-title-y) - var(--hud-body-y));
+  width: var(--hud-title-w);
+  display: var(--hud-title-display);
   overflow: hidden;
-  color: #aeb7bb;
-  font-size: 10px;
+  color: var(--hud-title-color);
+  font-size: var(--hud-title-size);
   font-weight: 600;
   letter-spacing: 0.08em;
+  line-height: 1.1;
+  text-align: center;
   text-overflow: ellipsis;
+  text-shadow: var(--hud-title-shadow);
   text-transform: uppercase;
   white-space: nowrap;
 }
 
-.hud-player-portrait {
+.hud-player-bars {
   position: absolute;
-  z-index: 3;
-  left: 2px;
-  top: 1px;
-  width: 88px;
-  height: 88px;
-  overflow: hidden;
-  border: 3px solid #292d2f;
-  border-radius: 50%;
-  background: #111820;
-  box-shadow: 0 0 0 2px #b3873e, 0 0 0 4px #101315, inset 0 0 10px #000;
+  left: calc(var(--hud-hp-x) - var(--hud-body-x));
+  top: calc(var(--hud-hp-y) - var(--hud-body-y));
+  width: var(--hud-hp-w);
 }
+
+.hud-player-bars .hud-bar--health { height: var(--hud-hp-h); }
+
+.hud-player-bars .hud-bar--resource {
+  height: var(--hud-resource-h);
+  margin-top: calc(var(--hud-resource-y) - var(--hud-hp-y) - var(--hud-hp-h));
+}
+.hud-level-medallion {
+  position: absolute;
+  z-index: 5;
+  left: var(--hud-level-x);
+  top: var(--hud-level-y);
+  width: var(--hud-level-size);
+  height: var(--hud-level-size);
+  display: grid;
+  place-items: center;
+}
+
+.hud-level-chrome {
+  position: absolute;
+  inset: 0;
+  border: var(--hud-level-border);
+  border-radius: var(--hud-level-radius);
+  background: var(--hud-level-bg);
+  background-image: var(--hud-level-chrome-image);
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+}
+
+.hud-level-value {
+  position: relative;
+  color: var(--hud-level-color);
+  font-family: var(--hud-name-font);
+  font-size: var(--hud-level-size-text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1;
+  text-shadow: 0 1px 2px #000;
+}
+
+/* --------------------------------------------------------------- Portraits */
 
 .hud-portrait-image,
 .hud-portrait-fallback {
@@ -103,110 +347,103 @@
   place-items: center;
   background: radial-gradient(circle at 45% 30%, #4c5d68, #19232a 72%);
   color: #e9d9ad;
-  font-family: Georgia, serif;
+  font-family: var(--hud-name-font);
   font-size: 24px;
   font-weight: 700;
 }
 
-.hud-level {
-  position: absolute;
-  right: -4px;
-  bottom: -4px;
-  min-width: 29px;
-  height: 29px;
-  display: grid;
-  place-items: center;
-  box-sizing: border-box;
-  border: 2px solid #ae8339;
-  border-radius: 50%;
-  background: #101418;
-  color: #f6d568;
-  font-family: Georgia, serif;
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.hud-trail-mark {
-  position: absolute;
-  z-index: 4;
-  left: 78px;
-  top: 3px;
-  width: 18px;
-  height: 9px;
-  border-top: 2px solid #dfbd70;
-  border-right: 2px solid #dfbd70;
-  transform: skewX(-28deg);
-  opacity: 0.8;
-}
+/* ------------------------------------------------------------------- Bars */
 
 .hud-bar {
   position: relative;
-  height: 19px;
   overflow: hidden;
   box-sizing: border-box;
-  border: 1px solid rgba(0, 0, 0, 0.9);
-  border-radius: 3px;
-  background: #030506;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09);
+  border: var(--hud-trough-border);
+  border-radius: var(--hud-trough-radius);
+  background: var(--hud-trough-bg);
+  box-shadow: var(--hud-trough-shadow);
 }
-
-.hud-bar + .hud-bar { margin-top: 3px; }
 
 .hud-bar-fill {
   position: absolute;
-  inset: 1px auto 1px 1px;
+  inset: var(--hud-trough-pad) auto var(--hud-trough-pad) var(--hud-trough-pad);
   width: var(--bar-value);
-  border-radius: 2px;
-  background: var(--bar-color, #20bb52);
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.32), inset 0 -4px rgba(0, 0, 0, 0.2);
+  border-radius: var(--hud-fill-radius);
+  background-color: var(--bar-color, var(--hud-health-healthy));
+  background-image: var(--hud-fill-texture);
+  box-shadow: var(--hud-fill-shadow);
   transition: width 240ms ease, background-color 240ms ease;
 }
 
-.hud-bar--health[data-health-tier="warning"] .hud-bar-fill { background: #e2b326; }
+.hud-bar--resource .hud-bar-fill {
+  background-color: color-mix(
+    in srgb,
+    var(--bar-color) var(--hud-resource-color-weight),
+    var(--hud-resource-blend)
+  );
+}
+
+.hud-bar--health[data-health-tier="warning"] { --bar-color: var(--hud-health-warning); }
 .hud-bar--health[data-health-tier="critical"] .hud-bar-fill {
-  background: #dc2d35;
   animation: hud-critical-pulse 1.35s ease-in-out infinite;
 }
+.hud-bar--health[data-health-tier="critical"] { --bar-color: var(--hud-health-critical); }
 
 .hud-bar-shine {
   position: absolute;
-  inset: 2px 2px auto;
-  height: 4px;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.11);
+  inset: var(--hud-trough-pad) var(--hud-trough-pad) auto;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--hud-shine-bg);
 }
+
+/* ---------------------------------------------------------- Supportreihe */
 
 .hud-support-row {
   position: absolute;
   left: 0;
-  top: 99px;
+  top: var(--hud-support-y);
   display: flex;
-  width: 408px;
-  height: 75px;
+  width: var(--hud-support-w);
+  height: var(--hud-support-h);
 }
 
-.hud-left-support { width: 286px; }
+.hud-left-support {
+  position: relative;
+  width: calc(var(--hud-effect-size) * 8 + var(--hud-effect-gap) * 7);
+}
+
 .hud-effects {
   display: flex;
-  height: 36px;
-  gap: 3px;
+  height: var(--hud-effects-h);
+  gap: var(--hud-effect-gap);
 }
 
 .hud-effect {
   position: relative;
-  width: 33px;
-  height: 33px;
+  width: var(--hud-effect-size);
+  height: var(--hud-effect-size);
   box-sizing: border-box;
-  border: 2px solid #b39355;
-  border-radius: 4px;
+  border-radius: 3px;
   background: #13191d;
-  box-shadow: 0 1px 0 #000, inset 0 0 0 1px rgba(0, 0, 0, 0.8);
 }
-.hud-effect--debuff { border-color: #91434b; }
-.hud-effect img { width: 100%; height: 100%; object-fit: cover; }
+
+.hud-effect img { width: 100%; height: 100%; border-radius: 2px; object-fit: cover; }
 .hud-effect-fallback { display: grid; height: 100%; place-items: center; font-size: 18px; }
+
+.hud-effect-bezel {
+  position: absolute;
+  inset: -1px;
+  border: var(--hud-effect-bezel-border);
+  border-radius: 4px;
+  background: var(--hud-effect-bezel-image) 0 0 / 100% 100% no-repeat;
+}
+
+.hud-effect--debuff .hud-effect-bezel { border: var(--hud-effect-bezel-border-debuff); }
+
 .hud-effect-time {
   position: absolute;
+  z-index: 1;
   right: -2px;
   bottom: -3px;
   padding: 0 2px;
@@ -216,8 +453,10 @@
   font-size: 8px;
   font-weight: 700;
 }
+
 .hud-effect-stacks {
   position: absolute;
+  z-index: 1;
   right: 1px;
   top: -2px;
   color: #fff;
@@ -226,36 +465,148 @@
   text-shadow: 0 1px 2px #000;
 }
 
-.hud-pet-slot { width: 286px; height: 37px; }
-.hud-compact-unit {
-  height: 37px;
-  display: flex;
-  overflow: hidden;
-  box-sizing: border-box;
-  border: 1px solid rgba(220, 188, 113, 0.45);
-  border-radius: 3px 8px 5px 3px;
-  background: linear-gradient(100deg, rgba(25, 32, 37, 0.96), rgba(8, 11, 13, 0.96));
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.7);
+.hud-pet-slot {
+  position: absolute;
+  left: 0;
+  top: calc(var(--hud-pet-y) - var(--hud-support-y));
+  width: var(--hud-pet-w);
+  height: var(--hud-pet-h);
 }
-.hud-compact-portrait { width: 37px; height: 37px; flex: 0 0 37px; overflow: hidden; background: #152027; }
+
+/* ------------------------------------------------------- Kompaktframes */
+
+.hud-compact-unit {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: var(--hud-compact-border);
+  border-radius: var(--hud-compact-radius);
+  background: var(--hud-compact-bg);
+  box-shadow: var(--hud-compact-shadow);
+  backdrop-filter: var(--hud-compact-backdrop);
+}
+
+.hud-compact-portrait {
+  position: absolute;
+  z-index: 3;
+  left: var(--hud-compact-portrait-x);
+  top: var(--hud-compact-portrait-y);
+  width: var(--hud-compact-portrait-size);
+  height: var(--hud-compact-portrait-size);
+}
+
+.hud-compact-portrait-clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: var(--hud-compact-portrait-radius);
+  background: #152027;
+  box-shadow: var(--hud-compact-portrait-ring);
+}
+
 .hud-compact-portrait .hud-portrait-fallback { font-size: 11px; }
-.hud-compact-body { min-width: 0; flex: 1; padding: 3px 6px 3px 7px; }
-.hud-compact-name-row { height: 15px; display: flex; align-items: center; justify-content: space-between; gap: 4px; }
-.hud-compact-name { overflow: hidden; font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
-.hud-compact-subtitle { display: none; }
-.hud-bar--compact { height: 12px; }
+
+.hud-compact-chrome {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  background: var(--hud-compact-chrome-image, none) 0 0 / 100% 100% no-repeat;
+}
+
+.hud-compact-name-row {
+  position: absolute;
+  z-index: 4;
+  left: var(--hud-compact-name-x);
+  top: var(--hud-compact-name-y);
+  width: var(--hud-compact-name-w);
+  height: var(--hud-compact-name-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  box-sizing: border-box;
+  border: var(--hud-compact-name-border);
+  border-radius: var(--hud-compact-name-radius);
+  background: var(--hud-compact-name-bg);
+  box-shadow: var(--hud-compact-name-shadow);
+  min-width: 0;
+}
+
+.hud-compact-bar {
+  position: absolute;
+  z-index: 4;
+  left: var(--hud-compact-bar-x);
+  top: var(--hud-compact-bar-y);
+  width: var(--hud-compact-bar-w);
+}
+
+.hud-compact-name {
+  overflow: hidden;
+  font-size: var(--hud-compact-name-size);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px #000;
+  white-space: nowrap;
+}
+
+.hud-bar--compact {
+  --hud-trough-pad: 1px;
+  height: var(--hud-compact-bar-h);
+}
 .hud-twitch-mark { color: #a970ff; font-size: 10px; }
 
-.hud-feature-slot { width: 115px; height: 75px; margin-left: 7px; }
+.hud-compact-unit[data-unit-kind="pet"] {
+  --hud-compact-chrome-image: var(--hud-pet-chrome-image);
+  --hud-compact-portrait-x: var(--hud-pet-portrait-x);
+  --hud-compact-portrait-y: var(--hud-pet-portrait-y);
+  --hud-compact-portrait-size: var(--hud-pet-portrait-size);
+  --hud-compact-name-x: var(--hud-pet-name-x);
+  --hud-compact-name-y: var(--hud-pet-name-y);
+  --hud-compact-name-w: var(--hud-pet-name-w);
+  --hud-compact-name-h: var(--hud-pet-name-h);
+  --hud-compact-bar-x: var(--hud-pet-bar-x);
+  --hud-compact-bar-y: var(--hud-pet-bar-y);
+  --hud-compact-bar-w: var(--hud-pet-bar-w);
+  --hud-compact-bar-h: var(--hud-pet-bar-h);
+}
+
+.hud-compact-unit[data-unit-kind="party"] {
+  --hud-compact-chrome-image: var(--hud-party-chrome-image);
+  --hud-compact-portrait-x: var(--hud-party-portrait-x);
+  --hud-compact-portrait-y: var(--hud-party-portrait-y);
+  --hud-compact-portrait-size: var(--hud-party-portrait-size);
+  --hud-compact-name-x: var(--hud-party-name-x);
+  --hud-compact-name-y: var(--hud-party-name-y);
+  --hud-compact-name-w: var(--hud-party-name-w);
+  --hud-compact-name-h: var(--hud-party-name-h);
+  --hud-compact-bar-x: var(--hud-party-bar-x);
+  --hud-compact-bar-y: var(--hud-party-bar-y);
+  --hud-compact-bar-w: var(--hud-party-bar-w);
+  --hud-compact-bar-h: var(--hud-party-bar-h);
+}
+
+/* -------------------------------------------------------- Featured Effect */
+
+.hud-feature-slot {
+  width: var(--hud-feature-w);
+  height: var(--hud-feature-h);
+  margin-left: calc(
+    var(--hud-feature-x) - var(--hud-effect-size) * 8 - var(--hud-effect-gap) * 7
+  );
+}
+
 .hud-feature {
-  width: 115px;
-  height: 75px;
+  width: 100%;
+  height: 100%;
   box-sizing: border-box;
   padding: 6px 7px;
-  border: 1px solid rgba(216, 178, 95, 0.52);
-  border-radius: 5px 10px 6px 4px;
-  background: linear-gradient(135deg, rgba(25, 31, 35, 0.97), rgba(8, 11, 13, 0.97));
+  border: var(--hud-panel-border);
+  border-radius: var(--hud-panel-radius);
+  background: var(--hud-panel);
+  box-shadow: var(--hud-panel-shadow);
 }
+
 .hud-feature--debuff { border-color: rgba(173, 70, 81, 0.7); }
 .hud-feature-heading { display: flex; align-items: center; gap: 5px; min-width: 0; }
 .hud-feature-heading img { width: 16px; height: 16px; border-radius: 2px; }
@@ -272,63 +623,38 @@
   -webkit-line-clamp: 3;
 }
 
+/* ------------------------------------------------------------------ Gruppe */
+
 .hud-party {
   position: absolute;
-  left: 418px;
+  left: var(--hud-party-x);
   top: 0;
-  width: 212px;
+  width: var(--hud-party-w);
   display: grid;
-  gap: 6px;
-}
-.hud-party-member { height: 47px; }
-.hud-party-member .hud-compact-portrait { width: 47px; height: 47px; flex-basis: 47px; }
-.hud-party-member .hud-compact-body { padding: 6px 7px; }
-
-.hud-theme--classic-remix .hud-player-body,
-.hud-theme--classic-remix .hud-compact-unit,
-.hud-theme--classic-remix .hud-feature {
-  background:
-    linear-gradient(rgba(8, 11, 13, 0.78), rgba(8, 11, 13, 0.91)),
-    url("/assets/themes/classic-remix-surface.webp") center / cover;
+  align-content: start;
+  gap: var(--hud-party-gap);
+  grid-auto-rows: var(--hud-party-row-h);
 }
 
-.hud-theme--modern-compact {
-  --line: rgba(76, 186, 206, 0.62);
-  --gold: #5dd5e8;
-}
-.hud-theme--modern-compact .hud-player-body,
-.hud-theme--modern-compact .hud-compact-unit,
-.hud-theme--modern-compact .hud-feature { border-radius: 2px; background: rgba(8, 15, 21, 0.91); }
-.hud-theme--modern-compact .hud-player-portrait { border-radius: 18px 5px 18px 5px; box-shadow: 0 0 0 2px #4eb9c9, 0 0 0 4px #101315; }
-.hud-theme--modern-compact .hud-player-name { color: #eafcff; font-family: inherit; }
-
-.hud-theme--modern-minimal {
-  --line: rgba(255, 255, 255, 0.2);
-  --gold: #fff;
-}
-.hud-theme--modern-minimal .hud-player-body,
-.hud-theme--modern-minimal .hud-compact-unit,
-.hud-theme--modern-minimal .hud-feature { border-color: rgba(255, 255, 255, 0.2); border-radius: 10px; background: rgba(15, 17, 21, 0.82); box-shadow: none; backdrop-filter: blur(7px); }
-.hud-theme--modern-minimal .hud-player-portrait { border: 2px solid rgba(255, 255, 255, 0.5); box-shadow: none; }
-.hud-theme--modern-minimal .hud-player-name { color: #fff; font-family: inherit; }
-.hud-theme--modern-minimal .hud-level { border-color: rgba(255, 255, 255, 0.45); color: #fff; }
+/* --------------------------------------------------------------- Sonstiges */
 
 .hud-root--disabled-preview { opacity: 0.34; }
+
 .hud-sr-only {
   position: absolute;
   width: 1px;
   height: 1px;
   overflow: hidden;
-  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
   white-space: nowrap;
 }
 
 @keyframes hud-critical-pulse {
-  0%, 100% { filter: brightness(0.92); box-shadow: inset 0 1px rgba(255, 255, 255, 0.22), 0 0 2px rgba(232, 31, 44, 0.15); }
-  50% { filter: brightness(1.25); box-shadow: inset 0 1px rgba(255, 255, 255, 0.38), 0 0 9px rgba(232, 31, 44, 0.75); }
+  0%, 100% { filter: brightness(0.92); }
+  50% { filter: brightness(1.28); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .hud-bar-fill { transition: none; }
-  .hud-bar--health[data-health-tier="critical"] .hud-bar-fill { animation: none; box-shadow: inset 0 1px rgba(255, 255, 255, 0.32), 0 0 5px rgba(232, 31, 44, 0.7); }
+  .hud-bar--health[data-health-tier="critical"] .hud-bar-fill { animation: none; }
 }

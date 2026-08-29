@@ -1,0 +1,33 @@
+{
+  "$comment": "Bauteilvertrag der Bildvarianten. Die Hoehe ist fuer alle Varianten gleich, die Breite folgt dem Seitenverhaeltnis des jeweiligen Masters, damit nichts verzerrt gebaut wird. Die Streckung auf die Zielbox uebernimmt border-image in der Theme-CSS. Eine neue Variante braucht einen Eintrag in \"variants\" und ein Masterverzeichnis unter muapi/masters/<variante>/.",
+  "parts": {
+    "player-chrome": { "master": "player.png", "height": 292, "maxBytes": 112640 },
+    "level-medallion": { "master": "level.png", "height": 128, "maxBytes": 24576 },
+    "pet-frame": { "master": "pet.png", "height": 96, "maxBytes": 40960 },
+    "party-frame": { "master": "party.png", "height": 94, "maxBytes": 36864 },
+    "effect-frame": { "master": "effect.png", "height": 96, "maxBytes": 16384 }
+  },
+  "variants": {
+    "trail-wood": {
+      "player-chrome": 512,
+      "level-medallion": 128,
+      "pet-frame": 370,
+      "party-frame": 356,
+      "effect-frame": 96
+    },
+    "field-journal": {
+      "player-chrome": 664,
+      "level-medallion": 128,
+      "pet-frame": 300,
+      "party-frame": 296,
+      "effect-frame": 96
+    },
+    "forged-compass": {
+      "player-chrome": 620,
+      "level-medallion": 128,
+      "pet-frame": 310,
+      "party-frame": 332,
+      "effect-frame": 96
+    }
+  }
+}

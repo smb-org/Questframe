@@ -3,6 +3,9 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: false,
+  // Alle E2E-Dateien arbeiten absichtlich gegen denselben lokalen Durable-Object-Kanal.
+  // Tokenrotationen und State-Publikationen muessen deshalb dateiuebergreifend seriell laufen.
+  workers: 1,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
   reporter: [["html", { open: "never" }], ["list"]],

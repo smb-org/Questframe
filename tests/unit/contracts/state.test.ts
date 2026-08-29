@@ -24,7 +24,7 @@ describe("channel state contract", () => {
       schemaVersion: 1,
       revision: 1,
       overlayEnabled: true,
-      themeId: "classic-remix",
+      themeId: "trail-wood",
       player: {
         name: "Streamer",
         title: "IRL-Abenteuer",
@@ -46,6 +46,19 @@ describe("channel state contract", () => {
     const parsed = channelStateSchema.parse(state);
 
     expect(parsed.updatedBy.twitchUserId).toBe("12345678901234567890");
+  });
+
+  it("accepts HUD scaling through 200 percent and rejects values above it", () => {
+    const state = createDefaultState(actor, "2026-08-29T12:00:00.000Z");
+
+    expect(channelStateSchema.parse({
+      ...state,
+      placement: { ...state.placement, scale: 2 },
+    }).placement.scale).toBe(2);
+    expect(channelStateSchema.safeParse({
+      ...state,
+      placement: { ...state.placement, scale: 2.01 },
+    }).success).toBe(false);
   });
 
   it("rejects unknown fields and numeric strings", () => {
@@ -132,18 +145,34 @@ describe("channel state contract", () => {
   it("publishes strict V1a and V1b capability manifests", () => {
     expect(getReleaseCapabilities("v1a")).toEqual({
       phase: "v1a",
-      enabledThemes: ["classic-remix"],
+      enabledThemes: ["trail-wood"],
       petEditor: false,
       groupEditor: false,
       undo: false,
     });
     expect(getReleaseCapabilities("v1b")).toEqual({
       phase: "v1b",
-      enabledThemes: ["classic-remix", "modern-compact", "modern-minimal"],
+      enabledThemes: [
+        "trail-wood",
+        "field-journal",
+        "forged-compass",
+        "classic-simple",
+        "modern-compact",
+        "modern-minimal",
+      ],
       petEditor: true,
       groupEditor: true,
       undo: true,
     });
+  });
+
+  it("migrates the legacy classic-remix theme id to the wood variant", () => {
+    const state = createDefaultState(actor, "2026-08-29T12:00:00.000Z");
+
+    expect(channelStateSchema.parse({ ...state, themeId: "classic-remix" }).themeId).toBe(
+      "trail-wood",
+    );
+    expect(() => channelStateSchema.parse({ ...state, themeId: "nope" })).toThrow();
   });
 
   it("rejects V1b state fields when the server is in V1a", () => {

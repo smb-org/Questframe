@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import sharp from "sharp";
@@ -6,6 +6,7 @@ import sharp from "sharp";
 const projectRoot = path.resolve(import.meta.dirname, "..");
 const sourceRoot = path.join(projectRoot, "src/assets/provenance");
 const effectOutput = path.join(projectRoot, "public/assets/effects");
+const themeOutput = path.join(projectRoot, "public/assets/themes");
 
 const buffIds = [
   "buff-gestaerkt",
@@ -80,14 +81,35 @@ const cropAtlas = async (source, ids) => {
 };
 
 await mkdir(effectOutput, { recursive: true });
-await mkdir(path.join(projectRoot, "public/assets/themes"), { recursive: true });
+await mkdir(themeOutput, { recursive: true });
 
 await cropAtlas(path.join(sourceRoot, "muapi/buff-atlas-master.jpg"), buffIds);
 await cropAtlas(path.join(sourceRoot, "muapi/debuff-atlas-master.jpg"), debuffIds);
 
-await sharp(path.join(sourceRoot, "muapi/classic-remix-master.jpg"))
-  .resize(960, 540, { fit: "cover" })
-  .webp({ quality: 80, effort: 6 })
-  .toFile(path.join(projectRoot, "public/assets/themes/classic-remix-surface.webp"));
+const manifest = JSON.parse(await readFile(path.join(sourceRoot, "variants.json"), "utf8"));
 
-console.log(`Built ${String(buffIds.length + debuffIds.length)} effect icons and 1 HUD asset.`);
+// Die Master sind bereits freigestellte PNGs. Der Build trimmt nur den
+// transparenten Rand weg und skaliert auf die im Manifest hinterlegte Zielbox,
+// deren Breite dem Seitenverhaeltnis des Masters folgt.
+const buildVariantPart = async (variant, part, spec, width) => {
+  const master = path.join(sourceRoot, "muapi/masters", variant, spec.master);
+  const target = path.join(themeOutput, variant, `${part}.webp`);
+  await mkdir(path.dirname(target), { recursive: true });
+  await sharp(master)
+    .trim({ threshold: 1 })
+    .resize(width, spec.height, { fit: "fill" })
+    .webp({ quality: 86, alphaQuality: 100, effort: 6 })
+    .toFile(target);
+};
+
+let variantParts = 0;
+for (const [variant, widths] of Object.entries(manifest.variants)) {
+  for (const [part, spec] of Object.entries(manifest.parts)) {
+    await buildVariantPart(variant, part, spec, widths[part]);
+    variantParts += 1;
+  }
+}
+
+console.log(
+  `Built ${String(buffIds.length + debuffIds.length)} effect icons and ${String(variantParts)} variant frame parts.`,
+);

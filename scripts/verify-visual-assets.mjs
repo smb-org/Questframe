@@ -1,4 +1,4 @@
-import { readdir, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
 import sharp from "sharp";
@@ -25,16 +25,54 @@ for (const filename of expectedEffects) {
   if (fileStat.size > 32 * 1024) throw new Error(`${filename} exceeds the 32 KiB icon budget.`);
 }
 
-const fixedAssets = [
-  ["public/assets/themes/classic-remix-surface.webp", 960, 540, 180 * 1024],
-];
-for (const [relative, width, height, maximumBytes] of fixedAssets) {
-  const file = path.join(projectRoot, relative);
-  const [metadata, fileStat] = await Promise.all([sharp(file).metadata(), stat(file)]);
-  if (metadata.format !== "webp" || metadata.width !== width || metadata.height !== height) {
-    throw new Error(`${relative} has invalid dimensions or format.`);
-  }
-  if (fileStat.size > maximumBytes) throw new Error(`${relative} exceeds its asset budget.`);
+const manifest = JSON.parse(
+  await readFile(path.join(projectRoot, "src/assets/provenance/variants.json"), "utf8"),
+);
+const themeRoot = path.join(projectRoot, "public/assets/themes");
+
+const actualVariants = new Set(
+  (await readdir(themeRoot, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name),
+);
+const variantNames = Object.keys(manifest.variants);
+const unexpectedVariants = [...actualVariants].filter((name) => !variantNames.includes(name));
+if (unexpectedVariants.length > 0) {
+  throw new Error(`Unexpected theme directories: ${unexpectedVariants.join(", ")}`);
 }
 
-console.log(`Verified ${String(expectedEffects.size)} effect icons and ${String(fixedAssets.length)} HUD assets.`);
+let checkedParts = 0;
+for (const [variant, widths] of Object.entries(manifest.variants)) {
+  const files = new Set(await readdir(path.join(themeRoot, variant)));
+  const expected = new Set(Object.keys(manifest.parts).map((part) => `${part}.webp`));
+  const missing = [...expected].filter((name) => !files.has(name));
+  const unexpected = [...files].filter((name) => !expected.has(name));
+  if (missing.length > 0 || unexpected.length > 0) {
+    throw new Error(
+      `${variant} asset mismatch. Missing: ${missing.join(", ") || "none"}; unexpected: ${unexpected.join(", ") || "none"}`,
+    );
+  }
+
+  for (const [part, spec] of Object.entries(manifest.parts)) {
+    const file = path.join(themeRoot, variant, `${part}.webp`);
+    const [metadata, fileStat] = await Promise.all([sharp(file).metadata(), stat(file)]);
+    if (
+      metadata.format !== "webp" ||
+      metadata.width !== widths[part] ||
+      metadata.height !== spec.height
+    ) {
+      throw new Error(
+        `${variant}/${part} must be a ${String(widths[part])}×${String(spec.height)} WebP.`,
+      );
+    }
+    if (!metadata.hasAlpha) throw new Error(`${variant}/${part} must keep its alpha channel.`);
+    if (fileStat.size > spec.maxBytes) {
+      throw new Error(`${variant}/${part} exceeds its ${String(spec.maxBytes)} byte budget.`);
+    }
+    checkedParts += 1;
+  }
+}
+
+console.log(
+  `Verified ${String(expectedEffects.size)} effect icons and ${String(checkedParts)} variant frame parts across ${String(variantNames.length)} variants.`,
+);

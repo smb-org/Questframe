@@ -6,7 +6,15 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default defineConfig(
-  globalIgnores(["dist/**", "coverage/**", "node_modules/**", "worker-configuration.d.ts"]),
+  globalIgnores([
+    ".wrangler/**",
+    "dist/**",
+    "coverage/**",
+    "node_modules/**",
+    "playwright-report/**",
+    "test-results/**",
+    "worker-configuration.d.ts",
+  ]),
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked.map((config) => ({
     ...config,
