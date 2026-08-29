@@ -1,0 +1,70 @@
+{
+  "name": "irl-stream-hud",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=11.0.0"
+  },
+  "scripts": {
+    "assets:build": "node scripts/build-visual-assets.mjs",
+    "assets:verify": "node --experimental-strip-types scripts/verify-visual-assets.mjs",
+    "dev": "cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log vite",
+    "build": "cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log vite build",
+    "preview": "cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest --config vitest.config.ts",
+    "pretest:worker": "npm run build",
+    "test:worker": "cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log vitest run --config vitest.worker.config.ts",
+    "test:coverage": "npm run test -- --coverage && npm run test:worker -- --coverage",
+    "test:e2e": "playwright test",
+    "types:worker": "cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log wrangler types",
+    "types:check": "cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log wrangler types --check",
+    "check:startup": "node scripts/check-startup-budget.mjs",
+    "build:budgets": "npm run build && node scripts/check-build-budgets.mjs",
+    "check": "npm run assets:verify && npm run types:check && npm run typecheck && npm run lint && npm run test:coverage && npm run test:e2e && npm run build:budgets && npm run check:startup",
+    "deploy:staging": "npm run check && cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log wrangler deploy --env staging",
+    "deploy:production": "npm run check && cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log wrangler deploy --env production"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "workerd@1.20260828.1": true
+  },
+  "dependencies": {
+    "@js-temporal/polyfill": "^0.5.1",
+    "lucide-react": "^1.35.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "zod": "^4.5.1"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.54.2",
+    "@cloudflare/vitest-plugin": "^1.1.2",
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.62.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.6",
+    "@types/node": "^26.4.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^6.1.1",
+    "@vitest/coverage-istanbul": "^4.1.11",
+    "@vitest/coverage-v8": "^4.1.11",
+    "cross-env": "^10.1.0",
+    "eslint": "^10.9.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.5",
+    "globals": "^17.11.0",
+    "jsdom": "^30.0.1",
+    "sharp": "^0.35.4",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.68.0",
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.127.1"
+  }
+}

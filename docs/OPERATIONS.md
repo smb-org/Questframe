@@ -1,0 +1,56 @@
+# Betriebshandbuch
+
+## Vor jedem Release
+
+1. Nicht während eines aktiven Streams deployen; ein Worker-Update trennt WebSockets kurzzeitig.
+2. `npm ci` und `npm run check` auf dem exakten Commit ausführen.
+3. Staging mit `npm run deploy:staging` aktualisieren und `/healthz` prüfen. Ein `503` nennt ausschließlich fehlende Binding-Namen; diese zuerst beheben.
+4. Twitch-Login als Broadcaster und als echter aktueller Moderator testen.
+5. Release-Report aus [RELEASE_REPORT.md](RELEASE_REPORT.md) kopieren und Commit, Wrangler-Ausgabe, Chromium-Version und visuelle Artefakte eintragen.
+
+## 30-Minuten-Rehearsal
+
+Der Broadcaster und ein aktueller Moderator bedienen gemeinsam den Staging-Kandidaten. Die OBS-Browserquelle läuft mit `1920 × 1080`, Zoom `100 %` und transparentem Hintergrund.
+
+- Overlay aus- und wieder einschalten, auch einmal mobil.
+- Zehn atomare Saves durchführen; mindestens einer ändert HP und die konfigurierte Ressource gleichzeitig.
+- Eine Eingabe bewusst langsam tippen und bestätigen, dass Zwischenstände nie in OBS erscheinen.
+- Einen zeitlosen und einen absolut terminierten Effekt setzen; Browser neu laden und Ablaufzeit vergleichen.
+- Einmal die Netzwerkverbindung trennen, lokalen Snapshot und Countdown beobachten, dann Reconnect und vollständigen Snapshot prüfen.
+- Zwei Admin-Tabs öffnen, einen Konflikt erzeugen und beide Konfliktaktionen nachvollziehen.
+- OBS-Token rotieren: alte verbundene Anzeige muss leer werden; neue URL muss funktionieren.
+- Pet, fünf Gäste, acht Effekte und jede der drei Themes auf Überlauf prüfen, sobald V1b aktiviert wird.
+- Auf `<50 %` gelb sowie `<20 %` rot und dezent pulsierend prüfen; exakt 50 bleibt grün, exakt 20 gelb.
+
+Jede Unsicherheit wird mit Uhrzeit, Browser, Revision und beobachtetem Verhalten notiert. Ein ungelöster Severity-1-Fehler — falscher veröffentlichter Zustand, unberechtigter Zugriff, nicht widerrufbares Overlay oder sichtbarer Zwischenstand — stoppt die Promotion.
+
+## Production-Promotion
+
+Production nutzt bis zum bestandenen V1a-Rehearsal `RELEASE_STAGE=v1a`. Erst danach darf der Wert in `wrangler.jsonc` bewusst auf `v1b` wechseln und der vollständige V1b-Rehearsal-Teil durchlaufen werden.
+
+1. Geschützte GitHub-Umgebung `production` freigeben oder lokal `npm run deploy:production` ausführen.
+2. `/healthz`, Twitch-Login, Bootstrap und eine unkritische Sichtbarkeitsmutation prüfen.
+3. OBS-Quelle verbinden und vollständigen Snapshot abwarten.
+4. Release-Report abschließen. Eine tatsächliche Cloudflare-Deployment-ID und der menschliche Rehearsal-Ausgang dürfen niemals vorab erfunden werden.
+
+## Token-Leak
+
+In **OBS-Link** auf **Neuen Token erzeugen** klicken und bestätigen. Der alte Token wird sofort widerrufen; verbundene Clients erhalten `token_revoked`, leeren ihre Anzeige und schließen die Verbindung. Den neuen Link einmalig in OBS einsetzen. Den Link nicht in Chat, Logs, Screenshots oder Tickets kopieren.
+
+Ein vollständig offline befindlicher Browser kann seinen bereits gespeicherten Snapshot naturgemäß nicht remote löschen. Er kann mit dem alten Token aber keine neue autorisierte Verbindung aufbauen.
+
+## Rollenverlust oder verdächtige Session
+
+- Moderatorrolle in Twitch entfernen; die nächste Revalidierung entzieht die Session spätestens innerhalb einer Stunde.
+- Für sofortigen Entzug Cookie- und Encryption-Keyrings rotieren und den bisherigen Schlüssel nicht als `previous` behalten. Das meldet alle Sitzungen ab, ist daher eine bewusste Incident-Maßnahme.
+- Twitch-Client-Secret bei Twitch rotieren und anschließend in Cloudflare aktualisieren.
+
+## Rollback
+
+Nur auf den unmittelbar vorherigen, als Schema-v1-kompatibel geprüften Worker-Build zurückrollen. Kein SQLite-State-Rollback und keine manuelle Tabellenänderung durchführen. Wenn eine Migration oder Staging-Prüfung fehlschlägt, Promotion stoppen; nicht automatisch Production-State zurückschreiben.
+
+Nach dem Rollback `/healthz`, Login, vollständigen Snapshot, Save, Sichtbarkeit und Token-Authentifizierung erneut prüfen. Geladene Dokumente revalidieren; fingerprinted App-Bundles beider kompatibler Builds müssen während des Rollback-Fensters verfügbar bleiben.
+
+## Free-Tier-Beobachtung
+
+Die Anwendung pollt weder Zustand noch Timer. Bei ungewöhnlichem Traffic zuerst verbundene Socket-Zahlen, Rate-Limit-Antworten und Audit-Aktivität prüfen; keinen höheren Grenzwert blind konfigurieren. Cloudflare-Quoten vor jeder öffentlichen Veröffentlichung erneut gegen die aktuelle offizielle Dokumentation prüfen.
