@@ -29,7 +29,7 @@
     }
   ],
   "vars": {
-    "APP_ENV": "staging",
+    "APP_ENV": "local",
     "RELEASE_STAGE": "v1b"
   },
   "secrets": {
