@@ -11,6 +11,7 @@ export default defineConfig({
       provider: "v8",
       include: ["src/shared/**/*.{ts,tsx}", "src/admin/**/*.{ts,tsx}", "src/overlay/**/*.{ts,tsx}"],
       exclude: ["src/main.tsx", "**/*.d.ts"],
+      reportsDirectory: "./coverage/browser",
       // Reviewed V1 baseline: behavior-driven tests cover every critical publication,
       // auth and overlay path; these floors ratchet structural regressions without
       // rewarding tests that only execute incidental React/defensive-parser branches.

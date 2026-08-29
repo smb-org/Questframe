@@ -1,5 +1,5 @@
 import { cloudflareTest } from "@cloudflare/vitest-plugin";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 const placeholderKey = (fill: string): string => `replace-${fill.repeat(35)}`;
 
@@ -30,11 +30,16 @@ export default defineConfig({
   ],
   test: {
     include: ["tests/worker/**/*.test.ts", "tests/unit/auth/**/*.test.ts"],
+    // tests/worker/configured-environment.test.ts asserts the app behaves as
+    // CORRECTLY configured (see vitest.worker-configured.config.ts); it must
+    // not also run here, where every binding is an intentional placeholder.
+    exclude: [...configDefaults.exclude, "tests/worker/configured-environment.test.ts"],
     coverage: {
       // Workerd does not expose the Node inspector session required by V8 coverage.
       provider: "istanbul",
       include: ["src/worker/**/*.ts", "src/channel/**/*.ts"],
       exclude: ["**/*.d.ts"],
+      reportsDirectory: "./coverage/worker",
       // Workerd's Istanbul baseline is intentionally separate from V8's browser
       // instrumentation. Named integration tests remain the correctness gate.
       thresholds: {
