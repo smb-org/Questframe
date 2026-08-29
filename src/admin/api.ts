@@ -2,6 +2,7 @@ import {
   apiErrorSchema,
   bootstrapResponseSchema,
   overlayTokenResponseSchema,
+  renewMediaLeasesResponseSchema,
   saveResponseSchema,
   serverMessageSchema,
   twitchLookupResponseSchema,
@@ -106,6 +107,13 @@ export class BrowserAdminApi implements AdminApi {
       true,
     );
     return uploadResponseSchema.parse(await response.json()).portrait;
+  }
+
+  async renewMediaLeases(contentHashes: string[]) {
+    const response = await this.requestJson("/api/media/leases/renew", "POST", {
+      contentHashes,
+    });
+    renewMediaLeasesResponseSchema.parse(await response.json());
   }
 
   async lookupTwitchUser(login: string) {

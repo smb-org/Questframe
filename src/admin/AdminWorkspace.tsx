@@ -27,6 +27,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type ComponentProps,
   type ReactNode,
 } from "react";
 
@@ -65,6 +66,7 @@ export type AdminApi = {
       }) => Promise<OverlayTokenResponse>)
     | undefined;
   uploadPortrait?: ((blob: Blob) => Promise<PortraitRef>) | undefined;
+  renewMediaLeases?: ((contentHashes: string[]) => Promise<void>) | undefined;
   lookupTwitchUser?:
     | ((login: string) => Promise<{
         id: string;
@@ -92,6 +94,36 @@ const toDraft = (state: ChannelState): ChannelStateDraft => {
   } = state;
   void [_revision, _overlayEnabled, _updatedAt, _updatedBy];
   return draft;
+};
+
+const uploadedHashes = (state: ChannelStateDraft | ChannelState): string[] => {
+  const portraits = [
+    state.player.portrait,
+    state.pet?.portrait,
+    ...state.group.map((member) => member.portrait),
+  ];
+  return [
+    ...new Set(
+      portraits.flatMap((portrait) =>
+        portrait?.kind === "uploaded" ? [portrait.contentHash] : [],
+      ),
+    ),
+  ];
+};
+
+// Kapselt den Sekundentakt der Vorschau, damit nicht die gesamte Konsole
+// jede Sekunde neu rendert, während jemand tippt.
+const TickingPreview = (props: Omit<ComponentProps<typeof HudRenderer>, "nowMilliseconds">) => {
+  const [nowMilliseconds, setNowMilliseconds] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNowMilliseconds(Date.now());
+    }, 1_000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, []);
+  return <HudRenderer {...props} nowMilliseconds={nowMilliseconds} />;
 };
 
 const toPreview = (draft: ChannelStateDraft, committed: ChannelState): ChannelState => ({
@@ -536,6 +568,32 @@ export const AdminWorkspace = ({
     });
   }, [api]);
 
+  const pendingLeaseHashes = useMemo(() => {
+    const committedHashes = new Set(uploadedHashes(committed));
+    return uploadedHashes(draft).filter((hash) => !committedHashes.has(hash));
+  }, [committed, draft]);
+  const pendingLeaseHashesRef = useRef(pendingLeaseHashes);
+  useEffect(() => {
+    pendingLeaseHashesRef.current = pendingLeaseHashes;
+  }, [pendingLeaseHashes]);
+
+  // Das Intervall haengt bewusst nur an der API: der Draft aendert sich bei jedem
+  // Tastendruck, eine Abhaengigkeit darauf wuerde den Timer endlos neu starten.
+  useEffect(() => {
+    if (api.renewMediaLeases === undefined) return;
+    const renewFn = api.renewMediaLeases;
+    const timer = window.setInterval(() => {
+      const hashes = pendingLeaseHashesRef.current;
+      if (hashes.length === 0) return;
+      void renewFn(hashes).catch(() => {
+        // Fehler stillschweigend schlucken
+      });
+    }, 30 * 60 * 1_000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [api]);
+
   const updatePlayer = (patch: Partial<ChannelStateDraft["player"]>) => {
     setDraft((current) => ({ ...current, player: { ...current.player, ...patch } }));
     setMessage("");
@@ -786,7 +844,7 @@ export const AdminWorkspace = ({
           <div className="preview-canvas">
             <div className="preview-safe-area" />
             <div className="preview-hud-wrap">
-              <HudRenderer
+              <TickingPreview
                 forceVisible
                 mediaUrls={previewMediaUrls}
                 state={preview}

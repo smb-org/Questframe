@@ -41,7 +41,12 @@ const bootstrap = (): BootstrapResponse => ({
   serverTime: "2026-08-29T12:00:00.000Z",
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 describe("Admin workspace publication boundary", () => {
   it("keeps all edits local until Save but toggles overlay visibility immediately", async () => {
@@ -409,5 +414,87 @@ describe("Admin workspace publication boundary", () => {
     expect(await screen.findByText("Save fehlgeschlagen")).toBeInTheDocument();
     await user.click(screen.getByRole("switch", { name: "Overlay aktiv" }));
     expect(await screen.findByText("Sichtbarkeit fehlgeschlagen")).toBeInTheDocument();
+  });
+
+  it("ticks the live preview clock every second so an effect countdown advances on its own", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-29T12:00:00.000Z"));
+    const initial = bootstrap();
+    initial.state.effects = [{
+      id: "effect-1",
+      catalogId: "buff-gestaerkt",
+      kind: "buff",
+      name: "Gestärkt",
+      description: null,
+      iconId: "buff-gestaerkt",
+      stacks: null,
+      expiresAt: "2026-08-29T12:02:05.000Z",
+      order: 0,
+    }];
+    render(<AdminWorkspace initialBootstrap={initial} api={{
+      save: vi.fn(),
+      setVisibility: () => Promise.resolve({ state: initial.state, auditEntry: null, undoTargets: [], serverTime: initial.serverTime }),
+    }} />);
+
+    expect(screen.getByText("2:05")).toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    expect(screen.queryByText("2:05")).not.toBeInTheDocument();
+    expect(screen.getByText("2:04")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(3_000);
+    });
+    expect(screen.getByText("2:01")).toBeInTheDocument();
+  });
+
+  it("renews only the currently pending upload leases once per interval, unaffected by intervening draft edits", async () => {
+    vi.useFakeTimers();
+    const initial = bootstrap();
+    const contentHash = "c".repeat(64);
+    const uploadPortrait = vi.fn<NonNullable<AdminApi["uploadPortrait"]>>(() =>
+      Promise.resolve({ kind: "uploaded", contentHash }),
+    );
+    const renewMediaLeases = vi.fn<NonNullable<AdminApi["renewMediaLeases"]>>(() => Promise.resolve());
+    const bitmap = { width: 4, height: 4, close: vi.fn() } as unknown as ImageBitmap;
+    vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue(bitmap));
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation((callback) => {
+      callback(new Blob(["portrait"], { type: "image/webp" }));
+    });
+
+    render(<AdminWorkspace initialBootstrap={initial} api={{
+      save: vi.fn(),
+      setVisibility: () => Promise.resolve({ state: initial.state, auditEntry: null, undoTargets: [], serverTime: initial.serverTime }),
+      uploadPortrait,
+      renewMediaLeases,
+    }} />);
+
+    fireEvent.click(screen.getByText("Einrichten").closest("summary") as HTMLElement);
+    const file = new File(["portrait-bytes"], "portrait.png", { type: "image/png" });
+    const fileInput = screen.getByLabelText("Portrait hochladen");
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [file] } });
+      for (let index = 0; index < 6; index += 1) {
+        await Promise.resolve();
+      }
+    });
+    expect(uploadPortrait).toHaveBeenCalledTimes(1);
+
+    // Der Draft wird mehrfach geändert - das Renew-Intervall darf dadurch NICHT neu starten.
+    fireEvent.change(screen.getByRole("slider", { name: "Gesundheit" }), { target: { value: "10" } });
+    fireEvent.change(screen.getByRole("slider", { name: "Gesundheit" }), { target: { value: "20" } });
+    fireEvent.change(screen.getByRole("slider", { name: "Gesundheit" }), { target: { value: "30" } });
+
+    expect(renewMediaLeases).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30 * 60 * 1_000);
+    });
+
+    expect(renewMediaLeases).toHaveBeenCalledTimes(1);
+    expect(renewMediaLeases).toHaveBeenCalledWith([contentHash]);
   });
 });
