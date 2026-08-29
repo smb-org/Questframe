@@ -11,6 +11,7 @@ const uint24 = (bytes: Uint8Array, offset: number): number =>
 const validateDimensions = (width: number, height: number): ImageDimensions => {
   if (width < 32 || height < 32) throw new Error("WebP muss mindestens 32 × 32 Pixel groß sein.");
   if (width > 512 || height > 512) throw new Error("WebP darf höchstens 512 × 512 Pixel groß sein.");
+  if (width !== height) throw new Error("WebP muss quadratisch sein.");
   return { width, height };
 };
 
@@ -23,7 +24,7 @@ export const inspectWebP = (bytes: Uint8Array): ImageDimensions => {
     throw new Error("Datei ist kein vollständiges WebP.");
   }
   const declaredSize = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, true) + 8;
-  if (declaredSize > bytes.byteLength) throw new Error("Datei ist kein vollständiges WebP.");
+  if (declaredSize !== bytes.byteLength) throw new Error("Datei ist kein vollständiges WebP.");
   const chunk = ascii(bytes, 12, 4);
   const dataOffset = 20;
 

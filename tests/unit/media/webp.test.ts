@@ -41,19 +41,20 @@ const simpleWebP = (chunk: "VP8 " | "VP8L", width: number, height: number): Uint
 
 describe("WebP boundary inspection", () => {
   it("reads VP8X dimensions without decoding image content", () => {
-    expect(inspectWebP(vp8x(512, 320))).toEqual({ width: 512, height: 320 });
+    expect(inspectWebP(vp8x(512, 512))).toEqual({ width: 512, height: 512 });
   });
 
-  it("rejects non-WebP, truncated, too-small and too-large portraits", () => {
+  it("rejects non-WebP, truncated, too-small, too-large and non-square portraits", () => {
     expect(() => inspectWebP(new Uint8Array(30))).toThrow(/WebP/);
     expect(() => inspectWebP(vp8x(31, 64))).toThrow(/32/);
     expect(() => inspectWebP(vp8x(513, 64))).toThrow(/512/);
     expect(() => inspectWebP(vp8x(64, 64).slice(0, 20))).toThrow(/WebP/);
+    expect(() => inspectWebP(vp8x(64, 128))).toThrow(/quadratisch/);
   });
 
   it("reads lossy VP8 and lossless VP8L dimensions", () => {
-    expect(inspectWebP(simpleWebP("VP8 ", 320, 240))).toEqual({ width: 320, height: 240 });
-    expect(inspectWebP(simpleWebP("VP8L", 128, 96))).toEqual({ width: 128, height: 96 });
+    expect(inspectWebP(simpleWebP("VP8 ", 320, 320))).toEqual({ width: 320, height: 320 });
+    expect(inspectWebP(simpleWebP("VP8L", 128, 128))).toEqual({ width: 128, height: 128 });
   });
 
   it("rejects lying RIFF lengths, bad signatures and unsupported chunks", () => {

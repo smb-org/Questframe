@@ -18,6 +18,12 @@ const normalizedText = (minimum: number, maximum: number) =>
             message: `Muss ${String(minimum)}–${String(maximum)} Zeichen lang sein.`,
           });
         }
+        if (value.length > maximum) {
+          context.addIssue({
+            code: "custom",
+            message: `Darf höchstens ${String(maximum)} UTF-16-Codeeinheiten lang sein.`,
+          });
+        }
       }),
     );
 
