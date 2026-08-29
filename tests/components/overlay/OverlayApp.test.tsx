@@ -121,10 +121,7 @@ describe("OverlayApp realtime shell", () => {
     vi.useFakeTimers();
     vi.spyOn(Math, "random").mockReturnValue(0.5);
     const view = render(<OverlayApp />);
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
     const first = FakeWebSocket.instances[0];
     act(() => {
       first?.emit("open");

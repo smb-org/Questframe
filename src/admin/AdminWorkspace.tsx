@@ -551,6 +551,7 @@ export const AdminWorkspace = ({
     );
   }, [draft.group, draft.pet?.portrait, draft.player.portrait]);
   const locked = saving || !online;
+  const uploadPortrait = api.uploadPortrait?.bind(api);
 
   useEffect(() => {
     if (api.subscribe === undefined) return;
@@ -920,7 +921,7 @@ export const AdminWorkspace = ({
                     <label><span>Name</span><input disabled={locked} maxLength={32} value={draft.pet.name} onChange={(event) => setDraft((current) => ({ ...current, pet: current.pet === null ? null : { ...current.pet, name: event.target.value } }))} /></label>
                     <label><span>Unterzeile</span><input disabled={locked} maxLength={40} value={draft.pet.subtitle ?? ""} onChange={(event) => setDraft((current) => ({ ...current, pet: current.pet === null ? null : { ...current.pet, subtitle: event.target.value === "" ? null : event.target.value } }))} /></label>
                   </div>
-                  <PortraitInput disabled={locked} upload={api.uploadPortrait} onPortrait={(portrait) => setDraft((current) => ({ ...current, pet: current.pet === null ? null : { ...current.pet, portrait } }))} />
+                  <PortraitInput disabled={locked} upload={uploadPortrait} onPortrait={(portrait) => setDraft((current) => ({ ...current, pet: current.pet === null ? null : { ...current.pet, portrait } }))} />
                   <button className="text-button text-button--danger" disabled={locked} onClick={() => setDraft((current) => ({ ...current, pet: null }))} type="button">Pet ausblenden</button>
                 </>
               )}
@@ -957,7 +958,7 @@ export const AdminWorkspace = ({
               <label><span>Ressource</span><input disabled={locked} maxLength={16} value={draft.player.resource.name} onChange={(event) => updatePlayer({ resource: { ...draft.player.resource, name: event.target.value } })} /></label>
               <label><span>Ressourcenfarbe</span><input disabled={locked} type="color" value={draft.player.resource.color} onChange={(event) => updatePlayer({ resource: { ...draft.player.resource, color: event.target.value.toUpperCase() } })} /></label>
             </div>
-            <PortraitInput disabled={locked} upload={api.uploadPortrait} onPortrait={(portrait) => updatePlayer({ portrait })} />
+                  <PortraitInput disabled={locked} upload={uploadPortrait} onPortrait={(portrait) => updatePlayer({ portrait })} />
             <div className="theme-picker" aria-label="Theme">
               {initialBootstrap.capabilities.enabledThemes.map((theme) => (
                 <button className={draft.themeId === theme ? "theme-card is-selected" : "theme-card"} disabled={locked} key={theme} onClick={() => setDraft((current) => ({ ...current, themeId: theme }))} type="button">
