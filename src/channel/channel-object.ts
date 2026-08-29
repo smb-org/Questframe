@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   auditEntrySchema,
   bootstrapResponseSchema,
+  clientMessageSchema,
   overlayTokenMutationRequestSchema,
   overlayTokenResponseSchema,
   renewMediaLeasesRequestSchema,
@@ -109,6 +110,17 @@ const draftFromState = (state: ChannelState): ChannelStateDraft => {
   } = state;
   void [_revision, _overlayEnabled, _updatedAt, _updatedBy];
   return channelStateDraftSchema.parse(draft);
+};
+
+const filterExpiredEffectsFromDraft = (draft: ChannelStateDraft): ChannelStateDraft => {
+  const now = Date.now();
+  const effects = draft.effects
+    .filter((effect) => effect.expiresAt === null || Date.parse(effect.expiresAt) > now)
+    .map((effect, order) => ({ ...effect, order }));
+  const featuredEffectId = effects.some((effect) => effect.id === draft.featuredEffectId)
+    ? draft.featuredEffectId
+    : null;
+  return channelStateDraftSchema.parse({ ...draft, effects, featuredEffectId });
 };
 
 const summarizeChange = (before: ChannelState, after: ChannelState): string => {
@@ -448,6 +460,11 @@ export class ChannelObject extends DurableObject<AppEnv> {
   private async cacheTwitchUser(request: Request): Promise<Response> {
     const input = twitchLookupResponseSchema.parse(await readJson(request, 8_192));
     this.ctx.storage.sql.exec(
+      "DELETE FROM twitch_user_cache WHERE login = ? AND twitch_user_id <> ?",
+      input.user.login,
+      input.user.id,
+    );
+    this.ctx.storage.sql.exec(
       `INSERT INTO twitch_user_cache(
         twitch_user_id, login, display_name, portrait_url, fetched_at
       ) VALUES (?, ?, ?, ?, ?)
@@ -499,7 +516,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
           generation: overlayToken?.generation ?? 0,
           createdAt: overlayToken?.created_at ?? null,
           lastUsedAt: overlayToken?.last_used_at ?? null,
-          connectedSockets: this.ctx.getWebSockets("overlay").length,
+          connectedSockets: Math.min(2, this.ctx.getWebSockets("overlay").length),
         },
       },
       capabilities: getReleaseCapabilities(this.env.RELEASE_STAGE),
@@ -516,7 +533,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
   private async save(request: Request): Promise<Response> {
     const session = this.requireSession(request);
     await this.requireCsrf(request, session);
-    const input = saveRequestSchema.parse(await readJson(request));
+    const input = saveRequestSchema.parse(await readJson(request, 131_072));
     const current = normalizeStateForRead(this.getRequiredState());
     const forceReplace = input.replaceRevision !== undefined;
     const currentMatches = input.baseRevision === current.revision;
@@ -528,11 +545,20 @@ export class ChannelObject extends DurableObject<AppEnv> {
         currentState: current,
       });
     }
-    const draft = validateDraftForRelease(
-      this.canonicalizeTwitchGroup(input.state),
-      this.env.RELEASE_STAGE,
-    );
-    validateEffectExpiries(draft.effects, current.effects);
+    let draft: ChannelStateDraft;
+    try {
+      draft = validateDraftForRelease(
+        this.canonicalizeTwitchGroup(filterExpiredEffectsFromDraft(input.state)),
+        this.env.RELEASE_STAGE,
+      );
+      validateEffectExpiries(draft.effects, current.effects);
+    } catch (error) {
+      if (error instanceof RequestError || error instanceof z.ZodError) throw error;
+      if (error instanceof Error) {
+        throw new RequestError(422, "validation_failed", error.message);
+      }
+      throw error;
+    }
     this.validateCatalog(draft);
     this.validateMediaReferences(draft, current, session);
     if (stateByteLength(draft) > 65_536) {
@@ -663,10 +689,10 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const session = this.requireSession(request);
     await this.requireCsrf(request, session);
     const input = overlayTokenMutationRequestSchema.parse(await readJson(request, 2_048));
+    const pepper = this.getOverlayTokenPepper();
+    const candidateHash = await hmacHex(pepper, input.candidateToken);
     const current = this.getOverlayToken();
     const currentGeneration = current?.generation ?? 0;
-    const pepper = this.env.OVERLAY_TOKEN_PEPPER ?? "local-overlay-token-pepper";
-    const candidateHash = await hmacHex(pepper, input.candidateToken);
     if (
       current !== null &&
       current.generation === input.expectedGeneration + 1 &&
@@ -860,10 +886,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       const token = request.headers.get("x-overlay-token");
       const row = this.getOverlayToken();
       if (token !== null && row !== null) {
-        const hash = await hmacHex(
-          this.env.OVERLAY_TOKEN_PEPPER ?? "local-overlay-token-pepper",
-          token,
-        );
+        const hash = await hmacHex(this.getOverlayTokenPepper(), token);
         authorized = timingSafeEqual(row.token_hash, hash);
       }
     }
@@ -921,7 +944,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     if (token === null) throw new RequestError(403, "token_invalid", "OBS-Token ungültig.");
     const row = this.getOverlayToken();
     if (row === null) throw new RequestError(403, "token_invalid", "OBS-Token ungültig.");
-    const hash = await hmacHex(this.env.OVERLAY_TOKEN_PEPPER ?? "local-overlay-token-pepper", token);
+    const hash = await hmacHex(this.getOverlayTokenPepper(), token);
     if (!timingSafeEqual(row.token_hash, hash)) {
       throw new RequestError(403, "token_invalid", "OBS-Token ungültig.");
     }
@@ -932,6 +955,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
+    if (this.ctx.getWebSockets("overlay").length >= limits.maxOverlaySockets) {
+      throw new RequestError(429, "socket_limit", "Zu viele Overlay-Verbindungen.");
+    }
     this.ctx.acceptWebSocket(server, ["overlay"]);
     server.serializeAttachment({
       version: 1,
@@ -950,16 +976,20 @@ export class ChannelObject extends DurableObject<AppEnv> {
       socket.close(1011, "invalid_attachment");
       return;
     }
+    const byteLength =
+      typeof message === "string"
+        ? new TextEncoder().encode(message).byteLength
+        : message.byteLength;
+    if (byteLength > 98_304) return;
     try {
-      const parsed = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message)) as {
-        type?: unknown;
-        clientTimestamp?: unknown;
-      };
-      if (parsed.type === "time_sync_request" && typeof parsed.clientTimestamp === "number") {
+      const parsed = clientMessageSchema.safeParse(
+        JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message)),
+      );
+      if (parsed.success) {
         socket.send(
           JSON.stringify({
             type: "time_sync",
-            clientTimestamp: parsed.clientTimestamp,
+            clientTimestamp: parsed.data.clientTimestamp,
             serverTime: nowIso(),
           }),
         );
@@ -970,7 +1000,14 @@ export class ChannelObject extends DurableObject<AppEnv> {
   }
 
   override webSocketClose(socket: WebSocket, code: number, reason: string, wasClean: boolean): void {
-    socket.close(code, reason);
+    // Nur 1000 und der Anwendungsbereich 3000-4999 duerfen zurueckgespiegelt werden.
+    // Ein Client, der ohne Code schliesst, erzeugt hier 1005, ein Abbruch 1006; beides
+    // weist workerd mit InvalidAccessError zurueck.
+    if (code === 1000 || (code >= 3000 && code <= 4999)) {
+      socket.close(code, reason);
+    } else {
+      socket.close();
+    }
     void wasClean;
   }
 
@@ -1197,6 +1234,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     if (row === undefined) return null;
     const now = Date.now();
     if (Date.parse(row.idle_expires_at) <= now || Date.parse(row.absolute_expires_at) <= now) {
+      this.ctx.storage.sql.exec("DELETE FROM csrf_tokens WHERE session_hash = ?", hash);
       this.ctx.storage.sql.exec("DELETE FROM editor_sessions WHERE session_hash = ?", hash);
       return null;
     }
@@ -1280,6 +1318,12 @@ export class ChannelObject extends DurableObject<AppEnv> {
     return csrfToken;
   }
 
+  private getOverlayTokenPepper(): string {
+    if (this.env.OVERLAY_TOKEN_PEPPER !== undefined) return this.env.OVERLAY_TOKEN_PEPPER;
+    if (this.env.APP_ENV === "local") return "local-overlay-token-pepper";
+    throw new RequestError(503, "misconfigured", "OVERLAY_TOKEN_PEPPER fehlt.");
+  }
+
   private getOverlayToken(): OverlayTokenRow | null {
     return (
       this.ctx.storage.sql
@@ -1290,10 +1334,16 @@ export class ChannelObject extends DurableObject<AppEnv> {
 
   private validateCatalog(draft: ChannelStateDraft): void {
     const knownIds = new Set(EFFECT_CATALOG.map((definition) => definition.id));
+    const knownIconIds = new Set(EFFECT_CATALOG.map((definition) => definition.iconId));
     draft.effects.forEach((effect, index) => {
       if (effect.catalogId !== null && !knownIds.has(effect.catalogId)) {
         throw new RequestError(422, "validation_failed", "Unbekannter Katalogeffekt.", {
           fieldErrors: { [`effects[${String(index)}].catalogId`]: "Effekt nicht im Katalog." },
+        });
+      }
+      if (!knownIconIds.has(effect.iconId)) {
+        throw new RequestError(422, "validation_failed", "Unbekanntes Effekt-Icon.", {
+          fieldErrors: { [`effects[${String(index)}].iconId`]: "Icon nicht im Katalog." },
         });
       }
       const definition = getEffectDefinition(effect.catalogId);
@@ -1373,7 +1423,26 @@ export class ChannelObject extends DurableObject<AppEnv> {
 
   private broadcastState(state: ChannelState): void {
     const message = JSON.stringify({ type: "state_committed", state });
-    for (const socket of this.ctx.getWebSockets()) socket.send(message);
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = this.readAttachment(socket);
+      if (attachment?.kind === "editor") {
+        const row = this.ctx.storage.sql
+          .exec<{ generation: number }>(
+            "SELECT generation FROM editor_sessions WHERE session_hash = ?",
+            attachment.sessionRecordId,
+          )
+          .toArray()[0];
+        if (row === undefined || row.generation !== attachment.sessionGeneration) {
+          socket.close(4001, "session_revoked");
+          continue;
+        }
+      }
+      try {
+        socket.send(message);
+      } catch {
+        // Ein einzelner fehlschlagender Socket darf die Übertragung an andere nicht abbrechen.
+      }
+    }
   }
 
   private broadcastHistoryChanged(): void {

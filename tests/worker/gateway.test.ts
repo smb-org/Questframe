@@ -105,10 +105,18 @@ describe("Worker gateway failure boundaries", () => {
   });
 
   it("validates Twitch guest lookup before any upstream request", async () => {
-    const anonymous = await fetchWorker("/api/twitch/users?login=gast_tv");
+    const wrongOrigin = await fetchWorker("/api/twitch/users?login=gast_tv", {
+      headers: { origin: "https://evil.example" },
+    });
+    expect(wrongOrigin.status).toBe(403);
+    expect(await errorCode(wrongOrigin)).toBe("forbidden");
+
+    const anonymous = await fetchWorker("/api/twitch/users?login=gast_tv", {
+      headers: { origin: "http://localhost:5173" },
+    });
     expect(anonymous.status).toBe(401);
     const invalid = await fetchWorker("/api/twitch/users?login=not%20valid", {
-      headers: { cookie },
+      headers: { origin: "http://localhost:5173", cookie },
     });
     expect(invalid.status).toBe(422);
     expect(await errorCode(invalid)).toBe("validation_failed");

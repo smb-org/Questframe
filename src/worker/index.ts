@@ -466,6 +466,8 @@ const worker = {
     }
 
     if (request.method === "GET" && url.pathname === "/api/twitch/users") {
+      const originError = requireMutationOrigin(request, env);
+      if (originError !== null) return originError;
       return handleTwitchLookup(request, env);
     }
 

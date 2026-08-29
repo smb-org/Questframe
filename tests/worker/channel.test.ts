@@ -48,6 +48,7 @@ describe("channel worker", () => {
   it("reports secret names but never values when local deployment is incomplete", async () => {
     const response = await fetchWorker("http://localhost/healthz");
     const body = await response.json<{ missingBindings: string[] }>();
+    const serialized = JSON.stringify(body);
 
     expect(response.status).toBe(503);
     expect(body.missingBindings).toEqual(
@@ -58,7 +59,18 @@ describe("channel worker", () => {
         "OVERLAY_TOKEN_PEPPER",
       ]),
     );
-    expect(JSON.stringify(body)).not.toContain("secret-value");
+    // Assert against the values actually bound in vitest.worker.config.ts
+    // (read live from `env`, not re-typed here) so this fails the moment
+    // /healthz ever echoes a bound secret back, instead of a string that
+    // appears nowhere in the repository and so could never fail.
+    for (const secret of [
+      env.TWITCH_CLIENT_SECRET,
+      env.SESSION_COOKIE_KEYS,
+      env.SESSION_ENCRYPTION_KEYS,
+      env.OVERLAY_TOKEN_PEPPER,
+    ]) {
+      expect(serialized).not.toContain(secret);
+    }
   });
 
   it("creates an authenticated local editor session and complete bootstrap", async () => {
@@ -271,9 +283,10 @@ describe("channel worker", () => {
     const originalPortrait = bootstrap.state.player.portrait;
     expect(originalPortrait.kind).toBe("uploaded");
 
-    const upload = async (widthByte: number) => {
+    const upload = async (sideByte: number) => {
       const bytes = portraitWebP();
-      bytes[24] = widthByte;
+      bytes[24] = sideByte;
+      bytes[27] = sideByte;
       const headers = new Headers(authenticatedHeaders());
       headers.set("content-type", "image/webp");
       const response = await fetchWorker("http://localhost/api/media", {
@@ -329,5 +342,288 @@ describe("channel worker", () => {
       );
       expect(retained.status).toBe(200);
     }
+  });
+
+  it("filters an already-expired effect out of a saved draft instead of failing", async () => {
+    const bootstrap = bootstrapResponseSchema.parse(
+      await (
+        await fetchWorker("http://localhost/api/editor/bootstrap", {
+          headers: { cookie, "x-editor-tab": "test-tab-a" },
+        })
+      ).json(),
+    );
+    csrfToken = bootstrap.csrfToken;
+    const { revision, overlayEnabled, updatedAt, updatedBy, ...draft } = bootstrap.state;
+    expect([overlayEnabled, updatedAt, updatedBy]).toHaveLength(3);
+
+    const response = await fetchWorker("http://localhost/api/state", {
+      method: "PUT",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({
+        baseRevision: revision,
+        state: {
+          ...draft,
+          effects: [
+            {
+              id: "already-expired",
+              catalogId: null,
+              kind: "debuff",
+              name: "Erschöpft",
+              description: null,
+              iconId: "already-expired-icon",
+              stacks: null,
+              expiresAt: "2000-01-01T00:00:00.000Z",
+              order: 0,
+            },
+          ],
+          featuredEffectId: null,
+        },
+      }),
+    });
+    const body = saveResponseSchema.parse(await response.json());
+
+    expect(response.status).toBe(200);
+    expect(body.state.effects).toEqual([]);
+    bootstrapRevision = body.state.revision;
+  });
+
+  it("rejects a saved effect whose icon is not in the effect catalog", async () => {
+    const bootstrap = bootstrapResponseSchema.parse(
+      await (
+        await fetchWorker("http://localhost/api/editor/bootstrap", {
+          headers: { cookie, "x-editor-tab": "test-tab-a" },
+        })
+      ).json(),
+    );
+    csrfToken = bootstrap.csrfToken;
+    const { revision, overlayEnabled, updatedAt, updatedBy, ...draft } = bootstrap.state;
+    expect([overlayEnabled, updatedAt, updatedBy]).toHaveLength(3);
+
+    const response = await fetchWorker("http://localhost/api/state", {
+      method: "PUT",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({
+        baseRevision: revision,
+        state: {
+          ...draft,
+          effects: [
+            {
+              id: "unknown-icon-effect",
+              catalogId: null,
+              kind: "buff",
+              name: "Selbstgebaut",
+              description: null,
+              iconId: "not-a-real-catalog-icon",
+              stacks: null,
+              expiresAt: null,
+              order: 0,
+            },
+          ],
+          featuredEffectId: null,
+        },
+      }),
+    });
+    const body = await response.json<{ error: { code: string; fieldErrors?: Record<string, string> } }>();
+
+    expect(response.status).toBe(422);
+    expect(body.error.code).toBe("validation_failed");
+    expect(typeof body.error.fieldErrors?.["effects[0].iconId"]).toBe("string");
+  });
+
+  it("turns a bare validation Error (too-soon effect expiry) into a 422 instead of a 500", async () => {
+    const bootstrap = bootstrapResponseSchema.parse(
+      await (
+        await fetchWorker("http://localhost/api/editor/bootstrap", {
+          headers: { cookie, "x-editor-tab": "test-tab-a" },
+        })
+      ).json(),
+    );
+    csrfToken = bootstrap.csrfToken;
+    const { revision, overlayEnabled, updatedAt, updatedBy, ...draft } = bootstrap.state;
+    expect([overlayEnabled, updatedAt, updatedBy]).toHaveLength(3);
+
+    const tooSoon = new Date(Date.now() + 10_000).toISOString();
+    const response = await fetchWorker("http://localhost/api/state", {
+      method: "PUT",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({
+        baseRevision: revision,
+        state: {
+          ...draft,
+          effects: [
+            {
+              id: "too-soon-effect",
+              catalogId: "buff-gestaerkt",
+              kind: "buff",
+              name: "Gestärkt",
+              description: null,
+              iconId: "buff-gestaerkt",
+              stacks: null,
+              expiresAt: tooSoon,
+              order: 0,
+            },
+          ],
+          featuredEffectId: null,
+        },
+      }),
+    });
+    const body = await response.json<{ error: { code: string; message: string } }>();
+
+    // Vor dem Fix wurde dieses ungefangene `Error` aus validateEffectExpiries
+    // zu einem 500 statt zu einem sauberen 422 mit Klartext-Meldung.
+    expect(response.status).toBe(422);
+    expect(body.error.code).toBe("validation_failed");
+    expect(body.error.message).toContain("mindestens einer Minute");
+  });
+
+  it("authorizes an overlay WebSocket by token, discards oversized frames and answers time sync", async () => {
+    // Der zuvor rotierte OBS-Token aus "creates and rotates a read-only overlay
+    // token idempotently" ist zu diesem Zeitpunkt der Datei noch aktiv (Generation 2).
+    const overlayToken = "B".repeat(43);
+    const upgrade = await fetchWorker(`http://localhost/ws/overlay?token=${overlayToken}`, {
+      headers: { upgrade: "websocket" },
+    });
+    expect(upgrade.status).toBe(101);
+    const socket = upgrade.webSocket;
+    expect(socket).not.toBeNull();
+    if (socket === null) throw new Error("expected a WebSocket upgrade");
+    socket.accept();
+
+    const waitForMessage = (timeoutMs = 1_000): Promise<string | null> =>
+      new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          socket.removeEventListener("message", onMessage);
+          resolve(null);
+        }, timeoutMs);
+        const onMessage = (event: MessageEvent) => {
+          clearTimeout(timer);
+          socket.removeEventListener("message", onMessage);
+          resolve(typeof event.data === "string" ? event.data : null);
+        };
+        socket.addEventListener("message", onMessage);
+      });
+
+    try {
+      const initial = await waitForMessage();
+      expect(initial).not.toBeNull();
+      expect(JSON.parse(initial as string)).toMatchObject({ type: "snapshot" });
+
+      // Eine Nachricht über 98.304 Bytes wird verworfen, bevor sie geparst wird -
+      // keine Antwort, keine Verbindung wird geschlossen.
+      const oversized = JSON.stringify({
+        type: "time_sync_request",
+        clientTimestamp: 1,
+        filler: "x".repeat(99_000),
+      });
+      expect(new TextEncoder().encode(oversized).byteLength).toBeGreaterThan(98_304);
+      socket.send(oversized);
+      expect(await waitForMessage(300)).toBeNull();
+      expect(socket.readyState).toBe(1);
+
+      socket.send(JSON.stringify({ type: "time_sync_request", clientTimestamp: 987_654 }));
+      const reply = await waitForMessage();
+      expect(reply).not.toBeNull();
+      const parsed = JSON.parse(reply as string) as { type: string; clientTimestamp: number; serverTime: string };
+      expect(parsed.type).toBe("time_sync");
+      expect(parsed.clientTimestamp).toBe(987_654);
+      expect(parsed.serverTime).toEqual(expect.any(String));
+    } finally {
+      // Bewusst ohne Code schliessen, genau wie die echten Clients. Der Server
+      // erhaelt dadurch 1005 und darf ihn nicht zurueckspiegeln, sonst wirft
+      // workerd bei jedem normalen Verbindungsabbau InvalidAccessError.
+      socket.close();
+    }
+  });
+
+  it("replaces a stale login row instead of hitting a UNIQUE constraint when caching a Twitch user", async () => {
+    const stub = env.CHANNEL.get(env.CHANNEL.idFromName(`channel:${env.BROADCASTER_ID}`));
+    const cache = (user: { id: string; login: string; displayName: string; profileImageUrl: string }) =>
+      stub.fetch("https://channel.internal/internal/twitch/cache", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ user }),
+      });
+
+    const first = await cache({
+      id: "10000000000000000001",
+      login: "gast_tv",
+      displayName: "GastTV Alt",
+      profileImageUrl: "https://example.test/alt.png",
+    });
+    expect(first.status).toBe(200);
+
+    // Ein zweiter Twitch-Account beansprucht denselben Login (z.B. nach einer
+    // Umbenennung). Vor dem Fix knallte hier ein unbehandelter UNIQUE-Constraint
+    // auf `login` mit einem 500.
+    const second = await cache({
+      id: "20000000000000000002",
+      login: "gast_tv",
+      displayName: "GastTV Neu",
+      profileImageUrl: "https://example.test/neu.png",
+    });
+    expect(second.status).toBe(200);
+
+    const rows = await runInDurableObject(stub, (_instance, state) =>
+      state.storage.sql
+        .exec<{ twitch_user_id: string; display_name: string }>(
+          "SELECT twitch_user_id, display_name FROM twitch_user_cache WHERE login = ?",
+          "gast_tv",
+        )
+        .toArray(),
+    );
+    expect(rows).toEqual([{ twitch_user_id: "20000000000000000002", display_name: "GastTV Neu" }]);
+  });
+
+  it("purges csrf_tokens along with an expired session instead of leaving them orphaned", async () => {
+    // Diese Test läuft absichtlich als letzter in der Datei: er lässt die im
+    // beforeAll erzeugte Sitzung ablaufen und macht `cookie`/`csrfToken`
+    // damit für alle nachfolgenden Tests unbrauchbar.
+    const stub = env.CHANNEL.get(env.CHANNEL.idFromName(`channel:${env.BROADCASTER_ID}`));
+    const sessionHash = await runInDurableObject(stub, (_instance, state) =>
+      state.storage.sql
+        .exec<{ session_hash: string }>("SELECT session_hash FROM editor_sessions LIMIT 1")
+        .toArray()[0]?.session_hash,
+    );
+    expect(sessionHash).toBeDefined();
+
+    const csrfBefore = await runInDurableObject(stub, (_instance, state) =>
+      state.storage.sql
+        .exec<{ count: number }>(
+          "SELECT COUNT(*) as count FROM csrf_tokens WHERE session_hash = ?",
+          sessionHash,
+        )
+        .toArray()[0]?.count,
+    );
+    expect(csrfBefore).toBeGreaterThan(0);
+
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE editor_sessions SET idle_expires_at = ?, absolute_expires_at = ? WHERE session_hash = ?",
+        "2000-01-01T00:00:00.000Z",
+        "2000-01-01T00:00:00.000Z",
+        sessionHash,
+      );
+    });
+
+    const response = await fetchWorker("http://localhost/api/editor/bootstrap", {
+      headers: { cookie, "x-editor-tab": "test-tab-a" },
+    });
+    const body = await response.json<{ error: { code: string } }>();
+    expect(response.status).toBe(401);
+    expect(body.error.code).toBe("unauthorized");
+
+    const [sessionAfter, csrfAfter] = await runInDurableObject(stub, (_instance, state) => [
+      state.storage.sql
+        .exec<{ session_hash: string }>("SELECT session_hash FROM editor_sessions WHERE session_hash = ?", sessionHash)
+        .toArray()[0],
+      state.storage.sql
+        .exec<{ count: number }>(
+          "SELECT COUNT(*) as count FROM csrf_tokens WHERE session_hash = ?",
+          sessionHash,
+        )
+        .toArray()[0]?.count,
+    ]);
+    expect(sessionAfter).toBeUndefined();
+    expect(csrfAfter).toBe(0);
   });
 });
