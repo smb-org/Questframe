@@ -480,8 +480,12 @@ const PortraitInput = ({
     setError("");
     try {
       onPortrait(await upload(await encodePortrait(file)));
-    } catch {
-      setError("Portrait konnte nicht verarbeitet werden.");
+    } catch (caught) {
+      setError(
+        caught instanceof Error && caught.message.trim() !== ""
+          ? caught.message
+          : "Portrait konnte nicht verarbeitet werden.",
+      );
     } finally {
       setBusy(false);
       event.target.value = "";
