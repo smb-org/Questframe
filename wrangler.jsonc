@@ -79,7 +79,7 @@
       ],
       "vars": {
         "APP_ENV": "staging",
-        "RELEASE_STAGE": "v1a"
+        "RELEASE_STAGE": "v1b"
       },
       "secrets": {
         "required": [
@@ -123,7 +123,7 @@
       ],
       "vars": {
         "APP_ENV": "production",
-        "RELEASE_STAGE": "v1a"
+        "RELEASE_STAGE": "v1b"
       },
       "secrets": {
         "required": [
