@@ -11,6 +11,7 @@
     "assets:build": "node scripts/build-visual-assets.mjs",
     "assets:verify": "node --experimental-strip-types scripts/verify-visual-assets.mjs",
     "config:verify": "node scripts/verify-deployment-config.mjs",
+    "twitch:id": "node scripts/resolve-broadcaster-id.mjs",
     "dev": "cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log vite",
     "build": "cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log vite build",
     "build:staging": "cross-env CLOUDFLARE_ENV=staging WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log vite build --mode cloudflare-staging && node scripts/verify-deployment-config.mjs validate-build staging",

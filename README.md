@@ -49,6 +49,8 @@ openssl rand -base64 32 | tr '+/' '-_' | tr -d '='
    ```
 
 3. In jeder Datei alle zehn Werte ersetzen. Dazu gehören auch `TWITCH_CLIENT_ID`, `BROADCASTER_ID`, `PUBLIC_ORIGIN`, `CAPSULE_ID`, `CAPSULE_NAME` und `TIMEZONE`. Sie sind nicht alle vertraulich, werden aber als externe Cloudflare-Secret-Bindings behandelt, damit keine installationsspezifischen Werte im Repository landen. Staging und Production verwenden unabhängige Twitch-Apps, Schlüssel und Capsule-Werte.
+
+   Um die eigene `BROADCASTER_ID` zu finden, hilft das optionale lokale Skript `npm run twitch:id -- <login> [env-datei]`, z.B. `npm run twitch:id -- meinlogin .env.staging`. Es liest `TWITCH_CLIENT_ID`/`TWITCH_CLIENT_SECRET` aus der angegebenen Datei (Standard `.dev.vars`), löst den Login über die Twitch-API auf und gibt die fertige `BROADCASTER_ID=…`-Zeile aus. Das Skript läuft rein lokal und ist optional; es ist nicht Teil von `npm run check` oder der Deploy-Skripte und wird weder beim Deployment noch zur Laufzeit ausgeführt.
 4. `CAPSULE_ID` nach dem ersten Einsatz stabil halten und sicher außerhalb des Repositories dokumentieren. `BROADCASTER_ID` bleibt eine positive Dezimalzeichenkette, nie eine JavaScript-Zahl; eine Änderung adressiert absichtlich ein anderes Durable Object.
 5. Das erste Staging-Deployment lokal ausführen:
 

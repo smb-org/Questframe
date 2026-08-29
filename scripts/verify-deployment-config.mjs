@@ -131,7 +131,10 @@ const validateDeploymentValues = (environment, values) => {
   if (unexpected.length > 0) failures.push(`Unerwartete Werte: ${unexpected.join(", ")}`);
 
   if (values.BROADCASTER_ID !== undefined && !/^[1-9]\d{0,29}$/.test(values.BROADCASTER_ID)) {
-    failures.push("BROADCASTER_ID muss eine positive Dezimalzeichenkette sein.");
+    failures.push(
+      "BROADCASTER_ID muss eine positive Dezimalzeichenkette sein. Zum Ermitteln: " +
+      "node scripts/resolve-broadcaster-id.mjs <login> [env-datei]",
+    );
   }
   if (values.PUBLIC_ORIGIN !== undefined) {
     try {
