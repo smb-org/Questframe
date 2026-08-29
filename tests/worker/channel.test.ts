@@ -1,6 +1,6 @@
 import { env, exports } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   bootstrapResponseSchema,
@@ -11,6 +11,7 @@ import {
   visibilityResponseSchema,
 } from "../../src/shared/contracts/api";
 import { OVERLAY_SOCKET_PROTOCOL } from "../../src/shared/contracts/protocol";
+import { RequestError } from "../../src/worker/http";
 
 let cookie = "";
 let csrfToken = "";
@@ -640,6 +641,215 @@ describe("channel worker", () => {
       }
     } finally {
       editorSocket.close();
+    }
+  });
+
+  it("keeps ten overlay slots available through a full reload burst", async () => {
+    const overlayToken = "D".repeat(43);
+    const sockets: WebSocket[] = [];
+    const connect = () =>
+      fetchWorker("http://localhost/ws/overlay", {
+        headers: {
+          upgrade: "websocket",
+          "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, ${overlayToken}`,
+        },
+      });
+    const stub = env.CHANNEL.get(env.CHANNEL.idFromName(`channel:${env.BROADCASTER_ID}`));
+    const overlaySocketCount = () =>
+      runInDurableObject(stub, (_instance, state) => state.getWebSockets("overlay").length);
+    const waitForSocketCount = async (expected: number): Promise<void> => {
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if ((await overlaySocketCount()) === expected) return;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      throw new Error(`expected ${String(expected)} overlay sockets`);
+    };
+
+    try {
+      const bootstrap = bootstrapResponseSchema.parse(
+        await (
+          await fetchWorker("http://localhost/api/editor/bootstrap", {
+            headers: { cookie, "x-editor-tab": "test-tab-a" },
+          })
+        ).json(),
+      );
+      csrfToken = bootstrap.csrfToken;
+      expect(bootstrap.capsule.overlayToken.generation).toBe(2);
+      const rotation = await fetchWorker("http://localhost/api/overlay-token/rotate", {
+        method: "POST",
+        headers: authenticatedHeaders(),
+        body: JSON.stringify({
+          requestId: "951cf197-8068-4fb6-b884-3fe3146a1468",
+          expectedGeneration: 2,
+          candidateToken: overlayToken,
+        }),
+      });
+      expect(rotation.status).toBe(200);
+      expect(overlayTokenResponseSchema.parse(await rotation.json())).toMatchObject({ generation: 3 });
+
+      const upgrades = await Promise.all(Array.from({ length: 10 }, () => connect()));
+      for (const upgrade of upgrades) {
+        const socket = upgrade.webSocket;
+        if (socket !== null) {
+          socket.accept();
+          sockets.push(socket);
+        }
+      }
+      expect(upgrades.map((upgrade) => upgrade.status)).toEqual(Array(10).fill(101));
+      expect(await overlaySocketCount()).toBe(10);
+
+      const reloadOverlaps = await Promise.all(Array.from({ length: 10 }, () => connect()));
+      for (const response of reloadOverlaps) {
+        expect(response.status).toBe(429);
+        expect((await response.json<{ error: { code: string } }>()).error.code).toBe("socket_limit");
+      }
+
+      for (const socket of sockets.splice(0)) socket.close();
+      await waitForSocketCount(0);
+
+      const replacements = await Promise.all(Array.from({ length: 10 }, () => connect()));
+      for (const replacement of replacements) {
+        const socket = replacement.webSocket;
+        if (socket !== null) {
+          socket.accept();
+          sockets.push(socket);
+        }
+      }
+      expect(replacements.map((replacement) => replacement.status)).toEqual(Array(10).fill(101));
+      expect(await overlaySocketCount()).toBe(10);
+    } finally {
+      for (const socket of sockets) socket.close();
+      await waitForSocketCount(0);
+    }
+  });
+
+  it("admits only ten overlays when eleven HMAC checks finish together", async () => {
+    const originalSign = crypto.subtle.sign.bind(crypto.subtle);
+    let releaseHmacs = (): void => undefined;
+    let markAllHmacsStarted = (): void => undefined;
+    const allHmacsStarted = new Promise<void>((resolve) => {
+      markAllHmacsStarted = resolve;
+    });
+    const hmacRelease = new Promise<void>((resolve) => {
+      releaseHmacs = resolve;
+    });
+    let startedHmacs = 0;
+    const signSpy = vi.spyOn(crypto.subtle, "sign").mockImplementation(async (...args) => {
+      startedHmacs += 1;
+      if (startedHmacs === 11) markAllHmacsStarted();
+      await hmacRelease;
+      return originalSign(...args);
+    });
+
+    try {
+      const stub = env.CHANNEL.get(env.CHANNEL.idFromName(`channel:${env.BROADCASTER_ID}`));
+      const result = await runInDurableObject(stub, async (instance, state) => {
+        const connectOverlay = (
+          instance as unknown as {
+            connectOverlay(request: Request): Promise<Response>;
+          }
+        ).connectOverlay.bind(instance);
+        const attempts = Array.from({ length: 11 }, async () => {
+          try {
+            const response = await connectOverlay(
+              new Request("https://channel.internal/ws/overlay", {
+                headers: { upgrade: "websocket", "x-overlay-token": "D".repeat(43) },
+              }),
+            );
+            const socket = response.webSocket;
+            if (socket !== null) {
+              socket.accept();
+              socket.close();
+            }
+            return { status: response.status, errorCode: undefined };
+          } catch (error) {
+            if (!(error instanceof RequestError)) throw error;
+            return { status: error.status, errorCode: error.code };
+          }
+        });
+        await allHmacsStarted;
+        releaseHmacs();
+        const outcomes = await Promise.all(attempts);
+        return {
+          outcomes,
+          connectedSockets: state.getWebSockets("overlay").length,
+        };
+      });
+      expect(result.outcomes.filter(({ status }) => status === 101)).toHaveLength(10);
+      expect(result.outcomes.filter(({ errorCode }) => errorCode === "socket_limit")).toHaveLength(1);
+      expect(result.connectedSockets).toBe(10);
+    } finally {
+      releaseHmacs();
+      signSpy.mockRestore();
+    }
+
+    const stub = env.CHANNEL.get(env.CHANNEL.idFromName(`channel:${env.BROADCASTER_ID}`));
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const connected = await runInDurableObject(
+        stub,
+        (_instance, state) => state.getWebSockets("overlay").length,
+      );
+      if (connected === 0) return;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error("expected all parallel overlay sockets to close");
+  });
+
+  it("rejects an old overlay token when rotation finishes during its HMAC check", async () => {
+    const originalSign = crypto.subtle.sign.bind(crypto.subtle);
+    let releaseHmac = (): void => undefined;
+    let markHmacStarted = (): void => undefined;
+    const hmacStarted = new Promise<void>((resolve) => {
+      markHmacStarted = resolve;
+    });
+    const hmacRelease = new Promise<void>((resolve) => {
+      releaseHmac = resolve;
+    });
+    let blockFirstSign = true;
+    const signSpy = vi.spyOn(crypto.subtle, "sign").mockImplementation(async (...args) => {
+      if (blockFirstSign) {
+        blockFirstSign = false;
+        markHmacStarted();
+        await hmacRelease;
+      }
+      return originalSign(...args);
+    });
+    try {
+      const stub = env.CHANNEL.get(env.CHANNEL.idFromName(`channel:${env.BROADCASTER_ID}`));
+      const staleResult = await runInDurableObject(stub, async (instance, state) => {
+        const staleConnection = (
+          instance as unknown as {
+            connectOverlay(request: Request): Promise<Response>;
+          }
+        ).connectOverlay(
+          new Request("https://channel.internal/ws/overlay", {
+            headers: { upgrade: "websocket", "x-overlay-token": "D".repeat(43) },
+          }),
+        );
+        await hmacStarted;
+        state.storage.sql.exec(
+          "UPDATE overlay_tokens SET token_hash = ?, generation = ? WHERE singleton = 1",
+          "rotated-while-hashing",
+          3,
+        );
+        releaseHmac();
+        try {
+          const response = await staleConnection;
+          const socket = response.webSocket;
+          if (socket !== null) {
+            socket.accept();
+            socket.close();
+          }
+          return { status: response.status, errorCode: undefined };
+        } catch (error) {
+          if (!(error instanceof RequestError)) throw error;
+          return { status: error.status, errorCode: error.code };
+        }
+      });
+      expect(staleResult).toEqual({ status: 403, errorCode: "token_invalid" });
+    } finally {
+      releaseHmac();
+      signSpy.mockRestore();
     }
   });
 

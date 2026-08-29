@@ -21,7 +21,7 @@ const bootstrap = (): BootstrapResponse => ({
       maxGuests: 5,
       maxActiveEffects: 8,
       maxEditorSockets: 10,
-      maxOverlaySockets: 2,
+      maxOverlaySockets: 10,
       maxMediaBytes: 8_388_608,
     },
     overlayToken: {

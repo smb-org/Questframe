@@ -23,7 +23,7 @@ const bootstrap = () => ({
       maxGuests: 5 as const,
       maxActiveEffects: 8 as const,
       maxEditorSockets: 10 as const,
-      maxOverlaySockets: 2 as const,
+      maxOverlaySockets: 10 as const,
       maxMediaBytes: 8_388_608 as const,
     },
     overlayToken: {

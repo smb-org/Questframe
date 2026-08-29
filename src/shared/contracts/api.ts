@@ -56,11 +56,15 @@ export const createApiError = (
   details: ApiErrorDetails = {},
 ): ApiError => apiErrorSchema.parse({ error: { code, message, ...details } });
 
+export const MAX_OVERLAY_SOCKETS = 10 as const;
+
 export const limitsSchema = z.strictObject({
   maxGuests: z.literal(5),
   maxActiveEffects: z.literal(8),
   maxEditorSockets: z.literal(10),
-  maxOverlaySockets: z.literal(2),
+  // Ein bereits laufender DO-Isolate kann während eines Deployments kurz noch
+  // den bisherigen Wert liefern. Neue Server erzeugen ausschließlich 10.
+  maxOverlaySockets: z.union([z.literal(2), z.literal(MAX_OVERLAY_SOCKETS)]),
   maxMediaBytes: z.literal(8_388_608),
 });
 
@@ -101,7 +105,7 @@ export const overlayTokenStatusSchema = z.strictObject({
   generation: z.number().int().min(0),
   createdAt: z.union([z.iso.datetime({ offset: true }), z.null()]),
   lastUsedAt: z.union([z.iso.datetime({ offset: true }), z.null()]),
-  connectedSockets: z.number().int().min(0).max(2),
+  connectedSockets: z.number().int().min(0).max(MAX_OVERLAY_SOCKETS),
 });
 
 export const bootstrapResponseSchema = z.strictObject({
@@ -224,7 +228,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   }),
   z.strictObject({
     type: z.literal("overlay_presence"),
-    connectedSockets: z.number().int().min(0).max(2),
+    connectedSockets: z.number().int().min(0).max(MAX_OVERLAY_SOCKETS),
   }),
 ]);
 

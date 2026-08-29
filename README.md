@@ -90,7 +90,7 @@ Das Gate prüft die externe Deployment-Konfiguration, Assets, Wrangler-Typen, Ty
 
 ## Cloudflare Free Tier
 
-Die Architektur benötigt nur Workers Static Assets und ein SQLite Durable Object; R2, D1, KV und kostenpflichtige Cloudflare-Dienste sind nicht erforderlich. Die vorgesehene Nutzung ist auf konservative Grenzen ausgelegt (ein Kanal, zwei Overlay- und zehn Editor-Verbindungen, fünf Gäste, acht Effekte, begrenzte Historie). Das ist bewusst **keine** Zusage unbegrenzter dynamischer Nutzung: Cloudflare kann Quoten ändern, und ungewöhnlich hoher oder missbräuchlicher Traffic kann Limits erreichen. Statische, fingerprinted App-Bundles werden am CDN langfristig gecacht; HUD-Grafiken revalidieren über ETags.
+Die Architektur benötigt nur Workers Static Assets und ein SQLite Durable Object; R2, D1, KV und kostenpflichtige Cloudflare-Dienste sind nicht erforderlich. Die vorgesehene Nutzung ist auf konservative Grenzen ausgelegt (ein Kanal, zehn Overlay- und zehn Editor-Verbindungen, fünf Gäste, acht Effekte, begrenzte Historie). Das ist bewusst **keine** Zusage unbegrenzter dynamischer Nutzung: Cloudflare kann Quoten ändern, und ungewöhnlich hoher oder missbräuchlicher Traffic kann Limits erreichen. Statische, fingerprinted App-Bundles werden am CDN langfristig gecacht; HUD-Grafiken revalidieren über ETags.
 
 ## Weitere Dokumentation
 

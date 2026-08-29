@@ -47,7 +47,7 @@ Effektzeiten sind ISO-Instant-Zeitpunkte. Der Overlay-Browser berechnet die Rest
 - gewöhnlicher JSON-Body: 128 KiB;
 - Bootstrap: 256 KiB;
 - Portrait: 256 KiB kodiert, quadratisch und höchstens 512 × 512;
-- zwei Overlay-, zehn Editor-Sockets, acht Effekte und fünf Gäste pro Capsule;
+- zehn Overlay-, zehn Editor-Sockets, acht Effekte und fünf Gäste pro Capsule;
 - Audit und Revisionshistorie werden begrenzt aufbewahrt.
 
 Bundle-, Transfer- und Startupbudgets sind ausführbare CI-Gates in `scripts/` und keine bloße Dokumentation.

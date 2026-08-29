@@ -5,6 +5,7 @@ import {
   auditEntrySchema,
   bootstrapResponseSchema,
   clientMessageSchema,
+  MAX_OVERLAY_SOCKETS,
   overlayTokenMutationRequestSchema,
   overlayTokenResponseSchema,
   renewMediaLeasesRequestSchema,
@@ -89,7 +90,7 @@ const limits = {
   maxGuests: 5,
   maxActiveEffects: 8,
   maxEditorSockets: 10,
-  maxOverlaySockets: 2,
+  maxOverlaySockets: MAX_OVERLAY_SOCKETS,
   maxMediaBytes: 8_388_608,
 } as const;
 const maxMediaBlobs = 32;
@@ -517,7 +518,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
           generation: overlayToken?.generation ?? 0,
           createdAt: overlayToken?.created_at ?? null,
           lastUsedAt: overlayToken?.last_used_at ?? null,
-          connectedSockets: Math.min(2, this.ctx.getWebSockets("overlay").length),
+          connectedSockets: Math.min(MAX_OVERLAY_SOCKETS, this.ctx.getWebSockets("overlay").length),
         },
       },
       capabilities: getReleaseCapabilities(this.env.RELEASE_STAGE),
@@ -943,9 +944,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
     }
     const token = request.headers.get("x-overlay-token");
     if (token === null) throw new RequestError(403, "token_invalid", "OBS-Token ungültig.");
+    const hash = await hmacHex(this.getOverlayTokenPepper(), token);
     const row = this.getOverlayToken();
     if (row === null) throw new RequestError(403, "token_invalid", "OBS-Token ungültig.");
-    const hash = await hmacHex(this.getOverlayTokenPepper(), token);
     if (!timingSafeEqual(row.token_hash, hash)) {
       throw new RequestError(403, "token_invalid", "OBS-Token ungültig.");
     }
@@ -1461,7 +1462,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
   // gerade schliesst, weil getWebSockets("overlay") ihn zu diesem Zeitpunkt noch enthalten kann.
   private broadcastOverlayPresence(excludeSocket?: WebSocket): void {
     const connectedSockets = Math.min(
-      2,
+      MAX_OVERLAY_SOCKETS,
       this.ctx.getWebSockets("overlay").filter((socket) => socket !== excludeSocket).length,
     );
     const message = JSON.stringify({ type: "overlay_presence", connectedSockets });

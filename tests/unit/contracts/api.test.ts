@@ -59,7 +59,7 @@ describe("API contracts", () => {
           maxGuests: 5,
           maxActiveEffects: 8,
           maxEditorSockets: 10,
-          maxOverlaySockets: 2,
+          maxOverlaySockets: 10,
           maxMediaBytes: 8_388_608,
         },
         overlayToken: {
@@ -86,6 +86,15 @@ describe("API contracts", () => {
     };
 
     expect(bootstrapResponseSchema.parse(envelope)).toEqual(envelope);
+    expect(
+      bootstrapResponseSchema.parse({
+        ...envelope,
+        capsule: {
+          ...envelope.capsule,
+          limits: { ...envelope.capsule.limits, maxOverlaySockets: 2 },
+        },
+      }).capsule.limits.maxOverlaySockets,
+    ).toBe(2);
     expect(() =>
       bootstrapResponseSchema.parse({
         ...envelope,
@@ -114,6 +123,12 @@ describe("API contracts", () => {
     expect(serverMessageSchema.parse({ type: "token_revoked" })).toEqual({
       type: "token_revoked",
     });
+    expect(
+      serverMessageSchema.parse({ type: "overlay_presence", connectedSockets: 10 }),
+    ).toEqual({ type: "overlay_presence", connectedSockets: 10 });
+    expect(() =>
+      serverMessageSchema.parse({ type: "overlay_presence", connectedSockets: 11 }),
+    ).toThrow();
     expect(() => serverMessageSchema.parse({ type: "secret_debug", value: 1 })).toThrow();
   });
 });

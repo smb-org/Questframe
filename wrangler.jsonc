@@ -20,12 +20,12 @@
     {
       "name": "OVERLAY_CAPSULE_LIMITER",
       "namespace_id": "11001",
-      "simple": { "limit": 12, "period": 60 }
+      "simple": { "limit": 60, "period": 10 }
     },
     {
       "name": "OVERLAY_TOKEN_LIMITER",
       "namespace_id": "11002",
-      "simple": { "limit": 6, "period": 60 }
+      "simple": { "limit": 30, "period": 10 }
     }
   ],
   "vars": {
@@ -69,12 +69,12 @@
         {
           "name": "OVERLAY_CAPSULE_LIMITER",
           "namespace_id": "12001",
-          "simple": { "limit": 12, "period": 60 }
+          "simple": { "limit": 60, "period": 10 }
         },
         {
           "name": "OVERLAY_TOKEN_LIMITER",
           "namespace_id": "12002",
-          "simple": { "limit": 6, "period": 60 }
+          "simple": { "limit": 30, "period": 10 }
         }
       ],
       "vars": {
@@ -113,12 +113,12 @@
         {
           "name": "OVERLAY_CAPSULE_LIMITER",
           "namespace_id": "13001",
-          "simple": { "limit": 12, "period": 60 }
+          "simple": { "limit": 60, "period": 10 }
         },
         {
           "name": "OVERLAY_TOKEN_LIMITER",
           "namespace_id": "13002",
-          "simple": { "limit": 6, "period": 60 }
+          "simple": { "limit": 30, "period": 10 }
         }
       ],
       "vars": {
