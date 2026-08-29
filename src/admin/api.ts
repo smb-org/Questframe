@@ -128,6 +128,7 @@ export class BrowserAdminApi implements AdminApi {
   subscribe(callbacks: {
     onState: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onState"];
     onOnlineChange: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onOnlineChange"];
+    onOverlayPresence: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onOverlayPresence"];
   }): () => void {
     let disposed = false;
     let socket: WebSocket | null = null;
@@ -152,11 +153,11 @@ export class BrowserAdminApi implements AdminApi {
           return;
         }
         const message = serverMessageSchema.safeParse(input);
-        if (
-          message.success &&
-          (message.data.type === "snapshot" || message.data.type === "state_committed")
-        ) {
+        if (!message.success) return;
+        if (message.data.type === "snapshot" || message.data.type === "state_committed") {
           callbacks.onState(message.data.state);
+        } else if (message.data.type === "overlay_presence") {
+          callbacks.onOverlayPresence(message.data.connectedSockets);
         }
       });
       socket.addEventListener("close", () => {

@@ -241,8 +241,9 @@ describe("BrowserAdminApi", () => {
     vi.useFakeTimers();
     const onState = vi.fn();
     const onOnlineChange = vi.fn();
+    const onOverlayPresence = vi.fn();
     const api = new BrowserAdminApi();
-    const dispose = api.subscribe({ onState, onOnlineChange });
+    const dispose = api.subscribe({ onState, onOnlineChange, onOverlayPresence });
     const socket = FakeWebSocket.instances[0];
     expect(socket?.url).toContain("/ws/editor?tab=");
 
@@ -251,8 +252,10 @@ describe("BrowserAdminApi", () => {
     socket?.emit("message", "not-json");
     socket?.emit("message", JSON.stringify({ type: "history_changed", undoTargets: [] }));
     socket?.emit("message", JSON.stringify({ type: "snapshot", state: state() }));
+    socket?.emit("message", JSON.stringify({ type: "overlay_presence", connectedSockets: 1 }));
     expect(onOnlineChange).toHaveBeenCalledWith(true);
     expect(onState).toHaveBeenCalledWith(state());
+    expect(onOverlayPresence).toHaveBeenCalledWith(1);
 
     socket?.emit("close");
     expect(onOnlineChange).toHaveBeenCalledWith(false);

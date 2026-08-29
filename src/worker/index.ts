@@ -14,6 +14,7 @@ import {
 } from "../channel/auth/crypto";
 import { errorResponse, jsonResponse } from "./http";
 import { getMissingBindings, type AppEnv } from "./env";
+import { OVERLAY_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
 import {
   completeTwitchAuthentication,
   refreshTwitchAuthentication,
@@ -508,8 +509,17 @@ const worker = {
     }
 
     if (request.method === "GET" && url.pathname === "/ws/overlay") {
-      const token = url.searchParams.get("token");
-      if (token === null) return errorResponse(403, "token_invalid", "OBS-Token ungültig.");
+      const protocolHeader = request.headers.get("sec-websocket-protocol");
+      const protocolEntries = protocolHeader?.split(",").map((entry) => entry.trim()) ?? [];
+      const [protocolName, token] = protocolEntries;
+      if (
+        protocolEntries.length !== 2 ||
+        protocolName !== OVERLAY_SOCKET_PROTOCOL ||
+        token === undefined ||
+        !/^[A-Za-z0-9_-]{43}$/.test(token)
+      ) {
+        return errorResponse(403, "token_invalid", "OBS-Token ungültig.");
+      }
       const capsuleLimit = await env.OVERLAY_CAPSULE_LIMITER.limit({ key: env.CAPSULE_ID });
       const tokenLimit = await env.OVERLAY_TOKEN_LIMITER.limit({
         key: (await sha256Hex(token)).slice(0, 32),

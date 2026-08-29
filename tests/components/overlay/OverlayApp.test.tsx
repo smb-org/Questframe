@@ -7,6 +7,7 @@ import {
   loadOverlaySnapshot,
   storeOverlaySnapshot,
 } from "../../../src/overlay/cache";
+import { OVERLAY_SOCKET_PROTOCOL } from "../../../src/shared/contracts/protocol";
 import { createDefaultState, twitchUserIdSchema } from "../../../src/shared/contracts/state";
 
 const token = "A".repeat(43);
@@ -16,11 +17,13 @@ const channelState = () => createDefaultState(actor, "2026-08-29T12:00:00.000Z")
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
   readonly url: string;
+  readonly protocols: string[];
   closed = false;
   private readonly listeners = new Map<string, Array<(event: Event & { data?: unknown }) => void>>();
 
-  constructor(url: string) {
+  constructor(url: string, protocols?: string | string[]) {
     this.url = url;
+    this.protocols = protocols === undefined ? [] : Array.isArray(protocols) ? protocols : [protocols];
     FakeWebSocket.instances.push(this);
   }
 
@@ -45,7 +48,7 @@ beforeEach(() => {
   localStorage.clear();
   FakeWebSocket.instances = [];
   vi.stubGlobal("WebSocket", FakeWebSocket);
-  window.history.replaceState({}, "", `/overlay?token=${token}`);
+  window.history.replaceState({}, "", `/overlay#token=${token}`);
 });
 
 afterEach(() => {
@@ -57,7 +60,7 @@ afterEach(() => {
 
 describe("OverlayApp realtime shell", () => {
   it("stays transparent and opens no connection for missing or malformed tokens", async () => {
-    window.history.replaceState({}, "", "/overlay?token=short");
+    window.history.replaceState({}, "", "/overlay#token=short");
     const { container } = render(<OverlayApp />);
     await act(async () => {
       await Promise.resolve();
@@ -75,7 +78,9 @@ describe("OverlayApp realtime shell", () => {
     expect(await screen.findByText("Streamer")).toBeInTheDocument();
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
     const socket = FakeWebSocket.instances[0];
-    expect(socket?.url).toContain(`/ws/overlay?token=${token}`);
+    expect(socket?.url).toMatch(/\/ws\/overlay$/);
+    expect(socket?.url).not.toContain(token);
+    expect(socket?.protocols).toEqual([OVERLAY_SOCKET_PROTOCOL, token]);
 
     const committed = {
       ...cached,
@@ -219,7 +224,9 @@ describe("OverlayApp realtime shell", () => {
 
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
     const socket = FakeWebSocket.instances[0];
-    expect(socket?.url).toContain(`/ws/overlay?token=${token}`);
+    expect(socket?.url).toMatch(/\/ws\/overlay$/);
+    expect(socket?.url).not.toContain(token);
+    expect(socket?.protocols).toEqual([OVERLAY_SOCKET_PROTOCOL, token]);
 
     const committed = channelState();
     act(() => {

@@ -218,6 +218,27 @@ describe("Admin workspace publication boundary", () => {
     expect(request?.state.player.hpPercent).toBe(42);
   });
 
+  it("shows the live OBS connection count pushed over the realtime channel instead of a stale zero", async () => {
+    const initial = bootstrap();
+    let onOverlayPresence: ((connectedSockets: number) => void) | undefined;
+    const api: AdminApi = {
+      save: vi.fn(),
+      setVisibility: () => Promise.resolve({ state: initial.state, auditEntry: null, undoTargets: [], serverTime: initial.serverTime }),
+      subscribe: (callbacks) => {
+        onOverlayPresence = callbacks.onOverlayPresence;
+        return () => undefined;
+      },
+    };
+    render(<AdminWorkspace initialBootstrap={initial} api={api} />);
+
+    expect(screen.getByText("Keine aktive OBS-Verbindung")).toBeInTheDocument();
+
+    act(() => onOverlayPresence?.(1));
+
+    expect(await screen.findByText("1 verbunden")).toBeInTheDocument();
+    expect(screen.queryByText("Keine aktive OBS-Verbindung")).not.toBeInTheDocument();
+  });
+
   it("edits the complete desktop V1b surface while preserving the explicit Save boundary", async () => {
     const user = userEvent.setup();
     const initial = bootstrap();

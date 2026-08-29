@@ -1,6 +1,8 @@
 import { exports } from "cloudflare:workers";
 import { beforeAll, describe, expect, it } from "vitest";
 
+import { OVERLAY_SOCKET_PROTOCOL } from "../../src/shared/contracts/protocol";
+
 let cookie = "";
 
 const fetchWorker = (path: string, init?: RequestInit): Promise<Response> =>
@@ -100,8 +102,15 @@ describe("Worker gateway failure boundaries", () => {
     const overlay = await fetchWorker("/ws/overlay");
     expect(overlay.status).toBe(403);
     expect(await errorCode(overlay)).toBe("token_invalid");
-    const invalidOverlay = await fetchWorker("/ws/overlay?token=short");
-    expect(invalidOverlay.status).toBe(400);
+    const invalidOverlay = await fetchWorker("/ws/overlay", {
+      headers: { "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, short` },
+    });
+    expect(invalidOverlay.status).toBe(403);
+    expect(await errorCode(invalidOverlay)).toBe("token_invalid");
+    const overlayMissingUpgrade = await fetchWorker("/ws/overlay", {
+      headers: { "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, ${"Z".repeat(43)}` },
+    });
+    expect(overlayMissingUpgrade.status).toBe(400);
   });
 
   it("validates Twitch guest lookup before any upstream request", async () => {

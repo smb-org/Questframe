@@ -38,7 +38,7 @@ test("a draft reaches a connected OBS overlay only after Save", async ({ page, c
 
 test("an unauthorized overlay stays completely transparent", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-desktop", "Desktop transparency gate");
-  await page.goto(`/overlay?token=${"A".repeat(43)}`);
+  await page.goto(`/overlay#token=${"A".repeat(43)}`);
 
   await expect(page.locator(".hud-stage")).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe("rgba(0, 0, 0, 0)");

@@ -7,6 +7,7 @@ import {
   twitchUserIdSchema,
 } from "./state";
 
+
 export const API_ERROR_CODES = [
   "bad_request",
   "unauthorized",
@@ -220,6 +221,10 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("time_sync"),
     clientTimestamp: z.number(),
     serverTime: z.iso.datetime({ offset: true }),
+  }),
+  z.strictObject({
+    type: z.literal("overlay_presence"),
+    connectedSockets: z.number().int().min(0).max(2),
   }),
 ]);
 

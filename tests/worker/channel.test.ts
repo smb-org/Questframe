@@ -10,6 +10,7 @@ import {
   uploadResponseSchema,
   visibilityResponseSchema,
 } from "../../src/shared/contracts/api";
+import { OVERLAY_SOCKET_PROTOCOL } from "../../src/shared/contracts/protocol";
 
 let cookie = "";
 let csrfToken = "";
@@ -480,10 +481,15 @@ describe("channel worker", () => {
     // Der zuvor rotierte OBS-Token aus "creates and rotates a read-only overlay
     // token idempotently" ist zu diesem Zeitpunkt der Datei noch aktiv (Generation 2).
     const overlayToken = "B".repeat(43);
-    const upgrade = await fetchWorker(`http://localhost/ws/overlay?token=${overlayToken}`, {
-      headers: { upgrade: "websocket" },
+    const upgrade = await fetchWorker("http://localhost/ws/overlay", {
+      headers: {
+        upgrade: "websocket",
+        "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, ${overlayToken}`,
+      },
     });
     expect(upgrade.status).toBe(101);
+    expect(upgrade.headers.get("sec-websocket-protocol")).toBe(OVERLAY_SOCKET_PROTOCOL);
+    expect(upgrade.headers.get("sec-websocket-protocol")).not.toContain(overlayToken);
     const socket = upgrade.webSocket;
     expect(socket).not.toBeNull();
     if (socket === null) throw new Error("expected a WebSocket upgrade");
@@ -532,6 +538,108 @@ describe("channel worker", () => {
       // erhaelt dadurch 1005 und darf ihn nicht zurueckspiegeln, sonst wirft
       // workerd bei jedem normalen Verbindungsabbau InvalidAccessError.
       socket.close();
+    }
+  });
+
+  it("rejects an overlay WebSocket upgrade without a Sec-WebSocket-Protocol header", async () => {
+    const response = await fetchWorker("http://localhost/ws/overlay", {
+      headers: { upgrade: "websocket" },
+    });
+    expect(response.status).toBe(403);
+    const body = await response.json<{ error: { code: string; message: string } }>();
+    expect(body.error.code).toBe("token_invalid");
+    expect(body.error.message).toBe("OBS-Token ungültig.");
+  });
+
+  it("rejects an overlay WebSocket upgrade with the wrong subprotocol name", async () => {
+    const overlayToken = "B".repeat(43);
+    const response = await fetchWorker("http://localhost/ws/overlay", {
+      headers: {
+        upgrade: "websocket",
+        "sec-websocket-protocol": `not-the-right-protocol, ${overlayToken}`,
+      },
+    });
+    expect(response.status).toBe(403);
+    const body = await response.json<{ error: { code: string; message: string } }>();
+    expect(body.error.code).toBe("token_invalid");
+  });
+
+  it("rejects an overlay WebSocket upgrade with a formally invalid token", async () => {
+    const response = await fetchWorker("http://localhost/ws/overlay", {
+      headers: {
+        upgrade: "websocket",
+        "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, not-a-valid-token`,
+      },
+    });
+    expect(response.status).toBe(403);
+    const body = await response.json<{ error: { code: string; message: string } }>();
+    expect(body.error.code).toBe("token_invalid");
+  });
+
+  it("pushes the live OBS connection count to editor sockets as overlays connect and disconnect", async () => {
+    const editorUpgrade = await fetchWorker("http://localhost/ws/editor?tab=test-tab-a", {
+      headers: { cookie, upgrade: "websocket" },
+    });
+    expect(editorUpgrade.status).toBe(101);
+    const editorSocket = editorUpgrade.webSocket;
+    expect(editorSocket).not.toBeNull();
+    if (editorSocket === null) throw new Error("expected a WebSocket upgrade");
+    editorSocket.accept();
+
+    const waitForMessage = (
+      socket: WebSocket,
+      predicate: (data: { type: string }) => boolean,
+      timeoutMs = 1_000,
+    ): Promise<Record<string, unknown> | null> =>
+      new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          socket.removeEventListener("message", onMessage);
+          resolve(null);
+        }, timeoutMs);
+        const onMessage = (event: MessageEvent) => {
+          if (typeof event.data !== "string") return;
+          const parsed = JSON.parse(event.data) as Record<string, unknown> & { type: string };
+          if (!predicate(parsed)) return;
+          clearTimeout(timer);
+          socket.removeEventListener("message", onMessage);
+          resolve(parsed);
+        };
+        socket.addEventListener("message", onMessage);
+      });
+
+    try {
+      // Der Editor-Socket erhaelt zuerst den initialen Snapshot.
+      const snapshot = await waitForMessage(editorSocket, (data) => data.type === "snapshot");
+      expect(snapshot).not.toBeNull();
+
+      // Der Listener muss VOR dem Verbindungsaufbau registriert werden: der Server
+      // sendet overlay_presence synchron waehrend connectOverlay bearbeitet wird, ein
+      // erst danach angehaengter Listener wuerde die Nachricht verpassen.
+      const connectedPromise = waitForMessage(editorSocket, (data) => data.type === "overlay_presence");
+      const overlayToken = "B".repeat(43);
+      const overlayUpgrade = await fetchWorker("http://localhost/ws/overlay", {
+        headers: {
+          upgrade: "websocket",
+          "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, ${overlayToken}`,
+        },
+      });
+      expect(overlayUpgrade.status).toBe(101);
+      const overlaySocket = overlayUpgrade.webSocket;
+      expect(overlaySocket).not.toBeNull();
+      if (overlaySocket === null) throw new Error("expected a WebSocket upgrade");
+      overlaySocket.accept();
+
+      try {
+        const connected = await connectedPromise;
+        expect(connected).toMatchObject({ type: "overlay_presence", connectedSockets: 1 });
+      } finally {
+        const disconnectedPromise = waitForMessage(editorSocket, (data) => data.type === "overlay_presence");
+        overlaySocket.close();
+        const disconnected = await disconnectedPromise;
+        expect(disconnected).toMatchObject({ type: "overlay_presence", connectedSockets: 0 });
+      }
+    } finally {
+      editorSocket.close();
     }
   });
 

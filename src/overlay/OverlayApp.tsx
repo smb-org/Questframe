@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { OVERLAY_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
 import type { ChannelState } from "../shared/contracts/state";
 import {
   fingerprintOverlayToken,
@@ -30,7 +31,10 @@ export const OverlayApp = () => {
   const [nowMilliseconds, setNowMilliseconds] = useState(() => Date.now());
   const [mediaUrls, setMediaUrls] = useState<ReadonlyMap<string, string>>(new Map());
   const objectUrlsRef = useRef(new Map<string, string>());
-  const params = useMemo(() => new URLSearchParams(window.location.search), []);
+  const params = useMemo(
+    () => new URLSearchParams(window.location.hash.replace(/^#/, "")),
+    [],
+  );
   const token = params.get("token");
   const capsuleScope = window.location.host;
 
@@ -55,9 +59,10 @@ export const OverlayApp = () => {
     const connect = () => {
       if (disposed || revoked) return;
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      socket = new WebSocket(
-        `${protocol}//${window.location.host}/ws/overlay?token=${encodeURIComponent(token)}`,
-      );
+      socket = new WebSocket(`${protocol}//${window.location.host}/ws/overlay`, [
+        OVERLAY_SOCKET_PROTOCOL,
+        token,
+      ]);
       socket.addEventListener("open", () => {
         retry = 0;
       });

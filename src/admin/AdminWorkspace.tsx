@@ -79,6 +79,7 @@ export type AdminApi = {
     | ((callbacks: {
         onState: (state: ChannelState) => void;
         onOnlineChange: (online: boolean) => void;
+        onOverlayPresence: (connectedSockets: number) => void;
       }) => () => void)
     | undefined;
   logout?: (() => Promise<void>) | undefined;
@@ -565,6 +566,9 @@ export const AdminWorkspace = ({
         });
       },
       onOnlineChange: setOnline,
+      onOverlayPresence: (connectedSockets) => {
+        setOverlayToken((current) => ({ ...current, connectedSockets }));
+      },
     });
   }, [api]);
 
@@ -730,7 +734,7 @@ export const AdminWorkspace = ({
     sessionStorage.setItem("irl-stream-hud-pending-token", JSON.stringify(pending));
     try {
       const result = await api.mutateOverlayToken(rotate, pending);
-      const url = `${window.location.origin}/overlay?token=${candidateToken}`;
+      const url = `${window.location.origin}/overlay#token=${candidateToken}`;
       sessionStorage.setItem("irl-stream-hud-obs-url", url);
       sessionStorage.removeItem("irl-stream-hud-pending-token");
       setObsUrl(url);

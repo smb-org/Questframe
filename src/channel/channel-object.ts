@@ -19,6 +19,7 @@ import {
   type AuditEntry,
   type UndoTarget,
 } from "../shared/contracts/api";
+import { OVERLAY_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
 import {
   channelStateDraftSchema,
   channelStateSchema,
@@ -967,7 +968,12 @@ export class ChannelObject extends DurableObject<AppEnv> {
       connectedAt: nowIso(),
     } satisfies SocketAttachment);
     server.send(JSON.stringify({ type: "snapshot", state: normalizeStateForRead(this.getRequiredState()) }));
-    return new Response(null, { status: 101, webSocket: client });
+    this.broadcastOverlayPresence();
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+      headers: { "sec-websocket-protocol": OVERLAY_SOCKET_PROTOCOL },
+    });
   }
 
   override webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): void {
@@ -1009,10 +1015,16 @@ export class ChannelObject extends DurableObject<AppEnv> {
       socket.close();
     }
     void wasClean;
+    if (this.readAttachment(socket)?.kind === "overlay") {
+      this.broadcastOverlayPresence(socket);
+    }
   }
 
   override webSocketError(socket: WebSocket): void {
     socket.close(1011, "socket_error");
+    if (this.readAttachment(socket)?.kind === "overlay") {
+      this.broadcastOverlayPresence(socket);
+    }
   }
 
   private ensureState(session: SessionRow): ChannelState {
@@ -1425,17 +1437,8 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const message = JSON.stringify({ type: "state_committed", state });
     for (const socket of this.ctx.getWebSockets()) {
       const attachment = this.readAttachment(socket);
-      if (attachment?.kind === "editor") {
-        const row = this.ctx.storage.sql
-          .exec<{ generation: number }>(
-            "SELECT generation FROM editor_sessions WHERE session_hash = ?",
-            attachment.sessionRecordId,
-          )
-          .toArray()[0];
-        if (row === undefined || row.generation !== attachment.sessionGeneration) {
-          socket.close(4001, "session_revoked");
-          continue;
-        }
+      if (attachment?.kind === "editor" && this.closeEditorSocketIfSessionRevoked(socket, attachment)) {
+        continue;
       }
       try {
         socket.send(message);
@@ -1451,6 +1454,48 @@ export class ChannelObject extends DurableObject<AppEnv> {
       undoTargets: this.getUndoTargets(),
     });
     for (const socket of this.ctx.getWebSockets("editor")) socket.send(message);
+  }
+
+  // Wird sowohl nach einer neuen Overlay-Verbindung als auch beim Schliessen/Fehler
+  // eines Overlay-Sockets aufgerufen. `excludeSocket` blendet den Socket aus, der sich
+  // gerade schliesst, weil getWebSockets("overlay") ihn zu diesem Zeitpunkt noch enthalten kann.
+  private broadcastOverlayPresence(excludeSocket?: WebSocket): void {
+    const connectedSockets = Math.min(
+      2,
+      this.ctx.getWebSockets("overlay").filter((socket) => socket !== excludeSocket).length,
+    );
+    const message = JSON.stringify({ type: "overlay_presence", connectedSockets });
+    for (const socket of this.ctx.getWebSockets("editor")) {
+      const attachment = this.readAttachment(socket);
+      if (attachment?.kind === "editor" && this.closeEditorSocketIfSessionRevoked(socket, attachment)) {
+        continue;
+      }
+      try {
+        socket.send(message);
+      } catch {
+        // Ein einzelner fehlschlagender Socket darf die Übertragung an andere nicht abbrechen.
+      }
+    }
+  }
+
+  // Prüft, ob die Session hinter einem Editor-Socket noch existiert und dessen
+  // generation zum Attachment passt; andernfalls wird der Socket beendet.
+  // Gibt zurück, ob der Socket geschlossen wurde (der Aufrufer soll ihn dann überspringen).
+  private closeEditorSocketIfSessionRevoked(
+    socket: WebSocket,
+    attachment: Extract<SocketAttachment, { kind: "editor" }>,
+  ): boolean {
+    const row = this.ctx.storage.sql
+      .exec<{ generation: number }>(
+        "SELECT generation FROM editor_sessions WHERE session_hash = ?",
+        attachment.sessionRecordId,
+      )
+      .toArray()[0];
+    if (row === undefined || row.generation !== attachment.sessionGeneration) {
+      socket.close(4001, "session_revoked");
+      return true;
+    }
+    return false;
   }
 
   private readAttachment(socket: WebSocket): SocketAttachment | null {

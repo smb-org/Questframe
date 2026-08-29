@@ -711,9 +711,9 @@ An effect that expires is filtered from reads and overlay rendering, but a conne
 - `POST /api/media/leases/renew` for hashes referenced by the current tab's draft
 - `GET /api/media/:contentHash`
 - `GET /api/twitch/users?login=...` for guest lookup
-- `GET /overlay?token=...`
+- `GET /overlay#token=...` (URL fragment, never sent to the server, so Workers request logs never see the token)
 - `GET /ws/editor`
-- `GET /ws/overlay?token=...`
+- `GET /ws/overlay` (token carried in the `Sec-WebSocket-Protocol` handshake header, not the query string, for the same logging reason)
 
 ### Typed envelopes
 
@@ -862,7 +862,7 @@ Initial OBS provisioning is explicit. When no overlay token exists, any Editor m
 
 First creation requires `expectedGeneration: 0`; rotation requires the generation observed by the dialog. In the transaction, a normal request succeeds only when that expected generation is current. A retry is an idempotent success only when current generation is exactly `expectedGeneration + 1` and current request ID, creating session, and candidate HMAC all match; it returns the original metadata and creates no second audit entry or socket closure. Reusing a request ID with different input returns `409 idempotency_mismatch`; any intervening creation/rotation returns `409 token_changed` and the client discards its candidate before refreshing status.
 
-After success, the Admin constructs `/overlay?token=<candidate>` against its exact current origin and retains the plaintext URL only in that tab's `sessionStorage`, so “Copy OBS URL” remains available during the tab. A transport failure retries the same candidate and request ID rather than creating another token. If the tab closes before confirmation, a later session cannot reconstruct the plaintext and must explicitly rotate again; this is the only remaining lost-candidate case and does not require server-side plaintext receipts.
+After success, the Admin constructs `/overlay#token=<candidate>` against its exact current origin and retains the plaintext URL only in that tab's `sessionStorage`, so “Copy OBS URL” remains available during the tab. The token lives in the URL fragment rather than the query string because browsers never transmit fragments to the server, keeping it out of Workers Logs' captured request URLs (`head_sampling_rate: 1` records every request, and the token is only invalidated by explicit rotation). The overlay page reads the fragment client-side and, when opening its WebSocket, sends the token as a `Sec-WebSocket-Protocol` entry instead of a query parameter, for the same reason. A transport failure retries the same candidate and request ID rather than creating another token. If the tab closes before confirmation, a later session cannot reconstruct the plaintext and must explicitly rotate again; this is the only remaining lost-candidate case and does not require server-side plaintext receipts.
 
 `GET /api/media/:contentHash` authorizes either an Editor cookie or `Authorization: Bearer <overlay-token>` supplied from overlay page memory. The overlay fetches authorized bytes and renders a temporary object URL rather than placing credentials in an `<img>` URL. A content hash is an identifier, not authorization. The route returns `Cache-Control: private, max-age=86400`; state stores only the hash, never a tokenized media URL. Revoked tokens receive `403`, though bytes already loaded into an offline browser cannot be remotely erased.
 
