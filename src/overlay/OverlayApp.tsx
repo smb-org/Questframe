@@ -91,13 +91,19 @@ export const OverlayApp = () => {
       });
     };
 
-    void fingerprintOverlayToken(token).then((value) => {
-      if (disposed) return;
-      fingerprint = value;
-      const cached = loadOverlaySnapshot(capsuleScope, fingerprint);
-      if (cached !== null) setState(cached);
-      connect();
-    });
+    void fingerprintOverlayToken(token)
+      .then((value) => {
+        if (disposed) return;
+        fingerprint = value;
+        const cached = loadOverlaySnapshot(capsuleScope, fingerprint);
+        if (cached !== null) setState(cached);
+      })
+      .catch(() => {
+        // Fingerprinting or cache load failed, proceed anyway
+      })
+      .finally(() => {
+        if (!disposed) connect();
+      });
 
     return () => {
       disposed = true;

@@ -20,7 +20,11 @@ export const storeOverlaySnapshot = (
   fingerprint: string,
   state: ChannelState,
 ): void => {
-  localStorage.setItem(cacheKeyFor(capsuleId, fingerprint), JSON.stringify(state));
+  try {
+    localStorage.setItem(cacheKeyFor(capsuleId, fingerprint), JSON.stringify(state));
+  } catch {
+    // Storage blocked or full, silently ignore
+  }
 };
 
 export const loadOverlaySnapshot = (
@@ -28,18 +32,26 @@ export const loadOverlaySnapshot = (
   fingerprint: string,
 ): ChannelState | null => {
   const key = cacheKeyFor(capsuleId, fingerprint);
-  const stored = localStorage.getItem(key);
-  if (stored === null) return null;
   try {
+    const stored = localStorage.getItem(key);
+    if (stored === null) return null;
     const parsed = parseOverlayState(JSON.parse(stored));
     if (parsed === null) throw new Error("Invalid cached state");
     return parsed;
   } catch {
-    localStorage.removeItem(key);
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // Storage blocked, ignore removal failure
+    }
     return null;
   }
 };
 
 export const removeOverlaySnapshot = (capsuleId: string, fingerprint: string): void => {
-  localStorage.removeItem(cacheKeyFor(capsuleId, fingerprint));
+  try {
+    localStorage.removeItem(cacheKeyFor(capsuleId, fingerprint));
+  } catch {
+    // Storage blocked, silently ignore
+  }
 };

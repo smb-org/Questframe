@@ -212,4 +212,19 @@ describe("OverlayApp realtime shell", () => {
     });
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:late");
   });
+
+  it("still connects the WebSocket even when token fingerprinting fails (e.g. no crypto.subtle)", async () => {
+    vi.spyOn(crypto.subtle, "digest").mockRejectedValue(new Error("crypto.subtle unavailable"));
+    render(<OverlayApp />);
+
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0];
+    expect(socket?.url).toContain(`/ws/overlay?token=${token}`);
+
+    const committed = channelState();
+    act(() => {
+      socket?.emit("message", JSON.stringify({ type: "snapshot", state: committed }));
+    });
+    expect(await screen.findByText("Streamer")).toBeInTheDocument();
+  });
 });

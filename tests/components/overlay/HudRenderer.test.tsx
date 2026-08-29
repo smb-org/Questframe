@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createDefaultState, twitchUserIdSchema } from "../../../src/shared/contracts/state";
@@ -113,5 +113,100 @@ describe("HUD renderer", () => {
       />,
     );
     expect(screen.queryByText("Müde")).not.toBeInTheDocument();
+  });
+
+  it("falls back to initials when a portrait image fails, and recovers once a new source is set", () => {
+    const state = createDefaultState(actor, "2026-08-29T12:00:00.000Z");
+    const { container, rerender } = render(
+      <HudRenderer
+        state={{
+          ...state,
+          player: {
+            ...state.player,
+            name: "Alex Bergsteiger",
+            portrait: { kind: "twitch", userId: twitchUserIdSchema.parse("999"), url: "https://example.test/broken.png" },
+          },
+        }}
+      />,
+    );
+
+    const image = container.querySelector("img.hud-portrait-image");
+    expect(image).not.toBeNull();
+    expect(screen.queryByText("AB")).not.toBeInTheDocument();
+
+    fireEvent.error(image as HTMLImageElement);
+    expect(container.querySelector("img.hud-portrait-image")).toBeNull();
+    expect(screen.getByText("AB")).toBeInTheDocument();
+
+    // Der Bug: ein NEUES Portrait wurde faelschlich weiterhin als "fehlgeschlagen" behandelt,
+    // weil nur ein Boolean statt der fehlgeschlagenen URL gemerkt wurde.
+    rerender(
+      <HudRenderer
+        state={{
+          ...state,
+          player: {
+            ...state.player,
+            name: "Alex Bergsteiger",
+            portrait: { kind: "twitch", userId: twitchUserIdSchema.parse("999"), url: "https://example.test/new.png" },
+          },
+        }}
+      />,
+    );
+    expect(screen.queryByText("AB")).not.toBeInTheDocument();
+    const recoveredImage = container.querySelector("img.hud-portrait-image");
+    expect(recoveredImage).not.toBeNull();
+    expect(recoveredImage).toHaveAttribute("src", "https://example.test/new.png");
+  });
+
+  it("falls back to a +/- glyph when an effect icon fails to load, and recovers for a different icon", () => {
+    const state = createDefaultState(actor, "2026-08-29T12:00:00.000Z");
+    const { container, rerender } = render(
+      <HudRenderer
+        nowMilliseconds={Date.parse("2026-08-29T12:00:00.000Z")}
+        state={{
+          ...state,
+          effects: [{
+            id: "effect-1",
+            catalogId: "buff-gestaerkt",
+            kind: "buff",
+            name: "Gestärkt",
+            description: null,
+            iconId: "buff-gestaerkt",
+            stacks: null,
+            expiresAt: null,
+            order: 0,
+          }],
+        }}
+      />,
+    );
+
+    const icon = container.querySelector(".hud-effect img");
+    expect(icon).not.toBeNull();
+    fireEvent.error(icon as HTMLImageElement);
+    expect(container.querySelector(".hud-effect img")).toBeNull();
+    expect(container.querySelector(".hud-effect-fallback")?.textContent).toBe("+");
+
+    rerender(
+      <HudRenderer
+        nowMilliseconds={Date.parse("2026-08-29T12:00:00.000Z")}
+        state={{
+          ...state,
+          effects: [{
+            id: "effect-2",
+            catalogId: "debuff-muede",
+            kind: "debuff",
+            name: "Müde",
+            description: null,
+            iconId: "debuff-muede",
+            stacks: null,
+            expiresAt: null,
+            order: 0,
+          }],
+        }}
+      />,
+    );
+    expect(container.querySelector(".hud-effect-fallback")).toBeNull();
+    const recoveredIcon = container.querySelector(".hud-effect img");
+    expect(recoveredIcon).toHaveAttribute("src", "/assets/effects/debuff-muede.webp");
   });
 });

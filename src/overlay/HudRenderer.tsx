@@ -40,17 +40,17 @@ const portraitUrl = (
 };
 
 const Portrait = ({ portrait, name, mediaUrls }: PortraitProps) => {
-  const [failed, setFailed] = useState(false);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const url = portraitUrl(portrait, mediaUrls);
   const initials = portrait.kind === "initials" ? portrait.text : initialsFor(name);
-  return url !== null && !failed ? (
+  return url !== null && failedUrl !== url ? (
     <img
       alt=""
       className="hud-portrait-image"
       draggable={false}
       src={url}
       onError={() => {
-        setFailed(true);
+        setFailedUrl(url);
       }}
     />
   ) : (
@@ -93,7 +93,8 @@ const Bar = ({ percent, kind, label, color, testId, compact = false }: BarProps)
 };
 
 const EffectIcon = ({ effect, remaining }: { effect: ActiveEffect; remaining: number | null }) => {
-  const [failed, setFailed] = useState(false);
+  const [failedIconId, setFailedIconId] = useState<string | null>(null);
+  const failed = failedIconId === effect.iconId;
   return (
     <div className={`hud-effect hud-effect--${effect.kind}`} title={effect.description ?? effect.name}>
       {failed ? (
@@ -104,7 +105,7 @@ const EffectIcon = ({ effect, remaining }: { effect: ActiveEffect; remaining: nu
           draggable={false}
           src={`/assets/effects/${effect.iconId}.webp`}
           onError={() => {
-            setFailed(true);
+            setFailedIconId(effect.iconId);
           }}
         />
       )}
