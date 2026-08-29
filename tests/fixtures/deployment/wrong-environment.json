@@ -1,0 +1,21 @@
+{
+  "name": "irl-stream-hud-staging",
+  "vars": {
+    "APP_ENV": "local",
+    "RELEASE_STAGE": "v1a"
+  },
+  "secrets": {
+    "required": [
+      "TWITCH_CLIENT_ID",
+      "TWITCH_CLIENT_SECRET",
+      "BROADCASTER_ID",
+      "PUBLIC_ORIGIN",
+      "CAPSULE_ID",
+      "CAPSULE_NAME",
+      "TIMEZONE",
+      "SESSION_COOKIE_KEYS",
+      "SESSION_ENCRYPTION_KEYS",
+      "OVERLAY_TOKEN_PEPPER"
+    ]
+  }
+}

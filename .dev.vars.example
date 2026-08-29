@@ -1,4 +1,10 @@
+TWITCH_CLIENT_ID=local-twitch-client-id
 TWITCH_CLIENT_SECRET=replace-with-twitch-client-secret
+BROADCASTER_ID=12345678901234567890
+PUBLIC_ORIGIN=http://localhost:5173
+CAPSULE_ID=irl-stream-hud-local
+CAPSULE_NAME=IRL Stream HUD Local
+TIMEZONE=Europe/Berlin
 SESSION_ENCRYPTION_KEYS={"active":{"id":"local-v1","key":"replace-with-32-byte-base64url-key"}}
 SESSION_COOKIE_KEYS={"active":{"id":"local-v1","key":"replace-with-32-byte-base64url-key"}}
 OVERLAY_TOKEN_PEPPER=replace-with-32-byte-base64url-key

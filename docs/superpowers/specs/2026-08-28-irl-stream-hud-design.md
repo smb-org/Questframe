@@ -1271,7 +1271,7 @@ Public V1 is complete only after V1b additionally proves that:
 - Setup guide covers Cloudflare account, Twitch application registration, broadcaster ID, OAuth callback, Worker secrets, Durable Object migration, and OBS browser-source URL.
 - GitHub Actions validates tests and builds on pull requests.
 - Local development, `staging`, and `production` are isolated environments. Local work uses only local SQLite Durable Object storage. Staging and production have different Worker names, Durable Object namespaces, Twitch applications/callbacks, `PUBLIC_ORIGIN` values, overlay tokens, and secrets; staging must never bind to the production script or namespace.
-- Every non-inheritable Wrangler value and binding is declared explicitly under both named environments. There is no deployable implicit/default production target; production requires the visibly intentional `wrangler deploy --env production` path.
+- Every non-inheritable Wrangler value and binding is declared explicitly under both named environments. There is no deployable implicit/default production target; production requires the visibly intentional `CLOUDFLARE_ENV=production` Vite build path, followed by validation of the generated flattened Wrangler configuration before its environment-less deploy.
 - GitHub Actions deploys an immutable candidate to `staging` only after unit, component, Worker integration, migration-fixture, browser, and build checks pass. Staging then runs OAuth eligibility, bootstrap, atomic Save, visibility, overlay token rotation, hibernating WebSocket reconnect, and full-snapshot recovery smoke tests against its isolated state.
 - A protected manual approval promotes the exact tested build to production. Routine production deploys happen outside an active stream because Cloudflare code updates disconnect existing WebSockets. Admin and OBS clients reconnect with backoff and receive a complete snapshot; the token-scoped local overlay copy covers the short reconnect interval.
 - Rollback may target only the immediately previous build whose schema compatibility was proven by the expand-then-contract gate. A failed staging migration, smoke test, or production health check stops promotion rather than attempting an automatic state rollback.
@@ -1288,16 +1288,18 @@ No source edit is required. Deployment validates these bindings and values befor
 | Secret | `SESSION_ENCRYPTION_KEYS` | Active and optional previous 32-byte AES-GCM keys with IDs |
 | Secret | `SESSION_COOKIE_KEYS` | Active and optional previous HMAC-SHA-256 keys with IDs |
 | Secret | `OVERLAY_TOKEN_PEPPER` | Hashes read-only OBS tokens at rest |
-| Variable | `TWITCH_CLIENT_ID` | Twitch application identifier |
-| Variable | `BROADCASTER_ID` | Canonical allowed channel/user ID |
-| Variable | `PUBLIC_ORIGIN` | Exact HTTPS origin and OAuth callback base |
-| Variable | `CAPSULE_ID` | Stable cache/session namespace |
-| Variable | `CAPSULE_NAME` | Human-readable deployment name |
-| Variable | `TIMEZONE` | IANA timezone; default `Europe/Berlin` |
+| External secret binding | `TWITCH_CLIENT_ID` | Twitch application identifier |
+| External secret binding | `BROADCASTER_ID` | Canonical allowed channel/user ID |
+| External secret binding | `PUBLIC_ORIGIN` | Exact HTTPS origin and OAuth callback base |
+| External secret binding | `CAPSULE_ID` | Stable cache/session namespace |
+| External secret binding | `CAPSULE_NAME` | Human-readable deployment name |
+| External secret binding | `TIMEZONE` | IANA timezone; default `Europe/Berlin` |
 | Binding | `CHANNEL` | Durable Object namespace |
 | Binding | `ASSETS` | Workers Static Assets binding |
 | Binding | `OVERLAY_CAPSULE_LIMITER` | Capsule-wide overlay admission limiter |
 | Binding | `OVERLAY_TOKEN_LIMITER` | Per-token-fingerprint overlay admission limiter |
+
+Only `APP_ENV` and the rollout control `RELEASE_STAGE` remain plaintext `vars` in the versioned Wrangler environments. All ten installation-specific strings are declared through per-environment `secrets.required` and provisioned from ignored `.env.staging` / `.env.production` files using Wrangler's explicit `--secrets-file` path. Treating public metadata as secret bindings is a source-control safety boundary, not a claim that those values remain hidden from users after the Worker returns them. Repository verification rejects committed deployment values and unprotected private env filenames; deployment preflight rejects missing, placeholder, malformed, or reused key material without logging values.
 
 Wrangler's first `new_sqlite_classes` migration registers the Durable Object class and namespace; it does not create the application's SQLite tables. The channel object owns a separate, versioned application-schema runner:
 

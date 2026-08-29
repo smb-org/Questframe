@@ -43,13 +43,24 @@ const getCookie = (request: Request, name: string): string | null => {
   return null;
 };
 
+const runtimeKeyring = (value: string | undefined, env: AppEnv, localFallback: string) => {
+  if (env.APP_ENV === "local") {
+    try {
+      const keyring = parseKeyring(value ?? "");
+      if (!keyring.active.key.startsWith("replace-")) return keyring;
+    } catch {
+      // Keep local development usable with the intentionally invalid example values.
+    }
+    return parseKeyring(localFallback);
+  }
+  return parseKeyring(value ?? "");
+};
+
 const cookieKeyring = (env: AppEnv) =>
-  parseKeyring(env.SESSION_COOKIE_KEYS ?? (env.APP_ENV === "local" ? LOCAL_COOKIE_KEYRING : ""));
+  runtimeKeyring(env.SESSION_COOKIE_KEYS, env, LOCAL_COOKIE_KEYRING);
 
 const encryptionKeyring = (env: AppEnv) =>
-  parseKeyring(
-    env.SESSION_ENCRYPTION_KEYS ?? (env.APP_ENV === "local" ? LOCAL_ENCRYPTION_KEYRING : ""),
-  );
+  runtimeKeyring(env.SESSION_ENCRYPTION_KEYS, env, LOCAL_ENCRYPTION_KEYRING);
 
 const resolveSession = async (
   request: Request,

@@ -1,11 +1,31 @@
 import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
 
+const placeholderKey = (fill: string): string => `replace-${fill.repeat(35)}`;
+
 export default defineConfig({
   plugins: [
     cloudflareTest({
       main: "./src/worker/index.ts",
       wrangler: { configPath: "./wrangler.jsonc" },
+      miniflare: {
+        bindings: {
+          TWITCH_CLIENT_ID: "local-twitch-client-id",
+          TWITCH_CLIENT_SECRET: "replace-with-test-twitch-client-secret",
+          BROADCASTER_ID: "12345678901234567890",
+          PUBLIC_ORIGIN: "http://localhost:5173",
+          CAPSULE_ID: "irl-stream-hud-test",
+          CAPSULE_NAME: "IRL Stream HUD Test",
+          TIMEZONE: "Europe/Berlin",
+          SESSION_COOKIE_KEYS: JSON.stringify({
+            active: { id: "test-cookie", key: placeholderKey("A") },
+          }),
+          SESSION_ENCRYPTION_KEYS: JSON.stringify({
+            active: { id: "test-encryption", key: placeholderKey("B") },
+          }),
+          OVERLAY_TOKEN_PEPPER: placeholderKey("C"),
+        },
+      },
     }),
   ],
   test: {

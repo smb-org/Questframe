@@ -23,7 +23,7 @@ npm run dev
 
 Für lokale Entwicklung steht `/auth/dev` als absichtlich nur unter `APP_ENV=local` verfügbarer Login bereit. Danach öffnet `/admin` die Konsole. Das lokale Cloudflare-SQLite-Durable-Object liegt in Wranglers Projektzustand und berührt weder Staging noch Production.
 
-Die vier Beispiel-Secrets müssen vor dem Start ersetzt werden. Einen passenden 32-Byte-Base64url-Wert erzeugt beispielsweise:
+Die zehn Beispiel-Bindings müssen vor dem Start geprüft beziehungsweise ersetzt werden; insbesondere alle `replace-with-…`-Werte. Einen passenden 32-Byte-Base64url-Wert erzeugt beispielsweise:
 
 ```bash
 openssl rand -base64 32 | tr '+/' '-_' | tr -d '='
@@ -41,21 +41,29 @@ openssl rand -base64 32 | tr '+/' '-_' | tr -d '='
 ## Twitch und Cloudflare einrichten
 
 1. In der Twitch Developer Console eine Anwendung anlegen. OAuth-Callback ist je Umgebung exakt `https://DEINE-DOMAIN/auth/twitch/callback`.
-2. In `wrangler.jsonc` unter `env.staging.vars` beziehungsweise `env.production.vars` `TWITCH_CLIENT_ID`, `BROADCASTER_ID`, `PUBLIC_ORIGIN`, `CAPSULE_ID`, `CAPSULE_NAME` und `TIMEZONE` je Deployment setzen. `CAPSULE_ID` bleibt nach dem ersten Einsatz stabil; `BROADCASTER_ID` bleibt eine Dezimalzeichenkette, nie eine JavaScript-Zahl.
-3. Für jede Umgebung vier separate Secrets setzen:
+2. Die ignorierten Deploymentdateien aus den sicheren Vorlagen erzeugen:
 
    ```bash
-   npx wrangler secret put TWITCH_CLIENT_SECRET --env staging
-   npx wrangler secret put SESSION_COOKIE_KEYS --env staging
-   npx wrangler secret put SESSION_ENCRYPTION_KEYS --env staging
-   npx wrangler secret put OVERLAY_TOKEN_PEPPER --env staging
+   cp .env.staging.example .env.staging
+   cp .env.production.example .env.production
    ```
 
-   Dasselbe mit `--env production` und unabhängigen Werten wiederholen.
+3. In jeder Datei alle zehn Werte ersetzen. Dazu gehören auch `TWITCH_CLIENT_ID`, `BROADCASTER_ID`, `PUBLIC_ORIGIN`, `CAPSULE_ID`, `CAPSULE_NAME` und `TIMEZONE`. Sie sind nicht alle vertraulich, werden aber als externe Cloudflare-Secret-Bindings behandelt, damit keine installationsspezifischen Werte im Repository landen. Staging und Production verwenden unabhängige Twitch-Apps, Schlüssel und Capsule-Werte.
+4. `CAPSULE_ID` nach dem ersten Einsatz stabil halten und sicher außerhalb des Repositories dokumentieren. `BROADCASTER_ID` bleibt eine positive Dezimalzeichenkette, nie eine JavaScript-Zahl; eine Änderung adressiert absichtlich ein anderes Durable Object.
+5. Das erste Staging-Deployment lokal ausführen:
 
-4. Staging nach dem vollständigen Gate deployen: `npm run deploy:staging`.
-5. `/healthz` prüfen, über Twitch anmelden und den Ablauf in [docs/OPERATIONS.md](docs/OPERATIONS.md) durchführen.
-6. Production wird erst nach Freigabe mit `npm run deploy:production` aktualisiert.
+   ```bash
+   npm run deploy:staging
+   ```
+
+   Der Preflight prüft Vollständigkeit, Platzhalter, HTTPS-Origin, Twitch-ID, IANA-Zeitzone sowie unabhängige gültige Keyrings. Wrangler lädt die Datei mit `--secrets-file` verschlüsselt zu Cloudflare; Werte erscheinen weder in `wrangler.jsonc` noch in der Kommandozeile. Spätere Code-Deployments erben die Cloudflare-Secrets. Änderungen werden durch einen erneuten Lauf mit der privaten Datei veröffentlicht.
+
+6. `/healthz` prüfen, über Twitch anmelden und den Ablauf in [docs/OPERATIONS.md](docs/OPERATIONS.md) durchführen.
+7. Production wird erst nach Freigabe mit `npm run deploy:production` initialisiert beziehungsweise aktualisiert.
+
+`.env.staging`, `.env.production`, `.env*` und `.dev.vars*` sind durch `.gitignore` geschützt; ausschließlich die wertfreien `*.example`-Vorlagen werden versioniert. `wrangler.jsonc` deklariert alle zehn Namen über `secrets.required`, sodass ein Erst-Deployment ohne vollständig hinterlegte Bindings hart fehlschlägt.
+
+Die Deploy-Skripte wählen die Cloudflare-Umgebung bereits beim Vite-Build über `CLOUDFLARE_ENV`, prüfen die daraus erzeugte Wrangler-Konfiguration und deployen anschließend genau diesen Build. Eigene Vite-Modusnamen verhindern dabei, dass Vite die privaten `.env.<umgebung>`-Dateien automatisch in den Build-Prozess lädt; nur Wrangler liest sie anschließend über `--secrets-file`. `wrangler deploy --env …` darf hier nicht nachträglich verwendet werden: Die Vite-Integration erzeugt beim Build eine bereits auf eine Umgebung reduzierte Konfiguration.
 
 Broadcaster und aktuell eingetragene Twitch-Moderator:innen erhalten dieselbe Editor-Rolle. Die App fordert keine Chat-, E-Mail- oder OBS-Berechtigungen an. Staging und Production müssen eigene Twitch-Anwendungen, Origins, Secrets, Overlay-Tokens und Durable-Object-Namensräume verwenden.
 
@@ -76,7 +84,7 @@ Bei einem Leak erzeugt **Neuen Token erzeugen** sofort eine neue URL und sperrt 
 npm run check
 ```
 
-Das Gate prüft Assets, Wrangler-Typen, TypeScript, ESLint, Coverage, Worker-Integration, Playwright, Bundle-/Transferbudgets und den lokalen Wrangler-Startup-Profiler. Die getestete Browserbasis ist der im Lockfile gepinnte Playwright-Chromium; OBS/CEF kann davon abweichen und wird deshalb zusätzlich im Stream-Rehearsal geprüft.
+Das Gate prüft die externe Deployment-Konfiguration, Assets, Wrangler-Typen, TypeScript, ESLint, Coverage, Worker-Integration, Playwright, Bundle-/Transferbudgets und den lokalen Wrangler-Startup-Profiler. Die getestete Browserbasis ist der im Lockfile gepinnte Playwright-Chromium; OBS/CEF kann davon abweichen und wird deshalb zusätzlich im Stream-Rehearsal geprüft.
 
 ## Cloudflare Free Tier
 
