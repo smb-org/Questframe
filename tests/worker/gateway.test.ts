@@ -131,6 +131,25 @@ describe("Worker gateway failure boundaries", () => {
     expect(await errorCode(invalid)).toBe("validation_failed");
   });
 
+  it("accepts the guest lookup that browsers actually send and still blocks cross-site reads", async () => {
+    for (const site of ["same-origin", "none"]) {
+      const response = await fetchWorker("/api/twitch/users?login=not%20valid", {
+        headers: { "sec-fetch-site": site, cookie },
+      });
+      expect(response.status, site).toBe(422);
+    }
+
+    const crossSite = await fetchWorker("/api/twitch/users?login=gast_tv", {
+      headers: { "sec-fetch-site": "cross-site", cookie },
+    });
+    expect(crossSite.status).toBe(403);
+    expect(await errorCode(crossSite)).toBe("forbidden");
+
+    const bare = await fetchWorker("/api/twitch/users?login=gast_tv", { headers: { cookie } });
+    expect(bare.status).toBe(403);
+    expect(await errorCode(bare)).toBe("forbidden");
+  });
+
   it("protects media reads and clears a same-origin logout cookie", async () => {
     const missing = await fetchWorker(`/api/media/${"a".repeat(64)}`);
     expect(missing.status).toBe(403);

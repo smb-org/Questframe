@@ -110,10 +110,19 @@ const proxyToChannel = async (
   );
 };
 
-const requireMutationOrigin = (request: Request, env: AppEnv): Response | null =>
+const requireSameOriginMutation = (request: Request, env: AppEnv): Response | null =>
   request.headers.get("origin") === env.PUBLIC_ORIGIN
     ? null
     : errorResponse(403, "forbidden", "Ungültiger Ursprung.");
+
+// Browser senden bei same-origin GET keinen Origin-Header; Sec-Fetch-Site ist aus JS nicht setzbar.
+const requireSameOriginRead = (request: Request, env: AppEnv): Response | null => {
+  const origin = request.headers.get("origin");
+  const site = request.headers.get("sec-fetch-site");
+  const allowed =
+    origin !== null ? origin === env.PUBLIC_ORIGIN : site === "same-origin" || site === "none";
+  return allowed ? null : errorResponse(403, "forbidden", "Ungültiger Ursprung.");
+};
 
 const handleDevAuth = async (env: AppEnv): Promise<Response> => {
   if (env.APP_ENV !== "local") return errorResponse(404, "not_found", "Route nicht gefunden.");
@@ -438,7 +447,7 @@ const worker = {
     }
 
     if (request.method === "POST" && url.pathname === "/auth/logout") {
-      const originError = requireMutationOrigin(request, env);
+      const originError = requireSameOriginMutation(request, env);
       if (originError !== null) return originError;
       const response = await proxyToChannel(request, env, "/internal/session/logout");
       const headers = new Headers(response.headers);
@@ -458,13 +467,13 @@ const worker = {
     }
 
     if (request.method === "POST" && url.pathname === "/api/auth/revalidate") {
-      const originError = requireMutationOrigin(request, env);
+      const originError = requireSameOriginMutation(request, env);
       if (originError !== null) return originError;
       return handleRevalidation(request, env);
     }
 
     if (request.method === "GET" && url.pathname === "/api/twitch/users") {
-      const originError = requireMutationOrigin(request, env);
+      const originError = requireSameOriginRead(request, env);
       if (originError !== null) return originError;
       return handleTwitchLookup(request, env);
     }
@@ -480,7 +489,7 @@ const worker = {
     };
     const mutationPath = mutations[url.pathname];
     if (mutationPath !== undefined) {
-      const originError = requireMutationOrigin(request, env);
+      const originError = requireSameOriginMutation(request, env);
       if (originError !== null) return originError;
       return proxyToChannel(request, env, mutationPath);
     }
