@@ -16,8 +16,9 @@ type RequiredSecretName = (typeof REQUIRED_SECRET_NAMES)[number];
 
 // Cloudflare's generated Env is the deploy-time contract. The optional edge here
 // preserves runtime handling for an incompletely provisioned first deployment.
-export type AppEnv = Omit<Env, RequiredSecretName> &
-  Partial<Pick<Env, RequiredSecretName>>;
+export type AppEnv = Omit<Env, RequiredSecretName | "APP_ENV"> & {
+  APP_ENV: "local" | Env["APP_ENV"];
+} & Partial<Pick<Env, RequiredSecretName>>;
 
 const readStringBinding = (env: AppEnv, name: keyof AppEnv): string | undefined => {
   const value: unknown = Reflect.get(env, name);
