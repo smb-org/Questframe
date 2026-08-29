@@ -29,4 +29,5 @@
 /*
   Referrer-Policy: no-referrer
   X-Content-Type-Options: nosniff
+  Content-Security-Policy: default-src 'self'; connect-src 'self' wss: ws:; img-src 'self' blob: data: https://static-cdn.jtvnw.net; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'
   Permissions-Policy: camera=(), microphone=(), geolocation=()

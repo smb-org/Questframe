@@ -34,4 +34,40 @@ describe("deployment configuration preflight", () => {
     expect(result.stderr).toContain("APP_ENV");
     expect(result.stderr).toContain("staging");
   });
+
+  it("rejects a deployment file that is entirely missing its required values, and names them", () => {
+    const result = spawnSync(
+      process.execPath,
+      [verifier, "validate-env", "staging", "tests/fixtures/deployment/missing-values.env"],
+      { cwd: projectRoot, encoding: "utf8" },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Werte fehlen");
+    for (const name of [
+      "TWITCH_CLIENT_ID",
+      "TWITCH_CLIENT_SECRET",
+      "BROADCASTER_ID",
+      "PUBLIC_ORIGIN",
+      "CAPSULE_ID",
+      "CAPSULE_NAME",
+      "TIMEZONE",
+      "SESSION_COOKIE_KEYS",
+      "SESSION_ENCRYPTION_KEYS",
+      "OVERLAY_TOKEN_PEPPER",
+    ]) {
+      expect(result.stderr).toContain(name);
+    }
+  });
+
+  it("accepts a complete, schema-valid deployment file", () => {
+    const result = spawnSync(
+      process.execPath,
+      [verifier, "validate-env", "staging", "tests/fixtures/deployment/complete-valid.env"],
+      { cwd: projectRoot, encoding: "utf8" },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Verified private staging deployment values.");
+  });
 });

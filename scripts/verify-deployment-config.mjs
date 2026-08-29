@@ -116,7 +116,7 @@ const readKeyring = (name, value, failures) => {
 
 const validateDeploymentValues = (environment, values) => {
   const failures = [];
-  const missing = deploymentBindings.filter((name) => values[name]?.trim() === "");
+  const missing = deploymentBindings.filter((name) => (values[name] ?? "").trim() === "");
   if (missing.length > 0) failures.push(`Werte fehlen: ${missing.join(", ")}`);
 
   const placeholders = deploymentBindings.filter((name) => {
