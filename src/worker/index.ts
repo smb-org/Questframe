@@ -372,9 +372,6 @@ const handleRevalidation = async (request: Request, env: AppEnv): Promise<Respon
 };
 
 const handleTwitchLookup = async (request: Request, env: AppEnv): Promise<Response> => {
-  if (env.RELEASE_STAGE !== "v1b") {
-    return errorResponse(403, "forbidden", "Gruppenverwaltung ist in V1a nicht aktiv.");
-  }
   const session = await resolveSession(request, env);
   const login = new URL(request.url).searchParams.get("login");
   if (session === null) return errorResponse(401, "unauthorized", "Sitzung abgelaufen.");

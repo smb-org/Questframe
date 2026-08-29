@@ -49,6 +49,25 @@ afterEach(() => {
 });
 
 describe("Admin workspace publication boundary", () => {
+  it("zooms the live preview without creating a publishable change", () => {
+    const initial = bootstrap();
+    render(<AdminWorkspace initialBootstrap={initial} api={{
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+    }} />);
+
+    const zoom = screen.getByRole("slider", { name: "Vorschau-Zoom" });
+    const previewPanel = screen.getByRole("heading", { name: "Live-Vorschau" }).closest("section");
+    expect(zoom).toHaveValue("100");
+    expect(previewPanel).toHaveStyle({ maxWidth: "980px" });
+
+    fireEvent.change(zoom, { target: { value: "150" } });
+
+    expect(screen.getByText("150%")).toBeInTheDocument();
+    expect(previewPanel).toHaveStyle({ maxWidth: "1470px" });
+    expect(screen.getByRole("button", { name: "Änderungen speichern" })).toBeDisabled();
+  });
+
   it("keeps all edits local until Save but toggles overlay visibility immediately", async () => {
     const user = userEvent.setup();
     const initial = bootstrap();

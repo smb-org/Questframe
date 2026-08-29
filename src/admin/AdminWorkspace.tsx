@@ -20,6 +20,7 @@ import {
   Users,
   Wifi,
   X,
+  ZoomIn,
 } from "lucide-react";
 import {
   useEffect,
@@ -527,6 +528,7 @@ export const AdminWorkspace = ({
   const [guestBusy, setGuestBusy] = useState(false);
   const [overlayToken, setOverlayToken] = useState(initialBootstrap.capsule.overlayToken);
   const [obsUrl, setObsUrl] = useState(() => sessionStorage.getItem("irl-stream-hud-obs-url") ?? "");
+  const [previewZoom, setPreviewZoom] = useState(100);
   const dirty = useMemo(
     () => JSON.stringify(draft) !== JSON.stringify(toDraft(committed)),
     [committed, draft],
@@ -845,10 +847,25 @@ export const AdminWorkspace = ({
       </aside>
 
       <main className="admin-main">
-        <section className="preview-panel">
+        <section className="preview-panel" style={{ maxWidth: `${String(9.8 * previewZoom)}px` }}>
           <div className="panel-heading">
             <div><span className="eyebrow">OBS-Komposition</span><h1>Live-Vorschau</h1></div>
-            <span className="preview-scale">1920 × 1080 Referenz</span>
+            <div className="preview-controls">
+              <label className="preview-zoom">
+                <ZoomIn aria-hidden="true" size={14} />
+                <input
+                  aria-label="Vorschau-Zoom"
+                  max={150}
+                  min={60}
+                  onChange={(event) => setPreviewZoom(Number(event.target.value))}
+                  step={10}
+                  type="range"
+                  value={previewZoom}
+                />
+                <output>{previewZoom}%</output>
+              </label>
+              <span className="preview-scale">1920 × 1080 Referenz</span>
+            </div>
           </div>
           <div className="preview-canvas">
             <div className="preview-safe-area" />
