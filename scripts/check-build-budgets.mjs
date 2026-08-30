@@ -1,9 +1,55 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
+import { sumDirectoryBytes } from "./lib/build-budget-assets.mjs";
+import { assetSizeKey, collectStaticClosure, evaluateBuildBudgets } from "./lib/build-budgets.mjs";
 
 const projectRoot = path.resolve(import.meta.dirname, "..");
 const clientRoot = path.join(projectRoot, "dist/client");
+const indexKey = "index.html";
+const overlayKey = "src/overlay/OverlayApp.tsx";
+const adminKey = "src/admin/AdminApp.tsx";
+// pnpm verschachtelt den aufgeloesten Pfad unter node_modules/.pnpm/..., deshalb
+// matchen wir weiterhin per Suffix statt gegen ein package-manager-spezifisches Layout.
+const temporalKeySuffix = "@js-temporal/polyfill/dist/index.esm.js";
+
+const createBudgetDeclarations = (temporalKey) => [
+  {
+    type: "surface",
+    key: overlayKey,
+    label: "Overlay",
+    staticRoots: [indexKey],
+    javascriptLabel: "Overlay initial JavaScript",
+    javascriptBudget: 120 * 1024,
+    transferLabel: "Overlay initial static transfer",
+    transferBudget: 1024 * 1024,
+    transferAssets: ["shell", "font", "hudMedia", "effects", "audio"],
+  },
+  {
+    type: "surface",
+    key: adminKey,
+    label: "Admin",
+    staticRoots: [indexKey],
+    javascriptLabel: "Admin initial JavaScript",
+    javascriptBudget: 250 * 1024,
+    transferLabel: "Admin initial static transfer",
+    transferBudget: 1.5 * 1024 * 1024,
+    transferAssets: ["shell", "font", "hudMedia"],
+  },
+  {
+    type: "surface",
+    key: temporalKey,
+    label: "Temporal",
+    javascriptLabel: "Lazy Temporal chunk",
+    javascriptBudget: 100 * 1024,
+  },
+  {
+    type: "exempt",
+    key: indexKey,
+    reason: "Die Shell fließt über staticRoots in jede Surface-Closure ein und steckt zusätzlich als Asset-Gruppe shell im Transfer.",
+  },
+];
+
 const manifest = JSON.parse(
   await readFile(path.join(clientRoot, ".vite/manifest.json"), "utf8"),
 );
@@ -12,53 +58,15 @@ const kibibytes = (bytes) => `${(bytes / 1024).toFixed(2)} KiB`;
 const compressedSize = async (relative) =>
   gzipSync(await readFile(path.join(clientRoot, relative)), { level: 9 }).byteLength;
 
-const collectStaticClosure = (entryKeys) => {
-  const visited = new Set();
-  const visit = (key) => {
-    if (visited.has(key)) return;
-    const entry = manifest[key];
-    if (entry === undefined) throw new Error(`Build manifest entry is missing: ${key}`);
-    visited.add(key);
-    for (const imported of entry.imports ?? []) visit(imported);
-  };
-  for (const key of entryKeys) visit(key);
-  return visited;
-};
-
-const sumJavaScript = async (closure) => {
-  const files = [...closure]
-    .map((key) => manifest[key].file)
-    .filter((file) => file.endsWith(".js"));
-  return (await Promise.all(files.map(compressedSize))).reduce((total, size) => total + size, 0);
-};
-
-const sumCss = async (closure) => {
-  const files = new Set(
-    [...closure].flatMap((key) => manifest[key].css ?? []),
-  );
-  return (await Promise.all([...files].map(compressedSize))).reduce((total, size) => total + size, 0);
-};
-
-const assertBudget = (label, actual, maximum) => {
-  const marker = actual <= maximum ? "PASS" : "FAIL";
-  console.log(`${marker.padEnd(4)} ${label.padEnd(34)} ${kibibytes(actual).padStart(12)} / ${kibibytes(maximum)}`);
-  if (actual > maximum) throw new Error(`${label} exceeds its build budget.`);
-};
-
-const indexKey = "index.html";
-const overlayKey = "src/overlay/OverlayApp.tsx";
-const adminKey = "src/admin/AdminApp.tsx";
-// pnpm nests the resolved path under node_modules/.pnpm/..., so match by suffix
-// instead of hardcoding a package-manager-specific node_modules layout.
-const temporalKeySuffix = "@js-temporal/polyfill/dist/index.esm.js";
 const temporalKeyCandidates = Object.keys(manifest).filter((key) => key.endsWith(temporalKeySuffix));
 if (temporalKeyCandidates.length !== 1) {
   throw new Error(`Expected exactly one manifest entry ending in ${temporalKeySuffix}, found ${String(temporalKeyCandidates.length)}.`);
 }
 const [temporalKey] = temporalKeyCandidates;
-const overlayClosure = collectStaticClosure([indexKey, overlayKey]);
-const adminClosure = collectStaticClosure([indexKey, adminKey]);
-const temporalClosure = collectStaticClosure([temporalKey]);
+const budgetDeclarations = createBudgetDeclarations(temporalKey);
+
+const overlayClosure = collectStaticClosure(manifest, [indexKey, overlayKey]);
+const adminClosure = collectStaticClosure(manifest, [indexKey, adminKey]);
 
 if (overlayClosure.has(adminKey) || overlayClosure.has(temporalKey)) {
   throw new Error("Overlay initial code must not import Admin or Temporal modules.");
@@ -76,13 +84,6 @@ const workerBytes = gzipSync(
   await readFile(path.join(projectRoot, "dist", workerDirectories[0], "index.js")),
   { level: 9 },
 ).byteLength;
-
-const overlayJavascript = await sumJavaScript(overlayClosure);
-const adminJavascript = await sumJavaScript(adminClosure);
-const temporalJavascript = await sumJavaScript(temporalClosure);
-const shellBytes = await compressedSize("index.html");
-const overlayCss = await sumCss(overlayClosure);
-const adminCss = await sumCss(adminClosure);
 
 const effectDirectory = path.join(clientRoot, "assets/effects");
 const largestEightEffectBytes = (
@@ -108,13 +109,53 @@ const fontBytes = (await stat(
   path.join(clientRoot, "fonts/AtkinsonHyperlegibleNext-variable.woff2"),
 )).size;
 
-const overlayTransfer = overlayJavascript + overlayCss + shellBytes + commonHudMedia + largestEightEffectBytes + fontBytes;
-const adminTransfer = adminJavascript + adminCss + shellBytes + commonHudMedia + fontBytes;
+const soundDirectory = path.join(clientRoot, "assets/sounds");
+const audioBytes = await sumDirectoryBytes(soundDirectory);
+
+const assetSizes = new Map([
+  [assetSizeKey("shell"), await compressedSize("index.html")],
+  [assetSizeKey("font"), fontBytes],
+  [assetSizeKey("hudMedia"), commonHudMedia],
+  [assetSizeKey("effects"), largestEightEffectBytes],
+  [assetSizeKey("audio"), audioBytes],
+]);
+const allowedAssetGroups = [...assetSizes.keys()]
+  .map((key) => key.slice("asset:".length));
+const sizeLookup = async (target) => {
+  const assetSize = assetSizes.get(target);
+  if (assetSize !== undefined) return assetSize;
+  if (target.startsWith("asset:")) {
+    const group = target.slice("asset:".length);
+    throw new Error(
+      `Unknown build budget asset group "${group}". Allowed groups: ${allowedAssetGroups.join(", ")}.`,
+    );
+  }
+  return compressedSize(target);
+};
+
+const assertBudget = (label, actual, maximum) => {
+  const marker = actual <= maximum ? "PASS" : "FAIL";
+  console.log(`${marker.padEnd(4)} ${label.padEnd(34)} ${kibibytes(actual).padStart(12)} / ${kibibytes(maximum)}`);
+  return actual <= maximum;
+};
+
+const report = await evaluateBuildBudgets(manifest, sizeLookup, budgetDeclarations);
 
 console.log("Build budget report (gzip for text, encoded bytes for WebP)");
-assertBudget("Worker bundle", workerBytes, 750 * 1024);
-assertBudget("Overlay initial JavaScript", overlayJavascript, 120 * 1024);
-assertBudget("Overlay initial static transfer", overlayTransfer, 1024 * 1024);
-assertBudget("Admin initial JavaScript", adminJavascript, 250 * 1024);
-assertBudget("Admin initial static transfer", adminTransfer, 1.5 * 1024 * 1024);
-assertBudget("Lazy Temporal chunk", temporalJavascript, 100 * 1024);
+const workerWithinBudget = assertBudget("Worker bundle", workerBytes, 750 * 1024);
+for (const check of report.checks) {
+  if (check.status === "PEND") {
+    console.log(`PEND ${check.label.padEnd(34)}`);
+  } else {
+    assertBudget(check.label, check.actual, check.maximum);
+  }
+}
+const budgetErrors = report.checks
+  .filter((check) => check.status === "FAIL")
+  .map((check) => `${check.label} exceeds its build budget.`);
+const errors = [
+  ...(workerWithinBudget ? [] : ["Worker bundle exceeds its build budget."]),
+  ...report.errors,
+  ...budgetErrors,
+];
+if (errors.length > 0) throw new Error(errors.join("\n"));

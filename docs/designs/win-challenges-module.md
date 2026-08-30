@@ -467,12 +467,20 @@ kurzes Nachladen beim Stylewechsel, abgesichert durch das Render-Gate.
 
 **Das Gate braucht drei Änderungen, nicht eine:**
 
-1. **Zwei neue Einstiegspunkte.** `check-build-budgets.mjs:47-48` kodiert genau
-   `src/overlay/OverlayApp.tsx` und `src/admin/AdminApp.tsx`. Die Challenge-Quelle und die
-   Live-Seite sind eigene Entries und tauchen in keinem der beiden Closures auf. Ohne
-   eigene Budgets meldet das Gate grün und misst nichts von dem, was neu ausgeliefert wird.
-   Die Challenge-Quelle bekommt ein enges Budget (Zuschauerpfad), die Live-Seite ein
-   weiteres (nur der Streamer lädt sie).
+1. **Manifest-Abdeckung für alle Einstiegspunkte.** Das Gate prüft jeden Manifest-Eintrag
+   mit `isEntry: true` oder `isDynamicEntry: true` gegen die Deklarationstabelle. Ein
+   ungedeckter Einstiegspunkt bricht den Build. Im aktuellen Build ist nur `index.html`
+   `isEntry`; Overlay, Admin und Temporal sind `isDynamicEntry`. `index.html` steht als
+   `exempt` in der Tabelle, weil die Shell über `staticRoots` in jede Surface-Closure
+   einfließt und zusätzlich als Asset-Gruppe `shell` im Transfer steckt.
+
+   Das bedeutet für Schritt 4: Sobald die Challenge-Quelle und die Live-Seite als eigene
+   Routen erscheinen, schlägt das Gate fehl, bis beide eine Deklaration bekommen. Das ist
+   beabsichtigt. Die vorgesehenen Startwerte für Schritt 4 sind: Challenge-Quelle
+   (Zuschauerpfad) mit 80 KiB JavaScript und 512 KiB Transfer; Live-Bedienseite (nur der
+   Streamer) mit 200 KiB JavaScript und 1 MiB Transfer. Zum Vergleich, gemessen am
+   aktuellen Build: Overlay 65,84 KiB JS bei 231,79 KiB Transfer, Admin 101,71 KiB JS bei
+   227,33 KiB Transfer.
 2. **`Math.max` über die volle Closure je Style**, nicht nur über die CSS-Blätter. Zu
    zählen sind pro Style: die statische Closure des Chunks, sein CSS, das Loader-JS, die
    gemeinsame Basis, die Brücke und, bei `themeMode: "inherit"`, die ausgewählte
@@ -1031,8 +1039,9 @@ falschen Socket gebaut würde.
    `surface_mode`, `header_title`, `settings_revision` und beider CHECK-Constraints.
    `ChallengeRepository`, DO-SQLite-Adapter. Dabei `rowsWritten` messen und das
    Free-Tier-Budget festschreiben.
-3. **Budget-Gate erweitern**, bevor es etwas zu messen gibt: zwei neue Einstiegspunkte,
-   `Math.max` über die volle Closure je Style, Audio in den Transfer-Zähler.
+3. **Budget-Gate erweitern**, bevor es etwas zu messen gibt: Deckungsprüfung über alle
+   Einstiegspunkte des Manifests, `Math.max` über die volle Closure je Style, Audio in den
+   Transfer-Zähler. ✓ erledigt.
 4. `main.tsx` bekommt die explizite Routentabelle und die vier `surface`-Werte. Die zwei
    neuen Routen rendern zunächst Platzhalter.
 5. Kommando-Service in `transactionSync`, Dedupe für **alle acht** Mutationen, die sechs

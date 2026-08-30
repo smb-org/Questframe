@@ -49,15 +49,15 @@ Hochzählen, der Abschluss-Sound.
 
 **Warum:** `docs/designs/win-challenges-module.md` legt Aufbau, Token-Vertrag, Zustände und
 Barrierefreiheit vollständig fest. Wie der `quest-log`-Style konkret aussieht, ist als
-einziges offen. Schritt 13 der Umsetzung sagt nur "mit eigenen Assets und eigenem Sound".
+einziges offen. Schritt 15 der Umsetzung sagt nur "mit eigenen Assets und eigenem Sound".
 Der `quest-log` ist zugleich der Style, wegen dem das Feature überhaupt existiert: Er lebt
 davon, dass ein Zuschauer die visuelle Sprache sofort wiedererkennt.
 
 **Pros:** Die drei `plain-*`-Styles sind durch Tokens und Struktur vollständig beschrieben
 und sofort baubar. Nur dieser eine Style hängt, und er kommt ohnehin zuletzt.
 
-**Cons:** Der gstack-Designer war beim Review nicht nutzbar (kein OpenAI-Key hinterlegt).
-Ohne ihn entsteht die Gestaltung von Hand und dauert deutlich länger.
+**Cons:** Die Gestaltung ist die einzige Stelle im Modul, an der Geschmack entscheidet und
+nicht der Vertrag. Sie braucht mindestens eine Runde Ansehen und Verwerfen.
 
 **Kontext:** Aufgefallen im `/plan-design-review` am 2026-08-30. Das vorhandene Wireframe
 unter `~/.gstack/projects/twitchBrudi/designs/challenge-log-20260830/placement-wireframe.html`
@@ -69,8 +69,9 @@ treffen, niemals Assets, Namen, Schriften oder Audio aus einem bestehenden Spiel
 Gold auf dunklem Pergament, eckige Rahmen, serifenbetonte Versalien, ein aufsteigender
 Zweiklang beim Abschluss. Der Sound kann per muapi generiert werden.
 
-**Wo anfangen:** `$D setup` mit einem OpenAI-Key, danach `/design-shotgun` für den einen
-Style. Alternativ eine Handrunde gegen die `--wc-*`-Tokens aus dem Design-Doc.
+**Wo anfangen:** Bildentwürfe über muapi mit Grok, Sounds über muapi mit
+`suno-generate-sounds`. Ein OpenAI-Key und der gstack-Designer werden dafür nicht gebraucht.
+Aus den Entwürfen wird eine Richtung gewählt und gegen die `--wc-*`-Tokens aus dem Design-Doc
+übersetzt.
 
-**Hängt ab von:** OpenAI-Key für den gstack-Designer. Blockiert Schritt 13 der Umsetzung,
-sonst nichts.
+**Hängt ab von:** nichts. Betrifft Schritt 15 der Umsetzung.
