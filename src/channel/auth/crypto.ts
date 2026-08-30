@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { hmacHex, timingSafeEqual } from "../crypto";
+import { hmacHex, sha256Hex, timingSafeEqual } from "../crypto";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -145,6 +145,37 @@ const importAesKey = async (
     usages,
   );
 
+const hexToBytes = (value: string): Uint8Array => {
+  if (!/^[0-9a-f]{64}$/.test(value)) throw new Error("Ungültiger SHA-256-Schlüssel.");
+  const bytes = new Uint8Array(32);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+};
+
+// Derselbe Pepper dient als HMAC-Schluessel fuer token_hash. Der Praefix trennt
+// die beiden Verwendungen, damit aus dem Verschluesselungsschluessel nichts ueber
+// das HMAC-Schluesselmaterial folgt.
+const OVERLAY_KEY_PURPOSE = "irl-stream-hud-overlay-token-key:v1:";
+
+const importOverlayAesKey = async (
+  pepper: string,
+  usages: KeyUsage[],
+): Promise<CryptoKey> => {
+  const digest = await sha256Hex(`${OVERLAY_KEY_PURPOSE}${pepper}`);
+  return crypto.subtle.importKey(
+    "raw",
+    Uint8Array.from(hexToBytes(digest)).buffer,
+    "AES-GCM",
+    false,
+    usages,
+  );
+};
+
+const overlayAdditionalData = (capsuleId: string): ArrayBuffer =>
+  Uint8Array.from(encoder.encode(`irl-stream-hud-overlay-token:v1:${capsuleId}`)).buffer;
+
 export const encryptToken = async (
   token: string,
   keyring: SecretKeyring,
@@ -180,6 +211,47 @@ export const decryptToken = async (
       name: "AES-GCM",
       iv: Uint8Array.from(base64UrlToBytes(envelope.iv)),
       additionalData: additionalData(context),
+    },
+    key,
+    Uint8Array.from(base64UrlToBytes(envelope.ciphertext)).buffer,
+  );
+  return decoder.decode(plaintext);
+};
+
+export const encryptOverlayToken = async (
+  token: string,
+  pepper: string,
+  capsuleId: string,
+): Promise<TokenEnvelope> => {
+  const iv = new Uint8Array(12);
+  crypto.getRandomValues(iv);
+  const key = await importOverlayAesKey(pepper, ["encrypt"]);
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: Uint8Array.from(iv), additionalData: overlayAdditionalData(capsuleId) },
+    key,
+    Uint8Array.from(encoder.encode(token)).buffer,
+  );
+  return tokenEnvelopeSchema.parse({
+    version: 1,
+    keyId: "pepper",
+    iv: bytesToBase64Url(iv),
+    ciphertext: bytesToBase64Url(new Uint8Array(ciphertext)),
+  });
+};
+
+export const decryptOverlayToken = async (
+  input: TokenEnvelope,
+  pepper: string,
+  capsuleId: string,
+): Promise<string> => {
+  const envelope = tokenEnvelopeSchema.parse(input);
+  if (envelope.keyId !== "pepper") throw new Error("Unbekannte Overlay-Token-Key-ID.");
+  const key = await importOverlayAesKey(pepper, ["decrypt"]);
+  const plaintext = await crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: Uint8Array.from(base64UrlToBytes(envelope.iv)),
+      additionalData: overlayAdditionalData(capsuleId),
     },
     key,
     Uint8Array.from(base64UrlToBytes(envelope.ciphertext)).buffer,

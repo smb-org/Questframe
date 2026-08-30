@@ -37,6 +37,7 @@ import { inspectWebP } from "../shared/media/webp";
 import type { AppEnv } from "../worker/env";
 import { errorResponse, jsonResponse, readJson, RequestError } from "../worker/http";
 import { hmacHex, randomToken, sha256Hex, timingSafeEqual } from "./crypto";
+import { decryptOverlayToken, encryptOverlayToken, tokenEnvelopeSchema } from "./auth/crypto";
 import { runMigrations } from "./migrations";
 
 type StateRow = {
@@ -60,6 +61,7 @@ type SessionRow = {
 
 type OverlayTokenRow = {
   token_hash: string;
+  token_envelope: string | null;
   fingerprint: string;
   generation: number;
   request_id: string;
@@ -521,6 +523,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
           createdAt: overlayToken?.created_at ?? null,
           lastUsedAt: overlayToken?.last_used_at ?? null,
           connectedSockets: Math.min(MAX_OVERLAY_SOCKETS, this.ctx.getWebSockets("overlay").length),
+          token: await this.readOverlayToken(overlayToken),
         },
       },
       capabilities: getReleaseCapabilities(this.env.RELEASE_STAGE),
@@ -694,7 +697,6 @@ export class ChannelObject extends DurableObject<AppEnv> {
     await this.requireCsrf(request, session);
     const input = overlayTokenMutationRequestSchema.parse(await readJson(request, 2_048));
     const pepper = this.getOverlayTokenPepper();
-    const candidateHash = await hmacHex(pepper, input.candidateToken);
     const current = this.getOverlayToken();
     const currentGeneration = current?.generation ?? 0;
     if (
@@ -703,10 +705,13 @@ export class ChannelObject extends DurableObject<AppEnv> {
       current.request_id === input.requestId
     ) {
       if (
-        current.creating_session_hash !== session.session_hash ||
-        !timingSafeEqual(current.token_hash, candidateHash)
+        current.creating_session_hash !== session.session_hash
       ) {
         throw new RequestError(409, "idempotency_mismatch", "Token-Anfrage wurde anders wiederholt.");
+      }
+      const token = await this.readOverlayToken(current);
+      if (token === null) {
+        throw new RequestError(409, "idempotency_mismatch", "Token-Anfrage kann nicht wiederhergestellt werden.");
       }
       return jsonResponse(
         overlayTokenResponseSchema.parse({
@@ -714,6 +719,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
           generation: current.generation,
           fingerprint: current.fingerprint,
           createdAt: current.created_at,
+          token,
         }),
       );
     }
@@ -722,21 +728,33 @@ export class ChannelObject extends DurableObject<AppEnv> {
     }
     const createdAt = nowIso();
     const generation = currentGeneration + 1;
-    const fingerprint = candidateHash.slice(0, 8).toUpperCase();
+    const token = randomToken(32);
+    const tokenHash = await hmacHex(pepper, token);
+    const tokenEnvelope = await encryptOverlayToken(token, pepper, this.env.CAPSULE_ID);
+    const currentAfterCrypto = this.getOverlayToken();
+    if (
+      (currentAfterCrypto?.generation ?? 0) !== currentGeneration ||
+      (rotate ? currentAfterCrypto === null : currentAfterCrypto !== null)
+    ) {
+      throw new RequestError(409, "token_changed", "Der OBS-Tokenstatus hat sich geändert.");
+    }
+    const fingerprint = tokenHash.slice(0, 8).toUpperCase();
     this.ctx.storage.sql.exec(
       `INSERT INTO overlay_tokens(
-        singleton, token_hash, fingerprint, generation, request_id,
+        singleton, token_hash, token_envelope, fingerprint, generation, request_id,
         creating_session_hash, created_at, last_used_at
-      ) VALUES (1, ?, ?, ?, ?, ?, ?, NULL)
+      ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, NULL)
       ON CONFLICT(singleton) DO UPDATE SET
         token_hash = excluded.token_hash,
+        token_envelope = excluded.token_envelope,
         fingerprint = excluded.fingerprint,
         generation = excluded.generation,
         request_id = excluded.request_id,
         creating_session_hash = excluded.creating_session_hash,
         created_at = excluded.created_at,
         last_used_at = NULL`,
-      candidateHash,
+      tokenHash,
+      JSON.stringify(tokenEnvelope),
       fingerprint,
       generation,
       input.requestId,
@@ -755,8 +773,20 @@ export class ChannelObject extends DurableObject<AppEnv> {
         generation,
         fingerprint,
         createdAt,
+        token,
       }),
     );
+  }
+
+  private async readOverlayToken(row: OverlayTokenRow | null): Promise<string | null> {
+    if (row?.token_envelope === null || row?.token_envelope === undefined) return null;
+    try {
+      const envelope = tokenEnvelopeSchema.parse(JSON.parse(row.token_envelope) as unknown);
+      const token = await decryptOverlayToken(envelope, this.getOverlayTokenPepper(), this.env.CAPSULE_ID);
+      return /^[A-Za-z0-9_-]{43}$/.test(token) ? token : null;
+    } catch {
+      return null;
+    }
   }
 
   private async uploadMedia(request: Request): Promise<Response> {

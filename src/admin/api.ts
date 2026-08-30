@@ -62,8 +62,6 @@ export class BrowserAdminApi implements AdminApi {
       { method: "POST", body: "{}" },
       true,
     );
-    sessionStorage.removeItem("irl-stream-hud-obs-url");
-    sessionStorage.removeItem("irl-stream-hud-pending-token");
   }
 
   async save(input: SaveRequest) {
@@ -86,7 +84,7 @@ export class BrowserAdminApi implements AdminApi {
 
   async mutateOverlayToken(
     rotate: boolean,
-    input: { requestId: string; expectedGeneration: number; candidateToken: string },
+    input: { requestId: string; expectedGeneration: number },
   ) {
     const response = await this.requestJson(
       rotate ? "/api/overlay-token/rotate" : "/api/overlay-token",

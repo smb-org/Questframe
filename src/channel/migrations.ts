@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS oauth_nonces (
 CREATE TABLE IF NOT EXISTS overlay_tokens (
   singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
   token_hash TEXT NOT NULL,
+  token_envelope TEXT,
   fingerprint TEXT NOT NULL,
   generation INTEGER NOT NULL,
   request_id TEXT NOT NULL,
@@ -91,15 +92,41 @@ CREATE INDEX IF NOT EXISTS audit_created_idx ON audit_log(created_at DESC);
 CREATE INDEX IF NOT EXISTS history_created_idx ON state_history(created_at DESC);
 `;
 
+const MIGRATION_2 = `
+ALTER TABLE overlay_tokens ADD COLUMN token_envelope TEXT;
+`;
+
+const hasOverlayTokenEnvelope = (sql: SqlStorage): boolean =>
+  sql
+    .exec<{ name: string }>("PRAGMA table_info(overlay_tokens)")
+    .toArray()
+    .some((column) => column.name === "token_envelope");
+
 export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
   sql.exec(MIGRATION_1);
-  const applied = sql
+  const versionOneWasApplied = sql
     .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 1")
-    .toArray();
-  if (applied.length === 0) {
+    .toArray().length > 0;
+  if (!versionOneWasApplied) {
     sql.exec(
       "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
       1,
+      buildId,
+      new Date().toISOString(),
+    );
+  }
+  const versionTwoWasApplied = sql
+    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 2")
+    .toArray().length > 0;
+  if (!versionTwoWasApplied) {
+    // Frische Datenbanken bekommen die Spalte schon aus MIGRATION_1. Der ALTER
+    // laeuft deshalb nur, wenn sie wirklich fehlt: SQLite kennt kein
+    // IF NOT EXISTS, und ein Abbruch zwischen ALTER und Versionseintrag wuerde
+    // den Kanal sonst bei jedem Start an "duplicate column name" aufhaengen.
+    if (!hasOverlayTokenEnvelope(sql)) sql.exec(MIGRATION_2);
+    sql.exec(
+      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
+      2,
       buildId,
       new Date().toISOString(),
     );

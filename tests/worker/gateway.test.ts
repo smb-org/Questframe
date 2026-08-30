@@ -113,6 +113,33 @@ describe("Worker gateway failure boundaries", () => {
     expect(overlayMissingUpgrade.status).toBe(400);
   });
 
+  it("creates or rotates an overlay token without a client-supplied candidate", async () => {
+    const bootstrap = await fetchWorker("/api/editor/bootstrap", {
+      headers: { cookie, "x-editor-tab": "gateway-test-tab" },
+    });
+    const body = await bootstrap.json<{
+      capsule: { overlayToken: { exists: boolean; generation: number } };
+      csrfToken: string;
+    }>();
+    const response = await fetchWorker(body.capsule.overlayToken.exists ? "/api/overlay-token/rotate" : "/api/overlay-token", {
+      method: "POST",
+      headers: {
+        cookie,
+        origin: "http://localhost:5173",
+        "x-editor-tab": "gateway-test-tab",
+        "x-csrf-token": body.csrfToken,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        requestId: "dc95708a-645a-4bc0-9ca3-7ffbd42e6662",
+        expectedGeneration: body.capsule.overlayToken.generation,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect((await response.json<{ token: string }>()).token).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+  });
+
   it("validates Twitch guest lookup before any upstream request", async () => {
     const wrongOrigin = await fetchWorker("/api/twitch/users?login=gast_tv", {
       headers: { origin: "https://evil.example" },

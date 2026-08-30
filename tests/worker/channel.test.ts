@@ -100,6 +100,23 @@ describe("channel worker", () => {
     bootstrapRevision = body.state.revision;
   });
 
+  it("applies the overlay envelope column as schema migration version 2", async () => {
+    const stub = env.CHANNEL.get(env.CHANNEL.idFromName(`channel:${env.BROADCASTER_ID}`));
+    const result = await runInDurableObject(stub, (_instance, state) => ({
+      columns: state.storage.sql
+        .exec<{ name: string }>("PRAGMA table_info(overlay_tokens)")
+        .toArray()
+        .map(({ name }) => name),
+      versions: state.storage.sql
+        .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+        .toArray()
+        .map(({ version }) => version),
+    }));
+
+    expect(result.columns).toContain("token_envelope");
+    expect(result.versions).toContain(2);
+  });
+
   it("bootstrap falls back to capsule.channel = null when nothing is cached yet", async () => {
     const stub = env.CHANNEL.get(env.CHANNEL.idFromName(`channel:${env.BROADCASTER_ID}`));
     const cachedRow = await runInDurableObject(stub, (_instance, state) =>
@@ -223,7 +240,6 @@ describe("channel worker", () => {
     const firstRequest = {
       requestId: "dc95708a-645a-4bc0-9ca3-7ffbd42e6662",
       expectedGeneration: 0,
-      candidateToken: "A".repeat(43),
     };
     const create = await fetchWorker("http://localhost/api/overlay-token", {
       method: "POST",
@@ -232,6 +248,26 @@ describe("channel worker", () => {
     });
     const created = overlayTokenResponseSchema.parse(await create.json());
     expect(created).toMatchObject({ generation: 1, requestId: firstRequest.requestId });
+    expect(created.token).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+
+    const stub = env.CHANNEL.get(env.CHANNEL.idFromName(`channel:${env.BROADCASTER_ID}`));
+    const primarySessionHash = await runInDurableObject(stub, (_instance, state) =>
+      state.storage.sql.exec<{ session_hash: string }>("SELECT session_hash FROM editor_sessions LIMIT 1").toArray()[0]?.session_hash,
+    );
+    expect(primarySessionHash).toBeDefined();
+    if (primarySessionHash === undefined) throw new Error("expected primary editor session");
+    const secondEditorLogin = await fetchWorker("http://localhost/auth/dev", {
+      redirect: "manual",
+    });
+    const secondEditorCookie = secondEditorLogin.headers.get("set-cookie")?.split(";")[0] ?? "";
+    const secondEditorBootstrap = bootstrapResponseSchema.parse(
+      await (
+        await fetchWorker("http://localhost/api/editor/bootstrap", {
+          headers: { cookie: secondEditorCookie, "x-editor-tab": "test-tab-b" },
+        })
+      ).json(),
+    );
+    expect(secondEditorBootstrap.capsule.overlayToken.token).toBe(created.token);
 
     const retry = await fetchWorker("http://localhost/api/overlay-token", {
       method: "POST",
@@ -240,16 +276,47 @@ describe("channel worker", () => {
     });
     expect(overlayTokenResponseSchema.parse(await retry.json())).toEqual(created);
 
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec("DELETE FROM csrf_tokens WHERE session_hash != ?", primarySessionHash);
+      state.storage.sql.exec("DELETE FROM editor_sessions WHERE session_hash != ?", primarySessionHash);
+    });
+
     const rotate = await fetchWorker("http://localhost/api/overlay-token/rotate", {
       method: "POST",
       headers: authenticatedHeaders(),
       body: JSON.stringify({
         requestId: "74d8c1e3-c4d2-4486-b185-c15a35b742ea",
         expectedGeneration: 1,
-        candidateToken: "B".repeat(43),
       }),
     });
-    expect(overlayTokenResponseSchema.parse(await rotate.json())).toMatchObject({ generation: 2 });
+    const rotated = overlayTokenResponseSchema.parse(await rotate.json());
+    expect(rotated).toMatchObject({ generation: 2 });
+    expect(rotated.token).not.toBe(created.token);
+
+    const envelope = await runInDurableObject(stub, (_instance, state) =>
+      state.storage.sql
+        .exec<{ token_envelope: string }>("SELECT token_envelope FROM overlay_tokens WHERE singleton = 1")
+        .toArray()[0]?.token_envelope,
+    );
+    expect(envelope).toEqual(expect.any(String));
+    if (envelope === undefined) throw new Error("expected overlay token envelope");
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec("UPDATE overlay_tokens SET token_envelope = NULL WHERE singleton = 1");
+    });
+    const legacyBootstrap = bootstrapResponseSchema.parse(
+      await (
+        await fetchWorker("http://localhost/api/editor/bootstrap", {
+          headers: { cookie, "x-editor-tab": "test-tab-a" },
+        })
+      ).json(),
+    );
+    expect(legacyBootstrap.capsule.overlayToken).toMatchObject({ exists: true, token: null });
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE overlay_tokens SET token_envelope = ? WHERE singleton = 1",
+        envelope,
+      );
+    });
   });
 
   it("undoes a retained state revision while preserving visibility", async () => {
@@ -534,13 +601,19 @@ describe("channel worker", () => {
   });
 
   it("authorizes an overlay WebSocket by token, discards oversized frames and answers time sync", async () => {
-    // Der zuvor rotierte OBS-Token aus "creates and rotates a read-only overlay
-    // token idempotently" ist zu diesem Zeitpunkt der Datei noch aktiv (Generation 2).
-    const overlayToken = "B".repeat(43);
+    const bootstrap = bootstrapResponseSchema.parse(
+      await (
+        await fetchWorker("http://localhost/api/editor/bootstrap", {
+          headers: { cookie, "x-editor-tab": "test-tab-a" },
+        })
+      ).json(),
+    );
+    const overlayToken = bootstrap.capsule.overlayToken.token;
+    expect(overlayToken).not.toBeNull();
     const upgrade = await fetchWorker("http://localhost/ws/overlay", {
       headers: {
         upgrade: "websocket",
-        "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, ${overlayToken}`,
+        "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, ${overlayToken ?? ""}`,
       },
     });
     expect(upgrade.status).toBe(101);
@@ -633,6 +706,15 @@ describe("channel worker", () => {
   });
 
   it("pushes the live OBS connection count to editor sockets as overlays connect and disconnect", async () => {
+    const bootstrap = bootstrapResponseSchema.parse(
+      await (
+        await fetchWorker("http://localhost/api/editor/bootstrap", {
+          headers: { cookie, "x-editor-tab": "test-tab-a" },
+        })
+      ).json(),
+    );
+    const overlayToken = bootstrap.capsule.overlayToken.token;
+    expect(overlayToken).not.toBeNull();
     const editorUpgrade = await fetchWorker("http://localhost/ws/editor?tab=test-tab-a", {
       headers: { cookie, upgrade: "websocket" },
     });
@@ -672,11 +754,10 @@ describe("channel worker", () => {
       // sendet overlay_presence synchron waehrend connectOverlay bearbeitet wird, ein
       // erst danach angehaengter Listener wuerde die Nachricht verpassen.
       const connectedPromise = waitForMessage(editorSocket, (data) => data.type === "overlay_presence");
-      const overlayToken = "B".repeat(43);
       const overlayUpgrade = await fetchWorker("http://localhost/ws/overlay", {
         headers: {
           upgrade: "websocket",
-          "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, ${overlayToken}`,
+          "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, ${overlayToken ?? ""}`,
         },
       });
       expect(overlayUpgrade.status).toBe(101);
@@ -700,7 +781,7 @@ describe("channel worker", () => {
   });
 
   it("keeps ten overlay slots available through a full reload burst", async () => {
-    const overlayToken = "D".repeat(43);
+    let overlayToken = "";
     const sockets: WebSocket[] = [];
     const connect = () =>
       fetchWorker("http://localhost/ws/overlay", {
@@ -736,11 +817,12 @@ describe("channel worker", () => {
         body: JSON.stringify({
           requestId: "951cf197-8068-4fb6-b884-3fe3146a1468",
           expectedGeneration: 2,
-          candidateToken: overlayToken,
         }),
       });
       expect(rotation.status).toBe(200);
-      expect(overlayTokenResponseSchema.parse(await rotation.json())).toMatchObject({ generation: 3 });
+      const rotated = overlayTokenResponseSchema.parse(await rotation.json());
+      expect(rotated).toMatchObject({ generation: 3 });
+      overlayToken = rotated.token;
 
       const upgrades = await Promise.all(Array.from({ length: 10 }, () => connect()));
       for (const upgrade of upgrades) {
@@ -779,6 +861,15 @@ describe("channel worker", () => {
   });
 
   it("admits only ten overlays when eleven HMAC checks finish together", async () => {
+    const bootstrap = bootstrapResponseSchema.parse(
+      await (
+        await fetchWorker("http://localhost/api/editor/bootstrap", {
+          headers: { cookie, "x-editor-tab": "test-tab-a" },
+        })
+      ).json(),
+    );
+    const overlayToken = bootstrap.capsule.overlayToken.token;
+    expect(overlayToken).not.toBeNull();
     const originalSign = crypto.subtle.sign.bind(crypto.subtle);
     let releaseHmacs = (): void => undefined;
     let markAllHmacsStarted = (): void => undefined;
@@ -808,7 +899,7 @@ describe("channel worker", () => {
           try {
             const response = await connectOverlay(
               new Request("https://channel.internal/ws/overlay", {
-                headers: { upgrade: "websocket", "x-overlay-token": "D".repeat(43) },
+                headers: { upgrade: "websocket", "x-overlay-token": overlayToken ?? "" },
               }),
             );
             const socket = response.webSocket;

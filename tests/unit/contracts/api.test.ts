@@ -4,6 +4,8 @@ import {
   bootstrapResponseSchema,
   createApiError,
   overlayTokenMutationRequestSchema,
+  overlayTokenResponseSchema,
+  overlayTokenStatusSchema,
   saveRequestSchema,
   serverMessageSchema,
   visibilityRequestSchema,
@@ -36,16 +38,53 @@ describe("API contracts", () => {
       overlayTokenMutationRequestSchema.parse({
         requestId: "dc95708a-645a-4bc0-9ca3-7ffbd42e6662",
         expectedGeneration: 0,
-        candidateToken: candidate,
       }),
-    ).toMatchObject({ candidateToken: candidate });
+    ).toEqual({
+      requestId: "dc95708a-645a-4bc0-9ca3-7ffbd42e6662",
+      expectedGeneration: 0,
+    });
     expect(() =>
       overlayTokenMutationRequestSchema.parse({
         requestId: "not-a-uuid",
         expectedGeneration: 0,
-        candidateToken: "too-short",
       }),
     ).toThrow();
+    expect(() =>
+      overlayTokenMutationRequestSchema.parse({
+        requestId: "dc95708a-645a-4bc0-9ca3-7ffbd42e6662",
+        expectedGeneration: 0,
+        candidateToken: candidate,
+      }),
+    ).toThrow();
+    expect(overlayTokenStatusSchema.parse({
+      exists: true,
+      generation: 1,
+      createdAt: "2026-08-29T12:00:00.000Z",
+      lastUsedAt: null,
+      connectedSockets: 0,
+      token: candidate,
+    }).token).toBe(candidate);
+    expect(overlayTokenStatusSchema.parse({
+      exists: true,
+      generation: 1,
+      createdAt: "2026-08-29T12:00:00.000Z",
+      lastUsedAt: null,
+      connectedSockets: 0,
+      token: null,
+    }).token).toBeNull();
+    expect(overlayTokenResponseSchema.parse({
+      requestId: "dc95708a-645a-4bc0-9ca3-7ffbd42e6662",
+      generation: 1,
+      fingerprint: "ABCDEF12",
+      createdAt: "2026-08-29T12:00:00.000Z",
+      token: candidate,
+    }).token).toBe(candidate);
+    expect(() => overlayTokenResponseSchema.parse({
+      requestId: "dc95708a-645a-4bc0-9ca3-7ffbd42e6662",
+      generation: 1,
+      fingerprint: "ABCDEF12",
+      createdAt: "2026-08-29T12:00:00.000Z",
+    })).toThrow();
   });
 
   it("rejects bootstrap envelopes with non-editor roles or unknown fields", () => {
@@ -68,6 +107,7 @@ describe("API contracts", () => {
           createdAt: null,
           lastUsedAt: null,
           connectedSockets: 0,
+          token: null,
         },
       },
       capabilities: {

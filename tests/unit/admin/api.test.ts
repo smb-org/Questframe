@@ -32,6 +32,7 @@ const bootstrap = () => ({
       createdAt: null,
       lastUsedAt: null,
       connectedSockets: 0,
+      token: null,
     },
   },
   capabilities: getReleaseCapabilities("v1b"),
@@ -82,6 +83,7 @@ class FakeWebSocket {
 
 beforeEach(() => {
   sessionStorage.clear();
+  localStorage.clear();
   FakeWebSocket.instances = [];
   vi.stubGlobal("WebSocket", FakeWebSocket);
 });
@@ -133,6 +135,7 @@ describe("BrowserAdminApi", () => {
       generation: 1,
       fingerprint: "ABCDEF12",
       createdAt: now,
+      token: "A".repeat(43),
     };
     const uploaded = {
       portrait: { kind: "uploaded" as const, contentHash: "a".repeat(64) },
@@ -160,8 +163,6 @@ describe("BrowserAdminApi", () => {
       .mockResolvedValueOnce(Response.json(guest))
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetcher);
-    sessionStorage.setItem("irl-stream-hud-obs-url", "secret");
-    sessionStorage.setItem("irl-stream-hud-pending-token", "pending");
     const api = new BrowserAdminApi();
 
     await api.revalidate();
@@ -170,12 +171,10 @@ describe("BrowserAdminApi", () => {
     await expect(api.mutateOverlayToken(false, {
       requestId: tokenResponse.requestId,
       expectedGeneration: 0,
-      candidateToken: "A".repeat(43),
     })).resolves.toEqual(tokenResponse);
     await expect(api.mutateOverlayToken(true, {
       requestId: tokenResponse.requestId,
       expectedGeneration: 0,
-      candidateToken: "A".repeat(43),
     })).resolves.toEqual(tokenResponse);
     await expect(api.uploadPortrait(new Blob(["webp"], { type: "image/webp" }))).resolves.toEqual(uploaded.portrait);
     await expect(api.lookupTwitchUser("Gast TV")).resolves.toEqual(guest.user);
@@ -193,8 +192,7 @@ describe("BrowserAdminApi", () => {
       "/api/twitch/users?login=Gast%20TV",
       "/auth/logout",
     ]);
-    expect(sessionStorage.getItem("irl-stream-hud-obs-url")).toBeNull();
-    expect(sessionStorage.getItem("irl-stream-hud-pending-token")).toBeNull();
+    expect(localStorage.length).toBe(0);
   });
 
   it("rebootstraps and retries a mutation exactly once after CSRF expiry", async () => {

@@ -106,6 +106,7 @@ export const overlayTokenStatusSchema = z.strictObject({
   createdAt: z.union([z.iso.datetime({ offset: true }), z.null()]),
   lastUsedAt: z.union([z.iso.datetime({ offset: true }), z.null()]),
   connectedSockets: z.number().int().min(0).max(MAX_OVERLAY_SOCKETS),
+  token: z.union([z.string().regex(/^[A-Za-z0-9_-]{43}$/), z.null()]),
 });
 
 export const bootstrapResponseSchema = z.strictObject({
@@ -164,7 +165,6 @@ export const visibilityResponseSchema = z.strictObject({
 export const overlayTokenMutationRequestSchema = z.strictObject({
   requestId: z.uuid(),
   expectedGeneration: z.number().int().min(0),
-  candidateToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
 });
 
 export const overlayTokenResponseSchema = z.strictObject({
@@ -172,6 +172,7 @@ export const overlayTokenResponseSchema = z.strictObject({
   generation: z.number().int().min(1),
   fingerprint: z.string().regex(/^[A-F0-9]{8}$/),
   createdAt: z.iso.datetime({ offset: true }),
+  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
 });
 
 export const renewMediaLeasesRequestSchema = z.strictObject({
