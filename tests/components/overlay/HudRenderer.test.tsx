@@ -161,6 +161,36 @@ describe("HUD renderer", () => {
     expect(container.querySelector('.hud-party [data-unit-kind="party"]')).not.toBeNull();
   });
 
+  it("hides pet and party members without removing their state data", () => {
+    const state = createDefaultState(actor, "2026-08-29T12:00:00.000Z");
+    const hiddenState = {
+      ...state,
+      pet: {
+        name: "Begleiter",
+        subtitle: null,
+        portrait: { kind: "initials" as const, text: "BE" },
+        hpPercent: 88,
+      },
+      petVisible: false,
+      group: [{
+        id: "guest-1",
+        source: "manual" as const,
+        twitchUserId: null,
+        name: "Gast",
+        portrait: { kind: "bundled" as const, assetId: "default-avatar" },
+        hpPercent: 74,
+      }],
+      groupVisible: false,
+    };
+    const { container } = render(<HudRenderer state={hiddenState} />);
+
+    expect(container.querySelector(".hud-pet")).toBeNull();
+    expect(container.querySelector(".hud-party")).not.toBeNull();
+    expect(container.querySelectorAll(".hud-party-member")).toHaveLength(0);
+    expect(hiddenState.pet).not.toBeNull();
+    expect(hiddenState.group).toHaveLength(1);
+  });
+
   it("is fully transparent when disabled and hides locally expired effects", () => {
     const state = createDefaultState(actor, "2026-08-29T12:00:00.000Z");
     const { container, rerender } = render(<HudRenderer state={{ ...state, overlayEnabled: false }} />);

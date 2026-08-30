@@ -193,6 +193,144 @@ describe("Admin workspace publication boundary", () => {
     expect(screen.getByRole("button", { name: "Änderungen speichern" })).toBeDisabled();
   });
 
+  it("toggles pet and group visibility in the draft without collapsing their sections", async () => {
+    const user = userEvent.setup();
+    const initial = bootstrap();
+    const guest = {
+      id: "guest-1",
+      source: "manual" as const,
+      twitchUserId: null,
+      name: "Gast",
+      portrait: { kind: "initials" as const, text: "GA" },
+      hpPercent: 100,
+    };
+    initial.state = {
+      ...initial.state,
+      pet: {
+        name: "Begleiter",
+        subtitle: null,
+        portrait: { kind: "initials", text: "BE" },
+        hpPercent: 100,
+      },
+      group: [guest],
+    };
+    const save = vi.fn<AdminApi["save"]>((request) => Promise.resolve({
+      state: {
+        ...initial.state,
+        ...request.state,
+        revision: 2,
+        updatedAt: "2026-08-29T12:01:00.000Z",
+      },
+      auditEntry: {
+        id: "audit-visibility",
+        revision: 2,
+        action: "save",
+        actor,
+        summary: "Sichtbarkeit geändert",
+        createdAt: "2026-08-29T12:01:00.000Z",
+      },
+      undoTargets: [],
+      serverTime: "2026-08-29T12:01:00.000Z",
+    }));
+    render(<AdminWorkspace initialBootstrap={initial} api={{
+      save,
+      setVisibility: () => Promise.resolve({ state: initial.state, auditEntry: null, undoTargets: [], serverTime: initial.serverTime }),
+    }} />);
+
+    const petToggle = screen.getByRole("switch", { name: "Pet im Overlay anzeigen" });
+    const groupToggle = screen.getByRole("switch", { name: "Gruppe im Overlay anzeigen" });
+    const petSection = petToggle.closest("details") as HTMLDetailsElement;
+    const groupSection = groupToggle.closest("details") as HTMLDetailsElement;
+
+    await user.click(petToggle);
+    expect(petToggle).toHaveAttribute("aria-checked", "false");
+    expect(petSection.open).toBe(true);
+    expect(petSection).toHaveTextContent("ausgeblendet");
+
+    await user.click(groupToggle);
+    expect(groupToggle).toHaveAttribute("aria-checked", "false");
+    expect(groupSection.open).toBe(true);
+    expect(groupSection).toHaveTextContent("ausgeblendet");
+
+    petToggle.focus();
+    await user.keyboard("{Enter}");
+    expect(petToggle).toHaveAttribute("aria-checked", "true");
+    expect(petSection.open).toBe(true);
+    await user.keyboard(" ");
+    expect(petToggle).toHaveAttribute("aria-checked", "false");
+    expect(petSection.open).toBe(true);
+
+    expect(save).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Änderungen speichern" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    expect(save.mock.calls[0]?.[0].state).toMatchObject({
+      pet: { name: "Begleiter" },
+      group: [guest],
+      petVisible: false,
+      groupVisible: false,
+    });
+  });
+
+  it("keeps pet deletion destructive and labels it as deletion", async () => {
+    const user = userEvent.setup();
+    const initial = bootstrap();
+    initial.state = {
+      ...initial.state,
+      pet: {
+        name: "Begleiter",
+        subtitle: null,
+        portrait: { kind: "initials", text: "BE" },
+        hpPercent: 100,
+      },
+    };
+    const save = vi.fn<AdminApi["save"]>((request) => Promise.resolve({
+      state: {
+        ...initial.state,
+        ...request.state,
+        revision: 2,
+        updatedAt: "2026-08-29T12:01:00.000Z",
+      },
+      auditEntry: {
+        id: "audit-delete",
+        revision: 2,
+        action: "save",
+        actor,
+        summary: "Pet gelöscht",
+        createdAt: "2026-08-29T12:01:00.000Z",
+      },
+      undoTargets: [],
+      serverTime: "2026-08-29T12:01:00.000Z",
+    }));
+    render(<AdminWorkspace initialBootstrap={initial} api={{
+      save,
+      setVisibility: () => Promise.resolve({ state: initial.state, auditEntry: null, undoTargets: [], serverTime: initial.serverTime }),
+    }} />);
+
+    expect(screen.getByRole("button", { name: "Pet löschen" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pet ausblenden" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Pet löschen" }));
+    expect(screen.queryByRole("switch", { name: "Pet im Overlay anzeigen" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    expect(save.mock.calls[0]?.[0].state.pet).toBeNull();
+  });
+
+  it("offers the group visibility switch even when no guests are configured", async () => {
+    const user = userEvent.setup();
+    const initial = bootstrap();
+    render(<AdminWorkspace initialBootstrap={initial} api={{
+      save: vi.fn(),
+      setVisibility: () => Promise.resolve({ state: initial.state, auditEntry: null, undoTargets: [], serverTime: initial.serverTime }),
+    }} />);
+
+    const groupToggle = screen.getByRole("switch", { name: "Gruppe im Overlay anzeigen" });
+    const groupSection = groupToggle.closest("details") as HTMLDetailsElement;
+    await user.click(groupToggle);
+
+    expect(groupToggle).toHaveAttribute("aria-checked", "false");
+    expect(groupSection.open).toBe(true);
+    expect(groupSection).toHaveTextContent("ausgeblendet");
+  });
+
   it("keeps all edits local until Save but toggles overlay visibility immediately", async () => {
     const user = userEvent.setup();
     const initial = bootstrap();

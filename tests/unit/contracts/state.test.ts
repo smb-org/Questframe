@@ -34,10 +34,45 @@ describe("channel state contract", () => {
         resource: { name: "Energie", percent: 0, color: "#FFFF00" },
       },
       pet: null,
+      petVisible: true,
       group: [],
+      groupVisible: true,
       effects: [],
       featuredEffectId: null,
       updatedBy: actor,
+    });
+  });
+
+  it("defaults section visibility for persisted states from before the flags existed", () => {
+    const state = createDefaultState(actor, "2026-08-29T12:00:00.000Z");
+    const {
+      petVisible: _petVisible,
+      groupVisible: _groupVisible,
+      ...legacyStateWithoutFlags
+    } = state;
+    const {
+      revision: _legacyRevision,
+      overlayEnabled: _legacyOverlayEnabled,
+      updatedAt: _legacyUpdatedAt,
+      updatedBy: _legacyUpdatedBy,
+      ...legacyDraft
+    } = legacyStateWithoutFlags;
+    void [
+      _petVisible,
+      _groupVisible,
+      _legacyRevision,
+      _legacyOverlayEnabled,
+      _legacyUpdatedAt,
+      _legacyUpdatedBy,
+    ];
+
+    expect(channelStateDraftSchema.parse(legacyDraft)).toMatchObject({
+      petVisible: true,
+      groupVisible: true,
+    });
+    expect(channelStateSchema.parse(legacyStateWithoutFlags)).toMatchObject({
+      petVisible: true,
+      groupVisible: true,
     });
   });
 

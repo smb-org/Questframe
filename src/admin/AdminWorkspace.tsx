@@ -440,16 +440,37 @@ const Section = ({
   title,
   children,
   defaultOpen = true,
+  headerAction,
+  isHidden = false,
 }: {
   icon: ReactNode;
   title: string;
   children: ReactNode;
   defaultOpen?: boolean;
+  headerAction?: ReactNode | undefined;
+  isHidden?: boolean;
 }) => (
-  <details className="editor-section" open={defaultOpen}>
+  <details className={`editor-section${isHidden ? " is-hidden" : ""}`} open={defaultOpen}>
     <summary>
       <span className="section-icon">{icon}</span>
-      <span>{title}</span>
+      <span className="section-title">
+        {title}
+        {isHidden && <small className="section-hidden-label">ausgeblendet</small>}
+      </span>
+      {headerAction !== undefined && (
+        <span
+          className="section-header-action"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") event.stopPropagation();
+          }}
+        >
+          {headerAction}
+        </span>
+      )}
       <ChevronDown className="section-chevron" size={17} />
     </summary>
     <div className="editor-section-body">{children}</div>
@@ -1073,7 +1094,25 @@ export const AdminWorkspace = ({
 
           {initialBootstrap.capabilities.petEditor && (
             <div className="desktop-only">
-            <Section icon={<PawPrint size={16} />} title="Pet">
+            <Section
+              headerAction={draft.pet === null ? undefined : (
+                <button
+                  aria-checked={draft.petVisible}
+                  aria-label="Pet im Overlay anzeigen"
+                  className={`section-switch ${draft.petVisible ? "is-on" : "is-off"}`}
+                  disabled={locked}
+                  onClick={() => setDraft((current) => ({ ...current, petVisible: !current.petVisible }))}
+                  role="switch"
+                  type="button"
+                >
+                  <span>{draft.petVisible ? "An" : "Aus"}</span>
+                  <i aria-hidden="true" />
+                </button>
+              )}
+              icon={<PawPrint size={16} />}
+              isHidden={draft.pet !== null && !draft.petVisible}
+              title="Pet"
+            >
               {draft.pet === null ? (
                 <button className="button button--quiet button--full" disabled={locked} onClick={() => setDraft((current) => ({ ...current, pet: { name: "Begleiter", subtitle: null, portrait: { kind: "initials", text: "BE" }, hpPercent: 100 } }))} type="button">
                   <Plus size={15} /> Pet einrichten
@@ -1086,7 +1125,7 @@ export const AdminWorkspace = ({
                     <label><span>Unterzeile</span><input disabled={locked} maxLength={40} value={draft.pet.subtitle ?? ""} onChange={(event) => setDraft((current) => ({ ...current, pet: current.pet === null ? null : { ...current.pet, subtitle: event.target.value === "" ? null : event.target.value } }))} /></label>
                   </div>
                   <PortraitInput disabled={locked} upload={uploadPortrait} onPortrait={(portrait) => setDraft((current) => ({ ...current, pet: current.pet === null ? null : { ...current.pet, portrait } }))} />
-                  <button className="text-button text-button--danger" disabled={locked} onClick={() => setDraft((current) => ({ ...current, pet: null }))} type="button">Pet ausblenden</button>
+                  <button className="text-button text-button--danger" disabled={locked} onClick={() => setDraft((current) => ({ ...current, pet: null }))} type="button">Pet löschen</button>
                 </>
               )}
             </Section>
@@ -1095,7 +1134,25 @@ export const AdminWorkspace = ({
 
           {initialBootstrap.capabilities.groupEditor && (
             <div className="desktop-only">
-            <Section icon={<Users size={16} />} title="Gruppe">
+            <Section
+              headerAction={(
+                <button
+                  aria-checked={draft.groupVisible}
+                  aria-label="Gruppe im Overlay anzeigen"
+                  className={`section-switch ${draft.groupVisible ? "is-on" : "is-off"}`}
+                  disabled={locked}
+                  onClick={() => setDraft((current) => ({ ...current, groupVisible: !current.groupVisible }))}
+                  role="switch"
+                  type="button"
+                >
+                  <span>{draft.groupVisible ? "An" : "Aus"}</span>
+                  <i aria-hidden="true" />
+                </button>
+              )}
+              icon={<Users size={16} />}
+              isHidden={!draft.groupVisible}
+              title="Gruppe"
+            >
               {draft.group.length === 0 && <p className="empty-copy">Keine Gäste im Stream.</p>}
               {draft.group.map((member, index) => (
                 <div className="guest-control" key={member.id}>

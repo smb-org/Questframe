@@ -19,6 +19,13 @@ describe("lightweight overlay wire boundary", () => {
     expect(parseOverlayMessage({ type: "token_revoked" })).toEqual({ type: "token_revoked" });
   });
 
+  it("accepts section visibility flags and rejects non-booleans", () => {
+    const hidden = { ...state, petVisible: false, groupVisible: false };
+    expect(parseOverlayState(hidden)).toEqual(hidden);
+    expect(parseOverlayState({ ...state, petVisible: "false" })).toBeNull();
+    expect(parseOverlayState({ ...state, groupVisible: 0 })).toBeNull();
+  });
+
   it("normalizes legacy classic-remix snapshots at the lightweight overlay boundary", () => {
     expect(parseOverlayState({ ...state, themeId: "classic-remix" })).toEqual({
       ...state,

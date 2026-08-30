@@ -298,7 +298,7 @@ export const HudRenderer = ({
               ))}
             </div>
             <div className="hud-pet-slot">
-              {state.pet !== null && (
+              {state.pet !== null && state.petVisible && (
                 <CompactUnit
                   className="hud-pet"
                   name={state.pet.name}
@@ -327,7 +327,7 @@ export const HudRenderer = ({
         </div>
 
         <div className="hud-party" aria-label="Gruppe">
-          {state.group.map((member) => (
+          {state.groupVisible && state.group.map((member) => (
             <CompactUnit
               key={member.id}
               className="hud-party-member"

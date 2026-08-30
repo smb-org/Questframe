@@ -13,7 +13,7 @@ export const fingerprintOverlayToken = async (token: string): Promise<string> =>
 };
 
 export const cacheKeyFor = (capsuleId: string, fingerprint: string): string =>
-  `hud:1:${capsuleId}:${fingerprint}`;
+  `hud:2:${capsuleId}:${fingerprint}`;
 
 export const storeOverlaySnapshot = (
   capsuleId: string,

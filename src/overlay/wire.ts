@@ -94,7 +94,9 @@ export const parseOverlayState = (input: unknown): ChannelState | null => {
       "placement",
       "player",
       "pet",
+      "petVisible",
       "group",
+      "groupVisible",
       "effects",
       "featuredEffectId",
       "updatedAt",
@@ -103,6 +105,8 @@ export const parseOverlayState = (input: unknown): ChannelState | null => {
     input.schemaVersion !== 1 ||
     !isInteger(input.revision, 1, Number.MAX_SAFE_INTEGER) ||
     typeof input.overlayEnabled !== "boolean" ||
+    typeof input.petVisible !== "boolean" ||
+    typeof input.groupVisible !== "boolean" ||
     ![
       "trail-wood",
       "field-journal",
