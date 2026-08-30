@@ -8,15 +8,11 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 const STAGE = { width: 630, height: 259 };
 const PLAYER_HEIGHT = 175;
 
-/** Jede Bildvariante behaelt das Seitenverhaeltnis ihres Rahmenassets. */
-const PLAYER_WIDTH: Record<string, number> = {
-  "trail-wood": 307,
-  "field-journal": 398,
-  "forged-compass": 372,
-  "classic-simple": 430,
-  "modern-compact": 430,
-  "modern-minimal": 430,
-};
+/**
+ * Jede Variante fuellt dieselbe Breite. Die Bildvarianten strecken ihr
+ * Rahmenasset dafuer ueber ein horizontales 3-Slice (--hud-chrome-slice-*).
+ */
+const PLAYER_WIDTH = 430;
 
 const PARTY_WIDTH: Record<string, number> = {
   "trail-wood": 178,
@@ -34,15 +30,15 @@ const SHARED_BOXES = {
 } as const;
 
 const IMAGE_VARIANTS = ["trail-wood", "field-journal", "forged-compass"] as const;
-const ALL_VARIANTS = Object.keys(PLAYER_WIDTH);
+const ALL_VARIANTS = Object.keys(PARTY_WIDTH);
 
 const APERTURE_BOXES = {
   "trail-wood": {
     playerPortrait: { x: 18, y: 19, width: 92, height: 92 },
-    playerName: { x: 158, y: 29, width: 83, height: 17 },
-    playerTitle: { x: 135, y: 47, width: 138 },
-    playerHealth: { x: 135, y: 57, width: 138, height: 15 },
-    playerResource: { x: 135, y: 86, width: 138, height: 15 },
+    playerName: { x: 158, y: 29, width: 206, height: 17 },
+    playerTitle: { x: 135, y: 47, width: 261 },
+    playerHealth: { x: 135, y: 57, width: 261, height: 15 },
+    playerResource: { x: 135, y: 86, width: 261, height: 15 },
     petPortrait: { x: 11, y: 11, width: 26, height: 26 },
     petName: { x: 46, y: 10, width: 105, height: 14 },
     petBar: { x: 45, y: 31, width: 106, height: 8 },
@@ -52,10 +48,10 @@ const APERTURE_BOXES = {
   },
   "field-journal": {
     playerPortrait: { x: 37, y: 31, width: 97, height: 97 },
-    playerName: { x: 189, y: 38, width: 148, height: 20 },
-    playerTitle: { x: 189, y: 58, width: 148 },
-    playerHealth: { x: 171, y: 75, width: 193, height: 26 },
-    playerResource: { x: 171, y: 103, width: 193, height: 25 },
+    playerName: { x: 189, y: 38, width: 180, height: 20 },
+    playerTitle: { x: 189, y: 58, width: 180 },
+    playerHealth: { x: 171, y: 75, width: 225, height: 26 },
+    playerResource: { x: 171, y: 103, width: 225, height: 25 },
     petPortrait: { x: 9, y: 14, width: 20, height: 20 },
     petName: { x: 39, y: 11, width: 86, height: 12 },
     petBar: { x: 39, y: 30, width: 86 },
@@ -65,10 +61,10 @@ const APERTURE_BOXES = {
   },
   "forged-compass": {
     playerPortrait: { x: 15, y: 14, width: 116, height: 116 },
-    playerName: { x: 181, y: 44, width: 128, height: 15 },
-    playerTitle: { x: 152, y: 59, width: 196 },
-    playerHealth: { x: 152, y: 68, width: 196, height: 27 },
-    playerResource: { x: 152, y: 104, width: 196, height: 26 },
+    playerName: { x: 181, y: 44, width: 186, height: 15 },
+    playerTitle: { x: 152, y: 59, width: 254 },
+    playerHealth: { x: 152, y: 68, width: 254, height: 27 },
+    playerResource: { x: 152, y: 104, width: 254, height: 26 },
     petPortrait: { x: 8, y: 6, width: 31, height: 31 },
     petName: { x: 51, y: 8, width: 78, height: 11 },
     petBar: { x: 51, y: 33, width: 78 },
@@ -229,7 +225,7 @@ test.describe("HUD geometry contract", () => {
       expect(await boxIn(overlay, ".hud-player", origin), `${themeId} player`).toEqual({
         x: 0,
         y: 0,
-        width: PLAYER_WIDTH[themeId],
+        width: PLAYER_WIDTH,
         height: PLAYER_HEIGHT,
       });
 
@@ -450,7 +446,9 @@ test.describe("HUD geometry contract", () => {
       await syncOverlay(page, overlay, themeId);
 
       const layers = await overlay.evaluate(() => ({
-        player: getComputedStyle(document.querySelector(".hud-player-chrome") as Element).backgroundImage,
+        // Der Spieler-Chrome haengt als border-image am Element, nicht als Hintergrund.
+        player: getComputedStyle(document.querySelector(".hud-player-chrome") as Element)
+          .borderImageSource,
         level: getComputedStyle(document.querySelector(".hud-level-chrome") as Element).backgroundImage,
         pet: getComputedStyle(
           document.querySelector('[data-unit-kind="pet"] .hud-compact-chrome') as Element,

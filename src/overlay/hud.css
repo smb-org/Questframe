@@ -12,10 +12,13 @@
   --hud-stage-w: 630px;
   --hud-stage-h: 259px;
 
-  /* Spielerframe. Bildvarianten setzen --hud-player-w auf die Breite, die das
-     Seitenverhaeltnis ihres Assets bei dieser Hoehe ergibt. */
+  /* Spielerframe. Bildvarianten strecken ihr Chrome-Asset ueber ein
+     horizontales 3-Slice auf diese Breite (siehe --hud-chrome-slice-*). */
   --hud-player-w: 430px;
   --hud-player-h: 175px;
+  /* Zuwachs gegenueber der aspektwahrenden Assetbreite. Genau die Elemente, die
+     den Schnittbereich ueberspannen, wachsen um diesen Betrag mit. */
+  --hud-player-stretch: 0px;
   --hud-portrait-x: 0px;
   --hud-portrait-y: 4px;
   --hud-portrait-size: 160px;
@@ -89,6 +92,18 @@
   --hud-party-bar-y: 25px;
   --hud-party-bar-w: 132px;
   --hud-party-bar-h: 14px;
+
+  /*
+   * Horizontales 3-Slice des Spieler-Chromes.
+   * --hud-chrome-slice-*: Schnittkanten in MASTER-Pixeln, einheitenlos
+   *   (border-image-slice). --hud-chrome-edge-*: dieselben Kanten in
+   *   DISPLAY-px; sie legen die Breite der unveraenderten Randsegmente fest.
+   * Neutraler Default 0: kein Schnitt, das Asset fuellt die Flaeche wie zuvor.
+   */
+  --hud-chrome-slice-left: 0;
+  --hud-chrome-slice-right: 0;
+  --hud-chrome-edge-left: 0px;
+  --hud-chrome-edge-right: 0px;
 
   /* Asset-Slots: leer, solange eine Variante nichts setzt */
   --hud-player-chrome-image: none;
@@ -212,12 +227,28 @@
   box-shadow: var(--hud-portrait-ring);
 }
 
-/* Dekoratives Frame-Overlay der Variante. */
+/*
+ * Dekoratives Frame-Overlay der Variante.
+ *
+ * Das Asset wird horizontal dreigeteilt: die beiden Randsegmente behalten ueber
+ * border-image-width ihre Originalbreite in Display-px, nur die homogene
+ * Mittelzone wird gestreckt (border-image-repeat: stretch). Portraitoeffnung,
+ * Plakettenraender und Endkappe bleiben dadurch unverzerrt.
+ * Ohne Schnittwerte (Default 0) faellt das auf eine reine Vollflaechen-
+ * Streckung zurueck und entspricht damit dem frueheren Hintergrundbild.
+ */
 .hud-player-chrome {
   position: absolute;
   z-index: 2;
   inset: 0;
-  background: var(--hud-player-chrome-image) 0 0 / 100% 100% no-repeat;
+  box-sizing: border-box;
+  border-style: solid;
+  border-color: transparent;
+  border-width: 0 var(--hud-chrome-edge-right) 0 var(--hud-chrome-edge-left);
+  border-image-source: var(--hud-player-chrome-image);
+  border-image-slice: 0 var(--hud-chrome-slice-right) 0 var(--hud-chrome-slice-left) fill;
+  border-image-width: 0 var(--hud-chrome-edge-right) 0 var(--hud-chrome-edge-left);
+  border-image-repeat: stretch;
 }
 
 .hud-player-body {
@@ -253,12 +284,16 @@
   min-width: 0;
 }
 
+/*
+ * --hud-name-fit wird vom HudRenderer nach dem Layout gesetzt (Auto-Fit fuer
+ * lange Spielernamen). Ohne Messung bleibt der Faktor 1.
+ */
 .hud-player-name {
   max-width: 100%;
   overflow: hidden;
   color: var(--hud-name-color);
   font-family: var(--hud-name-font);
-  font-size: var(--hud-name-size);
+  font-size: calc(var(--hud-name-size) * var(--hud-name-fit, 1));
   font-weight: 700;
   letter-spacing: 0.01em;
   line-height: 1.05;

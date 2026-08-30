@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import type {
   ActiveEffect,
@@ -62,6 +62,67 @@ const Portrait = ({ portrait, name, mediaUrls }: PortraitProps) => {
   ) : (
     <span className="hud-portrait-fallback" aria-hidden="true">
       {initials}
+    </span>
+  );
+};
+
+/*
+ * Auto-Fit fuer den Spielernamen. Die Plakette hat je Variante eine feste
+ * Breite; ein zu langer Name wird deshalb nicht abgeschnitten, sondern in der
+ * Schriftgroesse heruntergerechnet. Unterhalb von MINIMUM_NAME_FIT greift
+ * weiterhin das text-overflow der CSS-Regel.
+ *
+ * Nur der Spielername. Pet- und Party-Namen bleiben unangetastet.
+ */
+const MINIMUM_NAME_FIT = 0.7;
+/* Ganzzahlig gerundete Layoutwerte duerfen kurze Namen nicht verkleinern. */
+const NAME_FIT_TOLERANCE = 1;
+
+const nameFitFactor = (available: number, needed: number): number => {
+  // In jsdom gibt es keine Layout-Engine: ohne Messwerte bleibt der Faktor 1.
+  if (available <= 0 || needed <= 0) return 1;
+  if (needed <= available + NAME_FIT_TOLERANCE) return 1;
+  return Math.max(MINIMUM_NAME_FIT, available / needed);
+};
+
+const PlayerName = ({ name, themeId }: { name: string; themeId: string }) => {
+  const labelRef = useRef<HTMLSpanElement | null>(null);
+
+  useLayoutEffect(() => {
+    const label = labelRef.current;
+    if (label === null) return;
+
+    let disposed = false;
+    const measure = () => {
+      if (disposed) return;
+      // Erst zuruecksetzen, sonst misst die naechste Messung den bereits
+      // verkleinerten Text.
+      label.style.setProperty("--hud-name-fit", "1");
+      const factor = nameFitFactor(label.clientWidth, label.scrollWidth);
+      label.style.setProperty("--hud-name-fit", String(factor));
+    };
+
+    measure();
+
+    // Der Container aendert seine Breite bei Varianten- und Skalenwechsel.
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    if (observer !== null && label.parentElement !== null) observer.observe(label.parentElement);
+
+    // Webfonts kommen spaeter als der erste Layoutdurchlauf. jsdom kennt
+    // document.fonts nicht, die Typdeklaration behauptet das Gegenteil.
+    const fonts = (document as Partial<Document>).fonts;
+    if (fonts !== undefined) void fonts.ready.then(measure).catch(() => undefined);
+
+    return () => {
+      disposed = true;
+      observer?.disconnect();
+    };
+  }, [name, themeId]);
+
+  return (
+    <span className="hud-player-name" ref={labelRef}>
+      {name}
     </span>
   );
 };
@@ -205,7 +266,7 @@ export const HudRenderer = ({
           <span className="hud-player-chrome" aria-hidden="true" />
           <div className="hud-player-body">
             <div className="hud-player-heading">
-              <span className="hud-player-name">{state.player.name}</span>
+              <PlayerName name={state.player.name} themeId={state.themeId} />
             </div>
             {state.player.title !== null && <span className="hud-player-title">{state.player.title}</span>}
             <div className="hud-player-bars">

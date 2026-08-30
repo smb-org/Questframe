@@ -48,7 +48,7 @@ der Stage beziehungsweise des Spielerframes.
 
 | Bauteil | Position und Größe | Zweck |
 | --- | --- | --- |
-| Spielerframe | `x=0, y=0`, Höhe `175`; Breite `307–430` | aspektwahrende Hauptsilhouette je Variante |
+| Spielerframe | `x=0, y=0`, `430 × 175` | Bildvarianten strecken ihr Asset über ein horizontales 3-Slice auf diese Breite |
 | Portrait, Name und Bars | variantenspezifische Aperturwerte | sitzen innerhalb der gezeichneten beziehungsweise CSS-basierten Aussparungen |
 | Levelmedaillon | variantenspezifisch im Spielerframe | eigenes Frame-Bauteil, kein Portraitkind |
 | Effektreihe | `x=0, y=179, 285 × 34` | acht Icons à `33 px` mit `3 px` Abstand |

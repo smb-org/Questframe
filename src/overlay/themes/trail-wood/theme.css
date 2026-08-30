@@ -3,8 +3,11 @@
  * Geschnitztes Walnuss- und Eichenholz, Hanfseil, Moos in den Vertiefungen.
  *
  * Die Geometrie folgt exakt den Aussparungen des Assets
- * (Master 512 x 292, dargestellt 307 x 175, Faktor 0.599). Der Trog kommt aus
- * der Grafik, deshalb ist der CSS-Trog transparent und nur die Fuellung sichtbar.
+ * (Master 512 x 292, aspektwahrend 307 x 175, Faktor 0.599). Der Chrome wird
+ * horizontal dreigeteilt und in der homogenen Zone von display-x 177 bis 235
+ * auf 430 x 175 gestreckt; alles ausserhalb bleibt originalgross. Der Trog
+ * kommt aus der Grafik, deshalb ist der CSS-Trog transparent und nur die
+ * Fuellung sichtbar.
  * Diese Datei setzt ausschliesslich Custom Properties aus src/overlay/hud.css.
  */
 
@@ -15,22 +18,28 @@
   --hud-party-chrome-image: url("/assets/themes/trail-wood/party-frame.webp");
   --hud-effect-bezel-image: url("/assets/themes/trail-wood/effect-frame.webp");
 
-  --hud-player-w: 307px;
+  --hud-player-w: 430px;
+  /* Zuwachs gegenueber der aspektwahrenden Assetbreite 307px. */
+  --hud-player-stretch: 123px;
+  --hud-chrome-slice-left: 295;
+  --hud-chrome-slice-right: 120;
+  --hud-chrome-edge-left: 177px;
+  --hud-chrome-edge-right: 72px;
   --hud-portrait-x: 18px;
   --hud-portrait-y: 19px;
   --hud-portrait-size: 92px;
   --hud-name-x: 158px;
   --hud-name-y: 29px;
-  --hud-name-w: 83px;
+  --hud-name-w: calc(83px + var(--hud-player-stretch));
   --hud-name-h: 17px;
   --hud-name-size: 11px;
   --hud-title-x: 135px;
   --hud-title-y: 47px;
-  --hud-title-w: 138px;
+  --hud-title-w: calc(138px + var(--hud-player-stretch));
   --hud-title-size: 8px;
   --hud-hp-x: 135px;
   --hud-hp-y: 57px;
-  --hud-hp-w: 138px;
+  --hud-hp-w: calc(138px + var(--hud-player-stretch));
   --hud-hp-h: 15px;
   --hud-resource-y: 86px;
   --hud-resource-h: 15px;

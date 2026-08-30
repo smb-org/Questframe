@@ -113,6 +113,24 @@ describe("HUD renderer", () => {
     }
   });
 
+  it("leaves the player name at full size when no layout width is measurable", () => {
+    // jsdom hat keine Layout-Engine: ohne Messwerte darf das Auto-Fit den
+    // Namen nicht verkleinern und nicht durch null teilen.
+    const state = createDefaultState(actor, "2026-08-29T12:00:00.000Z");
+    const { container } = render(
+      <HudRenderer
+        state={{
+          ...state,
+          player: { ...state.player, name: "Maximilianvonundzuliechtenstein" },
+        }}
+      />,
+    );
+
+    const label = container.querySelector<HTMLElement>(".hud-player-name");
+    expect(label?.textContent).toBe("Maximilianvonundzuliechtenstein");
+    expect(label?.style.getPropertyValue("--hud-name-fit")).toBe("1");
+  });
+
   it("tags pet and party frames with their unit kind", () => {
     const state = createDefaultState(actor, "2026-08-29T12:00:00.000Z");
     const { container } = render(

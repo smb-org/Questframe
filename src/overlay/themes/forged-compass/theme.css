@@ -3,8 +3,11 @@
  * Geschwaerztes Metall mit mattem Goldrand, Kompassrose und Hoehenlinien.
  *
  * Die Geometrie folgt exakt den Aussparungen des Assets
- * (Master 620 x 292, dargestellt 372 x 175, Faktor 0.599). Der Trog kommt aus
- * der Grafik, deshalb ist der CSS-Trog transparent und nur die Fuellung sichtbar.
+ * (Master 620 x 292, aspektwahrend 372 x 175, Faktor 0.599). Der Chrome wird
+ * horizontal dreigeteilt und in der homogenen Zone von display-x 232 bis 292
+ * auf 430 x 175 gestreckt; alles ausserhalb bleibt originalgross. Der Trog
+ * kommt aus der Grafik, deshalb ist der CSS-Trog transparent und nur die
+ * Fuellung sichtbar.
  * Diese Datei setzt ausschliesslich Custom Properties aus src/overlay/hud.css.
  */
 
@@ -15,22 +18,28 @@
   --hud-party-chrome-image: url("/assets/themes/forged-compass/party-frame.webp");
   --hud-effect-bezel-image: url("/assets/themes/forged-compass/effect-frame.webp");
 
-  --hud-player-w: 372px;
+  --hud-player-w: 430px;
+  /* Zuwachs gegenueber der aspektwahrenden Assetbreite 372px. */
+  --hud-player-stretch: 58px;
+  --hud-chrome-slice-left: 387;
+  --hud-chrome-slice-right: 133;
+  --hud-chrome-edge-left: 232px;
+  --hud-chrome-edge-right: 80px;
   --hud-portrait-x: 15px;
   --hud-portrait-y: 14px;
   --hud-portrait-size: 116px;
   --hud-name-x: 181px;
   --hud-name-y: 44px;
-  --hud-name-w: 128px;
+  --hud-name-w: calc(128px + var(--hud-player-stretch));
   --hud-name-h: 15px;
   --hud-name-size: 11px;
   --hud-title-x: 152px;
   --hud-title-y: 59px;
-  --hud-title-w: 196px;
+  --hud-title-w: calc(196px + var(--hud-player-stretch));
   --hud-title-size: 8px;
   --hud-hp-x: 152px;
   --hud-hp-y: 68px;
-  --hud-hp-w: 196px;
+  --hud-hp-w: calc(196px + var(--hud-player-stretch));
   --hud-hp-h: 27px;
   --hud-resource-y: 104px;
   --hud-resource-h: 26px;

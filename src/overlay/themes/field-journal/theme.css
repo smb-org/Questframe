@@ -3,8 +3,11 @@
  * Gealtertes Leder und gewachstes Segeltuch mit gepraegten Hoehenlinien.
  *
  * Die Geometrie folgt exakt den Aussparungen des Assets
- * (Master 664 x 292, dargestellt 398 x 175, Faktor 0.599). Der Trog kommt aus
- * der Grafik, deshalb ist der CSS-Trog transparent und nur die Fuellung sichtbar.
+ * (Master 664 x 292, aspektwahrend 398 x 175, Faktor 0.599). Der Chrome wird
+ * horizontal dreigeteilt und in der homogenen Zone von display-x 256 bis 304
+ * auf 430 x 175 gestreckt; alles ausserhalb bleibt originalgross. Der Trog
+ * kommt aus der Grafik, deshalb ist der CSS-Trog transparent und nur die
+ * Fuellung sichtbar.
  * Diese Datei setzt ausschliesslich Custom Properties aus src/overlay/hud.css.
  */
 
@@ -15,22 +18,28 @@
   --hud-party-chrome-image: url("/assets/themes/field-journal/party-frame.webp");
   --hud-effect-bezel-image: url("/assets/themes/field-journal/effect-frame.webp");
 
-  --hud-player-w: 398px;
+  --hud-player-w: 430px;
+  /* Zuwachs gegenueber der aspektwahrenden Assetbreite 398px. */
+  --hud-player-stretch: 32px;
+  --hud-chrome-slice-left: 427;
+  --hud-chrome-slice-right: 157;
+  --hud-chrome-edge-left: 256px;
+  --hud-chrome-edge-right: 94px;
   --hud-portrait-x: 37px;
   --hud-portrait-y: 31px;
   --hud-portrait-size: 97px;
   --hud-name-x: 189px;
   --hud-name-y: 38px;
-  --hud-name-w: 148px;
+  --hud-name-w: calc(148px + var(--hud-player-stretch));
   --hud-name-h: 20px;
   --hud-name-size: 15px;
   --hud-title-x: 189px;
   --hud-title-y: 58px;
-  --hud-title-w: 148px;
+  --hud-title-w: calc(148px + var(--hud-player-stretch));
   --hud-title-size: 8px;
   --hud-hp-x: 171px;
   --hud-hp-y: 75px;
-  --hud-hp-w: 193px;
+  --hud-hp-w: calc(193px + var(--hud-player-stretch));
   --hud-hp-h: 26px;
   --hud-resource-y: 103px;
   --hud-resource-h: 25px;
