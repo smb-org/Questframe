@@ -841,7 +841,7 @@ export const AdminWorkspace = ({
   // Tastendruck, eine Abhaengigkeit darauf wuerde den Timer endlos neu starten.
   useEffect(() => {
     if (api.renewMediaLeases === undefined) return;
-    const renewFn = api.renewMediaLeases;
+    const renewFn = api.renewMediaLeases.bind(api);
     const timer = window.setInterval(() => {
       const hashes = pendingLeaseHashesRef.current;
       if (hashes.length === 0) return;
@@ -1321,7 +1321,7 @@ export const AdminWorkspace = ({
                 <GuestAdder
                   disabled={locked}
                   existingTwitchUserIds={draft.group.flatMap((member) => member.twitchUserId === null ? [] : [member.twitchUserId])}
-                  lookup={api.lookupTwitchUser}
+                  lookup={api.lookupTwitchUser?.bind(api)}
                   onAddManual={addManualGuest}
                   onAddTwitch={addTwitchGuest}
                 />
