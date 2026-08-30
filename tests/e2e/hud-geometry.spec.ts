@@ -103,6 +103,8 @@ const publishDenseState = (page: Page, themeId: string, scale = 1) =>
           schemaVersion: 1,
           themeId: theme,
           placement: { x: 0, y: 0, scale: hudScale },
+          petVisible: true,
+          groupVisible: true,
           player: {
             name: "Alexandra Bergsteigerin XY",
             title: "Chefin der Hochgebirgsexpedition",
