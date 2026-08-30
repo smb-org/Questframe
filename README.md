@@ -13,12 +13,12 @@ Enthalten sind:
 
 ## Lokal starten
 
-Voraussetzungen sind Node.js 24+, npm 11+ und der von Playwright installierte Chromium.
+Voraussetzungen sind Node.js 24+, pnpm 11+ und der von Playwright installierte Chromium.
 
 ```bash
-npm ci
+pnpm install --frozen-lockfile
 cp .dev.vars.example .dev.vars
-npm run dev
+pnpm run dev
 ```
 
 Für lokale Entwicklung steht `/auth/dev` als absichtlich nur unter `APP_ENV=local` verfügbarer Login bereit. Danach öffnet `/admin` die Konsole. Das lokale Cloudflare-SQLite-Durable-Object liegt in Wranglers Projektzustand und berührt weder Staging noch Production.
@@ -50,18 +50,18 @@ openssl rand -base64 32 | tr '+/' '-_' | tr -d '='
 
 3. In jeder Datei alle zehn Werte ersetzen. Dazu gehören auch `TWITCH_CLIENT_ID`, `BROADCASTER_ID`, `PUBLIC_ORIGIN`, `CAPSULE_ID`, `CAPSULE_NAME` und `TIMEZONE`. Sie sind nicht alle vertraulich, werden aber als externe Cloudflare-Secret-Bindings behandelt, damit keine installationsspezifischen Werte im Repository landen. Staging und Production verwenden unabhängige Twitch-Apps, Schlüssel und Capsule-Werte.
 
-   Um die eigene `BROADCASTER_ID` zu finden, hilft das optionale lokale Skript `npm run twitch:id -- <login> [env-datei]`, z.B. `npm run twitch:id -- meinlogin .env.staging`. Es liest `TWITCH_CLIENT_ID`/`TWITCH_CLIENT_SECRET` aus der angegebenen Datei (Standard `.dev.vars`), löst den Login über die Twitch-API auf und gibt die fertige `BROADCASTER_ID=…`-Zeile aus. Das Skript läuft rein lokal und ist optional; es ist nicht Teil von `npm run check` oder der Deploy-Skripte und wird weder beim Deployment noch zur Laufzeit ausgeführt.
+   Um die eigene `BROADCASTER_ID` zu finden, hilft das optionale lokale Skript `pnpm run twitch:id -- <login> [env-datei]`, z.B. `pnpm run twitch:id -- meinlogin .env.staging`. Es liest `TWITCH_CLIENT_ID`/`TWITCH_CLIENT_SECRET` aus der angegebenen Datei (Standard `.dev.vars`), löst den Login über die Twitch-API auf und gibt die fertige `BROADCASTER_ID=…`-Zeile aus. Das Skript läuft rein lokal und ist optional; es ist nicht Teil von `pnpm run check` oder der Deploy-Skripte und wird weder beim Deployment noch zur Laufzeit ausgeführt.
 4. `CAPSULE_ID` nach dem ersten Einsatz stabil halten und sicher außerhalb des Repositories dokumentieren. `BROADCASTER_ID` bleibt eine positive Dezimalzeichenkette, nie eine JavaScript-Zahl; eine Änderung adressiert absichtlich ein anderes Durable Object.
 5. Das erste Staging-Deployment lokal ausführen:
 
    ```bash
-   npm run deploy:staging
+   pnpm run deploy:staging
    ```
 
    Der Preflight prüft Vollständigkeit, Platzhalter, HTTPS-Origin, Twitch-ID, IANA-Zeitzone sowie unabhängige gültige Keyrings. Wrangler lädt die Datei mit `--secrets-file` verschlüsselt zu Cloudflare; Werte erscheinen weder in `wrangler.jsonc` noch in der Kommandozeile. Spätere Code-Deployments erben die Cloudflare-Secrets. Änderungen werden durch einen erneuten Lauf mit der privaten Datei veröffentlicht.
 
 6. `/healthz` prüfen, über Twitch anmelden und den Ablauf in [docs/OPERATIONS.md](docs/OPERATIONS.md) durchführen.
-7. Production wird erst nach Freigabe mit `npm run deploy:production` initialisiert beziehungsweise aktualisiert.
+7. Production wird erst nach Freigabe mit `pnpm run deploy:production` initialisiert beziehungsweise aktualisiert.
 
 `.env.staging`, `.env.production`, `.env*` und `.dev.vars*` sind durch `.gitignore` geschützt; ausschließlich die wertfreien `*.example`-Vorlagen werden versioniert. `wrangler.jsonc` deklariert alle zehn Namen über `secrets.required`, sodass ein Erst-Deployment ohne vollständig hinterlegte Bindings hart fehlschlägt.
 
@@ -83,7 +83,7 @@ Bei einem Leak erzeugt **Neuen Token erzeugen** sofort eine neue URL und sperrt 
 ## Qualitätsgates
 
 ```bash
-npm run check
+pnpm run check
 ```
 
 Das Gate prüft die externe Deployment-Konfiguration, Assets, Wrangler-Typen, TypeScript, ESLint, Coverage, Worker-Integration, Playwright, Bundle-/Transferbudgets und den lokalen Wrangler-Startup-Profiler. Die getestete Browserbasis ist der im Lockfile gepinnte Playwright-Chromium; OBS/CEF kann davon abweichen und wird deshalb zusätzlich im Stream-Rehearsal geprüft.

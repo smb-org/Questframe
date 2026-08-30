@@ -14,7 +14,7 @@ test-results/
 !.env.*.example
 *.tsbuildinfo
 .DS_Store
-npm-debug.log*
+pnpm-debug.log*
 docs/superpowers/
 
 # Rohausgaben der Bildgenerierung. Nur die ausgewaehlten Master unter

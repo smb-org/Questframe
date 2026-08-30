@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.22.0",
   "engines": {
     "node": ">=24.0.0",
-    "npm": ">=11.0.0"
+    "pnpm": ">=11.0.0"
   },
   "scripts": {
     "assets:build": "node scripts/build-visual-assets.mjs",
@@ -21,23 +22,19 @@
     "lint": "eslint .",
     "test": "vitest run --config vitest.config.ts",
     "test:watch": "vitest --config vitest.config.ts",
-    "pretest:worker": "npm run build",
+    "pretest:worker": "pnpm run build",
     "test:worker": "cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log vitest run --config vitest.worker.config.ts",
-    "pretest:worker:configured": "npm run build",
+    "pretest:worker:configured": "pnpm run build",
     "test:worker:configured": "cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log vitest run --config tests/config/vitest.worker-configured.config.ts",
-    "test:coverage": "npm run test -- --coverage && npm run test:worker -- --coverage && npm run test:worker:configured -- --coverage",
+    "test:coverage": "pnpm run test -- --coverage && pnpm run test:worker -- --coverage && pnpm run test:worker:configured -- --coverage",
     "test:e2e": "playwright test",
     "types:worker": "cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log wrangler types",
     "types:check": "cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log wrangler types --check",
     "check:startup": "node scripts/check-startup-budget.mjs",
-    "build:budgets": "npm run build && node scripts/check-build-budgets.mjs",
-    "check": "npm run config:verify && npm run assets:verify && npm run types:check && npm run typecheck && npm run lint && npm run test:coverage && npm run test:e2e && npm run build:budgets && npm run check:startup",
-    "deploy:staging": "node scripts/verify-deployment-config.mjs validate-env staging .env.staging && npm run check && npm run build:staging && cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log wrangler deploy --secrets-file .env.staging",
-    "deploy:production": "node scripts/verify-deployment-config.mjs validate-env production .env.production && npm run check && npm run build:production && cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log wrangler deploy --secrets-file .env.production"
-  },
-  "allowScripts": {
-    "esbuild@0.28.1": true,
-    "workerd@1.20260828.1": true
+    "build:budgets": "pnpm run build && node scripts/check-build-budgets.mjs",
+    "check": "pnpm run config:verify && pnpm run assets:verify && pnpm run types:check && pnpm run typecheck && pnpm run lint && pnpm run test:coverage && pnpm run test:e2e && pnpm run build:budgets && pnpm run check:startup",
+    "deploy:staging": "node scripts/verify-deployment-config.mjs validate-env staging .env.staging && pnpm run check && pnpm run build:staging && cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log wrangler deploy --secrets-file .env.staging",
+    "deploy:production": "node scripts/verify-deployment-config.mjs validate-env production .env.production && pnpm run check && pnpm run build:production && cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log wrangler deploy --secrets-file .env.production"
   },
   "dependencies": {
     "@js-temporal/polyfill": "^0.5.1",

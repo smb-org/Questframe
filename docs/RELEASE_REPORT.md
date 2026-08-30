@@ -9,8 +9,8 @@
 
 ## Automatische Gates
 
-- `npm ci`:
-- `npm run check`:
+- `pnpm install --frozen-lockfile`:
+- `pnpm run check`:
 - Coverage (Statements / Branches / Functions / Lines):
 - Worker Bundle gzip:
 - Worker Startup Profilfenster / Active:

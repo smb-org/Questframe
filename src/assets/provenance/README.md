@@ -1,7 +1,7 @@
 # Visual asset provenance
 
 Die Produktions-Grafik ist original generiert, nicht aus einem Spiel extrahiert. Die
-freigestellten Master liegen neben dieser Datei; `npm run assets:build` erzeugt daraus
+freigestellten Master liegen neben dieser Datei; `pnpm run assets:build` erzeugt daraus
 deterministisch die WebP-Derivate unter `public/assets/`.
 
 ## Verzeichnisse
@@ -51,8 +51,8 @@ Asset-Slots bewusst auf `none`.
 ## Rebuild und Prüfung
 
 ```sh
-npm run assets:build
-npm run assets:verify
+pnpm run assets:build
+pnpm run assets:verify
 ```
 
 Geprüft werden der vollständige erwartete Dateisatz je Variante, Format, exakte Maße,

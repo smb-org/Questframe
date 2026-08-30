@@ -3,9 +3,9 @@
 ## Vor jedem Release
 
 1. Nicht während eines aktiven Streams deployen; ein Worker-Update trennt WebSockets kurzzeitig.
-2. `npm ci` und `npm run check` auf dem exakten Commit ausführen.
+2. `pnpm install --frozen-lockfile` und `pnpm run check` auf dem exakten Commit ausführen.
 3. Bei einem lokalen Deploy die ignorierte `.env.staging` beziehungsweise `.env.production` aus dem sicheren Betreiber-Backup bereitstellen. Niemals ihren Inhalt in Terminalausgaben, Tickets oder Git kopieren. Der Deploy-Preflight zeigt ausschließlich betroffene Binding-Namen.
-4. Staging mit `npm run deploy:staging` aktualisieren und `/healthz` prüfen. Ein `503` nennt ausschließlich fehlende Binding-Namen; diese zuerst beheben.
+4. Staging mit `pnpm run deploy:staging` aktualisieren und `/healthz` prüfen. Ein `503` nennt ausschließlich fehlende Binding-Namen; diese zuerst beheben.
 5. Twitch-Login als Broadcaster und als echter aktueller Moderator testen.
 6. Release-Report aus [RELEASE_REPORT.md](RELEASE_REPORT.md) kopieren und Commit, Wrangler-Ausgabe, Chromium-Version und visuelle Artefakte eintragen.
 
@@ -20,7 +20,7 @@ manuell aktualisieren.
 
 `wrangler.jsonc` enthält für Staging und Production nur die bewusst versionierten Schalter `APP_ENV` und `RELEASE_STAGE`. Alle installationsspezifischen Werte sind verpflichtende Cloudflare-Secrets. Das erste Deployment einer Umgebung muss lokal mit der passenden ignorierten `.env.<umgebung>` erfolgen; dabei lädt `--secrets-file` alle zehn Werte gemeinsam hoch. Danach bleiben sie bei gewöhnlichen Wrangler-Deployments erhalten, sodass der GitHub-Workflow keine Klartext-Konfiguration erzeugen muss.
 
-Für eine Rotation oder Konfigurationsänderung die private Datei aktualisieren und das jeweilige `npm run deploy:*` erneut ausführen. Weil Cloudflare Secret-Werte nach dem Setzen nicht wieder anzeigt, müssen `CAPSULE_ID`, `BROADCASTER_ID`, Origins und Schlüssel in einem sicheren Betreiber-Passwortmanager gesichert bleiben. `CAPSULE_ID` oder `BROADCASTER_ID` nicht als gewöhnliche Rotation behandeln.
+Für eine Rotation oder Konfigurationsänderung die private Datei aktualisieren und das jeweilige `pnpm run deploy:*` erneut ausführen. Weil Cloudflare Secret-Werte nach dem Setzen nicht wieder anzeigt, müssen `CAPSULE_ID`, `BROADCASTER_ID`, Origins und Schlüssel in einem sicheren Betreiber-Passwortmanager gesichert bleiben. `CAPSULE_ID` oder `BROADCASTER_ID` nicht als gewöhnliche Rotation behandeln.
 
 Die Vite-Cloudflare-Integration wählt Staging oder Production beim Build, nicht bei einem nachträglichen Wrangler-Aufruf. Deshalb immer die projektspezifischen `deploy:*`- beziehungsweise `build:*`-Skripte benutzen. Deren getrennte Vite-Modusnamen sorgen dafür, dass `.env.staging` und `.env.production` ausschließlich vom nachfolgenden Wrangler-Secret-Upload gelesen werden. Der Build-Preflight vergleicht Worker-Name, `APP_ENV`, `RELEASE_STAGE` und alle erforderlichen Secret-Bindings mit der gewählten Umgebung; erst danach läuft `wrangler deploy` ohne `--env` gegen die generierte, abgeflachte Konfiguration.
 
@@ -44,7 +44,7 @@ Jede Unsicherheit wird mit Uhrzeit, Browser, Revision und beobachtetem Verhalten
 
 Production nutzt bis zum bestandenen V1a-Rehearsal `RELEASE_STAGE=v1a`. Erst danach darf der Wert in `wrangler.jsonc` bewusst auf `v1b` wechseln und der vollständige V1b-Rehearsal-Teil durchlaufen werden.
 
-1. Production bei der ersten Einrichtung lokal mit `npm run deploy:production` initialisieren. Danach die geschützte GitHub-Umgebung `production` freigeben oder erneut lokal deployen.
+1. Production bei der ersten Einrichtung lokal mit `pnpm run deploy:production` initialisieren. Danach die geschützte GitHub-Umgebung `production` freigeben oder erneut lokal deployen.
 2. `/healthz`, Twitch-Login, Bootstrap und eine unkritische Sichtbarkeitsmutation prüfen.
 3. OBS-Quelle verbinden und vollständigen Snapshot abwarten.
 4. Release-Report abschließen. Eine tatsächliche Cloudflare-Deployment-ID und der menschliche Rehearsal-Ausgang dürfen niemals vorab erfunden werden.
