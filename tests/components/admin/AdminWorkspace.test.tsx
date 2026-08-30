@@ -883,7 +883,7 @@ describe("Admin workspace publication boundary", () => {
 
     // Der Treffer ist der falsche Kevin: der manuelle Ausweg muss offen bleiben,
     // sonst gaebe es fuer login-foermige Namen ueberhaupt keinen manuellen Gast.
-    await user.click(screen.getByRole("button", { name: /Stattdessen.*kevin.*als manuellen Gast hinzufügen/ }));
+    await user.click(screen.getByRole("button", { name: /kevin.*als manuellen Gast hinzufügen/ }));
     expect(screen.getByRole("slider", { name: "kevin Gesundheit" })).toBeInTheDocument();
     expect(screen.queryByText("@kevin")).not.toBeInTheDocument();
   });
