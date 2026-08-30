@@ -42,6 +42,25 @@ export default defineConfig(
     }
   },
   {
+    // Zuschauerpfade dürfen keine Kommandoschicht und kein Zod ins Bundle ziehen;
+    // das 120-KiB-Gate des Overlays hält diese Abhängigkeiten nicht aus.
+    // Admin und Live bleiben bewusst unbeschränkt, weil sie die Bedienlogik tragen.
+    files: ["src/overlay/**/*.{ts,tsx}", "src/challenges/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              regex: "(^|/)modules/win-challenges/(service|repository|adapters|contracts/schemas)(/|$)",
+              message: "Zuschauerpfade dürfen die Kommandoschicht, Persistenzadapter und Zod-Schemas nicht importieren.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ["vite.config.ts", "vitest.config.ts", "vitest.worker.config.ts", "playwright.config.ts", "scripts/**/*.mjs"],
     languageOptions: {
       globals: globals.node,

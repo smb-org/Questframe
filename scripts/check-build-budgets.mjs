@@ -9,6 +9,8 @@ const clientRoot = path.join(projectRoot, "dist/client");
 const indexKey = "index.html";
 const overlayKey = "src/overlay/OverlayApp.tsx";
 const adminKey = "src/admin/AdminApp.tsx";
+const challengeSourceKey = "src/challenges/ChallengeSourceApp.tsx";
+const liveKey = "src/live/LiveApp.tsx";
 // pnpm verschachtelt den aufgeloesten Pfad unter node_modules/.pnpm/..., deshalb
 // matchen wir weiterhin per Suffix statt gegen ein package-manager-spezifisches Layout.
 const temporalKeySuffix = "@js-temporal/polyfill/dist/index.esm.js";
@@ -42,6 +44,28 @@ const createBudgetDeclarations = (temporalKey) => [
     label: "Temporal",
     javascriptLabel: "Lazy Temporal chunk",
     javascriptBudget: 100 * 1024,
+  },
+  {
+    type: "surface",
+    key: challengeSourceKey,
+    label: "Challenge-Quelle",
+    staticRoots: [indexKey],
+    javascriptLabel: "Challenge-Quelle initial JavaScript",
+    javascriptBudget: 80 * 1024,
+    transferLabel: "Challenge-Quelle initial static transfer",
+    transferBudget: 512 * 1024,
+    transferAssets: ["shell", "font", "hudMedia", "effects", "audio"],
+  },
+  {
+    type: "surface",
+    key: liveKey,
+    label: "Live-Seite",
+    staticRoots: [indexKey],
+    javascriptLabel: "Live-Seite initial JavaScript",
+    javascriptBudget: 200 * 1024,
+    transferLabel: "Live-Seite initial static transfer",
+    transferBudget: 1024 * 1024,
+    transferAssets: ["shell", "font"],
   },
   {
     type: "exempt",
