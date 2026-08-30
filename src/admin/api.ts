@@ -127,6 +127,8 @@ export class BrowserAdminApi implements AdminApi {
     onState: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onState"];
     onOnlineChange: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onOnlineChange"];
     onOverlayPresence: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onOverlayPresence"];
+    onAudit: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onAudit"];
+    onUndoTargets: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onUndoTargets"];
   }): () => void {
     let disposed = false;
     let socket: WebSocket | null = null;
@@ -154,6 +156,10 @@ export class BrowserAdminApi implements AdminApi {
         if (!message.success) return;
         if (message.data.type === "snapshot" || message.data.type === "state_committed") {
           callbacks.onState(message.data.state);
+        } else if (message.data.type === "audit_appended") {
+          callbacks.onAudit(message.data.entry, message.data.undoTargets);
+        } else if (message.data.type === "history_changed") {
+          callbacks.onUndoTargets(message.data.undoTargets);
         } else if (message.data.type === "overlay_presence") {
           callbacks.onOverlayPresence(message.data.connectedSockets);
         }

@@ -159,6 +159,19 @@ describe("API contracts", () => {
 
   it("discriminates public server WebSocket messages", () => {
     const state = createDefaultState(actor, "2026-08-29T12:00:00.000Z");
+    const auditEntry = {
+      id: "audit-1",
+      revision: 2,
+      action: "save" as const,
+      actor,
+      summary: "Gespeichert",
+      createdAt: "2026-08-29T12:01:00.000Z",
+    };
+    const undoTargets = [{
+      revision: 1,
+      createdAt: "2026-08-29T12:00:00.000Z",
+      summary: "Startzustand",
+    }];
     expect(serverMessageSchema.parse({ type: "snapshot", state })).toEqual({
       type: "snapshot",
       state,
@@ -169,6 +182,21 @@ describe("API contracts", () => {
     expect(
       serverMessageSchema.parse({ type: "overlay_presence", connectedSockets: 10 }),
     ).toEqual({ type: "overlay_presence", connectedSockets: 10 });
+    expect(serverMessageSchema.parse({ type: "history_changed", undoTargets })).toEqual({
+      type: "history_changed",
+      undoTargets,
+    });
+    expect(serverMessageSchema.parse({ type: "audit_appended", entry: auditEntry, undoTargets })).toEqual({
+      type: "audit_appended",
+      entry: auditEntry,
+      undoTargets,
+    });
+    expect(() => serverMessageSchema.parse({
+      type: "audit_appended",
+      entry: auditEntry,
+      undoTargets,
+      debug: true,
+    })).toThrow();
     expect(() =>
       serverMessageSchema.parse({ type: "overlay_presence", connectedSockets: 11 }),
     ).toThrow();

@@ -235,23 +235,33 @@ describe("BrowserAdminApi", () => {
     expect(new AdminApiError(400, "bad_request", "Falsch").currentRevision).toBeUndefined();
   });
 
-  it("publishes valid editor snapshots and reconnects with bounded backoff", () => {
+  it("publishes valid editor snapshots, audit entries and history changes, then reconnects with bounded backoff", () => {
     vi.useFakeTimers();
     const onState = vi.fn();
     const onOnlineChange = vi.fn();
     const onOverlayPresence = vi.fn();
+    const onAudit = vi.fn();
+    const onUndoTargets = vi.fn();
     const api = new BrowserAdminApi();
-    const dispose = api.subscribe({ onState, onOnlineChange, onOverlayPresence });
+    const dispose = api.subscribe({ onState, onOnlineChange, onOverlayPresence, onAudit, onUndoTargets });
     const socket = FakeWebSocket.instances[0];
     expect(socket?.url).toContain("/ws/editor?tab=");
 
     socket?.emit("open");
     socket?.emit("message", new Blob());
     socket?.emit("message", "not-json");
-    socket?.emit("message", JSON.stringify({ type: "history_changed", undoTargets: [] }));
+    const undoTargets = [{
+      revision: 1,
+      createdAt: now,
+      summary: "Startzustand",
+    }];
+    socket?.emit("message", JSON.stringify({ type: "history_changed", undoTargets }));
+    socket?.emit("message", JSON.stringify({ type: "audit_appended", entry: auditEntry, undoTargets }));
     socket?.emit("message", JSON.stringify({ type: "snapshot", state: state() }));
     socket?.emit("message", JSON.stringify({ type: "overlay_presence", connectedSockets: 1 }));
     expect(onOnlineChange).toHaveBeenCalledWith(true);
+    expect(onUndoTargets).toHaveBeenCalledWith(undoTargets);
+    expect(onAudit).toHaveBeenCalledWith(auditEntry, undoTargets);
     expect(onState).toHaveBeenCalledWith(state());
     expect(onOverlayPresence).toHaveBeenCalledWith(1);
 

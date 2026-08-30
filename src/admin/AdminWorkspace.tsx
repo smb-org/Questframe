@@ -23,6 +23,7 @@ import {
   ZoomIn,
 } from "lucide-react";
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -33,10 +34,12 @@ import {
 } from "react";
 
 import type {
+  AuditEntry,
   BootstrapResponse,
   OverlayTokenResponse,
   SaveRequest,
   SaveResponse,
+  UndoTarget,
 } from "../shared/contracts/api";
 import type {
   ActiveEffect,
@@ -108,6 +111,8 @@ export type AdminApi = {
         onState: (state: ChannelState) => void;
         onOnlineChange: (online: boolean) => void;
         onOverlayPresence: (connectedSockets: number) => void;
+        onAudit: (entry: AuditEntry, undoTargets: UndoTarget[]) => void;
+        onUndoTargets: (undoTargets: UndoTarget[]) => void;
       }) => () => void)
     | undefined;
   logout?: (() => Promise<void>) | undefined;
@@ -138,6 +143,13 @@ const uploadedHashes = (state: ChannelStateDraft | ChannelState): string[] => {
       ),
     ),
   ];
+};
+
+// Der Auslöser einer Änderung bekommt den Eintrag doppelt: einmal in der HTTP-Antwort
+// und einmal über den Broadcast. Die ID entscheidet, nicht die Reihenfolge.
+const prependAuditEntry = (current: AuditEntry[], entry: AuditEntry): AuditEntry[] => {
+  if (current.some((existing) => existing.id === entry.id)) return current;
+  return [entry, ...current].slice(0, 50);
 };
 
 // Kapselt den Sekundentakt der Vorschau, damit nicht die gesamte Konsole
@@ -754,6 +766,12 @@ export const AdminWorkspace = ({
   const [obsLinkCopied, setObsLinkCopied] = useState(false);
   const obsLinkCopiedTimer = useRef<number | null>(null);
   const [previewZoom, setPreviewZoom] = useState(100);
+  const undoTargetsRevisionRef = useRef(initialBootstrap.state.revision);
+  const applyUndoTargets = useCallback((targets: UndoTarget[], revision: number) => {
+    if (revision < undoTargetsRevisionRef.current) return;
+    undoTargetsRevisionRef.current = revision;
+    setUndoTargets(targets);
+  }, []);
   const dirty = useMemo(
     () => JSON.stringify(draft) !== JSON.stringify(toDraft(committed)),
     [committed, draft],
@@ -808,6 +826,9 @@ export const AdminWorkspace = ({
     if (api.subscribe === undefined) return;
     return api.subscribe({
       onState: (state) => {
+        if (state.revision > undoTargetsRevisionRef.current) {
+          undoTargetsRevisionRef.current = state.revision;
+        }
         setCommitted((previous) => {
           if (state.revision <= previous.revision) return previous;
           const contentChanged = JSON.stringify(toDraft(state)) !== JSON.stringify(toDraft(previous));
@@ -825,8 +846,13 @@ export const AdminWorkspace = ({
       onOverlayPresence: (connectedSockets) => {
         setOverlayToken((current) => ({ ...current, connectedSockets }));
       },
+      onAudit: (entry, undoTargets) => {
+        setAudit((current) => prependAuditEntry(current, entry));
+        applyUndoTargets(undoTargets, entry.revision);
+      },
+      onUndoTargets: setUndoTargets,
     });
-  }, [api]);
+  }, [api, applyUndoTargets]);
 
   const pendingLeaseHashes = useMemo(() => {
     const committedHashes = new Set(uploadedHashes(committed));
@@ -887,8 +913,8 @@ export const AdminWorkspace = ({
       setCommitted(response.state);
       setDraft(toDraft(response.state));
       setDraftBaseRevision(response.state.revision);
-      setAudit((current) => [response.auditEntry, ...current].slice(0, 50));
-      setUndoTargets(response.undoTargets);
+      setAudit((current) => prependAuditEntry(current, response.auditEntry));
+      applyUndoTargets(response.undoTargets, response.state.revision);
       setRemoteConflict(null);
       setMessage(`Revision ${String(response.state.revision)} ist jetzt in OBS.`);
     } catch (caught) {
@@ -910,9 +936,9 @@ export const AdminWorkspace = ({
       setRemoteConflict((current) => current === null ? null : response.state);
       if (response.auditEntry !== null) {
         const auditEntry = response.auditEntry;
-        setAudit((current) => [auditEntry, ...current].slice(0, 50));
+        setAudit((current) => prependAuditEntry(current, auditEntry));
       }
-      setUndoTargets(response.undoTargets);
+      applyUndoTargets(response.undoTargets, response.state.revision);
       setMessage(response.state.overlayEnabled ? "Overlay ist sichtbar." : "Overlay ist vollständig ausgeblendet.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Overlay-Schalter fehlgeschlagen.");
@@ -1034,8 +1060,8 @@ export const AdminWorkspace = ({
       setDraft(toDraft(response.state));
       setDraftBaseRevision(response.state.revision);
       setRemoteConflict(null);
-      setAudit((current) => [response.auditEntry, ...current].slice(0, 50));
-      setUndoTargets(response.undoTargets);
+      setAudit((current) => prependAuditEntry(current, response.auditEntry));
+      applyUndoTargets(response.undoTargets, response.state.revision);
       setMessage(`Revision ${String(targetRevision)} wurde als neue Revision wiederhergestellt.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Undo fehlgeschlagen.");

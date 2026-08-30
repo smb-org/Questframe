@@ -589,10 +589,12 @@ export class ChannelObject extends DurableObject<AppEnv> {
       this.pruneHistoryAndAudit();
     });
     this.broadcastState(next);
+    const undoTargets = this.getUndoTargets();
+    this.broadcastAudit(audit, undoTargets);
     const response = saveResponseSchema.parse({
       state: next,
       auditEntry: audit,
-      undoTargets: this.getUndoTargets(),
+      undoTargets,
       serverTime: createdAt,
     });
     return jsonResponse(response);
@@ -631,11 +633,13 @@ export class ChannelObject extends DurableObject<AppEnv> {
       this.pruneHistoryAndAudit();
     });
     this.broadcastState(next);
+    const undoTargets = this.getUndoTargets();
+    this.broadcastAudit(audit, undoTargets);
     return jsonResponse(
       visibilityResponseSchema.parse({
         state: next,
         auditEntry: audit,
-        undoTargets: this.getUndoTargets(),
+        undoTargets,
         serverTime: createdAt,
       }),
     );
@@ -682,11 +686,13 @@ export class ChannelObject extends DurableObject<AppEnv> {
       this.pruneHistoryAndAudit();
     });
     this.broadcastState(next);
+    const undoTargets = this.getUndoTargets();
+    this.broadcastAudit(audit, undoTargets);
     return jsonResponse(
       saveResponseSchema.parse({
         state: next,
         auditEntry: audit,
-        undoTargets: this.getUndoTargets(),
+        undoTargets,
         serverTime: createdAt,
       }),
     );
@@ -1480,9 +1486,11 @@ export class ChannelObject extends DurableObject<AppEnv> {
     });
   }
 
-  private broadcastState(state: ChannelState): void {
-    const message = JSON.stringify({ type: "state_committed", state });
-    for (const socket of this.ctx.getWebSockets()) {
+  // Sendet an jeden Socket einzeln: ein widerrufener Editor-Socket wird geschlossen
+  // statt beliefert, und ein fehlschlagender Socket darf die Übertragung an die
+  // übrigen nicht abbrechen.
+  private sendToSockets(sockets: WebSocket[], message: string): void {
+    for (const socket of sockets) {
       const attachment = this.readAttachment(socket);
       if (attachment?.kind === "editor" && this.closeEditorSocketIfSessionRevoked(socket, attachment)) {
         continue;
@@ -1495,12 +1503,22 @@ export class ChannelObject extends DurableObject<AppEnv> {
     }
   }
 
+  private broadcastState(state: ChannelState): void {
+    const message = JSON.stringify({ type: "state_committed", state });
+    this.sendToSockets(this.ctx.getWebSockets(), message);
+  }
+
   private broadcastHistoryChanged(): void {
     const message = JSON.stringify({
       type: "history_changed",
       undoTargets: this.getUndoTargets(),
     });
-    for (const socket of this.ctx.getWebSockets("editor")) socket.send(message);
+    this.sendToSockets(this.ctx.getWebSockets("editor"), message);
+  }
+
+  private broadcastAudit(entry: AuditEntry, undoTargets: UndoTarget[]): void {
+    const message = JSON.stringify({ type: "audit_appended", entry, undoTargets });
+    this.sendToSockets(this.ctx.getWebSockets("editor"), message);
   }
 
   // Wird sowohl nach einer neuen Overlay-Verbindung als auch beim Schliessen/Fehler
@@ -1512,17 +1530,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       this.ctx.getWebSockets("overlay").filter((socket) => socket !== excludeSocket).length,
     );
     const message = JSON.stringify({ type: "overlay_presence", connectedSockets });
-    for (const socket of this.ctx.getWebSockets("editor")) {
-      const attachment = this.readAttachment(socket);
-      if (attachment?.kind === "editor" && this.closeEditorSocketIfSessionRevoked(socket, attachment)) {
-        continue;
-      }
-      try {
-        socket.send(message);
-      } catch {
-        // Ein einzelner fehlschlagender Socket darf die Übertragung an andere nicht abbrechen.
-      }
-    }
+    this.sendToSockets(this.ctx.getWebSockets("editor"), message);
   }
 
   // Prüft, ob die Session hinter einem Editor-Socket noch existiert und dessen

@@ -780,6 +780,132 @@ describe("channel worker", () => {
     }
   });
 
+  it("broadcasts appended audits to every editor but never to an overlay socket", async () => {
+    const firstBootstrap = bootstrapResponseSchema.parse(
+      await (
+        await fetchWorker("http://localhost/api/editor/bootstrap", {
+          headers: { cookie, "x-editor-tab": "test-tab-a" },
+        })
+      ).json(),
+    );
+    csrfToken = firstBootstrap.csrfToken;
+    let overlayToken = firstBootstrap.capsule.overlayToken.token;
+    if (overlayToken === null) {
+      const created = overlayTokenResponseSchema.parse(
+        await (
+          await fetchWorker("http://localhost/api/overlay-token", {
+            method: "POST",
+            headers: authenticatedHeaders(),
+            body: JSON.stringify({
+              requestId: "9c58b4d7-fab4-4f91-a0f4-4bc5dc4bd0b1",
+              expectedGeneration: firstBootstrap.capsule.overlayToken.generation,
+            }),
+          })
+        ).json(),
+      );
+      overlayToken = created.token;
+    }
+
+    const firstEditorUpgrade = await fetchWorker("http://localhost/ws/editor?tab=test-tab-a", {
+      headers: { cookie, upgrade: "websocket" },
+    });
+    const secondEditorUpgrade = await fetchWorker("http://localhost/ws/editor?tab=test-tab-b", {
+      headers: { cookie, upgrade: "websocket" },
+    });
+    expect(firstEditorUpgrade.status).toBe(101);
+    expect(secondEditorUpgrade.status).toBe(101);
+    const firstEditor = firstEditorUpgrade.webSocket;
+    const secondEditor = secondEditorUpgrade.webSocket;
+    expect(firstEditor).not.toBeNull();
+    expect(secondEditor).not.toBeNull();
+    if (firstEditor === null || secondEditor === null) throw new Error("expected editor WebSocket upgrades");
+    firstEditor.accept();
+    secondEditor.accept();
+
+    const waitForMessage = (
+      socket: WebSocket,
+      predicate: (data: { type: string }) => boolean,
+      timeoutMs = 1_000,
+    ): Promise<Record<string, unknown> | null> =>
+      new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          socket.removeEventListener("message", onMessage);
+          resolve(null);
+        }, timeoutMs);
+        const onMessage = (event: MessageEvent) => {
+          if (typeof event.data !== "string") return;
+          const parsed = JSON.parse(event.data) as Record<string, unknown> & { type: string };
+          if (!predicate(parsed)) return;
+          clearTimeout(timer);
+          socket.removeEventListener("message", onMessage);
+          resolve(parsed);
+        };
+        socket.addEventListener("message", onMessage);
+      });
+
+    let overlay: WebSocket | null = null;
+    try {
+      await Promise.all([
+        waitForMessage(firstEditor, (data) => data.type === "snapshot"),
+        waitForMessage(secondEditor, (data) => data.type === "snapshot"),
+      ]);
+      const overlayUpgrade = await fetchWorker("http://localhost/ws/overlay", {
+        headers: {
+          upgrade: "websocket",
+          "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, ${overlayToken}`,
+        },
+      });
+      expect(overlayUpgrade.status).toBe(101);
+      overlay = overlayUpgrade.webSocket;
+      expect(overlay).not.toBeNull();
+      if (overlay === null) throw new Error("expected overlay WebSocket upgrade");
+      overlay.accept();
+      await waitForMessage(overlay, (data) => data.type === "snapshot");
+
+      const firstAuditPromise = waitForMessage(firstEditor, (data) => data.type === "audit_appended");
+      const secondAuditPromise = waitForMessage(secondEditor, (data) => data.type === "audit_appended");
+      const overlayAuditPromise = waitForMessage(overlay, (data) => data.type === "audit_appended", 250);
+      const {
+        revision,
+        overlayEnabled: _overlayEnabled,
+        updatedAt: _updatedAt,
+        updatedBy: _updatedBy,
+        ...draft
+      } = firstBootstrap.state;
+      void [_overlayEnabled, _updatedAt, _updatedBy];
+      const nextHpPercent = draft.player.hpPercent === 100 ? 99 : 100;
+      const saveResponse = await fetchWorker("http://localhost/api/state", {
+        method: "PUT",
+        headers: authenticatedHeaders(),
+        body: JSON.stringify({
+          baseRevision: revision,
+          state: {
+            ...draft,
+            player: { ...draft.player, hpPercent: nextHpPercent },
+          },
+        }),
+      });
+      const committed = saveResponseSchema.parse(await saveResponse.json());
+      expect(saveResponse.status).toBe(200);
+      const [firstAudit, secondAudit] = await Promise.all([firstAuditPromise, secondAuditPromise]);
+      expect(firstAudit).toMatchObject({
+        type: "audit_appended",
+        entry: committed.auditEntry,
+        undoTargets: committed.undoTargets,
+      });
+      expect(secondAudit).toMatchObject({
+        type: "audit_appended",
+        entry: committed.auditEntry,
+        undoTargets: committed.undoTargets,
+      });
+      await expect(overlayAuditPromise).resolves.toBeNull();
+    } finally {
+      overlay?.close();
+      firstEditor.close();
+      secondEditor.close();
+    }
+  });
+
   it("keeps ten overlay slots available through a full reload burst", async () => {
     let overlayToken = "";
     const sockets: WebSocket[] = [];

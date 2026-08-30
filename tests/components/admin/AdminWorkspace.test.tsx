@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { BootstrapResponse, SaveResponse } from "../../../src/shared/contracts/api";
+import type { AuditEntry, BootstrapResponse, SaveResponse, UndoTarget } from "../../../src/shared/contracts/api";
 import {
   createDefaultState,
   getReleaseCapabilities,
@@ -523,6 +523,143 @@ describe("Admin workspace publication boundary", () => {
 
     expect(await screen.findByText("1 verbunden")).toBeInTheDocument();
     expect(screen.queryByText("kein Link")).not.toBeInTheDocument();
+  });
+
+  it("deduplicates the same audit entry regardless of response and broadcast order", async () => {
+    const user = userEvent.setup();
+    const initial = bootstrap();
+    const auditEntry: AuditEntry = {
+      id: "audit-live",
+      revision: 2,
+      action: "save",
+      actor,
+      summary: "Live gespeichert",
+      createdAt: "2026-08-29T12:01:00.000Z",
+    };
+    const undoTargets: UndoTarget[] = [{
+      revision: 1,
+      createdAt: "2026-08-29T12:00:00.000Z",
+      summary: "Startzustand",
+    }];
+    let onAudit: ((entry: AuditEntry, targets: UndoTarget[]) => void) | undefined;
+    const save = vi.fn<AdminApi["save"]>((request) => Promise.resolve({
+      state: {
+        ...initial.state,
+        ...request.state,
+        revision: 2,
+        updatedAt: auditEntry.createdAt,
+      },
+      auditEntry,
+      undoTargets,
+      serverTime: auditEntry.createdAt,
+    }));
+    render(<AdminWorkspace initialBootstrap={initial} api={{
+      save,
+      setVisibility: vi.fn(),
+      subscribe: (callbacks) => {
+        onAudit = callbacks.onAudit;
+        return () => undefined;
+      },
+    }} />);
+
+    // Der Broadcast kann vor der HTTP-Antwort des auslösenden Saves eintreffen.
+    if (onAudit === undefined) throw new Error("expected onAudit subscription callback");
+    act(() => onAudit?.(auditEntry, undoTargets));
+    fireEvent.change(screen.getByRole("slider", { name: "Gesundheit" }), { target: { value: "42" } });
+    await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    // Danach kann er erneut eintreffen, obwohl die Antwort den Rail schon befüllt hat.
+    act(() => onAudit?.(auditEntry, undoTargets));
+
+    expect(screen.getAllByText(auditEntry.summary)).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /Rev\. 1/ })).toBeInTheDocument();
+  });
+
+  it("updates undo targets from history broadcasts without changing a local draft", () => {
+    const initial = bootstrap();
+    const undoTargets: UndoTarget[] = [{
+      revision: 1,
+      createdAt: "2026-08-29T12:00:00.000Z",
+      summary: "Startzustand",
+    }];
+    let onUndoTargets: ((targets: UndoTarget[]) => void) | undefined;
+    render(<AdminWorkspace initialBootstrap={initial} api={{
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      subscribe: (callbacks) => {
+        onUndoTargets = callbacks.onUndoTargets;
+        return () => undefined;
+      },
+    }} />);
+
+    fireEvent.change(screen.getByRole("slider", { name: "Gesundheit" }), { target: { value: "42" } });
+    if (onUndoTargets === undefined) throw new Error("expected onUndoTargets subscription callback");
+    act(() => onUndoTargets?.(undoTargets));
+
+    expect(screen.getByRole("slider", { name: "Gesundheit" })).toHaveValue("42");
+    expect(screen.getByRole("button", { name: /Rev\. 1/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Änderungen speichern" })).toBeEnabled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps newer undo targets when an older save response arrives late", async () => {
+    const user = userEvent.setup();
+    const initial = bootstrap();
+    const oldAuditEntry: AuditEntry = {
+      id: "audit-old",
+      revision: 2,
+      action: "save",
+      actor,
+      summary: "Alte Antwort",
+      createdAt: "2026-08-29T12:01:00.000Z",
+    };
+    const newAuditEntry: AuditEntry = {
+      id: "audit-new",
+      revision: 3,
+      action: "save",
+      actor,
+      summary: "Neue Nachricht",
+      createdAt: "2026-08-29T12:02:00.000Z",
+    };
+    const oldUndoTargets: UndoTarget[] = [{
+      revision: 1,
+      createdAt: "2026-08-29T12:00:00.000Z",
+      summary: "Altes Ziel",
+    }];
+    const newUndoTargets: UndoTarget[] = [{
+      revision: 2,
+      createdAt: "2026-08-29T12:01:00.000Z",
+      summary: "Neues Ziel",
+    }];
+    let onAudit: ((entry: AuditEntry, targets: UndoTarget[]) => void) | undefined;
+    let resolveSave: ((response: SaveResponse) => void) | undefined;
+    const save = vi.fn<AdminApi["save"]>(() => new Promise((resolve) => {
+      resolveSave = resolve;
+    }));
+    render(<AdminWorkspace initialBootstrap={initial} api={{
+      save,
+      setVisibility: vi.fn(),
+      subscribe: (callbacks) => {
+        onAudit = callbacks.onAudit;
+        return () => undefined;
+      },
+    }} />);
+
+    fireEvent.change(screen.getByRole("slider", { name: "Gesundheit" }), { target: { value: "42" } });
+    await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    if (onAudit === undefined || resolveSave === undefined) throw new Error("expected live callbacks");
+    act(() => onAudit?.(newAuditEntry, newUndoTargets));
+    await act(async () => {
+      resolveSave?.({
+        state: { ...initial.state, revision: 2, updatedAt: oldAuditEntry.createdAt },
+        auditEntry: oldAuditEntry,
+        undoTargets: oldUndoTargets,
+        serverTime: oldAuditEntry.createdAt,
+      });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("button", { name: /Rev\. 2/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Rev\. 1/ })).not.toBeInTheDocument();
   });
 
   it("verwaltet OBS-Link, Präsenz und die sichere Ausschaltabfrage im Header", async () => {

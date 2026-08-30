@@ -230,6 +230,11 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
     undoTargets: z.array(undoTargetSchema).max(20),
   }),
   z.strictObject({
+    type: z.literal("audit_appended"),
+    entry: auditEntrySchema,
+    undoTargets: z.array(undoTargetSchema).max(20),
+  }),
+  z.strictObject({
     type: z.literal("time_sync"),
     clientTimestamp: z.number(),
     serverTime: z.iso.datetime({ offset: true }),
