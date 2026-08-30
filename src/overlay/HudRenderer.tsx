@@ -150,8 +150,8 @@ const CompactUnit = ({
     <div className="hud-compact-name-row">
       <span className="hud-compact-name">{name}</span>
       {twitch && (
-        <span className="hud-twitch-mark" aria-label="Twitch-Gast" title="Twitch">
-          ◧
+        <span className="hud-twitch-mark" aria-label="Twitch-Gast" role="img" title="Twitch">
+          <img alt="" src="/assets/brands/twitch.svg" />
         </span>
       )}
     </div>

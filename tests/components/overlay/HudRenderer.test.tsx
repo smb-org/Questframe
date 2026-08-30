@@ -83,7 +83,10 @@ describe("HUD renderer", () => {
     expect(screen.getAllByText("5:00")).toHaveLength(2);
     expect(screen.getByTestId("player-health")).toHaveAttribute("data-health-tier", "critical");
     expect(screen.getByLabelText("Wut 72 Prozent")).toBeInTheDocument();
-    expect(screen.getByLabelText("Twitch-Gast")).toBeInTheDocument();
+    const twitchMark = screen.getByRole("img", { name: "Twitch-Gast" });
+    expect(twitchMark).toBeInTheDocument();
+    expect(twitchMark.querySelector("img")).toHaveAttribute("src", "/assets/brands/twitch.svg");
+    expect(twitchMark).not.toHaveTextContent("◧");
   });
 
   it("keeps the level medallion outside the clipped portrait and separates chrome from content", () => {
