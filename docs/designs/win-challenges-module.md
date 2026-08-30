@@ -6,7 +6,8 @@ Branch: worktree-audit-broadcast
 Repo: twitchBrudi (irl-stream-hud)
 Status: DRAFT
 Mode: Builder
-Revision: 5 (Office Hours + zwei Codex-Spec-Reviews + Eng-Review + Outside Voice)
+Revision: 6 (Office Hours + zwei Spec-Reviews + Eng-Review + Outside Voice + Design-Review
++ gezieltes Folge-Eng-Review mit zweiter Outside Voice)
 
 ## Problem Statement
 
@@ -135,7 +136,11 @@ CREATE TABLE wc_meta (
   -- Optionaler globaler Timer über alle Challenges
   global_timer_total_ms         INTEGER,  -- NULL = Feature aus
   global_timer_ends_at          TEXT,     -- absoluter ISO-Instant, NULL wenn nicht laufend
-  global_timer_paused_remain_ms INTEGER   -- eingefrorene Restzeit, NULL wenn nicht pausiert
+  global_timer_paused_remain_ms INTEGER,  -- eingefrorene Restzeit, NULL wenn nicht pausiert
+  -- Nie beides gleichzeitig, und keine Laufzeitdaten ohne Definition
+  CHECK (global_timer_ends_at IS NULL OR global_timer_paused_remain_ms IS NULL),
+  CHECK (global_timer_total_ms IS NOT NULL
+         OR (global_timer_ends_at IS NULL AND global_timer_paused_remain_ms IS NULL))
 );
 
 CREATE TABLE wc_challenges (
@@ -272,14 +277,25 @@ challenge_update {
   eventSeq: number,
   boardRevision: number,
   settingsRevision: number,
-  settings: { styleId, effectsEnabled, maxVisible },
-  challenges: Challenge[],
-  event: null | {
-    type: "progressed" | "completed" | "reopened" | "timer_started" | "timer_stopped",
-    challengeId: string,
-    delta?: number, previousCount?: number, currentCount?: number,   // nur progressed
+  settings: {
+    styleId, themeMode, surfaceMode, headerTitle, effectsEnabled, maxVisible,
+    themeId,                       // aktive HUD-Variante, nur relevant bei themeMode "inherit"
+    globalTimer: null | {           // null = Feature aus
+      totalMs: number,
+      endsAt: string | null,        // absoluter Instant, null wenn nicht laufend
+      pausedRemainMs: number | null // null wenn nicht pausiert
+    },
   },
+  challenges: Challenge[],
+  event: null | ChallengeEvent | GlobalTimerEvent,
 }
+
+// Zwei Eventformen, weil die globalen Kommandos keine challengeId haben
+ChallengeEvent   { scope: "challenge", type: "progressed" | "completed" | "reopened"
+                                             | "timer_started" | "timer_stopped",
+                   challengeId: string,
+                   delta?, previousCount?, currentCount? }   // nur progressed
+GlobalTimerEvent { scope: "global", type: "global_started" | "global_paused" | "global_reset" }
 ```
 
 **Client-Regel:** Zeremonie feuern genau dann, wenn `event !== null` **und**
@@ -328,9 +344,25 @@ Editor-Routen nutzen die bestehende Kette: Same-Origin, `x-csrf-token`, `x-edito
 | Route | Methode | Auth | Body | Fehler |
 |---|---|---|---|---|
 | `/api/challenges` | GET | Session | — | `unauthorized` |
-| `/api/challenges/commands` | POST | Session **oder** Dock-Token | `{ commandId, type, challengeId, delta? }` | `validation_failed`, `idempotency_mismatch`, `not_found`, `rate_limited` |
+| `/api/challenges/commands` | POST | Session **oder** Dock-Token | siehe Kommando-DTO unten | `validation_failed`, `idempotency_mismatch`, `not_found`, `rate_limited` |
 | `/api/challenges/board` | PUT | Session | `{ baseBoardRevision, challenges: Definition[] }` | `revision_conflict` (mit Snapshot), `payload_too_large` |
-| `/api/challenges/settings` | PUT | Session | `{ baseSettingsRevision, styleId, effectsEnabled, maxVisible }` | `revision_conflict` (mit Snapshot), `validation_failed` |
+| `/api/challenges/settings` | PUT | Session | `{ baseSettingsRevision, styleId, themeMode, surfaceMode, headerTitle, effectsEnabled, maxVisible, globalTimerTotalMs }` | `revision_conflict` (mit Snapshot), `validation_failed` |
+
+**Kommando-DTO, zwei Formen.** Die drei globalen Kommandos haben keine `challengeId`, also
+kann das DTO sie nicht verlangen:
+
+```ts
+type Command =
+  | { commandId: string, scope: "challenge", type: "increment", challengeId: string, delta: number }
+  | { commandId: string, scope: "challenge",
+      type: "complete" | "reopen" | "startTimer" | "stopTimer", challengeId: string }
+  | { commandId: string, scope: "global",
+      type: "startGlobalTimer" | "pauseGlobalTimer" | "resetGlobalTimer" };
+```
+
+Antwort: `{ eventSeq, replayed, challenge? , settings? }`. Challenge-Kommandos liefern die
+betroffene Challenge, globale Kommandos den Settings-Teil. Der Dock-Token darf `scope:
+"global"` mit `resetGlobalTimer` **nicht** aufrufen; Reset ist Session-only.
 | `/api/challenges/dock-token` | POST | Session | `{ requestId, expectedGeneration }` | `idempotency_mismatch`, `token_changed` |
 | `/api/challenges/dock-token/rotate` | POST | Session | `{ requestId, expectedGeneration }` | `token_changed` |
 
@@ -344,16 +376,47 @@ Ein Dock, der nur Kommandos senden kann, ist blind: Er bekäme keine Korrekturen
 parallelen Änderungen und keinen Widerruf mit, und das optimistische Rückrollen hätte
 keine Wahrheitsquelle. Deshalb bekommt er einen eigenen Socket.
 
-**`/ws/dock`**, exakt nach dem Muster von `/ws/overlay` (`channel-object.ts:976`):
+**`/ws/dock`** und **`/ws/challenge`**, beide exakt nach dem Muster von `/ws/overlay`
+(`channel-object.ts:976`):
 
-- Token im Sec-WebSocket-Protocol, wie beim Overlay.
-- Eigenes Socket-Tag `dock`, eigenes Verbindungslimit.
+- Token im Sec-WebSocket-Protocol. `/ws/dock` nutzt den Dock-Token, `/ws/challenge` den
+  vorhandenen Overlay-Token.
+- **Eigene Pfade, keine Query-Parameter.** Der Worker verwirft Query-Parameter beim
+  Proxying an das Durable Object (`src/worker/index.ts:558`), die Quellen wären über einen
+  Parameter also gar nicht unterscheidbar.
+- Eigene Socket-Tags `dock` und `challenge`, jeweils mit eigenem Verbindungslimit. Das
+  Overlay-Limit von 10 bleibt damit dem HUD vorbehalten, und
+  `overlayToken.connectedSockets` behält seine heutige Bedeutung in der Anzeige
+  "OBS-Verbindung".
 - Beim Verbinden geht sofort ein vollständiges `challenge_update` mit `event: null` raus.
-- Bei Token-Rotation werden verbundene Dock-Sockets aktiv geschlossen, so wie es der
-  Overlay-Token schon macht.
 
-`challenge_update` geht damit an drei Socket-Arten: `editor`, `overlay` und `dock`, über
-den vorhandenen `sendToSockets`-Helfer.
+**Vier Socket-Arten, drei Regeln, die alle explizit sein müssen:**
+
+| Nachricht | geht an | geht NICHT an |
+|---|---|---|
+| `state_committed` / `snapshot` | `editor`, `overlay` | `challenge`, `dock` |
+| `challenge_update` | `editor`, `challenge`, `dock` | `overlay` |
+| `overlay_presence`, `history_changed` | `editor` | alle übrigen |
+
+**`broadcastState()` sendet heute an `getWebSockets()` ohne Tag, also an alle**
+(`channel-object.ts:1506`). Das muss auf `editor` plus `overlay` begrenzt werden. Ohne
+diese Begrenzung bekäme die Challenge-Quelle HUD-Nachrichten, ihr Parser würde sie
+verwerfen, und weil `state_committed` als zustandstragend gilt, liefe ihr Watchdog in eine
+Reload-Schleife. Ein eigenes Tag allein isoliert nichts.
+
+**Token-Rotation muss beide Overlay-Tags schließen.** Die Rotation schließt heute
+ausschließlich Tag `overlay` (`channel-object.ts:770`). Da `/ws/challenge` denselben
+Overlay-Token benutzt, bliebe eine Challenge-Quelle nach der Rotation verbunden und
+autorisiert. Das ist ein Widerrufsloch und kein Schönheitsfehler.
+
+**Die Attachment-Union akzeptiert heute nur `editor` und `overlay`**
+(`channel-object.ts:1556`). Ohne Erweiterung um `challenge` und `dock` gibt
+`readAttachment` für die neuen Sockets `null` zurück und die Härtung greift nicht.
+
+**Randnotiz zu den Edge-Limitern:** Die getrennten Socket-Caps im Durable Object trennen
+nicht die Cloudflare-Limiter davor. Ein Reconnect-Sturm der Challenge-Quelle kann über
+`OVERLAY_TOKEN_LIMITER` auch HUD-Verbindungen drosseln, weil beide denselben Token als
+Schlüssel benutzen. Für V1 akzeptiert, aber es gehört in die Doku.
 
 **Warum Token statt Session:** OAuth-Redirects zu Drittanbietern gelten im eingebetteten
 CEF-Browser von OBS ausdrücklich als unzuverlässig, und der Dock hat ein eigenes
@@ -399,9 +462,23 @@ Default: `plain-list`. Ein Style ohne Registry-Eintrag macht nichts; kein
 
 **Style-CSS wird dynamisch geladen.** Der Budget-Checker summiert alles CSS im statischen
 Import-Closure (`scripts/check-build-budgets.mjs:35`). Nur wenn die vier Styles echte
-dynamische Chunks sind, darf im Gate `Math.max` statt einer Summe stehen, so wie
-`commonHudMedia` es für die Theme-Varianten tut. Sonst wäre das Budget schöngerechnet.
-Der Preis ist ein kurzes Nachladen beim Stylewechsel.
+dynamische Chunks sind, darf im Gate `Math.max` statt einer Summe stehen. Der Preis ist ein
+kurzes Nachladen beim Stylewechsel, abgesichert durch das Render-Gate.
+
+**Das Gate braucht drei Änderungen, nicht eine:**
+
+1. **Zwei neue Einstiegspunkte.** `check-build-budgets.mjs:47-48` kodiert genau
+   `src/overlay/OverlayApp.tsx` und `src/admin/AdminApp.tsx`. Die Challenge-Quelle und die
+   Live-Seite sind eigene Entries und tauchen in keinem der beiden Closures auf. Ohne
+   eigene Budgets meldet das Gate grün und misst nichts von dem, was neu ausgeliefert wird.
+   Die Challenge-Quelle bekommt ein enges Budget (Zuschauerpfad), die Live-Seite ein
+   weiteres (nur der Streamer lädt sie).
+2. **`Math.max` über die volle Closure je Style**, nicht nur über die CSS-Blätter. Zu
+   zählen sind pro Style: die statische Closure des Chunks, sein CSS, das Loader-JS, die
+   gemeinsame Basis, die Brücke und, bei `themeMode: "inherit"`, die ausgewählte
+   HUD-Theme-CSS. Sonst ist es wieder schöngerechnet.
+3. **Audio in den Transfer-Zähler.** Er zählt heute nur JS, CSS und HUD-Medien
+   (`check-build-budgets.mjs:87`).
 
 **Audio:** Sound-Dateien liegen unter `public/` und landen über den Vite-Build in
 `dist/client`, das als Static-Asset-Verzeichnis gebunden ist (`wrangler.jsonc:9`). Sie
@@ -508,6 +585,23 @@ Maßstabsgetreues Wireframe mit allen drei geprüften Platzierungen:
 Timer rechtsbündig in tabellarischen Ziffern. Der Titel gewinnt bei Platzmangel nie gegen
 die Zahl, weil die Zahl der veränderliche Teil ist.
 
+**Eigener Geometrievertrag.** Die Einrichtungsseite nennt eine empfohlene Größe, also
+braucht die Quelle eine. Sie ist bewusst kleiner gefasst als der theoretische Maximalfall,
+damit "kein Scrollen" nicht durch OBS-Clipping ersetzt wird:
+
+| Bauteil | Höhe | Anmerkung |
+|---|---|---|
+| Kopfzeile | 26 px | immer sichtbar, sobald überhaupt gerendert wird |
+| Globaler Timer | 40 px | nur wenn `globalTimer !== null` |
+| Challenge-Zeile | 33 px | Rhythmus der vorhandenen Effektreihe |
+| "+N weitere" | 20 px | nur bei Überlauf |
+
+Empfohlene Quellgröße **340 × 300 px**. Das trägt Kopf, Timer und sieben Zeilen. Die harte
+Obergrenze `MAX_TOTAL_ROWS = 12` gilt weiterhin über offene und fertige Zeilen zusammen,
+aber die Quelle rendert zusätzlich nie mehr Zeilen, als in ihre tatsächliche Höhe passen.
+Ohne diese zweite Grenze verhindert `MAX_TOTAL_ROWS` zwar Scrollen, aber nicht, dass OBS
+den unteren Rand abschneidet.
+
 **Kopfzeile.** Titel ist frei wählbar (`header_title`, Vorgabe "CHALLENGES"), damit der
 Streamer sein eigenes Framing setzen kann. Rechts der Sessionstand als `erledigt / gesamt`
 über das aktuelle Board. Ohne diesen Kopf wären vier Zeilen Text mit Zahlen für jemanden,
@@ -518,14 +612,38 @@ der mitten im Stream dazukommt, nicht einzuordnen.
 Optional (`global_timer_total_ms = NULL` schaltet ihn ab). Drei Zustände, kein Server-Tick
 und kein Alarm, dieselbe Ableitung wie bei den Challenge-Timern:
 
-| Zustand | `ends_at` | `paused_remain_ms` |
-|---|---|---|
-| läuft | gesetzt | `NULL` |
-| pausiert | `NULL` | gesetzt |
-| zurückgesetzt | `NULL` | `NULL` |
+| Zustand | `ends_at` | `paused_remain_ms` | abgeleitet |
+|---|---|---|---|
+| läuft | gesetzt **und in der Zukunft** | `NULL` | `running` |
+| abgelaufen | gesetzt, aber in der Vergangenheit | `NULL` | `expired` |
+| pausiert | `NULL` | gesetzt | `paused` |
+| zurückgesetzt | `NULL` | `NULL` | `idle` |
 
 Fortsetzen ist `ends_at = jetzt + paused_remain_ms`. Drei Kommandos, `startGlobalTimer`,
 `pauseGlobalTimer`, `resetGlobalTimer`, alle mit `commandId`-Dedupe wie die übrigen fünf.
+
+**Der Zielzustand wird gegen den abgeleiteten Zustand geprüft, nicht gegen die Spalte.**
+Das ist keine Feinheit: `ends_at IS NOT NULL` als "läuft" zu lesen sperrt einen
+abgelaufenen Timer ein. `start` wäre wirkungslos, und weil `reset` bewusst nur im Admin
+liegt, käme der Streamer auf der Live-Seite nicht mehr weiter. Mit der Ableitung gilt:
+
+- `start` bei `idle` oder `expired` → frischer Timer aus `total_ms`.
+- `start` bei `paused` → `ends_at = jetzt + paused_remain_ms`.
+- `start` bei `running` → wirkungslos, kein Event, kein `event_seq`-Bump.
+- `pause` bei `running` → friert die Restzeit ein. Bei `paused`, `idle` oder `expired`
+  wirkungslos.
+- `pause` **rechnet nie gegen ein bereits geleertes `ends_at`**. Damit ist die Race
+  zwischen zwei gleichzeitigen Pausen strukturell ausgeschlossen, nicht durch Vorsicht.
+- `start` bei `total_ms IS NULL` → `validation_failed`. Das Feature ist dann aus.
+- `total_ms` während `running` geändert → `ends_at` bleibt unangetastet, die neue Dauer
+  gilt ab dem nächsten `start`. Dieselbe Regel wie bei den Challenge-Timern.
+
+Die beiden CHECK-Constraints in `wc_meta` machen die drei ungültigen
+Spaltenkombinationen zusätzlich strukturell unmöglich.
+
+**Die Ablaufberechnung ist eine Funktion, nicht zwei.** Challenge-Timer und globaler Timer
+rechnen auf denselben Feldtypen dasselbe. `domain/` stellt eine gemeinsame Funktion
+bereit; zwei Implementierungen würden driften.
 
 **Darstellung:** eigene Zeile unter dem Kopf, große tabellarische Ziffern, links ein
 Zustandssymbol. Pausiert zeigt Pausensymbol, ausgegraute Ziffern **und** das Wort
@@ -543,12 +661,38 @@ damit ohne HUD lauffähig und sieht ohne HUD gut aus:
 
 `wc_meta.theme_mode` steuert, was darüberliegt:
 
-- **`inherit`** (Vorgabe in diesem Projekt): Der Host lädt eine kleine Brücken-CSS-Datei
-  nach, die `--wc-*` auf die vorhandenen `--hud-*`-Werte der aktiven HUD-Variante mappt.
-  Ein `trail-wood`-HUD bekommt ein Log aus Walnuss und Messing, ohne dass jemand etwas
-  einstellt. Die Brücke bildet **Werte** ab, keine Sichtbarkeit, funktioniert also auch
-  bei ausgeblendetem HUD.
-- **`own`**: Die Brücke wird nicht geladen, das Standardtheme des Moduls steht.
+- **`inherit`** (Vorgabe in diesem Projekt): Das Log übernimmt die Materialwelt der aktiven
+  HUD-Variante.
+- **`own`**: Das Standardtheme des Moduls steht.
+
+**Wie `inherit` wirklich funktioniert, und warum die naheliegende Lösung falsch war.**
+Die Challenge-Quelle ist ein **eigenes Dokument**. Sie erbt vom HUD kein einziges CSS-Byte.
+Die HUD-Themes liegen im statischen CSS-Chunk von `HudRenderer` und ihre Variablen sind
+unter `.hud-theme--…` gebunden (`src/overlay/HudRenderer.tsx:10`). Eine Brücken-Datei, die
+`--wc-*` auf `--hud-*` mappt, würde im Challenge-Dokument auf Variablen zeigen, die dort
+gar nicht existieren.
+
+Der tragfähige Weg:
+
+1. `challenge_update.settings.themeId` trägt die aktive HUD-Variante über die Leitung.
+2. Die Challenge-Quelle lädt die zugehörige `themes/<variante>/theme.css` als dynamischen
+   Chunk in ihr **eigenes** Dokument und setzt dieselbe `.hud-theme--…`-Klasse.
+3. Die Brücken-Regeln mappen `--wc-*` auf die dann vorhandenen `--hud-*`.
+4. Ein Themewechsel im HUD braucht **kein** eigenes Event: `themeId` steckt im
+   Settings-Teil, kommt also mit dem nächsten `challenge_update` ohnehin an. Das ist
+   nötig, weil die Challenge-Quelle bewusst kein `state_committed` empfängt.
+
+**CSS wird nie entladen.** Ein einmal importierter Chunk bleibt im langlebigen
+OBS-Dokument aktiv. Ein Wechsel `inherit → own` kann deshalb nicht dadurch wirken, dass
+die Brücke "nicht geladen wird". **Alle Brücken- und Style-Regeln müssen über
+`[data-theme-mode="inherit"]` und `[data-style="…"]` am Wurzelelement gescoped sein.**
+Umschalten heißt dann Attribut umsetzen, nicht Datei weglassen.
+
+**Render-Gate.** Zustand kann über den Socket eintreffen, bevor der dynamische CSS-Chunk
+da ist. Ungestylter Inhalt wäre live im Bild. Die Quelle rendert deshalb erst, wenn Style
+und, bei `inherit`, Theme-CSS geladen sind. Schlägt ein Chunk fehl, bleibt die Quelle
+transparent statt ungestylt zu erscheinen, und ein überholter Import wird verworfen statt
+angewendet.
 
 Damit sind es nicht 24 Kombinationen aus vier Styles und sechs Varianten, sondern vier
 **Aufbauten** in der Materialwelt, die der Streamer ohnehin gewählt hat. `ChallengeStyleId`
@@ -584,6 +728,20 @@ ohne Garantie.** Das gehört so in die Doku.
 Die Overlay-Quelle folgt damit der bestehenden Regel aus `DESIGN.md`, dass ein Overlay
 ohne gültigen Zustand keine Fehlerfläche rendert, sondern transparent bleibt. Ein leerer
 Kasten im Bild wäre Dekoration ohne Information.
+
+**"Leer" ist genau definiert, sonst kollidiert es mit dem globalen Timer:**
+
+| Challenges | globaler Timer | Quelle rendert |
+|---|---|---|
+| keine | `idle` oder aus | nichts, vollständig transparent |
+| keine | `running`, `paused` oder `expired` | Kopfzeile **und** Timer, keine Liste |
+| nur fertige, alle älter als 8 s | `idle` oder aus | nichts |
+| nur fertige, alle älter als 8 s | aktiv | Kopfzeile und Timer |
+| mindestens eine offene | beliebig | vollständig |
+
+Ein laufender Countdown ist Zustand und gehört ins Bild, auch ohne Liste darunter. Ein
+Board, dessen Einträge alle abgehakt und länger als acht Sekunden vorbei sind, gilt als
+leer.
 
 ### Barrierefreiheit
 
@@ -737,6 +895,41 @@ CODE PATHS                                                  USER FLOWS
 COVERAGE: 0/56  |  CRITICAL: 7  |  E2E: 4
 ```
 
+**Nachtrag aus dem zweiten Eng-Review, 18 weitere Pfade.** Der Testplan oben ist an drei
+Stellen überholt: er prüft fünf statt **acht** Mutationen und baut gegen `OverlayApp`
+statt gegen die eigene Challenge-Quelle.
+
+```
+[+] Globaler Timer (Zustandsautomat)
+  ├── CRITICAL start bei expired startet frisch, laeuft NICHT ins Leere
+  ├── CRITICAL zwei gleichzeitige pause: Restzeit schrumpft NICHT
+  ├── CRITICAL Settings-Save waehrend running loescht den Timer NICHT
+  ├── start bei total_ms NULL → validation_failed
+  ├── total_ms geaendert waehrend running → ends_at unveraendert
+  ├── reset bei running und bei paused
+  └── CHECK-Constraints greifen bei beiden ungueltigen Kombinationen
+
+[+] Socket-Trennung
+  ├── CRITICAL Tag `challenge` empfaengt KEIN state_committed
+  ├── CRITICAL Token-Rotation schliesst `overlay` UND `challenge`
+  ├── Attachment-Union akzeptiert alle vier Tags
+  ├── challenge-Limit ist unabhaengig vom overlay-Limit
+  └── overlayToken.connectedSockets zaehlt weiterhin nur das HUD
+
+[+] Routing und Bundles
+  ├── CRITICAL /overlay/challenges rendert das Log, NICHT das HUD
+  ├── /live/challenges rendert die Live-Seite, NICHT AdminApp
+  └── Budget-Gate deckt beide neuen Einstiegspunkte ab
+
+[+] Theming
+  ├── inherit laedt die Theme-CSS der aktiven Variante ins eigene Dokument
+  ├── Themewechsel im HUD erreicht die Quelle ueber settings.themeId
+  ├── inherit → own wirkt per data-Attribut, nicht per Nichtladen
+  └── CSS-Chunk-Fehler → transparent statt ungestylt
+
+COVERAGE gesamt: 0/74  |  CRITICAL: 13  |  E2E: 4
+```
+
 Testdateien nach bestehender Konvention: `tests/unit/domain/`, `tests/unit/contracts/`,
 `tests/components/admin/`, `tests/worker/channel.test.ts`, `tests/e2e/`.
 
@@ -817,37 +1010,45 @@ Nichts davon wird nachgebaut.
 
 ## Next Steps
 
-Die Reihenfolge folgt den Abhängigkeiten. Der erste sichtbare Ende-zu-Ende-Moment liegt bei
-Schritt 4 und läuft über die vorhandene Admin-Session, nicht über den Dock. Der Dock kommt
-später, weil er ein eigenes Token- und Socket-System braucht.
+Die Reihenfolge folgt den Abhängigkeiten. Drei Regeln, die aus gefundenen Sequenzfehlern
+stammen: **Die Migration ist von Anfang an vollständig**, weil sich einer bereits
+angewandten Migration später keine Spalten hinzufügen lassen. **Die Budget-Gates kommen
+vor den neuen Routen**, damit die erste Route ab dem ersten Tag gemessen wird. **Die
+Socket-Trennung kommt vor dem ersten sichtbaren Moment**, weil dieser sonst gegen den
+falschen Socket gebaut würde.
 
-1. `contracts/predicates.ts` und `domain/` als reine, testbare Logik, inklusive
-   `mergeDefinition` und `selectVisible`. Dazu die CRITICAL-Grenzwerttabelle durch beide
-   Aufrufer. Keine Abhängigkeit nach außen, vollständig unit-testbar.
-2. `MIGRATION_3` im vorhandenen Ledger, `ChallengeRepository`, DO-SQLite-Adapter. Dabei
-   `rowsWritten` der echten Statements messen und das Free-Tier-Budget festschreiben.
-3. Kommando-Service in `transactionSync` mit Dedupe für alle fünf Mutationen, plus die
-   vier Session-Routen (GET, commands, board, settings).
-4. `challenge_update` auf den vorhandenen Editor- und Overlay-Sockets, handgeschriebener
-   Overlay-Parser, `plain-list` im Overlay, Log-Ausblenden bei Parse-Fehler.
-   **→ erster sichtbarer Ende-zu-Ende-Moment, bedient über die Admin-Session.**
-5. Admin-Shell mit Workspace-Switcher plus Board mit getrennten Definitionsfeldern und
+1. `contracts/predicates.ts` und `domain/` als reine, testbare Logik: `mergeDefinition`,
+   `selectVisible`, der Zustandsautomat beider Timer-Arten und die **gemeinsame**
+   Ablauffunktion. Dazu die CRITICAL-Grenzwerttabelle durch beide Aufrufer.
+2. **`MIGRATION_3` vollständig**, inklusive der drei Timer-Spalten, `theme_mode`,
+   `surface_mode`, `header_title`, `settings_revision` und beider CHECK-Constraints.
+   `ChallengeRepository`, DO-SQLite-Adapter. Dabei `rowsWritten` messen und das
+   Free-Tier-Budget festschreiben.
+3. **Budget-Gate erweitern**, bevor es etwas zu messen gibt: zwei neue Einstiegspunkte,
+   `Math.max` über die volle Closure je Style, Audio in den Transfer-Zähler.
+4. `main.tsx` bekommt die explizite Routentabelle und die vier `surface`-Werte. Die zwei
+   neuen Routen rendern zunächst Platzhalter.
+5. Kommando-Service in `transactionSync`, Dedupe für **alle acht** Mutationen, die sechs
+   Routen, beide Kommando-DTO-Formen, `revision_conflict` mit Snapshot.
+6. Socket-Arbeit am Stück: `/ws/challenge` und `/ws/dock` als eigene Pfade, beide Tags,
+   Attachment-Union erweitern, `broadcastState` auf `editor` plus `overlay` begrenzen,
+   Rotation schließt `overlay` **und** `challenge`, `wc_dock_tokens`, die beiden
+   Token-Routen, `DOCK_TOKEN_LIMITER`. Inklusive Scope-Test.
+7. `challenge_update`-Vertrag, handgeschriebener Parser, `plain-list` in der eigenen
+   Quelle, Render-Gate, Log-Ausblenden bei Parse-Fehler.
+   **→ erster sichtbarer Ende-zu-Ende-Moment.**
+8. Admin-Shell mit Workspace-Switcher plus Board mit getrennten Definitionsfeldern und
    `clientId`-Zuordnung beim Anlegen.
-6. `wc_dock_tokens`, die beiden Token-Routen, `/ws/dock`, `DOCK_TOKEN_LIMITER`, aktives
-   Schließen bei Rotation. Inklusive Scope-Test.
-7. `/live/challenges` als dritter Zweig in `main.tsx`, optimistisch mit Rückrollen,
-   Touch-Ziele 44/38 px, Regel unter 280 px.
-8. Globaler Timer: drei Felder in `wc_meta`, drei Kommandos mit Dedupe, eigene Zeile im
-   Overlay mit `1.35 s`-Puls, Start/Pause auf der Live-Seite, Reset nur im Admin.
-9. Theming: `--wc-*`-Vertrag, Standardtheme des Moduls, Host-Brücke, `theme_mode`.
-   Dazu `surface_mode` mit den zwei gekoppelten Presets.
-10. Transfer-Gate um Audio erweitern, Style-CSS auf dynamische Chunks umstellen und das
-    `Math.max` im Gate gegen den echten Netztransfer verifizieren.
-11. Zeremonie-Registry beim Host, Aus-Schalter, `prefers-reduced-motion`.
-12. Einrichtungsseite im Challenges-Workspace mit allen drei Quellen, Kopierknöpfen und
-    QR-Code.
-13. `plain-bullets`, `plain-numbered` und `quest-log` mit eigenen Assets und eigenem Sound.
-14. `docs/ARCHITECTURE.md` **und `DESIGN.md`** nachziehen.
+9. Live-Seite: optimistisch mit Rückrollen, Timer-Umschalter, Touch-Ziele 44/38 px,
+   Regel unter 280 px.
+10. Kopfzeile mit Sessionstand, globale Timer-Zeile mit `1.35 s`-Puls, Leerzustands-Matrix.
+11. Theming: `--wc-*`-Vertrag, Standardtheme des Moduls, `themeId` über die Leitung,
+    dynamisches Nachladen der Theme-CSS, Scoping per `data-theme-mode` und `data-style`.
+12. `surface_mode` mit den zwei gekoppelten Presets.
+13. Zeremonie-Registry beim Host, Aus-Schalter, `prefers-reduced-motion`.
+14. Einrichtungsseite mit allen drei Quellen, Kopierknöpfen und QR-Code.
+15. `plain-bullets`, `plain-numbered` und `quest-log` mit eigenen Assets und eigenem Sound.
+16. `docs/ARCHITECTURE.md` **und `DESIGN.md`** nachziehen.
 
 ## What I noticed about how you think
 
@@ -879,7 +1080,7 @@ deshalb entstand das Wireframe von Hand statt als KI-Mockup. Die visuelle Ausarb
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
 | Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR | 21 issues, 0 critical gaps, 56 test paths mapped |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 2 | CLEAR | 21 + 18 issues, 0 critical gaps, 74 test paths mapped |
 | Design Review | `/plan-design-review` | UI/UX gaps | 1 | CLEAR | score: 3/10 → 9/10, 8 Entscheidungen |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
 
@@ -902,6 +1103,17 @@ HUD-Varianten. Acht Entscheidungen später steht er bei 9/10. Die folgenreichste
 das Log gar nicht ins HUD zu setzen, sondern als eigene Browserquelle. Die zweitfolgenreichste
 kam vom Nutzer als Korrektur: Das Modul muss sein eigenes Theming mitbringen, statt vom HUD
 zu erben, weil das HUD abschaltbar ist und in einem Zielprodukt gar nicht existiert.
+
+**FOLGE-ENG-REVIEW:** Das Design-Review hat Architektur ergänzt, nicht nur Optik, also lief
+ein zweiter gezielter Durchgang. 6 eigene Findings plus 12 aus einer zweiten Outside Voice,
+darunter fünf Blocker. **Vier der fünf Blocker waren Folgen von Entscheidungen aus diesem
+Tag selbst:** Die eigene Browserquelle und der eigene Socket-Tag zusammen hatten die
+Challenge-Quelle von der Theme-Information abgeschnitten, die `inherit` braucht; die Regel
+"Zielzustand statt Rechnung" hatte einen abgelaufenen Timer eingesperrt, aus dem die
+Live-Seite keinen Ausweg hatte; und der Pfad `/overlay/challenges` kollidierte mit dem
+bestehenden Präfix-Test in `main.tsx`. Dazu ein Sequenzfehler, der beim ersten lokalen
+Start explodiert wäre: die Timer-Spalten sollten einer Migration hinzugefügt werden, die
+zwei Schritte vorher schon angewandt war.
 
 **VERDICT:** ENG + DESIGN CLEARED — ready to implement
 
