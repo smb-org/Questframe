@@ -144,13 +144,24 @@ const publishDenseState = (page: Page, themeId: string, scale = 1) =>
   }, { theme: themeId, hudScale: scale });
 
 const openOverlay = async (page: Page) => {
-  await page.getByText("OBS-Link", { exact: true }).click();
   page.once("dialog", (dialog) => dialog.accept());
   await page.getByRole("button", { name: /OBS-Link erzeugen|Neuen Token erzeugen/ }).click();
-  await expect
-    .poll(() => page.evaluate(() => sessionStorage.getItem("irl-stream-hud-obs-url")))
-    .not.toBeNull();
-  const url = await page.evaluate(() => sessionStorage.getItem("irl-stream-hud-obs-url"));
+  await expect.poll(async () => page.evaluate(async () => {
+    const tabId = sessionStorage.getItem("irl-stream-hud-editor-tab") ?? "";
+    const response = await fetch("/api/editor/bootstrap", { headers: { "x-editor-tab": tabId } });
+    const body = await response.json<{ capsule: { overlayToken: { token: string | null } } }>();
+    return body.capsule.overlayToken.token === null
+      ? null
+      : `${window.location.origin}/overlay#token=${body.capsule.overlayToken.token}`;
+  })).not.toBeNull();
+  const url = await page.evaluate(async () => {
+    const tabId = sessionStorage.getItem("irl-stream-hud-editor-tab") ?? "";
+    const response = await fetch("/api/editor/bootstrap", { headers: { "x-editor-tab": tabId } });
+    const body = await response.json<{ capsule: { overlayToken: { token: string | null } } }>();
+    return body.capsule.overlayToken.token === null
+      ? null
+      : `${window.location.origin}/overlay#token=${body.capsule.overlayToken.token}`;
+  });
   expect(url).not.toBeNull();
   return url ?? "about:blank";
 };

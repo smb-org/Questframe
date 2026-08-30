@@ -30,6 +30,7 @@ const bootstrap = (): BootstrapResponse => ({
       createdAt: null,
       lastUsedAt: null,
       connectedSockets: 0,
+      token: null,
     },
   },
   capabilities: getReleaseCapabilities("v1b"),
@@ -71,11 +72,58 @@ describe("Admin workspace channel identity", () => {
       save: vi.fn(),
       setVisibility: vi.fn(),
     }} />);
-    expect(document.querySelector(".channel-identity")).toBeNull();
+    const placeholder = document.querySelector(".channel-identity");
+    expect(placeholder).toBeInTheDocument();
+    expect(placeholder).toHaveAttribute("aria-hidden", "true");
+    expect(placeholder).toBeEmptyDOMElement();
   });
 });
 
 describe("Admin workspace publication boundary", () => {
+  it("kopiert einen wiederherstellbaren Bootstrap-Token ohne vorherige Erzeugung", async () => {
+    const user = userEvent.setup();
+    const initial = bootstrap();
+    initial.capsule.overlayToken = {
+      exists: true,
+      generation: 1,
+      createdAt: "2026-08-29T12:00:00.000Z",
+      lastUsedAt: null,
+      connectedSockets: 0,
+      token: "C".repeat(43),
+    };
+    const writeText = vi.fn<(text: string) => Promise<void>>(() => Promise.resolve());
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+
+    render(<AdminWorkspace initialBootstrap={initial} api={{
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+    }} />);
+
+    const copyButton = screen.getByRole("button", { name: "OBS-Link kopieren" });
+    expect(copyButton).toBeEnabled();
+    await user.click(copyButton);
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/overlay#token=${"C".repeat(43)}`);
+  });
+
+  it("deaktiviert das Kopieren für einen vorhandenen Alt-Token ohne Envelope", () => {
+    const initial = bootstrap();
+    initial.capsule.overlayToken = {
+      exists: true,
+      generation: 1,
+      createdAt: "2026-08-29T12:00:00.000Z",
+      lastUsedAt: null,
+      connectedSockets: 0,
+      token: null,
+    };
+
+    render(<AdminWorkspace initialBootstrap={initial} api={{
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+    }} />);
+
+    expect(screen.getByRole("button", { name: "OBS-Link kopieren" })).toBeDisabled();
+  });
+
   it("zooms the live preview through 200 percent and resets without creating a publishable change", async () => {
     const user = userEvent.setup();
     const initial = bootstrap();
@@ -194,6 +242,7 @@ describe("Admin workspace publication boundary", () => {
     expect(save.mock.calls[0]?.[0].state.player.hpPercent).toBe(42);
     expect(save.mock.calls[0]?.[0].state).not.toHaveProperty("overlayEnabled");
 
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     await user.click(screen.getByRole("switch", { name: "Overlay aktiv" }));
     expect(setVisibility).toHaveBeenCalledWith(false);
   });
@@ -327,12 +376,57 @@ describe("Admin workspace publication boundary", () => {
     };
     render(<AdminWorkspace initialBootstrap={initial} api={api} />);
 
-    expect(screen.getByText("Keine aktive OBS-Verbindung")).toBeInTheDocument();
+    expect(screen.getByText("kein Link")).toBeInTheDocument();
 
     act(() => onOverlayPresence?.(1));
 
     expect(await screen.findByText("1 verbunden")).toBeInTheDocument();
-    expect(screen.queryByText("Keine aktive OBS-Verbindung")).not.toBeInTheDocument();
+    expect(screen.queryByText("kein Link")).not.toBeInTheDocument();
+  });
+
+  it("verwaltet OBS-Link, Präsenz und die sichere Ausschaltabfrage im Header", async () => {
+    const user = userEvent.setup();
+    const initial = bootstrap();
+    let onOverlayPresence: ((connectedSockets: number) => void) | undefined;
+    const mutateOverlayToken = vi.fn<NonNullable<AdminApi["mutateOverlayToken"]>>((rotate, request) => Promise.resolve({
+      requestId: request.requestId,
+      generation: rotate ? 2 : 1,
+      fingerprint: "ABCDEF12",
+      createdAt: "2026-08-29T12:00:00.000Z",
+      token: "A".repeat(43),
+    }));
+    const setVisibility = vi.fn<AdminApi["setVisibility"]>();
+    const writeText = vi.fn<(text: string) => Promise<void>>(() => Promise.resolve());
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<AdminWorkspace initialBootstrap={initial} api={{
+      save: vi.fn(),
+      setVisibility,
+      mutateOverlayToken,
+      subscribe: (callbacks) => {
+        onOverlayPresence = callbacks.onOverlayPresence;
+        return () => undefined;
+      },
+    }} />);
+
+    const copyButton = screen.getByRole("button", { name: "OBS-Link kopieren" });
+    expect(copyButton).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "OBS-Link erzeugen" }));
+    expect(screen.getByText("nicht verbunden")).toBeInTheDocument();
+    expect(screen.queryByText("keine OBS-Verbindung")).not.toBeInTheDocument();
+    const obsChip = screen.getByRole("group", { name: "OBS-Verbindung: nicht verbunden" });
+    expect(obsChip).toHaveAttribute("title", "OBS-Verbindung: nicht verbunden");
+    expect(copyButton).toBeEnabled();
+    await user.click(copyButton);
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/overlay#token=${"A".repeat(43)}`);
+
+    act(() => onOverlayPresence?.(2));
+    expect(await screen.findByText("2 verbunden")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("switch", { name: "Overlay aktiv" }));
+    expect(confirm).toHaveBeenCalledWith("Overlay in OBS sofort ausblenden? Zuschauer sehen das HUD dann nicht mehr.");
+    expect(setVisibility).not.toHaveBeenCalled();
   });
 
   it("edits the complete desktop V1b surface while preserving the explicit Save boundary", async () => {
@@ -344,6 +438,7 @@ describe("Admin workspace publication boundary", () => {
       createdAt: null,
       lastUsedAt: null,
       connectedSockets: 0,
+      token: null,
     };
     initial.recentAudit = [{
       id: "audit-existing",
@@ -394,6 +489,7 @@ describe("Admin workspace publication boundary", () => {
       generation: rotate ? 2 : 1,
       fingerprint: "ABCDEF12",
       createdAt: "2026-08-29T12:00:00.000Z",
+      token: "B".repeat(43),
     }));
     const lookupTwitchUser = vi.fn<NonNullable<AdminApi["lookupTwitchUser"]>>(() => Promise.resolve({
       id: "99999999999999999999",
@@ -448,7 +544,6 @@ describe("Admin workspace publication boundary", () => {
     await user.click(screen.getByRole("button", { name: "Hinzufügen" }));
     expect(screen.getByText("Bereit für das nächste Abenteuer.")).toBeInTheDocument();
 
-    await user.click(screen.getByText("OBS-Link").closest("summary") as HTMLElement);
     await user.click(screen.getByRole("button", { name: "OBS-Link erzeugen" }));
     expect(mutateOverlayToken).toHaveBeenCalledWith(false, expect.objectContaining({ expectedGeneration: 0 }));
     await user.click(screen.getByRole("button", { name: /Neuen Token erzeugen/ }));
@@ -528,6 +623,7 @@ describe("Admin workspace publication boundary", () => {
     fireEvent.change(screen.getByRole("slider", { name: "Gesundheit" }), { target: { value: "40" } });
     await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
     expect(await screen.findByText("Save fehlgeschlagen")).toBeInTheDocument();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     await user.click(screen.getByRole("switch", { name: "Overlay aktiv" }));
     expect(await screen.findByText("Sichtbarkeit fehlgeschlagen")).toBeInTheDocument();
   });

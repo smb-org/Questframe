@@ -1,5 +1,6 @@
 import {
   Activity,
+  Check,
   ChevronDown,
   Clock3,
   Copy,
@@ -18,7 +19,6 @@ import {
   Trash2,
   Undo2,
   Users,
-  Wifi,
   X,
   ZoomIn,
 } from "lucide-react";
@@ -89,7 +89,6 @@ export type AdminApi = {
     | ((rotate: boolean, request: {
         requestId: string;
         expectedGeneration: number;
-        candidateToken: string;
       }) => Promise<OverlayTokenResponse>)
     | undefined;
   uploadPortrait?: ((blob: Blob) => Promise<PortraitRef>) | undefined;
@@ -154,6 +153,40 @@ const TickingPreview = (props: Omit<ComponentProps<typeof HudRenderer>, "nowMill
   return <HudRenderer {...props} nowMilliseconds={nowMilliseconds} />;
 };
 
+const THEME_PREVIEW_NOW = Date.now();
+
+const ThemePreviewCard = ({
+  theme,
+  preview,
+  previewMediaUrls,
+}: {
+  theme: ThemeId;
+  preview: ChannelState;
+  previewMediaUrls: ReadonlyMap<string, string>;
+}) => {
+  const previewState: ChannelState = {
+    ...preview,
+    themeId: theme,
+    placement: { x: 0, y: 0, scale: 1 },
+    effects: [],
+    featuredEffectId: null,
+    pet: null,
+    group: [],
+  };
+  return (
+    <div aria-hidden="true" className="theme-preview">
+      <div className="theme-preview-inner">
+        <HudRenderer
+          forceVisible
+          mediaUrls={previewMediaUrls}
+          nowMilliseconds={THEME_PREVIEW_NOW}
+          state={previewState}
+        />
+      </div>
+    </div>
+  );
+};
+
 const toPreview = (draft: ChannelStateDraft, committed: ChannelState): ChannelState => ({
   ...draft,
   revision: committed.revision,
@@ -161,14 +194,6 @@ const toPreview = (draft: ChannelStateDraft, committed: ChannelState): ChannelSt
   updatedAt: committed.updatedAt,
   updatedBy: committed.updatedBy,
 });
-
-const randomBase64UrlToken = (): string => {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
-};
 
 type EffectFlyoverProps = {
   effect?: ActiveEffect | undefined;
@@ -553,7 +578,8 @@ export const AdminWorkspace = ({
   const [twitchLogin, setTwitchLogin] = useState("");
   const [guestBusy, setGuestBusy] = useState(false);
   const [overlayToken, setOverlayToken] = useState(initialBootstrap.capsule.overlayToken);
-  const [obsUrl, setObsUrl] = useState(() => sessionStorage.getItem("irl-stream-hud-obs-url") ?? "");
+  const [obsLinkCopied, setObsLinkCopied] = useState(false);
+  const obsLinkCopiedTimer = useRef<number | null>(null);
   const [previewZoom, setPreviewZoom] = useState(100);
   const dirty = useMemo(
     () => JSON.stringify(draft) !== JSON.stringify(toDraft(committed)),
@@ -563,6 +589,9 @@ export const AdminWorkspace = ({
   useEffect(() => {
     dirtyRef.current = dirty;
   }, [dirty]);
+  useEffect(() => () => {
+    if (obsLinkCopiedTimer.current !== null) window.clearTimeout(obsLinkCopiedTimer.current);
+  }, []);
   const channel = initialBootstrap.capsule.channel ?? null;
   const channelHandle =
     channel !== null && channel.login.toLowerCase() !== channel.displayName.toLowerCase()
@@ -585,6 +614,20 @@ export const AdminWorkspace = ({
   }, [draft.group, draft.pet?.portrait, draft.player.portrait]);
   const locked = saving || !online;
   const uploadPortrait = api.uploadPortrait?.bind(api);
+  const obsUrl = overlayToken.token === null
+    ? ""
+    : `${window.location.origin}/overlay#token=${overlayToken.token}`;
+  const obsConnectionLabel = overlayToken.connectedSockets > 0
+    ? `${String(overlayToken.connectedSockets)} verbunden`
+    : overlayToken.exists
+      ? "nicht verbunden"
+      : "kein Link";
+  const obsConnectionDescription = `OBS-Verbindung: ${obsConnectionLabel}`;
+  const obsChipState = overlayToken.connectedSockets > 0
+    ? "is-live"
+    : overlayToken.exists
+      ? "is-idle"
+      : "is-empty";
 
   useEffect(() => {
     if (api.subscribe === undefined) return;
@@ -682,6 +725,7 @@ export const AdminWorkspace = ({
 
   const toggleVisibility = async () => {
     if (visibilityBusy || !online) return;
+    if (committed.overlayEnabled && !window.confirm("Overlay in OBS sofort ausblenden? Zuschauer sehen das HUD dann nicht mehr.")) return;
     setVisibilityBusy(true);
     setError("");
     try {
@@ -775,16 +819,10 @@ export const AdminWorkspace = ({
   const mutateToken = async (rotate: boolean) => {
     if (api.mutateOverlayToken === undefined) return;
     if (rotate && !window.confirm("Alte OBS-URL sofort ungültig machen und neuen Token erzeugen?")) return;
-    const candidateToken = randomBase64UrlToken();
     const requestId = crypto.randomUUID();
-    const pending = { candidateToken, requestId, expectedGeneration: overlayToken.generation };
-    sessionStorage.setItem("irl-stream-hud-pending-token", JSON.stringify(pending));
+    const request = { requestId, expectedGeneration: overlayToken.generation };
     try {
-      const result = await api.mutateOverlayToken(rotate, pending);
-      const url = `${window.location.origin}/overlay#token=${candidateToken}`;
-      sessionStorage.setItem("irl-stream-hud-obs-url", url);
-      sessionStorage.removeItem("irl-stream-hud-pending-token");
-      setObsUrl(url);
+      const result = await api.mutateOverlayToken(rotate, request);
       setOverlayToken((current) => ({
         ...current,
         exists: true,
@@ -792,10 +830,27 @@ export const AdminWorkspace = ({
         createdAt: result.createdAt,
         lastUsedAt: null,
         connectedSockets: 0,
+        token: result.token,
       }));
       setMessage(rotate ? "Neuer OBS-Link ist bereit; der alte wurde gesperrt." : "OBS-Link wurde erzeugt.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Token-Erzeugung fehlgeschlagen.");
+    }
+  };
+
+  const copyObsUrl = async () => {
+    if (obsUrl === "") return;
+    try {
+      await navigator.clipboard.writeText(obsUrl);
+      setError("");
+      setObsLinkCopied(true);
+      if (obsLinkCopiedTimer.current !== null) window.clearTimeout(obsLinkCopiedTimer.current);
+      obsLinkCopiedTimer.current = window.setTimeout(() => {
+        setObsLinkCopied(false);
+        obsLinkCopiedTimer.current = null;
+      }, 2_000);
+    } catch {
+      setError("OBS-Link konnte nicht kopiert werden.");
     }
   };
 
@@ -826,12 +881,44 @@ export const AdminWorkspace = ({
           <div><strong>{initialBootstrap.capsule.name}</strong><span>Live-Regie</span></div>
         </div>
         <div className="topbar-status">
-          <span className={`connection-pill ${online ? "is-online" : "is-offline"}`}>
-            <Wifi size={14} />{online ? "Verbunden" : "Offline"}
-          </span>
+          {/* Der Chip meldet ausschliesslich die OBS-Verbindung. Ueber eine
+              gestoerte Editor-Verbindung informiert der Offline-Banner. */}
+          <div
+            aria-label={obsConnectionDescription}
+            className={`obs-chip ${obsChipState}`}
+            role="group"
+            title={obsConnectionDescription}
+          >
+            <i aria-hidden="true" />
+            <Radio aria-hidden="true" size={14} />
+            <span className="obs-chip-label">OBS</span>
+            <span className="obs-chip-connection">{obsConnectionLabel}</span>
+            <button
+              aria-label="OBS-Link kopieren"
+              className="obs-chip-action"
+              disabled={obsUrl === ""}
+              onClick={() => void copyObsUrl()}
+              title={obsLinkCopied ? "Kopiert" : obsUrl === "" ? "Dieser alte Token ist nicht wiederherstellbar. Bitte einen neuen Token erzeugen." : "OBS-Link kopieren"}
+              type="button"
+            >
+              {obsLinkCopied ? <Check aria-hidden="true" size={14} /> : <Copy aria-hidden="true" size={14} />}
+            </button>
+            <button
+              aria-label={overlayToken.exists ? "Neuen Token erzeugen" : "OBS-Link erzeugen"}
+              className="obs-chip-action"
+              disabled={!online}
+              onClick={() => void mutateToken(overlayToken.exists)}
+              title={overlayToken.exists ? "Neuen Token erzeugen" : "OBS-Link erzeugen"}
+              type="button"
+            >
+              {overlayToken.exists ? <RotateCw aria-hidden="true" size={14} /> : <Plus aria-hidden="true" size={15} />}
+            </button>
+          </div>
           <span className="revision-pill">Rev. {committed.revision}</span>
         </div>
-        {channel !== null && (
+        {channel === null ? (
+          <div aria-hidden="true" className="channel-identity" />
+        ) : (
           <div className="channel-identity">
             <span className="eyebrow">Twitch-Kanal</span>
             <div>
@@ -1038,8 +1125,17 @@ export const AdminWorkspace = ({
                   <PortraitInput disabled={locked} upload={uploadPortrait} onPortrait={(portrait) => updatePlayer({ portrait })} />
             <div className="theme-picker" aria-label="Theme">
               {initialBootstrap.capabilities.enabledThemes.map((theme) => (
-                <button className={draft.themeId === theme ? "theme-card is-selected" : "theme-card"} disabled={locked} key={theme} onClick={() => setDraft((current) => ({ ...current, themeId: theme }))} type="button">
-                  <span className={`theme-swatch theme-swatch--${theme}`} /><strong>{THEME_LABELS[theme]}</strong>
+                <button
+                  aria-pressed={draft.themeId === theme}
+                  className={draft.themeId === theme ? "theme-card is-selected" : "theme-card"}
+                  disabled={locked}
+                  key={theme}
+                  onClick={() => setDraft((current) => ({ ...current, themeId: theme }))}
+                  type="button"
+                >
+                  <ThemePreviewCard preview={preview} previewMediaUrls={previewMediaUrls} theme={theme} />
+                  <strong>{THEME_LABELS[theme]}</strong>
+                  {draft.themeId === theme && <span aria-hidden="true" className="theme-card-check"><Check size={12} /></span>}
                 </button>
               ))}
             </div>
@@ -1051,15 +1147,6 @@ export const AdminWorkspace = ({
           </Section>
           </div>
 
-          <div className="desktop-only">
-          <Section defaultOpen={false} icon={<Radio size={16} />} title="OBS-Link">
-            <div className="token-status"><span><i className={overlayToken.exists ? "is-ready" : ""} />{overlayToken.exists ? `Token Generation ${String(overlayToken.generation)}` : "Noch kein OBS-Link"}</span><small>{overlayToken.connectedSockets > 0 ? `${String(overlayToken.connectedSockets)} verbunden` : "Keine aktive OBS-Verbindung"}</small></div>
-            {obsUrl !== "" && <button className="button button--quiet button--full" onClick={() => void navigator.clipboard.writeText(obsUrl)} type="button"><Copy size={15} /> OBS-Link kopieren</button>}
-            <button className={overlayToken.exists ? "text-button text-button--danger" : "button button--primary button--full"} disabled={!online} onClick={() => void mutateToken(overlayToken.exists)} type="button">
-              {overlayToken.exists ? <><RotateCw size={14} /> Neuen Token erzeugen</> : <><Plus size={15} /> OBS-Link erzeugen</>}
-            </button>
-          </Section>
-          </div>
         </div>
 
         <footer className="save-dock">

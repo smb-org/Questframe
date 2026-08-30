@@ -1,4 +1,5 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BootstrapResponse } from "../../../src/shared/contracts/api";
@@ -51,6 +52,7 @@ const bootstrap = (): BootstrapResponse => ({
       createdAt: null,
       lastUsedAt: null,
       connectedSockets: 0,
+      token: null,
     },
   },
   capabilities: getReleaseCapabilities("v1b"),
@@ -74,6 +76,46 @@ afterEach(() => {
 });
 
 describe("AdminApp authentication shell", () => {
+  it("copies a recoverable bootstrap token before any token generation", async () => {
+    const user = userEvent.setup();
+    const recoverable = bootstrap();
+    recoverable.capsule.overlayToken = {
+      exists: true,
+      generation: 1,
+      createdAt: "2026-08-29T12:00:00.000Z",
+      lastUsedAt: null,
+      connectedSockets: 0,
+      token: "A".repeat(43),
+    };
+    const writeText = vi.fn<(text: string) => Promise<void>>(() => Promise.resolve());
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    apiMocks.bootstrap.mockResolvedValue(recoverable);
+
+    render(<AdminApp />);
+
+    const copyButton = await screen.findByRole("button", { name: "OBS-Link kopieren" });
+    expect(copyButton).toBeEnabled();
+    await user.click(copyButton);
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/overlay#token=${"A".repeat(43)}`);
+  });
+
+  it("disables copying an existing legacy token without recoverable plaintext", async () => {
+    const legacy = bootstrap();
+    legacy.capsule.overlayToken = {
+      exists: true,
+      generation: 1,
+      createdAt: "2026-08-29T12:00:00.000Z",
+      lastUsedAt: null,
+      connectedSockets: 0,
+      token: null,
+    };
+    apiMocks.bootstrap.mockResolvedValue(legacy);
+
+    render(<AdminApp />);
+
+    expect(await screen.findByRole("button", { name: "OBS-Link kopieren" })).toBeDisabled();
+  });
+
   it("shows a loading shell and then mounts the complete workspace", async () => {
     let resolveBootstrap: ((value: BootstrapResponse) => void) | undefined;
     apiMocks.bootstrap.mockReturnValue(new Promise((resolve) => {

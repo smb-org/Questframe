@@ -10,13 +10,25 @@ test("a draft reaches a connected OBS overlay only after Save", async ({ page, c
   test.skip(testInfo.project.name !== "chromium-desktop", "Desktop publication flow");
   await loginAsLocalEditor(page);
 
-  await page.getByText("OBS-Link", { exact: true }).click();
   const tokenButton = page.getByRole("button", { name: /OBS-Link erzeugen|Neuen Token erzeugen/ });
   page.once("dialog", (dialog) => dialog.accept());
   await tokenButton.click();
-  await expect.poll(() => page.evaluate(() => sessionStorage.getItem("irl-stream-hud-obs-url"))).not.toBeNull();
-  const overlayUrl = await page.evaluate(() => sessionStorage.getItem("irl-stream-hud-obs-url"));
-  expect(overlayUrl).not.toBeNull();
+  await expect.poll(async () => page.evaluate(async () => {
+    const tabId = sessionStorage.getItem("irl-stream-hud-editor-tab") ?? "";
+    const response = await fetch("/api/editor/bootstrap", { headers: { "x-editor-tab": tabId } });
+    const body = await response.json<{ capsule: { overlayToken: { token: string | null } } }>();
+    return body.capsule.overlayToken.token === null
+      ? null
+      : `${window.location.origin}/overlay#token=${body.capsule.overlayToken.token}`;
+  })).not.toBeNull();
+  const overlayUrl = await page.evaluate(async () => {
+    const tabId = sessionStorage.getItem("irl-stream-hud-editor-tab") ?? "";
+    const response = await fetch("/api/editor/bootstrap", { headers: { "x-editor-tab": tabId } });
+    const body = await response.json<{ capsule: { overlayToken: { token: string | null } } }>();
+    return body.capsule.overlayToken.token === null
+      ? null
+      : `${window.location.origin}/overlay#token=${body.capsule.overlayToken.token}`;
+  });
 
   const overlay = await context.newPage();
   await overlay.goto(overlayUrl ?? "about:blank");
@@ -135,7 +147,7 @@ test("mobile keeps emergency controls and removes setup surfaces", async ({ page
   await expect(page.getByRole("switch", { name: "Overlay aktiv" })).toBeVisible();
   await expect(page.getByRole("slider", { name: "Gesundheit" })).toBeVisible();
   await expect(page.getByText("Einrichten", { exact: true })).toBeHidden();
-  await expect(page.getByText("OBS-Link", { exact: true })).toBeHidden();
+  await expect(page.locator(".obs-chip")).toBeHidden();
   const controls = page.locator(".editor-rail");
   await expect(controls.getByText("Pet", { exact: true })).toBeHidden();
   await expect(controls.getByText("Gruppe", { exact: true })).toBeHidden();
