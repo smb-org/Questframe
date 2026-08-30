@@ -32,7 +32,7 @@ Die stündliche Revalidierung entzieht bei Rollenverlust die Session. Geheimniss
 
 ## Overlay und Ausfallsicherheit
 
-Der OBS-Link enthält einen zufälligen 256-Bit-Token. Server-seitig existiert nur sein gepfefferter HMAC-Hash. Nach erfolgreicher WebSocket-Authentifizierung speichert das Overlay den letzten vollständigen Snapshot unter einem Schlüssel aus Schema, Capsule und gekürztem Token-Fingerprint. Ohne je erfolgreiche Authentifizierung bleibt es leer. Ein aktiver Widerruf leert Anzeige und Cache.
+Der OBS-Link enthält einen zufälligen 256-Bit-Token. Server-seitig existieren für ihn der gepfefferte HMAC-Hash zur heißen Verifikation und eine AES-GCM-verschlüsselte Kopie zur Wiederherstellung durch berechtigte Editor:innen. Der AES-Schlüssel wird aus dem `OVERLAY_TOKEN_PEPPER` per SHA-256 abgeleitet und die Capsule-ID als zusätzlicher Verschlüsselungskontext gebunden. Nach erfolgreicher WebSocket-Authentifizierung speichert das Overlay den letzten vollständigen Snapshot unter einem Schlüssel aus Schema, Capsule und gekürztem Token-Fingerprint. Ohne je erfolgreiche Authentifizierung bleibt es leer. Ein aktiver Widerruf leert Anzeige und Cache. Tokens aus der Zeit vor der Envelope-Migration bleiben für die Verifikation gültig, sind aber nicht wiederherstellbar und müssen einmalig rotiert werden.
 
 Effektzeiten sind ISO-Instant-Zeitpunkte. Der Overlay-Browser berechnet die Restzeit lokal und erzeugt dadurch keinen Sekundentakt im Backend. Uploads werden als kleine, geprüfte WebP-Dateien separat gespeichert; im Zustand stehen nur Hash, Maße und Länge.
 

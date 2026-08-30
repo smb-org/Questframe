@@ -73,12 +73,12 @@ Der erste Login erzeugt einen neutralen Zustand mit Initialen. Name, Titel, Leve
 
 ## OBS verbinden
 
-1. In der Desktop-Konsole **OBS-Link → OBS-Link erzeugen** wählen.
-2. Den nur in dieser Browsersitzung angezeigten Link kopieren.
+1. In der Desktop-Konsole im OBS-Chip **OBS-Link erzeugen** wählen. Existiert bereits ein wiederherstellbarer Token, kann jede:r Editor:in den Link dort jederzeit kopieren.
+2. Den angezeigten Link kopieren.
 3. In OBS eine Browserquelle mit `1920 × 1080`, Zoom `100 %` und transparentem Hintergrund anlegen.
 4. Den Link einsetzen. Das HUD ist oben links verankert; freie Fläche bleibt transparent.
 
-Bei einem Leak erzeugt **Neuen Token erzeugen** sofort eine neue URL und sperrt die alte. Die OBS-Quelle muss anschließend einmalig auf den neuen Link umgestellt werden. Ein widerrufenes verbundenes Overlay leert Zustand und lokalen tokengebundenen Snapshot sofort.
+Bei einem Leak erzeugt **Neuen Token erzeugen** sofort eine neue URL und sperrt die alte. Die OBS-Quelle muss anschließend einmalig auf den neuen Link umgestellt werden. Ein Token aus der Zeit vor dieser Änderung muss einmalig rotiert werden, bevor sein Link wieder kopierbar ist. Ein widerrufenes verbundenes Overlay leert Zustand und lokalen tokengebundenen Snapshot sofort.
 
 ## Qualitätsgates
 

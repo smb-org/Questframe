@@ -44,7 +44,7 @@ Production nutzt bis zum bestandenen V1a-Rehearsal `RELEASE_STAGE=v1a`. Erst dan
 
 ## Token-Leak
 
-In **OBS-Link** auf **Neuen Token erzeugen** klicken und bestätigen. Der alte Token wird sofort widerrufen; verbundene Clients erhalten `token_revoked`, leeren ihre Anzeige und schließen die Verbindung. Den neuen Link einmalig in OBS einsetzen. Den Link nicht in Chat, Logs, Screenshots oder Tickets kopieren.
+Jede:r berechtigte Editor:in kann den aktuellen Link jederzeit im OBS-Chip des Headers kopieren. Bei einem Token aus der Zeit vor der serverseitigen Wiederherstellung ist der Klartext nicht verfügbar; diesen Alt-Token einmalig über **Neuen Token erzeugen** rotieren. Bei einem Leak weiterhin **Neuen Token erzeugen** klicken und bestätigen. Der alte Token wird sofort widerrufen; verbundene Clients erhalten `token_revoked`, leeren ihre Anzeige und schließen die Verbindung. Den neuen Link anschließend in OBS einsetzen. Den Link nicht in Chat, Logs, Screenshots oder Tickets kopieren.
 
 Ein vollständig offline befindlicher Browser kann seinen bereits gespeicherten Snapshot naturgemäß nicht remote löschen. Er kann mit dem alten Token aber keine neue autorisierte Verbindung aufbauen.
 
