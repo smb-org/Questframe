@@ -666,14 +666,18 @@ describe("Admin workspace publication boundary", () => {
     fireEvent.change(companionName as HTMLElement, { target: { value: "Wegbegleiter" } });
     fireEvent.change(screen.getByLabelText("Unterzeile"), { target: { value: "Spürhund" } });
 
-    await user.type(screen.getByLabelText("Name des manuellen Gasts"), "Normalo");
-    await user.click(screen.getByRole("button", { name: "Manuell" }));
-    await user.type(screen.getByLabelText("Twitch-Login des Gasts"), "gast_tv");
-    await user.click(screen.getByRole("button", { name: "Twitch" }));
+    const guestInput = screen.getByLabelText("Twitch-Login oder Name");
+    await user.type(guestInput, "Normalo Gast");
+    await user.click(screen.getByRole("button", { name: "Als Gast hinzufügen" }));
+    await user.type(guestInput, "gast_tv");
+    await user.click(screen.getByRole("button", { name: "Auf Twitch suchen" }));
+    expect(await screen.findByText("@gast_tv")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hinzufügen" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Hinzufügen" }));
     expect(await screen.findAllByText("GastTV")).toHaveLength(2);
     expect(lookupTwitchUser).toHaveBeenCalledWith("gast_tv");
-    fireEvent.change(screen.getByRole("slider", { name: "Normalo Gesundheit" }), { target: { value: "70" } });
-    await user.click(screen.getByRole("button", { name: "Normalo entfernen" }));
+    fireEvent.change(screen.getByRole("slider", { name: "Normalo Gast Gesundheit" }), { target: { value: "70" } });
+    await user.click(screen.getByRole("button", { name: "Normalo Gast entfernen" }));
 
     await user.click(screen.getByRole("button", { name: /Effekt hinzufügen/ }));
     await user.click(screen.getByRole("button", { name: "Gestärkt" }));
@@ -700,6 +704,167 @@ describe("Admin workspace publication boundary", () => {
     expect(undo).toHaveBeenCalledWith(2, 1);
     expect(screen.getByRole("button", { name: "Abmelden" })).toBeEnabled();
     expect(logout).not.toHaveBeenCalled();
+  });
+
+  it("looks up a login only on explicit submit and adds the resolved identity", async () => {
+    const user = userEvent.setup();
+    const initial = bootstrap();
+    let resolveLookup: ((value: {
+      id: string;
+      login: string;
+      displayName: string;
+      profileImageUrl: string;
+    }) => void) | undefined;
+    const lookupTwitchUser = vi.fn<NonNullable<AdminApi["lookupTwitchUser"]>>(
+      () => new Promise((resolve) => {
+        resolveLookup = resolve;
+      }),
+    );
+    render(<AdminWorkspace initialBootstrap={initial} api={{
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      lookupTwitchUser,
+    }} />);
+
+    const input = screen.getByLabelText("Twitch-Login oder Name");
+    expect(screen.getByRole("button", { name: "Als Gast hinzufügen" })).toBeDisabled();
+    await user.type(input, "Gast_TV");
+    expect(lookupTwitchUser).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Auf Twitch suchen" })).toBeEnabled();
+
+    await user.keyboard("{Enter}");
+    expect(lookupTwitchUser).toHaveBeenCalledTimes(1);
+    expect(lookupTwitchUser).toHaveBeenCalledWith("gast_tv");
+    expect(screen.getByRole("button", { name: "Wird gesucht …" })).toBeDisabled();
+
+    act(() => {
+      resolveLookup?.({
+        id: "99999999999999999999",
+        login: "gast_tv",
+        displayName: "Kanonischer Gast",
+        profileImageUrl: "https://example.test/gast.png",
+      });
+    });
+    expect(await screen.findByText("Kanonischer Gast")).toBeInTheDocument();
+    expect(screen.getByText("@gast_tv")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Hinzufügen" }));
+    expect(screen.getByRole("slider", { name: "Kanonischer Gast Gesundheit" })).toBeInTheDocument();
+    expect(screen.queryByRole("slider", { name: "Gast_TV Gesundheit" })).not.toBeInTheDocument();
+  });
+
+  it("adds names outside the login format manually without a lookup", async () => {
+    const user = userEvent.setup();
+    const lookupTwitchUser = vi.fn<NonNullable<AdminApi["lookupTwitchUser"]>>();
+    render(<AdminWorkspace initialBootstrap={bootstrap()} api={{
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      lookupTwitchUser,
+    }} />);
+
+    const input = screen.getByLabelText("Twitch-Login oder Name");
+    await user.type(input, "Der Kumpel");
+    await user.click(screen.getByRole("button", { name: "Als Gast hinzufügen" }));
+
+    expect(lookupTwitchUser).not.toHaveBeenCalled();
+    expect(screen.getByRole("slider", { name: "Der Kumpel Gesundheit" })).toBeInTheDocument();
+    expect(input).toHaveValue("");
+  });
+
+  it("marks a resolved Twitch guest that is already in the group and cannot add it again", async () => {
+    const user = userEvent.setup();
+    const initial = bootstrap();
+    initial.state.group = [{
+      id: "existing-twitch-guest",
+      source: "twitch",
+      twitchUserId: twitchUserIdSchema.parse("99999999999999999999"),
+      name: "Bereits da",
+      portrait: {
+        kind: "twitch",
+        userId: twitchUserIdSchema.parse("99999999999999999999"),
+        url: "https://example.test/existing.png",
+      },
+      hpPercent: 100,
+    }];
+    const lookupTwitchUser = vi.fn<NonNullable<AdminApi["lookupTwitchUser"]>>(() => Promise.resolve({
+      id: "99999999999999999999",
+      login: "gast_tv",
+      displayName: "GastTV",
+      profileImageUrl: "https://example.test/gast.png",
+    }));
+    render(<AdminWorkspace initialBootstrap={initial} api={{
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      lookupTwitchUser,
+    }} />);
+
+    await user.type(screen.getByLabelText("Twitch-Login oder Name"), "gast_tv");
+    await user.click(screen.getByRole("button", { name: "Auf Twitch suchen" }));
+    expect(await screen.findByText("bereits in der Gruppe")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Hinzufügen" })).toBeDisabled();
+    expect(screen.getByRole("slider", { name: "Bereits da Gesundheit" })).toBeInTheDocument();
+  });
+
+  it("offers manual addition for a Twitch lookup that returns not found", async () => {
+    const user = userEvent.setup();
+    const notFound = Object.assign(new Error("not found"), { code: "not_found", status: 404 });
+    const lookupTwitchUser = vi.fn<NonNullable<AdminApi["lookupTwitchUser"]>>(() => Promise.reject(notFound));
+    render(<AdminWorkspace initialBootstrap={bootstrap()} api={{
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      lookupTwitchUser,
+    }} />);
+
+    const input = screen.getByLabelText("Twitch-Login oder Name");
+    await user.type(input, "unbekannt");
+    await user.click(screen.getByRole("button", { name: "Auf Twitch suchen" }));
+    expect(await screen.findByText("Kein Twitch-Konto mit diesem Login")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /unbekannt.*als manuellen Gast hinzufügen/ }));
+    expect(screen.getByRole("slider", { name: "unbekannt Gesundheit" })).toBeInTheDocument();
+  });
+
+  it("keeps Twitch lookup errors local and leaves the manual fallback usable", async () => {
+    const user = userEvent.setup();
+    const lookupTwitchUser = vi.fn<NonNullable<AdminApi["lookupTwitchUser"]>>(() => Promise.reject(new Error("network down")));
+    render(<AdminWorkspace initialBootstrap={bootstrap()} api={{
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      lookupTwitchUser,
+    }} />);
+
+    const input = screen.getByLabelText("Twitch-Login oder Name");
+    await user.type(input, "gast_tv");
+    await user.click(screen.getByRole("button", { name: "Auf Twitch suchen" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Twitch-Gast konnte nicht geladen werden.");
+    expect(screen.getByText("Alles veröffentlicht")).toBeInTheDocument();
+    expect(screen.queryByText("network down")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /gast_tv.*als manuellen Gast hinzufügen/ }));
+    expect(screen.getByRole("slider", { name: "gast_tv Gesundheit" })).toBeInTheDocument();
+  });
+
+  it("can still add a manual guest whose name happens to look like a Twitch login", async () => {
+    const user = userEvent.setup();
+    const lookupTwitchUser = vi.fn<NonNullable<AdminApi["lookupTwitchUser"]>>(() => Promise.resolve({
+      id: "99887766554433221100",
+      login: "kevin",
+      displayName: "Kevin",
+      profileImageUrl: "https://static-cdn.jtvnw.net/kevin.png",
+    }));
+    render(<AdminWorkspace initialBootstrap={bootstrap()} api={{
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      lookupTwitchUser,
+    }} />);
+
+    await user.type(screen.getByLabelText("Twitch-Login oder Name"), "kevin");
+    await user.click(screen.getByRole("button", { name: "Auf Twitch suchen" }));
+    expect(await screen.findByText("@kevin")).toBeInTheDocument();
+
+    // Der Treffer ist der falsche Kevin: der manuelle Ausweg muss offen bleiben,
+    // sonst gaebe es fuer login-foermige Namen ueberhaupt keinen manuellen Gast.
+    await user.click(screen.getByRole("button", { name: /Stattdessen.*kevin.*als manuellen Gast hinzufügen/ }));
+    expect(screen.getByRole("slider", { name: "kevin Gesundheit" })).toBeInTheDocument();
+    expect(screen.queryByText("@kevin")).not.toBeInTheDocument();
   });
 
   it("validates effect selection, names, descriptions and ambiguous absolute times", async () => {

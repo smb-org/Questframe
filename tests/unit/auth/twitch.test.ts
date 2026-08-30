@@ -213,4 +213,17 @@ describe("Twitch OAuth boundary", () => {
     expect(requestedUrl).toBe("https://api.twitch.tv/helix/users?login=gast_tv");
     expect(clientId).toBe("client");
   });
+
+  it("classifies an exact Twitch lookup with no user as not found", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      json({ data: [] }),
+    );
+
+    await expect(
+      lookupTwitchUser({ clientId: "client" }, "access", "unknown_login", fetcher),
+    ).rejects.toMatchObject({
+      code: "not_found",
+      message: "Twitch-Benutzer wurde nicht gefunden.",
+    } satisfies Partial<TwitchAuthError>);
+  });
 });

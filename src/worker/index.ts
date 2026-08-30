@@ -451,7 +451,10 @@ const handleTwitchLookup = async (request: Request, env: AppEnv): Promise<Respon
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ user }),
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof TwitchAuthError && error.code === "not_found") {
+      return errorResponse(404, "not_found", "Kein Twitch-Konto mit diesem Login.");
+    }
     return errorResponse(503, "upstream_unavailable", "Twitch-Gast konnte nicht geladen werden.");
   }
 };

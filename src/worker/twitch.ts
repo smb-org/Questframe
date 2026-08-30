@@ -41,6 +41,7 @@ const moderatedChannelsResponseSchema = z.object({
 export type TwitchAuthErrorCode =
   | "role_ineligible"
   | "upstream_unavailable"
+  | "not_found"
   | "invalid_response";
 
 export class TwitchAuthError extends Error {
@@ -226,7 +227,7 @@ export const lookupTwitchUser = async (
   );
   const user = users.data[0];
   if (user === undefined) {
-    throw new TwitchAuthError("invalid_response", "Twitch-Benutzer wurde nicht gefunden.");
+    throw new TwitchAuthError("not_found", "Twitch-Benutzer wurde nicht gefunden.");
   }
   return {
     id: user.id,

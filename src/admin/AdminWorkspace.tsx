@@ -76,6 +76,13 @@ const getResourceSelection = (resource: ChannelStateDraft["player"]["resource"])
     (preset) => preset.name === resource.name && preset.color === resource.color.toUpperCase(),
   )?.name ?? CUSTOM_RESOURCE;
 
+export type TwitchUser = {
+  id: string;
+  login: string;
+  displayName: string;
+  profileImageUrl: string;
+};
+
 export type AdminApi = {
   save: (request: SaveRequest) => Promise<SaveResponse>;
   setVisibility: (enabled: boolean) => Promise<{
@@ -94,12 +101,7 @@ export type AdminApi = {
   uploadPortrait?: ((blob: Blob) => Promise<PortraitRef>) | undefined;
   renewMediaLeases?: ((contentHashes: string[]) => Promise<void>) | undefined;
   lookupTwitchUser?:
-    | ((login: string) => Promise<{
-        id: string;
-        login: string;
-        displayName: string;
-        profileImageUrl: string;
-      }>)
+    | ((login: string) => Promise<TwitchUser>)
     | undefined;
   subscribe?:
     | ((callbacks: {
@@ -576,6 +578,157 @@ const PortraitInput = ({
   );
 };
 
+const isTwitchUserNotFound = (caught: unknown): boolean => {
+  if (typeof caught !== "object" || caught === null) return false;
+  const error = caught as { code?: unknown; status?: unknown };
+  return error.code === "not_found" || error.status === 404;
+};
+
+const GuestAdder = ({
+  disabled,
+  existingTwitchUserIds,
+  lookup,
+  onAddManual,
+  onAddTwitch,
+}: {
+  disabled: boolean;
+  existingTwitchUserIds: readonly string[];
+  lookup?: AdminApi["lookupTwitchUser"];
+  onAddManual: (name: string) => void;
+  onAddTwitch: (user: TwitchUser) => void;
+}) => {
+  const [value, setValue] = useState("");
+  const [pendingUser, setPendingUser] = useState<TwitchUser | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const isLogin = value !== "" && /^[a-z0-9_]{1,25}$/.test(value.toLowerCase());
+  const alreadyInGroup = pendingUser !== null && existingTwitchUserIds.includes(pendingUser.id);
+
+  const reset = () => {
+    setValue("");
+    setPendingUser(null);
+    setNotFound(false);
+    setError("");
+  };
+
+  const addManual = (name: string) => {
+    onAddManual(name);
+    reset();
+  };
+
+  const submit = async () => {
+    if (disabled || busy || value === "") return;
+    if (!isLogin) {
+      addManual(value);
+      return;
+    }
+    setBusy(true);
+    setPendingUser(null);
+    setNotFound(false);
+    setError("");
+    try {
+      if (lookup === undefined) throw new Error("Twitch-Lookup nicht verfügbar.");
+      setPendingUser(await lookup(value.toLowerCase()));
+    } catch (caught) {
+      if (isTwitchUserNotFound(caught)) {
+        setNotFound(true);
+      } else {
+        setError("Twitch-Gast konnte nicht geladen werden.");
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="guest-adders">
+      <form
+        className="guest-adder-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <input
+          aria-label="Twitch-Login oder Name"
+          disabled={disabled || busy}
+          maxLength={32}
+          placeholder="Twitch-Login oder Name"
+          value={value}
+          onChange={(event) => {
+            setValue(event.target.value);
+            setPendingUser(null);
+            setNotFound(false);
+            setError("");
+          }}
+        />
+        <button
+          className={isLogin ? "button button--twitch" : "button button--primary"}
+          disabled={disabled || busy || value === ""}
+          type="submit"
+        >
+          {busy && <RotateCw className="spin" size={14} />}
+          {!busy && isLogin && <MessageSquare size={14} />}
+          {busy ? "Wird gesucht …" : isLogin ? "Auf Twitch suchen" : "Als Gast hinzufügen"}
+        </button>
+      </form>
+
+      <div aria-live="polite" className="guest-adder-status">
+        {pendingUser !== null && (
+          <div className="guest-lookup-card">
+            <div className="guest-lookup-identity">
+              <img alt={`Profilbild von ${pendingUser.displayName}`} src={pendingUser.profileImageUrl} />
+              <span>
+                <strong>{pendingUser.displayName}</strong>
+                <small>@{pendingUser.login}</small>
+              </span>
+            </div>
+            {alreadyInGroup && <p className="guest-lookup-existing">bereits in der Gruppe</p>}
+            <div className="guest-lookup-actions">
+              <button
+                className="button button--primary"
+                disabled={disabled || alreadyInGroup}
+                onClick={() => {
+                  onAddTwitch(pendingUser);
+                  reset();
+                }}
+                type="button"
+              >
+                Hinzufügen
+              </button>
+              <button className="button button--quiet" disabled={disabled} onClick={() => reset()} type="button">
+                Abbrechen
+              </button>
+            </div>
+            {/* Ohne diesen Ausweg liesse sich kein manueller Gast anlegen, dessen
+                Name zufaellig wie ein Twitch-Login aussieht ("kevin", "papa"). */}
+            <button className="text-button" disabled={disabled} onClick={() => addManual(value)} type="button">
+              Stattdessen „{value}“ als manuellen Gast hinzufügen
+            </button>
+          </div>
+        )}
+        {notFound && (
+          <div className="guest-lookup-message">
+            <p>Kein Twitch-Konto mit diesem Login</p>
+            <button className="button button--quiet" disabled={disabled} onClick={() => addManual(value)} type="button">
+              „{value}“ als manuellen Gast hinzufügen
+            </button>
+          </div>
+        )}
+        {error !== "" && (
+          <div className="guest-lookup-message">
+            <p className="guest-adder-error" role="alert">{error}</p>
+            <button className="button button--quiet" disabled={disabled} onClick={() => addManual(value)} type="button">
+              „{value}“ als manuellen Gast hinzufügen
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export const AdminWorkspace = ({
   initialBootstrap,
   api,
@@ -595,9 +748,6 @@ export const AdminWorkspace = ({
   const [error, setError] = useState("");
   const [remoteConflict, setRemoteConflict] = useState<ChannelState | null>(null);
   const [effectEditor, setEffectEditor] = useState<ActiveEffect | "new" | null>(null);
-  const [manualGuestName, setManualGuestName] = useState("");
-  const [twitchLogin, setTwitchLogin] = useState("");
-  const [guestBusy, setGuestBusy] = useState(false);
   const [overlayToken, setOverlayToken] = useState(initialBootstrap.capsule.overlayToken);
   const [obsLinkCopied, setObsLinkCopied] = useState(false);
   const obsLinkCopiedTimer = useRef<number | null>(null);
@@ -795,46 +945,42 @@ export const AdminWorkspace = ({
     }));
   };
 
-  const addManualGuest = () => {
-    const name = manualGuestName.trim();
-    if (name === "" || draft.group.length >= 5) return;
-    const member: GroupMember = {
-      id: crypto.randomUUID(),
-      source: "manual",
-      twitchUserId: null,
-      name,
-      portrait: { kind: "initials", text: name.slice(0, 2).toUpperCase() },
-      hpPercent: 100,
-    };
-    setDraft((current) => ({ ...current, group: [...current.group, member] }));
-    setManualGuestName("");
+  const addManualGuest = (input: string) => {
+    const name = input.trim();
+    if (name === "") return;
+    setDraft((current) => {
+      if (current.group.length >= 5) return current;
+      const member: GroupMember = {
+        id: crypto.randomUUID(),
+        source: "manual",
+        twitchUserId: null,
+        name,
+        portrait: { kind: "initials", text: name.slice(0, 2).toUpperCase() },
+        hpPercent: 100,
+      };
+      return { ...current, group: [...current.group, member] };
+    });
   };
 
-  const addTwitchGuest = async () => {
-    if (api.lookupTwitchUser === undefined || twitchLogin.trim() === "" || draft.group.length >= 5) return;
-    setGuestBusy(true);
-    setError("");
-    try {
-      const user = await api.lookupTwitchUser(twitchLogin.trim());
-      const member = {
+  const addTwitchGuest = (user: TwitchUser) => {
+    setDraft((current) => {
+      if (current.group.length >= 5 || current.group.some((member) => member.twitchUserId === user.id)) {
+        return current;
+      }
+      const member: GroupMember = {
         id: crypto.randomUUID(),
-        source: "twitch" as const,
+        source: "twitch",
         twitchUserId: user.id as GroupMember["twitchUserId"],
         name: user.displayName,
         portrait: {
-          kind: "twitch" as const,
+          kind: "twitch",
           userId: user.id as Exclude<PortraitRef, { kind: "initials" | "uploaded" | "bundled" }>["userId"],
           url: user.profileImageUrl,
         },
         hpPercent: 100,
       };
-      setDraft((current) => ({ ...current, group: [...current.group, member] }));
-      setTwitchLogin("");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Twitch-Gast nicht gefunden.");
-    } finally {
-      setGuestBusy(false);
-    }
+      return { ...current, group: [...current.group, member] };
+    });
   };
 
   const mutateToken = async (rotate: boolean) => {
@@ -1161,10 +1307,13 @@ export const AdminWorkspace = ({
                 </div>
               ))}
               {draft.group.length < 5 && (
-                <div className="guest-adders">
-                  <div className="inline-add"><input aria-label="Name des manuellen Gasts" disabled={locked} maxLength={32} placeholder="Gastname" value={manualGuestName} onChange={(event) => setManualGuestName(event.target.value)} /><button className="button button--quiet" disabled={locked} onClick={addManualGuest} type="button">Manuell</button></div>
-                  <div className="inline-add"><input aria-label="Twitch-Login des Gasts" disabled={locked || guestBusy} placeholder="twitch_login" value={twitchLogin} onChange={(event) => setTwitchLogin(event.target.value)} /><button className="button button--twitch" disabled={locked || guestBusy} onClick={() => void addTwitchGuest()} type="button"><MessageSquare size={14} /> Twitch</button></div>
-                </div>
+                <GuestAdder
+                  disabled={locked}
+                  existingTwitchUserIds={draft.group.flatMap((member) => member.twitchUserId === null ? [] : [member.twitchUserId])}
+                  lookup={api.lookupTwitchUser}
+                  onAddManual={addManualGuest}
+                  onAddTwitch={addTwitchGuest}
+                />
               )}
             </Section>
             </div>
