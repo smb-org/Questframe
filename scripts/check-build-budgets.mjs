@@ -48,7 +48,14 @@ const assertBudget = (label, actual, maximum) => {
 const indexKey = "index.html";
 const overlayKey = "src/overlay/OverlayApp.tsx";
 const adminKey = "src/admin/AdminApp.tsx";
-const temporalKey = "node_modules/@js-temporal/polyfill/dist/index.esm.js";
+// pnpm nests the resolved path under node_modules/.pnpm/..., so match by suffix
+// instead of hardcoding a package-manager-specific node_modules layout.
+const temporalKeySuffix = "@js-temporal/polyfill/dist/index.esm.js";
+const temporalKeyCandidates = Object.keys(manifest).filter((key) => key.endsWith(temporalKeySuffix));
+if (temporalKeyCandidates.length !== 1) {
+  throw new Error(`Expected exactly one manifest entry ending in ${temporalKeySuffix}, found ${String(temporalKeyCandidates.length)}.`);
+}
+const [temporalKey] = temporalKeyCandidates;
 const overlayClosure = collectStaticClosure([indexKey, overlayKey]);
 const adminClosure = collectStaticClosure([indexKey, adminKey]);
 const temporalClosure = collectStaticClosure([temporalKey]);
