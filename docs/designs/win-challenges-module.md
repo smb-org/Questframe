@@ -805,13 +805,21 @@ Free-Grenzen: 5 Mio. gelesene und 100.000 geschriebene Zeilen pro Tag für SQLit
 separates Limit von **100.000 DO-Requests pro Tag** und ein Duration-Budget. Deletes zählen
 als Writes, Indexänderungen als zusätzliche Row-Writes.
 
-Untergrenze der Schreibvorgänge, **ohne** Index- und Session-Writes:
+Gemessene Baseline der Cursor-Metriken, **ohne** Session-Writes:
 
-| Aktion | Writes (Untergrenze) |
-|---|---|
-| Jede Mutation (`increment`, `complete`, `reopen`, `startTimer`, `stopTimer`) | 3 (Challenge, `wc_commands`, `event_seq`) |
-| Board-Save mit N Challenges | abhängig vom Upsert-Algorithmus, mindestens N + 1 |
-| Settings-Save | 1 |
+| Aktion | `rowsWritten` | `rowsRead` |
+|---|---|---|
+| Mutation mit Event (bestehende Challenge, `increment`) | 4 | 5 |
+| Board-Save mit N = 3 neuen Challenges | 7 | 15 |
+| Settings-Save (bestehender Snapshot mit 3 Challenges) | 1 | 15 |
+| Snapshot-Read mit 3 Challenges | 0 | 7 |
+
+Die Messung läuft gegen den DO-SQLite-Adapter und zählt die tatsächlichen Cursor-Werte
+inklusive Indexkosten. Der Board-Save verwendet **Upsert plus Löschen fehlender IDs**:
+erst werden nicht mehr eingereichte IDs gelöscht, danach werden die Definitionen einzeln
+eingefügt oder aktualisiert, zuletzt steigt `board_revision`. In der Baseline sind drei
+neue Einträge angelegt worden; die drei Primary-Key-Index-Writes erklären zusammen mit
+dem Meta-Update die 7 `rowsWritten`.
 
 Dazu bei **jeder** authentisierten Aktion Writes außerhalb des Moduls, insbesondere
 `editor_sessions.idle_expires_at` (`src/channel/channel-object.ts:1270`).
@@ -820,8 +828,10 @@ Die Größenordnung trägt: einige hundert Live-Kommandos pro Stream liegen zwei
 Größenordnungen unter der Tagesgrenze, und der **Request-Zähler ist die engere Grenze** als
 der Write-Zähler. Genau deshalb ist `DOCK_TOKEN_LIMITER` keine Kür.
 
-**Verbindlich wird das Budget erst aus echten `rowsWritten`-Messungen** der tatsächlichen
-SQL-Statements, inklusive Index-Kosten des `TEXT PRIMARY KEY`.
+Diese gemessene Baseline ist für das Free-Tier-Budget verbindlich: `rowsWritten` enthält
+die Index-Kosten des `TEXT PRIMARY KEY`; Session-Writes und tatsächliche Deletes kommen
+bei den jeweiligen authentisierten Aktionen zusätzlich hinzu. Die Worker-Test-Suite
+friert die vier Messwerte als Regression-Gate ein.
 
 ## Test Coverage Plan
 
@@ -935,8 +945,6 @@ Testdateien nach bestehender Konvention: `tests/unit/domain/`, `tests/unit/contr
 
 ## Open Questions
 
-- **Board-Save-Algorithmus:** Upsert plus Delete oder Delete-all plus Insert-all? Entscheidet
-  die Schreibkosten, muss gemessen werden.
 - **Audio-Maximalgröße** für das erweiterte Transfer-Gate.
 - **Zweiter Konsument:** Solange keiner benannt ist, bleibt die Modul-Grenze eine begründete
   Vermutung.
@@ -945,7 +953,6 @@ Testdateien nach bestehender Konvention: `tests/unit/domain/`, `tests/unit/contr
 
 - **Der Uhr-Drift im Overlay ist eingeordnet, nicht gelöst.** Er betrifft heute schon die
   Effekt-Timer. Ein Offset-Handshake wäre ein eigenes, lohnendes Vorhaben.
-- **Das Free-Tier-Budget ist geschätzt, nicht gemessen.**
 - **`replayed: true` gibt den aktuellen, nicht den damaligen Stand zurück.**
 - **Die Outside Voice hält die Schichtung für zu viel** für einen einzigen Adapter und
   hostgebundene UIs. Der Einwand ist fair, die Modul-Grenze wurde zweimal bewusst bestätigt.
