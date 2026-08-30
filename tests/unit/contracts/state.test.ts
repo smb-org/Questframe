@@ -31,7 +31,7 @@ describe("channel state contract", () => {
         level: 30,
         portrait: { kind: "initials", text: "ST" },
         hpPercent: 100,
-        resource: { name: "Energie", percent: 0, color: "#C2410C" },
+        resource: { name: "Energie", percent: 0, color: "#FFFF00" },
       },
       pet: null,
       group: [],

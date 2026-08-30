@@ -43,6 +43,48 @@ test("an unauthorized overlay stays completely transparent", async ({ page }, te
   await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
 });
 
+test("preview zoom keeps its slider fixed through 200 percent and resets to 100", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "Desktop preview zoom");
+  await page.setViewportSize({ width: 2560, height: 1440 });
+  await loginAsLocalEditor(page);
+
+  const zoom = page.getByRole("slider", { name: "Vorschau-Zoom" });
+  const canvas = page.locator(".preview-canvas");
+  const reset = page.getByRole("button", { name: "Vorschau-Zoom auf 100 % zurücksetzen" });
+  const sliderBefore = await zoom.boundingBox();
+  const canvasBefore = await canvas.boundingBox();
+  expect(sliderBefore).not.toBeNull();
+  expect(canvasBefore).not.toBeNull();
+
+  await zoom.fill("200");
+  await expect(zoom).toHaveValue("200");
+  const sliderAfter = await zoom.boundingBox();
+  const canvasAfter = await canvas.boundingBox();
+  expect(sliderAfter?.x).toBeCloseTo(sliderBefore?.x ?? 0, 1);
+  expect(sliderAfter?.y).toBeCloseTo(sliderBefore?.y ?? 0, 1);
+  expect(sliderAfter?.width).toBeCloseTo(sliderBefore?.width ?? 0, 1);
+  expect(canvasAfter?.width ?? 0).toBeGreaterThan((canvasBefore?.width ?? 0) * 1.9);
+
+  await reset.click();
+  await expect(zoom).toHaveValue("100");
+  await expect(reset).toBeDisabled();
+});
+
+test("preview zoom controls stay inside the narrow tablet main column", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "Tablet-width desktop controls");
+  await page.setViewportSize({ width: 780, height: 1000 });
+  await loginAsLocalEditor(page);
+
+  const heading = await page.locator(".panel-heading").boundingBox();
+  const controls = await page.locator(".preview-controls").boundingBox();
+  expect(heading).not.toBeNull();
+  expect(controls).not.toBeNull();
+  expect(controls?.x ?? 0).toBeGreaterThanOrEqual(heading?.x ?? 0);
+  expect((controls?.x ?? 0) + (controls?.width ?? 0)).toBeLessThanOrEqual(
+    (heading?.x ?? 0) + (heading?.width ?? 0) + 1,
+  );
+});
+
 test("mobile keeps emergency controls and removes setup surfaces", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-mobile", "Mobile emergency shell");
   await loginAsLocalEditor(page);

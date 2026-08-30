@@ -258,7 +258,7 @@ export const createDefaultState = (
       level: 30,
       portrait: { kind: "initials", text: "ST" },
       hpPercent: 100,
-      resource: { name: "Energie", color: "#C2410C", percent: 0 },
+      resource: { name: "Energie", color: "#FFFF00", percent: 0 },
     },
     pet: null,
     group: [],

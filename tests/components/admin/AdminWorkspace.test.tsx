@@ -49,7 +49,8 @@ afterEach(() => {
 });
 
 describe("Admin workspace publication boundary", () => {
-  it("zooms the live preview without creating a publishable change", () => {
+  it("zooms the live preview through 200 percent and resets without creating a publishable change", async () => {
+    const user = userEvent.setup();
     const initial = bootstrap();
     render(<AdminWorkspace initialBootstrap={initial} api={{
       save: vi.fn(),
@@ -58,13 +59,62 @@ describe("Admin workspace publication boundary", () => {
 
     const zoom = screen.getByRole("slider", { name: "Vorschau-Zoom" });
     const previewPanel = screen.getByRole("heading", { name: "Live-Vorschau" }).closest("section");
+    const previewStage = previewPanel?.querySelector(".preview-stage");
     expect(zoom).toHaveValue("100");
-    expect(previewPanel).toHaveStyle({ maxWidth: "980px" });
+    expect(zoom).toHaveAttribute("max", "200");
+    expect(previewPanel).not.toHaveStyle({ maxWidth: "980px" });
+    expect(previewStage).toHaveStyle({ width: "100%" });
+    expect(screen.getByRole("button", { name: "Vorschau-Zoom auf 100 % zurücksetzen" })).toBeDisabled();
 
-    fireEvent.change(zoom, { target: { value: "150" } });
+    fireEvent.change(zoom, { target: { value: "200" } });
 
-    expect(screen.getByText("150%", { selector: "output" })).toBeInTheDocument();
-    expect(previewPanel).toHaveStyle({ maxWidth: "1470px" });
+    expect(screen.getByText("200%", { selector: "output" })).toBeInTheDocument();
+    expect(previewStage).toHaveStyle({ width: "200%" });
+    expect(screen.getByRole("button", { name: "Änderungen speichern" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Vorschau-Zoom auf 100 % zurücksetzen" }));
+    expect(zoom).toHaveValue("100");
+    expect(previewStage).toHaveStyle({ width: "100%" });
+  });
+
+  it("maps resource presets to canonical colors and exposes the picker only for Custom", async () => {
+    const user = userEvent.setup();
+    const initial = bootstrap();
+    render(<AdminWorkspace initialBootstrap={initial} api={{
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+    }} />);
+
+    await user.click(screen.getByText("Einrichten").closest("summary") as HTMLElement);
+    const resource = screen.getByRole("combobox", { name: "Ressource" });
+    expect(resource).toHaveValue("Energie");
+    expect(screen.queryByLabelText("Eigene Farbe")).not.toBeInTheDocument();
+
+    await user.selectOptions(resource, "Wut");
+    const rageMeter = screen.getByRole("meter", { name: "Wut 0 Prozent" });
+    expect((rageMeter.querySelector(".hud-bar-fill") as HTMLElement).style.getPropertyValue("--bar-color")).toBe("#FF0000");
+    expect(screen.queryByLabelText("Eigene Farbe")).not.toBeInTheDocument();
+
+    await user.selectOptions(resource, "Custom");
+    const customColor = screen.getByLabelText("Eigene Farbe");
+    expect(customColor).toHaveValue("#ff0000");
+    fireEvent.change(customColor, { target: { value: "#123456" } });
+    const customMeter = screen.getByRole("meter", { name: "Eigene Ressource 0 Prozent" });
+    expect((customMeter.querySelector(".hud-bar-fill") as HTMLElement).style.getPropertyValue("--bar-color")).toBe("#123456");
+  });
+
+  it("preserves existing custom resource values without marking the draft dirty", async () => {
+    const user = userEvent.setup();
+    const initial = bootstrap();
+    initial.state.player.resource = { name: "Fokus", color: "#123456", percent: 42 };
+    render(<AdminWorkspace initialBootstrap={initial} api={{
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+    }} />);
+
+    await user.click(screen.getByText("Einrichten").closest("summary") as HTMLElement);
+    expect(screen.getByRole("combobox", { name: "Ressource" })).toHaveValue("Custom");
+    expect(screen.getByLabelText("Eigene Farbe")).toHaveValue("#123456");
     expect(screen.getByRole("button", { name: "Änderungen speichern" })).toBeDisabled();
   });
 
@@ -341,8 +391,7 @@ describe("Admin workspace publication boundary", () => {
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Live-Charakter" } });
     fireEvent.change(screen.getByLabelText("Titel"), { target: { value: "" } });
     fireEvent.change(screen.getByLabelText("Level"), { target: { value: "31" } });
-    fireEvent.change(screen.getByLabelText("Ressource"), { target: { value: "Fokus" } });
-    fireEvent.change(screen.getByLabelText("Ressourcenfarbe"), { target: { value: "#123456" } });
+    await user.selectOptions(screen.getByLabelText("Ressource"), "Fokus");
     await user.click(screen.getByRole("button", { name: "Modern Compact" }));
     fireEvent.change(screen.getByLabelText("X"), { target: { value: "20" } });
     fireEvent.change(screen.getByLabelText("Y"), { target: { value: "30" } });
@@ -382,7 +431,7 @@ describe("Admin workspace publication boundary", () => {
     expect(save.mock.calls[0]?.[0].state).toMatchObject({
       themeId: "modern-compact",
       placement: { x: 20, y: 30, scale: 2 },
-      player: { name: "Live-Charakter", title: null, level: 31, resource: { name: "Fokus", color: "#123456" } },
+      player: { name: "Live-Charakter", title: null, level: 31, resource: { name: "Fokus", color: "#FF8040" } },
       pet: { name: "Wegbegleiter", subtitle: "Spürhund", hpPercent: 80 },
     });
 

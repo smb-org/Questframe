@@ -62,6 +62,20 @@ const THEME_LABELS: Record<ThemeId, string> = {
 
 const HUD_SCALE_OPTIONS = [0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2] as const;
 
+const RESOURCE_PRESETS = [
+  { name: "Wut", color: "#FF0000" },
+  { name: "Mana", color: "#0000FF" },
+  { name: "Energie", color: "#FFFF00" },
+  { name: "Fokus", color: "#FF8040" },
+  { name: "Ausdauer", color: "#22C55E" },
+] as const;
+const CUSTOM_RESOURCE = "Custom" as const;
+
+const getResourceSelection = (resource: ChannelStateDraft["player"]["resource"]): string =>
+  RESOURCE_PRESETS.find(
+    (preset) => preset.name === resource.name && preset.color === resource.color.toUpperCase(),
+  )?.name ?? CUSTOM_RESOURCE;
+
 export type AdminApi = {
   save: (request: SaveRequest) => Promise<SaveResponse>;
   setVisibility: (enabled: boolean) => Promise<{
@@ -622,6 +636,15 @@ export const AdminWorkspace = ({
     setMessage("");
   };
 
+  const selectResource = (selection: string) => {
+    const preset = RESOURCE_PRESETS.find(({ name }) => name === selection);
+    updatePlayer({
+      resource: preset === undefined
+        ? { ...draft.player.resource, name: "Eigene Ressource" }
+        : { ...draft.player.resource, ...preset },
+    });
+  };
+
   const save = async (replace = false) => {
     if (!dirty || locked) return;
     if (remoteConflict !== null && !replace) {
@@ -859,15 +882,15 @@ export const AdminWorkspace = ({
       </aside>
 
       <main className="admin-main">
-        <section className="preview-panel" style={{ maxWidth: `${String(9.8 * previewZoom)}px` }}>
+        <section className="preview-panel">
           <div className="panel-heading">
             <div><span className="eyebrow">OBS-Komposition</span><h1>Live-Vorschau</h1></div>
             <div className="preview-controls">
-              <label className="preview-zoom">
+              <div className="preview-zoom">
                 <ZoomIn aria-hidden="true" size={14} />
                 <input
                   aria-label="Vorschau-Zoom"
-                  max={150}
+                  max={200}
                   min={60}
                   onChange={(event) => setPreviewZoom(Number(event.target.value))}
                   step={10}
@@ -875,19 +898,30 @@ export const AdminWorkspace = ({
                   value={previewZoom}
                 />
                 <output>{previewZoom}%</output>
-              </label>
+                <button
+                  aria-label="Vorschau-Zoom auf 100 % zurücksetzen"
+                  className="preview-reset"
+                  disabled={previewZoom === 100}
+                  onClick={() => setPreviewZoom(100)}
+                  type="button"
+                >100%</button>
+              </div>
               <span className="preview-scale">1920 × 1080 Referenz</span>
             </div>
           </div>
-          <div className="preview-canvas">
-            <div className="preview-safe-area" />
-            <div className="preview-hud-wrap">
-              <TickingPreview
-                forceVisible
-                mediaUrls={previewMediaUrls}
-                state={preview}
-                previewOverlay={!committed.overlayEnabled ? <div className="disabled-veil">Overlay deaktiviert</div> : undefined}
-              />
+          <div className="preview-viewport">
+            <div className="preview-stage" style={{ width: `${String(previewZoom)}%` }}>
+              <div className="preview-canvas">
+                <div className="preview-safe-area" />
+                <div className="preview-hud-wrap">
+                  <TickingPreview
+                    forceVisible
+                    mediaUrls={previewMediaUrls}
+                    state={preview}
+                    previewOverlay={!committed.overlayEnabled ? <div className="disabled-veil">Overlay deaktiviert</div> : undefined}
+                  />
+                </div>
+              </div>
             </div>
           </div>
           <div className="preview-foot">
@@ -984,8 +1018,8 @@ export const AdminWorkspace = ({
               <label><span>Name</span><input disabled={locked} maxLength={32} value={draft.player.name} onChange={(event) => updatePlayer({ name: event.target.value })} /></label>
               <label><span>Titel</span><input disabled={locked} maxLength={40} value={draft.player.title ?? ""} onChange={(event) => updatePlayer({ title: event.target.value === "" ? null : event.target.value })} /></label>
               <label><span>Level</span><input disabled={locked} max={999} min={1} type="number" value={draft.player.level} onChange={(event) => updatePlayer({ level: Number(event.target.value) })} /></label>
-              <label><span>Ressource</span><input disabled={locked} maxLength={16} value={draft.player.resource.name} onChange={(event) => updatePlayer({ resource: { ...draft.player.resource, name: event.target.value } })} /></label>
-              <label><span>Ressourcenfarbe</span><input disabled={locked} type="color" value={draft.player.resource.color} onChange={(event) => updatePlayer({ resource: { ...draft.player.resource, color: event.target.value.toUpperCase() } })} /></label>
+              <label><span>Ressource</span><select disabled={locked} value={getResourceSelection(draft.player.resource)} onChange={(event) => selectResource(event.target.value)}>{RESOURCE_PRESETS.map((preset) => <option key={preset.name} value={preset.name}>{preset.name}</option>)}<option value={CUSTOM_RESOURCE}>{CUSTOM_RESOURCE}</option></select></label>
+              {getResourceSelection(draft.player.resource) === CUSTOM_RESOURCE && <label><span>Eigene Farbe</span><input disabled={locked} type="color" value={draft.player.resource.color} onChange={(event) => updatePlayer({ resource: { ...draft.player.resource, color: event.target.value.toUpperCase() } })} /></label>}
             </div>
                   <PortraitInput disabled={locked} upload={uploadPortrait} onPortrait={(portrait) => updatePlayer({ portrait })} />
             <div className="theme-picker" aria-label="Theme">
