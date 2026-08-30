@@ -126,9 +126,16 @@ CREATE TABLE wc_meta (
   event_seq          INTEGER NOT NULL,  -- steigt NUR, wenn wirklich ein Event ausgeht
   board_revision     INTEGER NOT NULL,  -- Konflikt nur für Board-Saves
   settings_revision  INTEGER NOT NULL,  -- Konflikt nur für Settings-Saves, getrennt
-  style_id           TEXT    NOT NULL,  -- ChallengeStyleId
+  style_id           TEXT    NOT NULL,  -- ChallengeStyleId, bestimmt nur den AUFBAU
+  theme_mode         TEXT    NOT NULL CHECK (theme_mode IN ('inherit', 'own')),
+  surface_mode       TEXT    NOT NULL CHECK (surface_mode IN ('surface', 'bare')),
+  header_title       TEXT    NOT NULL,  -- 1..24, Vorgabe "CHALLENGES"
   effects_enabled    INTEGER NOT NULL CHECK (effects_enabled IN (0, 1)),
-  max_visible        INTEGER NOT NULL CHECK (max_visible BETWEEN 3 AND 10)
+  max_visible        INTEGER NOT NULL CHECK (max_visible BETWEEN 3 AND 10),
+  -- Optionaler globaler Timer über alle Challenges
+  global_timer_total_ms         INTEGER,  -- NULL = Feature aus
+  global_timer_ends_at          TEXT,     -- absoluter ISO-Instant, NULL wenn nicht laufend
+  global_timer_paused_remain_ms INTEGER   -- eingefrorene Restzeit, NULL wenn nicht pausiert
 );
 
 CREATE TABLE wc_challenges (
@@ -412,17 +419,32 @@ nicht über `run_worker_first` laufen (das trifft nur `/api/*`, `/auth/*`, `/ws/
 - `/admin/challenges` wird ein eigener Vollbreiten-Workspace.
 - V1 bringt genau diese zwei Workspaces.
 
-### Live-Modus als OBS-Dock
+### Live-Bedienseite
 
-- `/live/challenges`: schmal, große Ziele, nur `−`, `+`, Timer, Abhaken, Rückgängig.
-  `src/main.tsx` braucht dafür einen dritten Zweig; heute landet der Pfad im `AdminApp`.
+`/live/challenges` ist eine kompakte Bedienseite, **kein Overlay**. Sie geht nie in die
+Ausgabe und Zuschauer sehen sie nie. Wie der Streamer sie öffnet, ist seine Wahl: als
+Custom Browser Dock in OBS, auf dem Handy neben der Tastatur, oder in einem zweiten
+Browserfenster. Der Code ist in allen drei Fällen identisch, es ist eine URL.
+
+- Schmal, große Ziele: `+` und `−` sind 44 px, alle übrigen Bedienelemente 38 px, nach
+  der Vorgabe aus `DESIGN.md`.
+- Inhalt: Challenges abhaken und zählen, Challenge-Timer starten und stoppen, Rückgängig,
+  plus **ein Umschalter für Start und Pause des globalen Timers**. Reset des globalen
+  Timers liegt bewusst NICHT hier, sondern im Admin, weil er einen laufenden Countdown
+  ohne Weg zurück löscht.
+- Unter 280 px Breite zeigt die Seite nur die gepinnte Challenge und den Zähler. Alles
+  andere entfällt, statt zu schrumpfen.
+- `src/main.tsx` braucht dafür einen dritten Zweig; heute landet der Pfad im `AdminApp`.
 - **Optimistische Bedienung mit Rückrollen.** Der Zähler springt sofort, die Zeile markiert
   sich als schwebend, das `challenge_update` über `/ws/dock` ist die Wahrheit und
   korrigiert. Bei einem Fehler fällt der Wert zurück und die Zeile zeigt kurz den Grund.
   Bei `not_found` steht dort, dass die Challenge gerade gelöscht wurde, bevor die Zeile
   verschwindet.
-- **Wayland-Hinweis für die Doku:** OBS-Browser-Docks stehen unter Wayland nicht zur
-  Verfügung. Dort läuft die Route im normalen Browser.
+- **Beide Öffnungswege werden gleichwertig dokumentiert**, mit QR-Code für den Handy-Weg
+  und dem Menüpfad View → Docks → Custom Browser Docks für den OBS-Weg. Am OBS-Weg steht
+  der Hinweis, dass Browser-Docks unter Wayland nicht zur Verfügung stehen und dass der
+  eingebettete Browser ein eigenes Cookie-Profil hat, weshalb die Seite per Token-URL
+  und nicht per Login authentifiziert.
 
 ### Overflow und Sortierung
 
@@ -445,6 +467,153 @@ wäre die Zusage "kein Scrollen" bei 10 offenen plus 30 gerade abgehakten Eintr�
 Manuelle `sort_order` bleibt die einzige Ordnung und geht beim Abhaken und beim `reopen`
 nicht verloren. Kein Scrollen, kein Paging.
 
+## Visuelle Spezifikation
+
+Aus `/plan-design-review`, kalibriert gegen `DESIGN.md`. Ausgangswert 3/10, nach den
+sieben Durchgängen 9/10.
+
+### Eigene Browserquelle, nicht im HUD
+
+Das Log lebt unter `/overlay/challenges` als **zweite Browserquelle**, nicht innerhalb des
+HUD-Overlays. Grund: Der OBS-Geometrievertrag aus `DESIGN.md` weist jedes Pixel der
+`630 × 259`-Stage zu; der einzige unbelegte Rest misst `80 × 44 px`. Ein Log dort
+unterzubringen hieße, Pet, Gruppe oder Featured Effect zu verkleinern, also ein
+funktionierendes Feature für ein neues zu beschädigen.
+
+Die neue Quelle nutzt **denselben Overlay-Token und denselben `/ws/overlay`-Socket**, sie
+rendert nur eine andere Komponente. Kein zweites Auth-System für die Anzeige.
+
+Der Streamer positioniert und skaliert sie in OBS frei. Der HUD-Vertrag bleibt bitgenau.
+Maßstabsgetreues Wireframe mit allen drei geprüften Platzierungen:
+`~/.gstack/projects/twitchBrudi/designs/challenge-log-20260830/placement-wireframe.html`
+
+### Aufbau der Quelle, von oben nach unten
+
+```
+┌──────────────────────────────────────────┐
+│ CHALLENGES                        2 / 7  │  Kopf: Titel (frei) + Sessionstand
+├──────────────────────────────────────────┤
+│ ▸  12:34                                 │  Globaler Timer, große Ziffern (optional)
+├──────────────────────────────────────────┤
+│ Ohne Schaden durch Zone 3   ▬▬▭  4:12    │  gepinnt (laufender Timer, sonst erste offene)
+│ 10 Kills mit dem Bogen           3 / 10  │  offene, bis max_visible gesamt
+│ Keine Heiltränke benutzen                │
+├──────────────────────────────────────────┤
+│ ✓  B̶o̶s̶s̶ ̶o̶h̶n̶e̶ ̶T̶o̶d̶ ̶b̶e̶s̶i̶e̶g̶t̶                 │  Fertig-Gruppe, verblasst nach 8 s
+│ +3 weitere                               │  Überlauf, nie eine Scrollleiste
+└──────────────────────────────────────────┘
+```
+
+**Zeilen-Anatomie:** Titel linksbündig und bei Bedarf mit Ellipse gekürzt, Zähler und
+Timer rechtsbündig in tabellarischen Ziffern. Der Titel gewinnt bei Platzmangel nie gegen
+die Zahl, weil die Zahl der veränderliche Teil ist.
+
+**Kopfzeile.** Titel ist frei wählbar (`header_title`, Vorgabe "CHALLENGES"), damit der
+Streamer sein eigenes Framing setzen kann. Rechts der Sessionstand als `erledigt / gesamt`
+über das aktuelle Board. Ohne diesen Kopf wären vier Zeilen Text mit Zahlen für jemanden,
+der mitten im Stream dazukommt, nicht einzuordnen.
+
+### Globaler Timer
+
+Optional (`global_timer_total_ms = NULL` schaltet ihn ab). Drei Zustände, kein Server-Tick
+und kein Alarm, dieselbe Ableitung wie bei den Challenge-Timern:
+
+| Zustand | `ends_at` | `paused_remain_ms` |
+|---|---|---|
+| läuft | gesetzt | `NULL` |
+| pausiert | `NULL` | gesetzt |
+| zurückgesetzt | `NULL` | `NULL` |
+
+Fortsetzen ist `ends_at = jetzt + paused_remain_ms`. Drei Kommandos, `startGlobalTimer`,
+`pauseGlobalTimer`, `resetGlobalTimer`, alle mit `commandId`-Dedupe wie die übrigen fünf.
+
+**Darstellung:** eigene Zeile unter dem Kopf, große tabellarische Ziffern, links ein
+Zustandssymbol. Pausiert zeigt Pausensymbol, ausgegraute Ziffern **und** das Wort
+"pausiert", also dreifach codiert und nicht nur farblich. Unter einer Minute rot mit dem
+langsamen `1.35 s`-Puls, den `DESIGN.md` bereits für kritische HP definiert. Bei null
+bleibt er auf `0:00` stehen, rot und ohne Puls.
+
+### Theming: eigene Tokens, optional überschrieben
+
+Das Modul konsumiert seine eigenen Custom Properties und bringt eigene Werte mit. Es ist
+damit ohne HUD lauffähig und sieht ohne HUD gut aus:
+
+`--wc-surface`, `--wc-line`, `--wc-text`, `--wc-muted`, `--wc-accent`, `--wc-ok`,
+`--wc-font-ui`, `--wc-font-display`, `--wc-row-height`
+
+`wc_meta.theme_mode` steuert, was darüberliegt:
+
+- **`inherit`** (Vorgabe in diesem Projekt): Der Host lädt eine kleine Brücken-CSS-Datei
+  nach, die `--wc-*` auf die vorhandenen `--hud-*`-Werte der aktiven HUD-Variante mappt.
+  Ein `trail-wood`-HUD bekommt ein Log aus Walnuss und Messing, ohne dass jemand etwas
+  einstellt. Die Brücke bildet **Werte** ab, keine Sichtbarkeit, funktioniert also auch
+  bei ausgeblendetem HUD.
+- **`own`**: Die Brücke wird nicht geladen, das Standardtheme des Moduls steht.
+
+Damit sind es nicht 24 Kombinationen aus vier Styles und sechs Varianten, sondern vier
+**Aufbauten** in der Materialwelt, die der Streamer ohnehin gewählt hat. `ChallengeStyleId`
+bestimmt ausschließlich die Struktur: `plain-list`, `plain-bullets`, `plain-numbered`,
+`quest-log`. Das folgt exakt der Slot-Architektur, die `DESIGN.md` für `hud.css`
+vorschreibt, eine Ebene höher.
+
+### Lesbarkeit über beliebigem Video
+
+Die Quelle liegt über laufendem Spiel. `wc_meta.surface_mode` schaltet zwei **gekoppelte**
+Presets, nicht bloß eine Deckkraft:
+
+- **`surface`** (Vorgabe): eigener Grund aus `--wc-surface` bei 88 % plus Haarlinie.
+  Schriftgewicht 500 für Text, 600 für Titel, kein Schatten. Lesbarkeit ist garantiert.
+- **`bare`**: kein Grund. Dafür Schriftgewicht mindestens 700, Schatten
+  `0 1px 2px rgba(0,0,0,.9), 0 0 6px rgba(0,0,0,.7)`, und die Mindestgröße steigt um zwei
+  Stufen, weil konturierter Text in klein zu Matsch wird. Fortschrittsbalken und
+  Haarlinien bekommen denselben Schatten, sonst verschwinden sie während der Text bleibt.
+  Der Puls des globalen Timers nutzt denselben Halo.
+
+Die Kopplung ist der Punkt: Die Fläche einfach abzuschalten, ohne die Schrift mitzuändern,
+erzeugt genau den unlesbaren Fall. **`surface` garantiert Lesbarkeit, `bare` maximiert sie
+ohne Garantie.** Das gehört so in die Doku.
+
+### Zustände
+
+| Fläche | Loading | Empty |
+|---|---|---|
+| Overlay-Quelle | Inhalt blendet in 160–240 ms ein, kein Springen | **vollständig transparent**, auch kein Kopf |
+| Admin-Board | Skelett der Zeilen | Text plus Primäraktion "Erste Challenge anlegen" |
+| Live-Seite | Skelett der Zeilen | Text plus Verweis auf das Board |
+
+Die Overlay-Quelle folgt damit der bestehenden Regel aus `DESIGN.md`, dass ein Overlay
+ohne gültigen Zustand keine Fehlerfläche rendert, sondern transparent bleibt. Ein leerer
+Kasten im Bild wäre Dekoration ohne Information.
+
+### Barrierefreiheit
+
+- **Fertig ist nie nur Farbe.** Häkchen **plus** Durchstreichung **plus** Farbe, in allen
+  vier Styles.
+- **Pausiert ist nie nur Farbe.** Symbol plus Helligkeit plus Wort.
+- **Sortieren im Board** funktioniert zusätzlich per Pfeiltasten mit sichtbarem Fokus,
+  nicht nur per Ziehen mit der Maus.
+- **Touch-Ziele** 44 px für `+` und `−`, 38 px für alles Übrige.
+- `prefers-reduced-motion` entfernt Einblenden, Puls und Zeremonie.
+
+### Einrichtungsseite
+
+Der Challenges-Workspace bekommt einen Abschnitt, der **alle drei OBS-Quellen** an einer
+Stelle zeigt: HUD-Overlay, Challenge-Log, Live-Bedienseite. Je Zeile die URL mit
+Kopierknopf, die empfohlene Größe, und ein Satz wozu sie dient. Die Live-Seite bekommt
+zusätzlich einen QR-Code für den Handy-Weg und den Menüpfad für den OBS-Weg.
+
+Durch die Entscheidung für eine eigene Browserquelle hat der Streamer drei
+Einrichtungsschritte statt einem. Jeder davon ist eine Stelle, an der jemand aufgibt. Für
+ein Modul, das fremde Streamer benutzen sollen, ist Einrichtungsreibung der wirksamste
+Grund, es nicht zu benutzen. Deshalb ist diese Seite kein Nice-to-have.
+
+### Typografie und Maße
+
+Aus `DESIGN.md` übernommen, nicht neu erfunden: Atkinson Hyperlegible Next für Lesetext,
+Georgia für Kopf und Display, tabellarische Ziffern für alle Zähler und Countdowns,
+4-px-Basisraster mit Abständen 8/12/16, Zeilenhöhe an der Effektreihe orientiert (33 px),
+Mindestgröße 10 px im `surface`-Modus. Keine Default-Font-Stacks.
+
 ## Architektur-Dokumentation ist Teil dieser Änderung
 
 `docs/ARCHITECTURE.md` wird im selben Schritt nachgezogen:
@@ -458,6 +627,19 @@ nicht verloren. Kein Scrollen, kein Paging.
 
 Das ist der teuerste Teil dieses Plans und gehört aufgeschrieben statt später beim
 Debuggen entdeckt.
+
+**`DESIGN.md` wird ebenfalls im selben Schritt nachgezogen.** Das Dokument schließt mit
+der eigenen Regel: *"Jede Änderung an Tokens, HUD-Geometrie oder Interaktionsmustern muss
+dieses Dokument und die betroffenen Komponenten-/Browserprüfungen gemeinsam
+aktualisieren."* Diese Änderung führt eine zweite Overlay-Quelle, einen eigenen
+Token-Vertrag und zwei neue Interaktionsmuster ein. Nachzutragen sind:
+
+1. Die zweite Browserquelle `/overlay/challenges` und die Feststellung, dass der
+   `630 × 259`-Geometrievertrag von ihr **nicht** berührt wird.
+2. Der `--wc-*`-Token-Vertrag des Moduls und die Brücke auf die `--hud-*`-Werte.
+3. Die zwei gekoppelten `surface_mode`-Presets samt der ehrlichen Einordnung, dass nur
+   `surface` Lesbarkeit garantiert.
+4. Der `1.35 s`-Puls bekommt einen zweiten Anwendungsfall neben kritischer HP.
 
 ## Free-Tier-Budget
 
@@ -653,13 +835,19 @@ später, weil er ein eigenes Token- und Socket-System braucht.
    `clientId`-Zuordnung beim Anlegen.
 6. `wc_dock_tokens`, die beiden Token-Routen, `/ws/dock`, `DOCK_TOKEN_LIMITER`, aktives
    Schließen bei Rotation. Inklusive Scope-Test.
-7. `/live/challenges` als dritter Zweig in `main.tsx`, optimistisch mit Rückrollen.
-8. Transfer-Gate um Audio erweitern, Style-CSS auf dynamische Chunks umstellen und das
-   `Math.max` im Gate gegen den echten Netztransfer verifizieren.
-9. Zeremonie-Registry beim Host, Aus-Schalter, `prefers-reduced-motion`.
-10. `plain-bullets`, `plain-numbered` und `quest-log` mit eigenen Assets und eigenem Sound.
-11. `docs/ARCHITECTURE.md` nachziehen: Diagramm, dritter Socket-Typ und
-    "Veröffentlichungsgrenze" mit beiden Nebenläufigkeitsmodellen.
+7. `/live/challenges` als dritter Zweig in `main.tsx`, optimistisch mit Rückrollen,
+   Touch-Ziele 44/38 px, Regel unter 280 px.
+8. Globaler Timer: drei Felder in `wc_meta`, drei Kommandos mit Dedupe, eigene Zeile im
+   Overlay mit `1.35 s`-Puls, Start/Pause auf der Live-Seite, Reset nur im Admin.
+9. Theming: `--wc-*`-Vertrag, Standardtheme des Moduls, Host-Brücke, `theme_mode`.
+   Dazu `surface_mode` mit den zwei gekoppelten Presets.
+10. Transfer-Gate um Audio erweitern, Style-CSS auf dynamische Chunks umstellen und das
+    `Math.max` im Gate gegen den echten Netztransfer verifizieren.
+11. Zeremonie-Registry beim Host, Aus-Schalter, `prefers-reduced-motion`.
+12. Einrichtungsseite im Challenges-Workspace mit allen drei Quellen, Kopierknöpfen und
+    QR-Code.
+13. `plain-bullets`, `plain-numbered` und `quest-log` mit eigenen Assets und eigenem Sound.
+14. `docs/ARCHITECTURE.md` **und `DESIGN.md`** nachziehen.
 
 ## What I noticed about how you think
 
@@ -675,6 +863,16 @@ später, weil er ein eigenes Token- und Socket-System braucht.
   Architekturentscheidung und hat trotzdem zwei Punkte gekippt. Ohne diesen Satz stünde
   heute ein Durable-Object-Alarm im Plan.
 
+## Approved Mockups
+
+| Screen/Section | Pfad | Richtung | Notizen |
+|---|---|---|---|
+| Platzierung auf der OBS-Fläche | `~/.gstack/projects/twitchBrudi/designs/challenge-log-20260830/placement-wireframe.html` | Eigene Browserquelle, HUD-Vertrag unangetastet | Maßstabsgetreu 1:1. Zeigt alle drei geprüften Platzierungen und warum A und B verworfen wurden. Ist eine Platzierungsstudie, **keine** visuelle Gestaltung des `quest-log`-Styles. |
+
+Der gstack-Designer war in dieser Session nicht nutzbar (kein OpenAI-Key hinterlegt),
+deshalb entstand das Wireframe von Hand statt als KI-Mockup. Die visuelle Ausarbeitung des
+`quest-log`-Styles steht noch aus.
+
 ## GSTACK REVIEW REPORT
 
 | Review | Trigger | Why | Runs | Status | Findings |
@@ -682,7 +880,7 @@ später, weil er ein eigenes Token- und Socket-System braucht.
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
 | Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
 | Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | CLEAR | 21 issues, 0 critical gaps, 56 test paths mapped |
-| Design Review | `/plan-design-review` | UI/UX gaps | 0 | — | — |
+| Design Review | `/plan-design-review` | UI/UX gaps | 1 | CLEAR | score: 3/10 → 9/10, 8 Entscheidungen |
 | DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
 
 **CROSS-MODEL:** Vier unabhängige Läufe (zwei Codex-Spec-Reviews auf Revision 1 und 2, ein
@@ -697,6 +895,14 @@ und die verlorene Anforderung nach Aufzählungspunkten. Ein Einwand von Codex wu
 bewusst nicht übernommen: die Kritik an der Schichttiefe der Modul-Grenze, weil die
 Extrahierbarkeit das erklärte Ziel des Vorhabens ist und zweimal bestätigt wurde.
 
-**VERDICT:** ENG CLEARED — ready to implement
+**DESIGN:** Startwert 3/10. Die Ursache war strukturell, nicht kosmetisch: Der Plan
+beschrieb ein Overlay-Feature, ohne dass es im `630 × 259`-Geometrievertrag Platz gab, und
+schwieg zu Typografie, Zuständen, Barrierefreiheit und dem Verhältnis zu den sechs
+HUD-Varianten. Acht Entscheidungen später steht er bei 9/10. Die folgenreichste war,
+das Log gar nicht ins HUD zu setzen, sondern als eigene Browserquelle. Die zweitfolgenreichste
+kam vom Nutzer als Korrektur: Das Modul muss sein eigenes Theming mitbringen, statt vom HUD
+zu erben, weil das HUD abschaltbar ist und in einem Zielprodukt gar nicht existiert.
+
+**VERDICT:** ENG + DESIGN CLEARED — ready to implement
 
 NO UNRESOLVED DECISIONS
