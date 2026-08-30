@@ -700,6 +700,7 @@
   50% {
     filter: brightness(1.5);
     opacity: 1;
+    box-shadow: var(--hud-fill-shadow), 0 0 12px rgba(186, 59, 66, 0.78);
     box-shadow: var(--hud-fill-shadow), 0 0 12px color-mix(in srgb, var(--hud-health-critical) 78%, transparent);
   }
 }

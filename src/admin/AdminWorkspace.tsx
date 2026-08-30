@@ -179,6 +179,7 @@ const ThemePreviewCard = ({
     <div aria-hidden="true" className="theme-preview">
       <div className="theme-preview-inner">
         <HudRenderer
+          autoFitPlayerName={false}
           forceVisible
           mediaUrls={previewMediaUrls}
           nowMilliseconds={THEME_PREVIEW_NOW}
@@ -602,7 +603,8 @@ const GuestAdder = ({
   const [notFound, setNotFound] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const isLogin = value !== "" && /^[a-z0-9_]{1,25}$/.test(value.toLowerCase());
+  const trimmedValue = value.trim();
+  const isLogin = trimmedValue !== "" && /^[a-z0-9_]{1,25}$/.test(trimmedValue.toLowerCase());
   const alreadyInGroup = pendingUser !== null && existingTwitchUserIds.includes(pendingUser.id);
 
   const reset = () => {
@@ -618,9 +620,9 @@ const GuestAdder = ({
   };
 
   const submit = async () => {
-    if (disabled || busy || value === "") return;
+    if (disabled || busy || trimmedValue === "") return;
     if (!isLogin) {
-      addManual(value);
+      addManual(trimmedValue);
       return;
     }
     setBusy(true);
@@ -629,7 +631,7 @@ const GuestAdder = ({
     setError("");
     try {
       if (lookup === undefined) throw new Error("Twitch-Lookup nicht verfügbar.");
-      setPendingUser(await lookup(value.toLowerCase()));
+      setPendingUser(await lookup(trimmedValue.toLowerCase()));
     } catch (caught) {
       if (isTwitchUserNotFound(caught)) {
         setNotFound(true);
@@ -665,7 +667,7 @@ const GuestAdder = ({
         />
         <button
           className={isLogin ? "button button--twitch" : "button button--primary"}
-          disabled={disabled || busy || value === ""}
+          disabled={disabled || busy || trimmedValue === ""}
           type="submit"
         >
           {busy && <RotateCw className="spin" size={14} />}
@@ -703,24 +705,24 @@ const GuestAdder = ({
             </div>
             {/* Ohne diesen Ausweg liesse sich kein manueller Gast anlegen, dessen
                 Name zufaellig wie ein Twitch-Login aussieht ("kevin", "papa"). */}
-            <button className="text-button" disabled={disabled} onClick={() => addManual(value)} type="button">
-              Stattdessen „{value}“ als manuellen Gast hinzufügen
+            <button className="text-button" disabled={disabled} onClick={() => addManual(trimmedValue)} type="button">
+              Stattdessen „{trimmedValue}“ als manuellen Gast hinzufügen
             </button>
           </div>
         )}
         {notFound && (
           <div className="guest-lookup-message">
             <p>Kein Twitch-Konto mit diesem Login</p>
-            <button className="button button--quiet" disabled={disabled} onClick={() => addManual(value)} type="button">
-              „{value}“ als manuellen Gast hinzufügen
+            <button className="button button--quiet" disabled={disabled} onClick={() => addManual(trimmedValue)} type="button">
+              „{trimmedValue}“ als manuellen Gast hinzufügen
             </button>
           </div>
         )}
         {error !== "" && (
           <div className="guest-lookup-message">
             <p className="guest-adder-error" role="alert">{error}</p>
-            <button className="button button--quiet" disabled={disabled} onClick={() => addManual(value)} type="button">
-              „{value}“ als manuellen Gast hinzufügen
+            <button className="button button--quiet" disabled={disabled} onClick={() => addManual(trimmedValue)} type="button">
+              „{trimmedValue}“ als manuellen Gast hinzufügen
             </button>
           </div>
         )}
@@ -799,6 +801,8 @@ export const AdminWorkspace = ({
     : overlayToken.exists
       ? "is-idle"
       : "is-empty";
+  const obsTokenUnavailable = overlayToken.exists && obsUrl === "";
+  const obsTokenUnavailableMessage = "Dieser alte Token ist nicht wiederherstellbar. Bitte einen neuen Token erzeugen.";
 
   useEffect(() => {
     if (api.subscribe === undefined) return;
@@ -1060,12 +1064,19 @@ export const AdminWorkspace = ({
             <Radio aria-hidden="true" size={14} />
             <span className="obs-chip-label">OBS</span>
             <span className="obs-chip-connection">{obsConnectionLabel}</span>
+            {obsTokenUnavailable && (
+              <span className="sr-only" id="obs-link-unavailable-help">
+                {obsTokenUnavailableMessage}
+              </span>
+            )}
             <button
               aria-label="OBS-Link kopieren"
+              aria-describedby={obsTokenUnavailable ? "obs-link-unavailable-help" : undefined}
+              aria-disabled={obsTokenUnavailable ? "true" : undefined}
               className="obs-chip-action"
-              disabled={obsUrl === ""}
+              disabled={obsUrl === "" && !obsTokenUnavailable}
               onClick={() => void copyObsUrl()}
-              title={obsLinkCopied ? "Kopiert" : obsUrl === "" ? "Dieser alte Token ist nicht wiederherstellbar. Bitte einen neuen Token erzeugen." : "OBS-Link kopieren"}
+              title={obsLinkCopied ? "Kopiert" : obsTokenUnavailable ? obsTokenUnavailableMessage : obsUrl === "" ? "OBS-Link noch nicht erzeugt." : "OBS-Link kopieren"}
               type="button"
             >
               {obsLinkCopied ? <Check aria-hidden="true" size={14} /> : <Copy aria-hidden="true" size={14} />}
@@ -1281,7 +1292,7 @@ export const AdminWorkspace = ({
           {initialBootstrap.capabilities.groupEditor && (
             <div className="desktop-only">
             <Section
-              headerAction={(
+              headerAction={draft.group.length === 0 ? undefined : (
                 <button
                   aria-checked={draft.groupVisible}
                   aria-label="Gruppe im Overlay anzeigen"
@@ -1296,7 +1307,7 @@ export const AdminWorkspace = ({
                 </button>
               )}
               icon={<Users size={16} />}
-              isHidden={!draft.groupVisible}
+              isHidden={draft.group.length > 0 && !draft.groupVisible}
               title="Gruppe"
             >
               {draft.group.length === 0 && <p className="empty-copy">Keine Gäste im Stream.</p>}

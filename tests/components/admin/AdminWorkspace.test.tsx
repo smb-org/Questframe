@@ -105,7 +105,7 @@ describe("Admin workspace publication boundary", () => {
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/overlay#token=${"C".repeat(43)}`);
   });
 
-  it("deaktiviert das Kopieren für einen vorhandenen Alt-Token ohne Envelope", () => {
+  it("macht den Hinweis zu einem vorhandenen Alt-Token ohne Envelope erreichbar", () => {
     const initial = bootstrap();
     initial.capsule.overlayToken = {
       exists: true,
@@ -121,7 +121,16 @@ describe("Admin workspace publication boundary", () => {
       setVisibility: vi.fn(),
     }} />);
 
-    expect(screen.getByRole("button", { name: "OBS-Link kopieren" })).toBeDisabled();
+    const copyButton = screen.getByRole("button", { name: "OBS-Link kopieren" });
+    expect(copyButton).toBeEnabled();
+    expect(copyButton).toHaveAttribute("aria-disabled", "true");
+    expect(copyButton).toHaveAttribute(
+      "title",
+      "Dieser alte Token ist nicht wiederherstellbar. Bitte einen neuen Token erzeugen.",
+    );
+    expect(copyButton).toHaveAccessibleDescription(
+      "Dieser alte Token ist nicht wiederherstellbar. Bitte einen neuen Token erzeugen.",
+    );
   });
 
   it("zooms the live preview through 200 percent and resets without creating a publishable change", async () => {
@@ -314,21 +323,15 @@ describe("Admin workspace publication boundary", () => {
     expect(save.mock.calls[0]?.[0].state.pet).toBeNull();
   });
 
-  it("offers the group visibility switch even when no guests are configured", async () => {
-    const user = userEvent.setup();
+  it("hides the group visibility switch while no guests are configured", () => {
     const initial = bootstrap();
     render(<AdminWorkspace initialBootstrap={initial} api={{
       save: vi.fn(),
       setVisibility: () => Promise.resolve({ state: initial.state, auditEntry: null, undoTargets: [], serverTime: initial.serverTime }),
     }} />);
 
-    const groupToggle = screen.getByRole("switch", { name: "Gruppe im Overlay anzeigen" });
-    const groupSection = groupToggle.closest("details") as HTMLDetailsElement;
-    await user.click(groupToggle);
-
-    expect(groupToggle).toHaveAttribute("aria-checked", "false");
-    expect(groupSection.open).toBe(true);
-    expect(groupSection).toHaveTextContent("ausgeblendet");
+    expect(screen.queryByRole("switch", { name: "Gruppe im Overlay anzeigen" })).not.toBeInTheDocument();
+    expect(screen.getByText("Keine Gäste im Stream.")).toBeInTheDocument();
   });
 
   it("keeps all edits local until Save but toggles overlay visibility immediately", async () => {
@@ -768,6 +771,24 @@ describe("Admin workspace publication boundary", () => {
     expect(lookupTwitchUser).not.toHaveBeenCalled();
     expect(screen.getByRole("slider", { name: "Der Kumpel Gesundheit" })).toBeInTheDocument();
     expect(input).toHaveValue("");
+  });
+
+  it("does not submit a whitespace-only guest name", async () => {
+    const user = userEvent.setup();
+    const lookupTwitchUser = vi.fn<NonNullable<AdminApi["lookupTwitchUser"]>>();
+    render(<AdminWorkspace initialBootstrap={bootstrap()} api={{
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      lookupTwitchUser,
+    }} />);
+
+    const input = screen.getByLabelText("Twitch-Login oder Name");
+    await user.type(input, "   ");
+    expect(screen.getByRole("button", { name: "Als Gast hinzufügen" })).toBeDisabled();
+    await user.keyboard("{Enter}");
+
+    expect(lookupTwitchUser).not.toHaveBeenCalled();
+    expect(document.querySelectorAll(".guest-control")).toHaveLength(0);
   });
 
   it("marks a resolved Twitch guest that is already in the group and cannot add it again", async () => {

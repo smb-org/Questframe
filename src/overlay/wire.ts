@@ -9,7 +9,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const exactKeys = (value: Record<string, unknown>, keys: readonly string[]): boolean => {
   const present = Object.keys(value).sort();
-  return present.length === keys.length && present.every((key, index) => key === [...keys].sort()[index]);
+  const expected = [...keys].sort();
+  return present.length === expected.length && present.every((key, index) => key === expected[index]);
 };
 
 const isText = (value: unknown, minimum: number, maximum: number): value is string =>

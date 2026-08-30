@@ -46,6 +46,7 @@ class FakeWebSocket {
 
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   FakeWebSocket.instances = [];
   vi.stubGlobal("WebSocket", FakeWebSocket);
   window.history.replaceState({}, "", `/overlay#token=${token}`);
@@ -96,6 +97,74 @@ describe("OverlayApp realtime shell", () => {
     });
     expect(screen.getByTestId("player-health")).toHaveAttribute("aria-valuenow", "42");
     expect(loadOverlaySnapshot(window.location.host, fingerprint)?.revision).toBe(2);
+  });
+
+  it("reloads at most once per disturbance and only re-arms after an accepted snapshot", async () => {
+    vi.useFakeTimers();
+    const reloadPage = vi.fn();
+    render(<OverlayApp reloadPage={reloadPage} />);
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0];
+    const invalidState = { ...channelState(), petVisible: "false" };
+
+    act(() => {
+      socket?.emit("message", JSON.stringify({ type: "snapshot", state: invalidState }));
+    });
+    expect(reloadPage).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(reloadPage).toHaveBeenCalledTimes(1);
+
+    // Ein dauerhaft unparsbarer Zustand darf nie zu wiederholten Reloads
+    // führen - das Zeitfenster ist keine alleinige Sperre mehr, der Marker
+    // bleibt gesetzt, egal wie viel Zeit vergeht.
+    act(() => {
+      socket?.emit("message", JSON.stringify({ type: "snapshot", state: invalidState }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1_000);
+    });
+    expect(reloadPage).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      socket?.emit("message", JSON.stringify({ type: "state_committed", state: invalidState }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60 * 60 * 1_000);
+    });
+    expect(reloadPage).toHaveBeenCalledTimes(1);
+
+    // Erst ein akzeptierter Snapshot re-armiert den Watchdog fuer die naechste
+    // Stoerung.
+    act(() => {
+      socket?.emit("message", JSON.stringify({ type: "state_committed", state: channelState() }));
+    });
+    act(() => {
+      socket?.emit("message", JSON.stringify({ type: "snapshot", state: invalidState }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(reloadPage).toHaveBeenCalledTimes(2);
+  });
+
+  it("cancels a pending watchdog reload once the token is revoked", async () => {
+    vi.useFakeTimers();
+    const reloadPage = vi.fn();
+    render(<OverlayApp reloadPage={reloadPage} />);
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0];
+    const invalidState = { ...channelState(), petVisible: "false" };
+
+    act(() => {
+      socket?.emit("message", JSON.stringify({ type: "snapshot", state: invalidState }));
+      socket?.emit("message", JSON.stringify({ type: "token_revoked" }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(reloadPage).not.toHaveBeenCalled();
   });
 
   it("blanks and removes its cached snapshot on active token revocation", async () => {

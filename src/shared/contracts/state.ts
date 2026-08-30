@@ -212,6 +212,16 @@ export const channelStateDraftSchema = z
   .strictObject(stateContentShape)
   .superRefine(addStateContentIssues);
 
+// Lesepfade dürfen alte Zustände ohne die später eingeführten Schalter mit
+// sichtbarem Default ergänzen; ein Save muss die Absicht dagegen explizit tragen.
+export const channelStateSaveDraftSchema = z
+  .strictObject({
+    ...stateContentShape,
+    petVisible: z.boolean(),
+    groupVisible: z.boolean(),
+  })
+  .superRefine(addStateContentIssues);
+
 export const channelStateSchema = z
   .strictObject({
     ...stateContentShape,

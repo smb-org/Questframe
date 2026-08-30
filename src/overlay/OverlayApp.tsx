@@ -11,6 +11,51 @@ import {
 import { HudRenderer } from "./HudRenderer";
 import { parseOverlayMessage } from "./wire";
 
+const OVERLAY_WATCHDOG_MARKER = "irl-stream-hud:overlay-watchdog-reload-at";
+const OVERLAY_WATCHDOG_DELAY_MS = 1_000;
+
+const reloadOverlayPage = (): void => {
+  window.location.reload();
+};
+
+const isStateBearingMessage = (input: unknown): boolean =>
+  typeof input === "object" &&
+  input !== null &&
+  !Array.isArray(input) &&
+  ((input as { type?: unknown }).type === "snapshot" ||
+    (input as { type?: unknown }).type === "state_committed");
+
+// Höchstens ein automatischer Heilversuch pro Störung: Solange der Marker
+// gesetzt ist, blieb der letzte Reload wirkungslos (sonst wäre er über den
+// "snapshot"/"state_committed"-Zweig längst gelöscht worden) — ein weiterer
+// Reload würde also nur denselben dauerhaft unparsbaren Zustand wiederholen.
+const hasWatchdogReloadMarker = (): boolean => {
+  try {
+    return window.sessionStorage.getItem(OVERLAY_WATCHDOG_MARKER) !== null;
+  } catch {
+    return false;
+  }
+};
+
+const markWatchdogReload = (): boolean => {
+  try {
+    window.sessionStorage.setItem(OVERLAY_WATCHDOG_MARKER, String(Date.now()));
+    return true;
+  } catch {
+    // Ohne persistenten Marker nicht reloaden: eine blockierte Storage-API darf
+    // keinen dauerhaften Reload-Sturm in der OBS-Browserquelle auslösen.
+    return false;
+  }
+};
+
+const clearWatchdogReloadMarker = (): void => {
+  try {
+    window.sessionStorage.removeItem(OVERLAY_WATCHDOG_MARKER);
+  } catch {
+    // Session-Storage ist optional; ein fehlender Marker ist kein Overlay-Fehler.
+  }
+};
+
 const uploadedHashes = (state: ChannelState): string[] => {
   const portraits = [
     state.player.portrait,
@@ -26,7 +71,7 @@ const uploadedHashes = (state: ChannelState): string[] => {
   ];
 };
 
-export const OverlayApp = () => {
+export const OverlayApp = ({ reloadPage = reloadOverlayPage }: { reloadPage?: () => void } = {}) => {
   const [state, setState] = useState<ChannelState | null>(null);
   const [nowMilliseconds, setNowMilliseconds] = useState(() => Date.now());
   const [mediaUrls, setMediaUrls] = useState<ReadonlyMap<string, string>>(new Map());
@@ -55,6 +100,21 @@ export const OverlayApp = () => {
     let retry = 0;
     let fingerprint = "";
     let revoked = false;
+    let watchdogTimer: number | null = null;
+
+    const cancelWatchdog = () => {
+      if (watchdogTimer !== null) window.clearTimeout(watchdogTimer);
+      watchdogTimer = null;
+    };
+
+    const scheduleWatchdog = () => {
+      if (disposed || watchdogTimer !== null || hasWatchdogReloadMarker()) return;
+      watchdogTimer = window.setTimeout(() => {
+        watchdogTimer = null;
+        if (disposed || revoked || hasWatchdogReloadMarker() || !markWatchdogReload()) return;
+        reloadPage();
+      }, OVERLAY_WATCHDOG_DELAY_MS);
+    };
 
     const connect = () => {
       if (disposed || revoked) return;
@@ -75,14 +135,20 @@ export const OverlayApp = () => {
           return;
         }
         const parsed = parseOverlayMessage(input);
-        if (parsed === null) return;
+        if (parsed === null) {
+          if (isStateBearingMessage(input)) scheduleWatchdog();
+          return;
+        }
         if (parsed.type === "snapshot" || parsed.type === "state_committed") {
+          cancelWatchdog();
+          clearWatchdogReloadMarker();
           setState(parsed.state);
           if (fingerprint !== "") {
             storeOverlaySnapshot(capsuleScope, fingerprint, parsed.state);
           }
         } else {
           revoked = true;
+          cancelWatchdog();
           setState(null);
           if (fingerprint !== "") removeOverlaySnapshot(capsuleScope, fingerprint);
           socket?.close();
@@ -112,10 +178,11 @@ export const OverlayApp = () => {
 
     return () => {
       disposed = true;
+      cancelWatchdog();
       if (retryTimer !== null) window.clearTimeout(retryTimer);
       socket?.close();
     };
-  }, [capsuleScope, token]);
+  }, [capsuleScope, reloadPage, token]);
 
   useEffect(() => {
     if (token === null || state === null) return;

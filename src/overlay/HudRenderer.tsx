@@ -85,10 +85,19 @@ const nameFitFactor = (available: number, needed: number): number => {
   return Math.max(MINIMUM_NAME_FIT, available / needed);
 };
 
-const PlayerName = ({ name, themeId }: { name: string; themeId: string }) => {
+const PlayerName = ({
+  name,
+  themeId,
+  autoFit = true,
+}: {
+  name: string;
+  themeId: string;
+  autoFit?: boolean;
+}) => {
   const labelRef = useRef<HTMLSpanElement | null>(null);
 
   useLayoutEffect(() => {
+    if (!autoFit) return;
     const label = labelRef.current;
     if (label === null) return;
 
@@ -118,7 +127,7 @@ const PlayerName = ({ name, themeId }: { name: string; themeId: string }) => {
       disposed = true;
       observer?.disconnect();
     };
-  }, [name, themeId]);
+  }, [autoFit, name, themeId]);
 
   return (
     <span className="hud-player-name" ref={labelRef}>
@@ -228,6 +237,7 @@ export type HudRendererProps = {
   mediaUrls?: ReadonlyMap<string, string> | undefined;
   previewOverlay?: ReactNode;
   forceVisible?: boolean;
+  autoFitPlayerName?: boolean;
 };
 
 export const HudRenderer = ({
@@ -236,6 +246,7 @@ export const HudRenderer = ({
   mediaUrls,
   previewOverlay,
   forceVisible = false,
+  autoFitPlayerName = true,
 }: HudRendererProps) => {
   const [initialNow] = useState(() => Date.now());
   const effectiveNow = nowMilliseconds ?? initialNow;
@@ -266,7 +277,11 @@ export const HudRenderer = ({
           <span className="hud-player-chrome" aria-hidden="true" />
           <div className="hud-player-body">
             <div className="hud-player-heading">
-              <PlayerName name={state.player.name} themeId={state.themeId} />
+              <PlayerName
+                autoFit={autoFitPlayerName}
+                name={state.player.name}
+                themeId={state.themeId}
+              />
             </div>
             {state.player.title !== null && <span className="hud-player-title">{state.player.title}</span>}
             <div className="hud-player-bars">

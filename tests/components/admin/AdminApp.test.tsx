@@ -99,7 +99,7 @@ describe("AdminApp authentication shell", () => {
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/overlay#token=${"A".repeat(43)}`);
   });
 
-  it("disables copying an existing legacy token without recoverable plaintext", async () => {
+  it("keeps the explanation for an existing legacy token without recoverable plaintext reachable", async () => {
     const legacy = bootstrap();
     legacy.capsule.overlayToken = {
       exists: true,
@@ -113,7 +113,12 @@ describe("AdminApp authentication shell", () => {
 
     render(<AdminApp />);
 
-    expect(await screen.findByRole("button", { name: "OBS-Link kopieren" })).toBeDisabled();
+    const copyButton = await screen.findByRole("button", { name: "OBS-Link kopieren" });
+    expect(copyButton).toBeEnabled();
+    expect(copyButton).toHaveAttribute("aria-disabled", "true");
+    expect(copyButton).toHaveAccessibleDescription(
+      "Dieser alte Token ist nicht wiederherstellbar. Bitte einen neuen Token erzeugen.",
+    );
   });
 
   it("shows a loading shell and then mounts the complete workspace", async () => {

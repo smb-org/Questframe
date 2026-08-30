@@ -9,6 +9,13 @@
 5. Twitch-Login als Broadcaster und als echter aktueller Moderator testen.
 6. Release-Report aus [RELEASE_REPORT.md](RELEASE_REPORT.md) kopieren und Commit, Wrangler-Ausgabe, Chromium-Version und visuelle Artefakte eintragen.
 
+Nach einem Deploy heilt sich eine bereits geöffnete OBS-Browserquelle bei einem
+verworfenen Zustands-Snapshot einmalig selbst durch einen Reload. Erst ein danach
+wieder akzeptierter Snapshot entsperrt einen weiteren automatischen Heilversuch;
+bleibt die Quelle dauerhaft unparsbar, reloadet sie sich nicht erneut von selbst.
+Falls die Quelle danach weiter eingefroren wirkt, die OBS-Browserquelle einmal
+manuell aktualisieren.
+
 ## Deployment-Bindings
 
 `wrangler.jsonc` enthält für Staging und Production nur die bewusst versionierten Schalter `APP_ENV` und `RELEASE_STAGE`. Alle installationsspezifischen Werte sind verpflichtende Cloudflare-Secrets. Das erste Deployment einer Umgebung muss lokal mit der passenden ignorierten `.env.<umgebung>` erfolgen; dabei lädt `--secrets-file` alle zehn Werte gemeinsam hoch. Danach bleiben sie bei gewöhnlichen Wrangler-Deployments erhalten, sodass der GitHub-Workflow keine Klartext-Konfiguration erzeugen muss.

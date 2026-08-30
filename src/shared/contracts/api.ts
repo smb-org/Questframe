@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import {
-  channelStateDraftSchema,
+  channelStateSaveDraftSchema,
   channelStateSchema,
   releaseCapabilitiesSchema,
   twitchUserIdSchema,
@@ -136,7 +136,7 @@ export const bootstrapResponseSchema = z.strictObject({
 export const saveRequestSchema = z.strictObject({
   baseRevision: z.number().int().min(1),
   replaceRevision: z.number().int().min(1).optional(),
-  state: channelStateDraftSchema,
+  state: channelStateSaveDraftSchema,
 });
 
 export const saveResponseSchema = z.strictObject({

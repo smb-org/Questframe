@@ -21,6 +21,9 @@ describe("API contracts", () => {
     expect(
       saveRequestSchema.parse({ baseRevision: revision, state: draft }),
     ).toEqual({ baseRevision: 1, state: draft });
+    const { petVisible: _petVisible, groupVisible: _groupVisible, ...legacyDraft } = draft;
+    void [_petVisible, _groupVisible];
+    expect(() => saveRequestSchema.parse({ baseRevision: revision, state: legacyDraft })).toThrow();
     expect(() =>
       saveRequestSchema.parse({
         baseRevision: 1,

@@ -131,6 +131,16 @@ describe("HUD renderer", () => {
     expect(label?.style.getPropertyValue("--hud-name-fit")).toBe("1");
   });
 
+  it("skips name measurements when auto-fit is disabled for a static preview", () => {
+    const state = createDefaultState(actor, "2026-08-29T12:00:00.000Z");
+    const { container } = render(
+      <HudRenderer autoFitPlayerName={false} state={state} />,
+    );
+
+    const label = container.querySelector<HTMLElement>(".hud-player-name");
+    expect(label?.style.getPropertyValue("--hud-name-fit")).toBe("");
+  });
+
   it("tags pet and party frames with their unit kind", () => {
     const state = createDefaultState(actor, "2026-08-29T12:00:00.000Z");
     const { container } = render(
