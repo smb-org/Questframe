@@ -420,7 +420,7 @@
 
 .hud-bar--health[data-health-tier="warning"] { --bar-color: var(--hud-health-warning); }
 .hud-bar--health[data-health-tier="critical"] .hud-bar-fill {
-  animation: hud-critical-pulse 1.35s ease-in-out infinite;
+  animation: hud-critical-pulse 0.9s ease-in-out infinite;
 }
 .hud-bar--health[data-health-tier="critical"] { --bar-color: var(--hud-health-critical); }
 
@@ -685,9 +685,23 @@
   white-space: nowrap;
 }
 
+/*
+ * Der Glow liegt hinter dem Eigenschatten der Variante, damit die Fuellung ihre
+ * Plastik behaelt. Beide Keyframes tragen bewusst gleich viele Schatten in
+ * gleicher inset-Reihenfolge: nur dann interpoliert box-shadow weich statt zu
+ * springen. Im dunklen Scheitel ist der Glow transparent, nicht entfernt.
+ */
 @keyframes hud-critical-pulse {
-  0%, 100% { filter: brightness(0.92); }
-  50% { filter: brightness(1.28); }
+  0%, 100% {
+    filter: brightness(0.68);
+    opacity: 0.72;
+    box-shadow: var(--hud-fill-shadow), 0 0 12px transparent;
+  }
+  50% {
+    filter: brightness(1.5);
+    opacity: 1;
+    box-shadow: var(--hud-fill-shadow), 0 0 12px color-mix(in srgb, var(--hud-health-critical) 78%, transparent);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
