@@ -1,0 +1,217 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  challengeDefinitionSchema,
+  challengeSchema,
+  commandSchema,
+  settingsSchema,
+} from "../../../src/modules/win-challenges/contracts/schemas";
+import {
+  isChallengeDescription,
+  isChallengeTitle,
+  isCurrentCount,
+  isDelta,
+  isHeaderTitle,
+  isInstant,
+  isMaxVisible,
+  isSortOrder,
+  isTargetCount,
+  isTimerTotalMs,
+} from "../../../src/modules/win-challenges/contracts/predicates";
+
+const definition = {
+  clientId: "client-1",
+  title: "Eine Challenge",
+  description: null,
+  targetCount: 10,
+  timerTotalMs: 10_000,
+  sortOrder: 0,
+};
+
+const challenge = {
+  id: "challenge-1",
+  title: "Eine Challenge",
+  description: null,
+  targetCount: 10,
+  timerTotalMs: 10_000,
+  sortOrder: 0,
+  currentCount: 0,
+  state: "pending" as const,
+  timerEndsAt: null,
+  completedAt: null,
+  createdAt: "2026-08-30T12:00:00.000Z",
+  updatedAt: "2026-08-30T12:00:00.000Z",
+};
+
+const settings = {
+  styleId: "plain-list" as const,
+  themeMode: "inherit" as const,
+  surfaceMode: "surface" as const,
+  headerTitle: "CHALLENGES",
+  effectsEnabled: true,
+  maxVisible: 3,
+  themeId: "trail-wood" as const,
+  globalTimer: null,
+};
+
+describe("Win-Challenges-Verträge", () => {
+  it("erzwingt die kritische Titel-Grenzwerttabelle durch Prädikat und Schema", () => {
+    const cases = [
+      { label: "Emoji bis zur UTF-16-Grenze", value: "🧭".repeat(40), accepted: true },
+      { label: "Emoji über die UTF-16-Grenze", value: "🧭".repeat(41), accepted: false },
+      { label: "NFC-Form", value: "e\u0301", accepted: true },
+      { label: "Leerstring", value: "", accepted: false },
+      { label: "Maximum", value: "x".repeat(80), accepted: true },
+      { label: "Maximum plus eins", value: "x".repeat(81), accepted: false },
+    ];
+
+    for (const testCase of cases) {
+      const predicateAccepted = isChallengeTitle(testCase.value);
+      const schemaAccepted = challengeDefinitionSchema.safeParse({
+        ...definition,
+        title: testCase.value,
+      }).success;
+      expect(predicateAccepted, testCase.label).toBe(testCase.accepted);
+      expect(schemaAccepted, testCase.label).toBe(predicateAccepted);
+    }
+  });
+
+  it("hält alle Feldprädikate und die darüber gebauten Schemas gekoppelt", () => {
+    const tables = [
+      {
+        name: "description",
+        predicate: isChallengeDescription,
+        schema: (value: unknown) =>
+          challengeDefinitionSchema.safeParse({ ...definition, description: value }).success,
+        values: [
+          { value: "", accepted: true },
+          { value: "ä".repeat(160), accepted: true },
+          { value: "ä".repeat(161), accepted: false },
+          { value: null, accepted: true },
+        ],
+      },
+      {
+        name: "targetCount",
+        predicate: isTargetCount,
+        schema: (value: unknown) =>
+          challengeDefinitionSchema.safeParse({ ...definition, targetCount: value }).success,
+        values: [
+          { value: null, accepted: true },
+          { value: 1, accepted: true },
+          { value: 999, accepted: true },
+          { value: 1_000, accepted: false },
+        ],
+      },
+      {
+        name: "timerTotalMs",
+        predicate: isTimerTotalMs,
+        schema: (value: unknown) =>
+          challengeDefinitionSchema.safeParse({ ...definition, timerTotalMs: value }).success,
+        values: [
+          { value: null, accepted: true },
+          { value: 10_000, accepted: true },
+          { value: 21_600_000, accepted: true },
+          { value: 21_600_001, accepted: false },
+        ],
+      },
+      {
+        name: "sortOrder",
+        predicate: isSortOrder,
+        schema: (value: unknown) =>
+          challengeDefinitionSchema.safeParse({ ...definition, sortOrder: value }).success,
+        values: [
+          { value: 0, accepted: true },
+          { value: 29, accepted: true },
+          { value: 30, accepted: false },
+        ],
+      },
+      {
+        name: "currentCount",
+        predicate: isCurrentCount,
+        schema: (value: unknown) => challengeSchema.safeParse({ ...challenge, currentCount: value }).success,
+        values: [
+          { value: 0, accepted: true },
+          { value: 999, accepted: true },
+          { value: 1_000, accepted: false },
+        ],
+      },
+      {
+        name: "delta",
+        predicate: isDelta,
+        schema: (value: unknown) =>
+          commandSchema.safeParse({
+            commandId: "dc95708a-645a-4bc0-9ca3-7ffbd42e6662",
+            scope: "challenge",
+            type: "increment",
+            challengeId: "challenge-1",
+            delta: value,
+          }).success,
+        values: [
+          { value: -99, accepted: true },
+          { value: 99, accepted: true },
+          { value: 100, accepted: false },
+        ],
+      },
+      {
+        name: "maxVisible",
+        predicate: isMaxVisible,
+        schema: (value: unknown) => settingsSchema.safeParse({ ...settings, maxVisible: value }).success,
+        values: [
+          { value: 2, accepted: false },
+          { value: 3, accepted: true },
+          { value: 10, accepted: true },
+          { value: 11, accepted: false },
+        ],
+      },
+      {
+        name: "headerTitle",
+        predicate: isHeaderTitle,
+        schema: (value: unknown) => settingsSchema.safeParse({ ...settings, headerTitle: value }).success,
+        values: [
+          { value: "", accepted: false },
+          { value: "e\u0301", accepted: true },
+          { value: "x".repeat(24), accepted: true },
+          { value: "x".repeat(25), accepted: false },
+        ],
+      },
+      {
+        name: "instant",
+        predicate: isInstant,
+        schema: (value: unknown) => challengeSchema.safeParse({ ...challenge, createdAt: value }).success,
+        values: [
+          { value: "2026-08-30T12:00:00.000Z", accepted: true },
+          { value: "2026-08-30T12:00:00+02:00", accepted: true },
+          { value: "not-an-instant", accepted: false },
+        ],
+      },
+    ] as const;
+
+    for (const table of tables) {
+      for (const testCase of table.values) {
+        const predicateAccepted = table.predicate(testCase.value);
+        expect(predicateAccepted, `${table.name}: ${String(testCase.value)}`).toBe(testCase.accepted);
+        expect(table.schema(testCase.value), `${table.name}: Schema`).toBe(predicateAccepted);
+      }
+    }
+  });
+
+  it("akzeptiert beide Command-DTO-Formen und lehnt unbekannte Felder ab", () => {
+    expect(commandSchema.parse({
+      commandId: "dc95708a-645a-4bc0-9ca3-7ffbd42e6662",
+      scope: "challenge",
+      type: "complete",
+      challengeId: "challenge-1",
+    })).toMatchObject({ scope: "challenge", type: "complete" });
+    expect(commandSchema.parse({
+      commandId: "dc95708a-645a-4bc0-9ca3-7ffbd42e6662",
+      scope: "global",
+      type: "startGlobalTimer",
+    })).toMatchObject({ scope: "global", type: "startGlobalTimer" });
+    expect(() => commandSchema.parse({
+      commandId: "dc95708a-645a-4bc0-9ca3-7ffbd42e6662",
+      scope: "global",
+      type: "resetGlobalTimer",
+      challengeId: "challenge-1",
+    })).toThrow();
+  });
+});
