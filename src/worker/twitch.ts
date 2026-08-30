@@ -25,7 +25,7 @@ const userSchema = z.object({
   profile_image_url: z.url(),
 });
 
-const usersResponseSchema = z.object({ data: z.array(userSchema).max(1) });
+const usersResponseSchema = z.object({ data: z.array(userSchema).max(2) });
 
 const moderatedChannelsResponseSchema = z.object({
   data: z.array(
@@ -69,6 +69,19 @@ export type TwitchEditor = {
   displayName: string;
   profileImageUrl: string;
 };
+
+export type TwitchEditorWithBroadcaster = TwitchEditor & {
+  // null nur, wenn Twitch das Broadcaster-Profil ausnahmsweise nicht mitliefert
+  // (z.B. gelöschter Account); der Login selbst darf daran nicht scheitern.
+  broadcaster: TwitchEditor | null;
+};
+
+const toTwitchEditor = (user: z.infer<typeof userSchema>): TwitchEditor => ({
+  id: user.id,
+  login: user.login,
+  displayName: user.display_name,
+  profileImageUrl: user.profile_image_url,
+});
 
 const requestJson = async (
   url: string,
@@ -135,7 +148,7 @@ export const validateTwitchEditor = async (
   config: TwitchPublicConfig,
   accessToken: string,
   fetcher: typeof fetch = fetch,
-): Promise<TwitchEditor> => {
+): Promise<TwitchEditorWithBroadcaster> => {
   const authHeaders = {
     authorization: `Bearer ${accessToken}`,
     "client-id": config.clientId,
@@ -151,19 +164,25 @@ export const validateTwitchEditor = async (
   if (validation.client_id !== config.clientId) {
     throw new TwitchAuthError("invalid_response", "Twitch-Token gehört zu einer anderen App.");
   }
+  // Helix erlaubt mehrere `id`-Parameter in einer Anfrage: eigenes Profil und
+  // Broadcaster-Profil werden hier gemeinsam abgefragt statt in zwei Requests.
+  const editorIsBroadcaster = validation.user_id === config.broadcasterId;
+  const idParameters = new URLSearchParams();
+  idParameters.append("id", validation.user_id);
+  if (!editorIsBroadcaster) idParameters.append("id", config.broadcasterId);
   const users = parseBoundary(
     usersResponseSchema,
     await requestJson(
-      `https://api.twitch.tv/helix/users?id=${encodeURIComponent(validation.user_id)}`,
+      `https://api.twitch.tv/helix/users?${idParameters.toString()}`,
       { headers: authHeaders },
       fetcher,
     ),
   );
-  const user = users.data[0];
-  if (user === undefined || user.id !== validation.user_id) {
+  const user = users.data.find((entry) => entry.id === validation.user_id);
+  if (user === undefined) {
     throw new TwitchAuthError("invalid_response", "Twitch-Benutzer konnte nicht bestätigt werden.");
   }
-  if (user.id !== config.broadcasterId) {
+  if (!editorIsBroadcaster) {
     const eligible = await moderatesBroadcaster(config, user.id, authHeaders, fetcher);
     if (!eligible) {
       throw new TwitchAuthError(
@@ -172,11 +191,13 @@ export const validateTwitchEditor = async (
       );
     }
   }
+  const editor = toTwitchEditor(user);
+  const broadcasterUser = editorIsBroadcaster
+    ? user
+    : users.data.find((entry) => entry.id === config.broadcasterId);
   return {
-    id: user.id,
-    login: user.login,
-    displayName: user.display_name,
-    profileImageUrl: user.profile_image_url,
+    ...editor,
+    broadcaster: broadcasterUser === undefined ? null : toTwitchEditor(broadcasterUser),
   };
 };
 
@@ -249,7 +270,7 @@ export const completeTwitchAuthentication = async (
   accessToken: string;
   refreshToken: string;
   tokenExpiresAt: string;
-  user: TwitchEditor;
+  user: TwitchEditorWithBroadcaster;
 }> => {
   const tokens = await requestOAuthToken(
     config,
@@ -279,7 +300,7 @@ export const refreshTwitchAuthentication = async (
   accessToken: string;
   refreshToken: string;
   tokenExpiresAt: string;
-  user: TwitchEditor;
+  user: TwitchEditorWithBroadcaster;
 }> => {
   const tokens = await requestOAuthToken(
     config,

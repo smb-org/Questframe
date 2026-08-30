@@ -48,6 +48,33 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("Admin workspace channel identity", () => {
+  it("names the edited Twitch channel in the header and stays quiet without one", () => {
+    const withChannel = bootstrap();
+    withChannel.capsule.channel = {
+      id: twitchUserIdSchema.parse("456"),
+      login: "twitchbrudi",
+      displayName: "TwitchBrudi",
+    };
+    const { unmount } = render(<AdminWorkspace initialBootstrap={withChannel} api={{
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+    }} />);
+
+    const identity = document.querySelector(".channel-identity");
+    expect(identity).toHaveTextContent("Twitch-Kanal");
+    expect(identity).toHaveTextContent("TwitchBrudi");
+    unmount();
+    cleanup();
+
+    render(<AdminWorkspace initialBootstrap={bootstrap()} api={{
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+    }} />);
+    expect(document.querySelector(".channel-identity")).toBeNull();
+  });
+});
+
 describe("Admin workspace publication boundary", () => {
   it("zooms the live preview through 200 percent and resets without creating a publishable change", async () => {
     const user = userEvent.setup();

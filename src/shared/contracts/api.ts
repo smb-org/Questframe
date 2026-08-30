@@ -115,6 +115,13 @@ export const bootstrapResponseSchema = z.strictObject({
     timezone: z.string().min(1).max(64),
     limits: limitsSchema,
     overlayToken: overlayTokenStatusSchema,
+    channel: z
+      .strictObject({
+        id: twitchUserIdSchema,
+        login: z.string().regex(/^[a-z0-9_]{1,25}$/),
+        displayName: z.string().min(1).max(32),
+      })
+      .nullish(),
   }),
   capabilities: releaseCapabilitiesSchema,
   editor: editorSchema,

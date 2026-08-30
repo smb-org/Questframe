@@ -563,6 +563,11 @@ export const AdminWorkspace = ({
   useEffect(() => {
     dirtyRef.current = dirty;
   }, [dirty]);
+  const channel = initialBootstrap.capsule.channel ?? null;
+  const channelHandle =
+    channel !== null && channel.login.toLowerCase() !== channel.displayName.toLowerCase()
+      ? `@${channel.login}`
+      : null;
   const preview = toPreview(draft, committed);
   const previewMediaUrls = useMemo(() => {
     const portraits = [
@@ -826,6 +831,15 @@ export const AdminWorkspace = ({
           </span>
           <span className="revision-pill">Rev. {committed.revision}</span>
         </div>
+        {channel !== null && (
+          <div className="channel-identity">
+            <span className="eyebrow">Twitch-Kanal</span>
+            <div>
+              <strong title={channel.displayName}>{channel.displayName}</strong>
+              {channelHandle !== null && <small>{channelHandle}</small>}
+            </div>
+          </div>
+        )}
         <button
           aria-checked={committed.overlayEnabled}
           aria-label="Overlay aktiv"

@@ -89,8 +89,63 @@ describe("channel worker", () => {
     });
     expect(body.state.revision).toBeGreaterThanOrEqual(1);
     expect(body.capabilities.phase).toBe("v1b");
+    // /auth/dev seedet ein synthetisches Broadcaster-Profil im Cache, damit der
+    // Admin-Header lokal und in E2E-Tests den echten Twitch-Kanalnamen zeigt.
+    expect(body.capsule.channel).toEqual({
+      id: env.BROADCASTER_ID,
+      login: "lokaler_broadcaster",
+      displayName: "Lokaler Broadcaster",
+    });
     csrfToken = body.csrfToken;
     bootstrapRevision = body.state.revision;
+  });
+
+  it("bootstrap falls back to capsule.channel = null when nothing is cached yet", async () => {
+    const stub = env.CHANNEL.get(env.CHANNEL.idFromName(`channel:${env.BROADCASTER_ID}`));
+    const cachedRow = await runInDurableObject(stub, (_instance, state) =>
+      state.storage.sql
+        .exec<{
+          twitch_user_id: string;
+          login: string;
+          display_name: string;
+          portrait_url: string;
+          fetched_at: string;
+        }>("SELECT * FROM twitch_user_cache WHERE twitch_user_id = ?", env.BROADCASTER_ID)
+        .toArray()[0],
+    );
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec(
+        "DELETE FROM twitch_user_cache WHERE twitch_user_id = ?",
+        env.BROADCASTER_ID,
+      );
+    });
+    try {
+      const bootstrap = bootstrapResponseSchema.parse(
+        await (
+          await fetchWorker("http://localhost/api/editor/bootstrap", {
+            headers: { cookie, "x-editor-tab": "test-tab-a" },
+          })
+        ).json(),
+      );
+      expect(bootstrap.capsule.channel).toBeNull();
+      csrfToken = bootstrap.csrfToken;
+    } finally {
+      // Zustand für nachfolgende Tests wiederherstellen.
+      if (cachedRow !== undefined) {
+        await runInDurableObject(stub, (_instance, state) => {
+          state.storage.sql.exec(
+            `INSERT INTO twitch_user_cache(
+              twitch_user_id, login, display_name, portrait_url, fetched_at
+            ) VALUES (?, ?, ?, ?, ?)`,
+            cachedRow.twitch_user_id,
+            cachedRow.login,
+            cachedRow.display_name,
+            cachedRow.portrait_url,
+            cachedRow.fetched_at,
+          );
+        });
+      }
+    }
   });
 
   it("publishes one complete draft and rejects stale writes", async () => {

@@ -46,9 +46,61 @@ describe("Twitch OAuth boundary", () => {
     expect(result.user.displayName).toBe("Broadcaster");
     expect(result.tokenExpiresAt).toBe("1970-01-01T01:00:01.000Z");
     expect(fetcher).toHaveBeenCalledTimes(3);
+    // Editor und Broadcaster sind hier dieselbe Person: das Broadcaster-Profil
+    // wird ohne zusätzlichen Request aus dem eigenen Profil abgeleitet.
+    expect(result.user.broadcaster).toEqual({
+      id: "12345678901234567890",
+      login: "broadcaster",
+      displayName: "Broadcaster",
+      profileImageUrl: "https://example.test/broadcaster.png",
+    });
+    expect(fetcher.mock.calls[2]?.[0]).toBe(
+      "https://api.twitch.tv/helix/users?id=12345678901234567890",
+    );
   });
 
   it("accepts a moderator only when Get Moderated Channels includes the configured broadcaster", async () => {
+    let usersUrl = "";
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        json({ client_id: "client", login: "moderator", scopes: [], user_id: "99999999999999999999", expires_in: 3600 }),
+      )
+      .mockImplementationOnce((input) => {
+        usersUrl = new Request(input).url;
+        return Promise.resolve(
+          json({
+            data: [
+              { id: "99999999999999999999", login: "moderator", display_name: "Moderator", profile_image_url: "https://example.test/moderator.png" },
+              { id: "12345678901234567890", login: "broadcaster", display_name: "Broadcaster", profile_image_url: "https://example.test/broadcaster.png" },
+            ],
+          }),
+        );
+      })
+      .mockResolvedValueOnce(
+        json({ data: [{ broadcaster_id: "12345678901234567890", broadcaster_login: "broadcaster", broadcaster_name: "Broadcaster" }], pagination: {} }),
+      );
+
+    const result = await validateTwitchEditor(
+      { clientId: "client", broadcasterId: "12345678901234567890" },
+      "access",
+      fetcher,
+    );
+    expect(result.displayName).toBe("Moderator");
+    expect(result.id).toBe("99999999999999999999");
+    // Editor- und Broadcaster-ID werden in einer einzigen Helix-Anfrage abgefragt.
+    expect(usersUrl).toBe(
+      "https://api.twitch.tv/helix/users?id=99999999999999999999&id=12345678901234567890",
+    );
+    expect(result.broadcaster).toEqual({
+      id: "12345678901234567890",
+      login: "broadcaster",
+      displayName: "Broadcaster",
+      profileImageUrl: "https://example.test/broadcaster.png",
+    });
+  });
+
+  it("still returns the eligible editor when Twitch omits the broadcaster from the combined users lookup", async () => {
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -66,8 +118,8 @@ describe("Twitch OAuth boundary", () => {
       "access",
       fetcher,
     );
-    expect(result.displayName).toBe("Moderator");
     expect(result.id).toBe("99999999999999999999");
+    expect(result.broadcaster).toBeNull();
   });
 
   it("follows moderated-channel pagination until it finds the configured broadcaster", async () => {

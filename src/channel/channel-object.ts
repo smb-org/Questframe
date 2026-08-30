@@ -507,12 +507,14 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const csrfToken = await this.rotateCsrf(session.session_hash, tabId);
     const state = normalizeStateForRead(this.ensureState(session));
     const overlayToken = this.getOverlayToken();
+    const broadcasterProfile = this.getBroadcasterProfile();
     const response = bootstrapResponseSchema.parse({
       capsule: {
         id: this.env.CAPSULE_ID,
         name: this.env.CAPSULE_NAME,
         timezone: this.env.TIMEZONE,
         limits,
+        channel: broadcasterProfile,
         overlayToken: {
           exists: overlayToken !== null,
           generation: overlayToken?.generation ?? 0,
@@ -1343,6 +1345,20 @@ export class ChannelObject extends DurableObject<AppEnv> {
         .exec<OverlayTokenRow>("SELECT * FROM overlay_tokens WHERE singleton = 1")
         .toArray()[0] ?? null
     );
+  }
+
+  // Bester bekannter Twitch-Kanalname des bearbeiteten Broadcasters, aus dem
+  // Cache befüllt via Login/Revalidierung. Kein Treffer ist kein Fehler: das
+  // Frontend fällt dann auf capsule.name zurück.
+  private getBroadcasterProfile(): { id: string; login: string; displayName: string } | null {
+    const row = this.ctx.storage.sql
+      .exec<{ twitch_user_id: string; login: string; display_name: string }>(
+        "SELECT twitch_user_id, login, display_name FROM twitch_user_cache WHERE twitch_user_id = ?",
+        this.env.BROADCASTER_ID,
+      )
+      .toArray()[0];
+    if (row === undefined) return null;
+    return { id: row.twitch_user_id, login: row.login, displayName: row.display_name };
   }
 
   private validateCatalog(draft: ChannelStateDraft): void {

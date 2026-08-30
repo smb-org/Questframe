@@ -127,6 +127,22 @@ const requireSameOriginRead = (request: Request, env: AppEnv): Response | null =
 const handleDevAuth = async (env: AppEnv): Promise<Response> => {
   if (env.APP_ENV !== "local") return errorResponse(404, "not_found", "Route nicht gefunden.");
   const sessionId = randomToken(32);
+  try {
+    await getChannelStub(env).fetch("https://channel.internal/internal/twitch/cache", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        user: {
+          id: env.BROADCASTER_ID,
+          login: "lokaler_broadcaster",
+          displayName: "Lokaler Broadcaster",
+          profileImageUrl: "https://static-cdn.jtvnw.net/user-default-pictures-uv/lokaler-broadcaster.png",
+        },
+      }),
+    });
+  } catch {
+    // Best effort: der Admin-Header fällt sonst auf capsule.name zurück.
+  }
   const response = await getChannelStub(env).fetch("https://channel.internal/internal/session/dev", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -264,6 +280,17 @@ const handleTwitchCallback = async (request: Request, env: AppEnv): Promise<Resp
       },
     );
     if (!createSession.ok) return authFailureRedirect(env, "session_failed");
+    if (authentication.user.broadcaster !== null) {
+      try {
+        await getChannelStub(env).fetch("https://channel.internal/internal/twitch/cache", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ user: authentication.user.broadcaster }),
+        });
+      } catch {
+        // Best effort: der Admin-Header fällt sonst auf capsule.name zurück.
+      }
+    }
     const signedSession = await signOpaqueCookie(sessionId, cookieKeyring(env));
     const headers = new Headers({ location: "/admin", "cache-control": "no-store" });
     headers.append(
@@ -341,6 +368,17 @@ const handleRevalidation = async (request: Request, env: AppEnv): Promise<Respon
       editor = refreshed.user;
     } else {
       editor = await validateTwitchEditor(twitchConfig, accessToken);
+    }
+    if (editor.broadcaster !== null) {
+      try {
+        await getChannelStub(env).fetch("https://channel.internal/internal/twitch/cache", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ user: editor.broadcaster }),
+        });
+      } catch {
+        // Best effort: der Admin-Header fällt sonst auf capsule.name zurück.
+      }
     }
     const accessEnvelope = await encryptToken(nextAccess, keyring, {
       broadcasterId: env.BROADCASTER_ID,

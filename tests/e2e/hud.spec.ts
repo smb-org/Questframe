@@ -70,6 +70,49 @@ test("preview zoom keeps its slider fixed through 200 percent and resets to 100"
   await expect(reset).toBeDisabled();
 });
 
+test("the live preview spans the panel width and stays pannable when zoomed", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "Desktop preview framing");
+  await page.setViewportSize({ width: 2560, height: 1440 });
+  await loginAsLocalEditor(page);
+
+  const heading = await page.locator(".panel-heading").boundingBox();
+  const viewport = await page.locator(".preview-viewport").boundingBox();
+  expect(heading).not.toBeNull();
+  expect(viewport).not.toBeNull();
+  expect(viewport?.x ?? 0).toBeCloseTo(heading?.x ?? 0, 0);
+  expect((viewport?.x ?? 0) + (viewport?.width ?? 0)).toBeCloseTo(
+    (heading?.x ?? 0) + (heading?.width ?? 0),
+    0,
+  );
+
+  await page.getByRole("slider", { name: "Vorschau-Zoom" }).fill("200");
+  const zoomed = await page.locator(".preview-viewport").boundingBox();
+  expect(zoomed?.width ?? 0).toBeCloseTo(viewport?.width ?? 0, 0);
+  expect(zoomed?.height ?? 0).toBeCloseTo(viewport?.height ?? 0, 0);
+
+  const scroll = await page.locator(".preview-viewport").evaluate((element) => ({
+    scrollWidth: element.scrollWidth,
+    clientWidth: element.clientWidth,
+    scrollHeight: element.scrollHeight,
+    clientHeight: element.clientHeight,
+    scrollLeft: element.scrollLeft,
+    scrollTop: element.scrollTop,
+  }));
+  expect(scroll.scrollWidth).toBeGreaterThan(scroll.clientWidth * 1.9);
+  expect(scroll.scrollHeight).toBeGreaterThan(scroll.clientHeight * 1.9);
+  expect(scroll.scrollLeft).toBe(0);
+  expect(scroll.scrollTop).toBe(0);
+});
+
+test("the header names the Twitch channel being edited", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "Desktop header identity");
+  await loginAsLocalEditor(page);
+
+  const identity = page.locator(".admin-topbar .channel-identity");
+  await expect(identity).toBeVisible();
+  await expect(identity.locator("strong")).not.toBeEmpty();
+});
+
 test("preview zoom controls stay inside the narrow tablet main column", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-desktop", "Tablet-width desktop controls");
   await page.setViewportSize({ width: 780, height: 1000 });
