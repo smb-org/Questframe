@@ -208,7 +208,7 @@ input[type="color"] { padding: 4px; }
 .guest-adder-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
 .guest-adder-form input { min-width: 0; }
 .guest-adder-status { display: grid; gap: 8px; }
-.guest-lookup-card, .guest-lookup-message { display: grid; gap: 8px; padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); }
+.guest-lookup-card, .guest-lookup-message { display: grid; gap: 8px; padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
 .guest-lookup-identity { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .guest-lookup-identity img { width: 30px; height: 30px; flex: 0 0 30px; border-radius: 50%; background: var(--surface-3); object-fit: cover; }
 .guest-lookup-identity > span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }

@@ -705,7 +705,7 @@ const GuestAdder = ({
             </div>
             {/* Ohne diesen Ausweg liesse sich kein manueller Gast anlegen, dessen
                 Name zufaellig wie ein Twitch-Login aussieht ("kevin", "papa"). */}
-            <button className="text-button" disabled={disabled} onClick={() => addManual(trimmedValue)} type="button">
+            <button className="button button--quiet" disabled={disabled} onClick={() => addManual(trimmedValue)} type="button">
               Stattdessen „{trimmedValue}“ als manuellen Gast hinzufügen
             </button>
           </div>
