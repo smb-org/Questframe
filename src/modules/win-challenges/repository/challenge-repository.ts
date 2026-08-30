@@ -1,6 +1,6 @@
 import type { ChallengeEvent, GlobalTimerEvent } from "../contracts/events";
-import type { Challenge, ChallengeDefinition, Settings } from "../contracts/schemas";
-import type { DomainNow } from "../domain/timers";
+import type { Challenge, ChallengeDefinition, GlobalTimer, Settings } from "../contracts/schemas";
+import type { DomainError, DomainNow } from "../domain/timers";
 
 export type ChallengeRepositorySettings = Omit<Settings, "themeId">;
 
@@ -52,6 +52,8 @@ export type ChallengeRuntime = Pick<
 export type CommandMutation<T> = {
   value: T;
   event: ChallengeEvent | GlobalTimerEvent | null;
+  // Globale Timer-Updates erhöhen event_seq atomar mit dem Meta-Update.
+  eventSeq?: number;
 };
 
 export type CommandResult<T> = {
@@ -75,7 +77,8 @@ export type ChallengeRepositoryErrorCode =
   | "idempotency_mismatch"
   | "not_found"
   | "revision_conflict"
-  | "validation_failed";
+  | "validation_failed"
+  | DomainError;
 
 export class ChallengeRepositoryError extends Error {
   public readonly code: ChallengeRepositoryErrorCode;
@@ -102,8 +105,8 @@ export class NotFoundError extends ChallengeRepositoryError {
 }
 
 export class ValidationError extends ChallengeRepositoryError {
-  public constructor(message: string) {
-    super("validation_failed", message);
+  public constructor(message: string, code: "validation_failed" | DomainError = "validation_failed") {
+    super(code, message);
     this.name = "ValidationError";
   }
 }
@@ -126,12 +129,14 @@ export interface ChallengeRepositoryTransaction {
     delta: number,
     maximum: number,
     updatedAt: string,
+    runtime?: Pick<ChallengeRuntime, "state" | "timerEndsAt" | "completedAt">,
   ): Challenge | null;
   updateChallengeRuntime(
     challengeId: string,
     runtime: ChallengeRuntime,
     updatedAt: string,
   ): Challenge | null;
+  updateGlobalTimer(globalTimer: GlobalTimer | null): number;
   pruneCommands(now: DomainNow): void;
   readDockToken(): DockTokenRecord | null;
   upsertDockToken(token: DockTokenRecord): void;

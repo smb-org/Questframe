@@ -1,9 +1,15 @@
 import type { Challenge, GlobalTimer } from "../contracts/schemas";
 import type { ChallengeEvent, GlobalTimerEvent } from "../contracts/events";
+import { MAX_COUNT } from "../contracts/predicates";
 
 export type DomainNow = number | string;
 export type TimerState = "idle" | "running" | "paused" | "expired";
-export type DomainError = "validation_failed";
+export const DOMAIN_ERROR_MESSAGES = {
+  challenge_timer_not_configured: "Für diese Challenge ist kein Timer eingerichtet.",
+  global_timer_not_configured: "Für den globalen Timer ist keine Dauer eingerichtet.",
+} as const;
+
+export type DomainError = keyof typeof DOMAIN_ERROR_MESSAGES;
 
 export type ChallengeTransition = {
   challenge: Challenge;
@@ -57,7 +63,7 @@ export function applyIncrement(
   }
 
   const boundedDelta = Math.max(-99, Math.min(99, Math.trunc(delta)));
-  const maximum = challenge.targetCount ?? 999;
+  const maximum = challenge.targetCount ?? MAX_COUNT;
   const nextCount = Math.max(0, Math.min(maximum, challenge.currentCount + boundedDelta));
   if (nextCount === challenge.currentCount) {
     return { challenge, event: null };
@@ -153,7 +159,7 @@ export function applyStartTimer(
     return { challenge, event: null };
   }
   if (challenge.timerTotalMs === null) {
-    return { challenge, event: null, error: "validation_failed" };
+    return { challenge, event: null, error: "challenge_timer_not_configured" };
   }
   return {
     challenge: {
@@ -200,7 +206,7 @@ export const applyStartGlobal = (
   now: DomainNow,
 ): GlobalTimerTransition => {
   if (globalTimer === null) {
-    return { globalTimer, event: null, error: "validation_failed" };
+    return { globalTimer, event: null, error: "global_timer_not_configured" };
   }
 
   const state = deriveTimerState(globalTimer.endsAt, globalTimer.pausedRemainMs, now);

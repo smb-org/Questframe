@@ -4,6 +4,8 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { runMigrations } from "../../src/channel/migrations";
 import { createSqlStorageChallengeRepository, type SqlStorageChallengeRepository } from "../../src/modules/win-challenges/adapters/sql-storage-challenge-repository";
+import { MAX_COUNT } from "../../src/modules/win-challenges/contracts/predicates";
+import { createWinChallenges, hashChallengeCommand } from "../../src/modules/win-challenges/service/commands";
 import { IdempotencyMismatchError } from "../../src/modules/win-challenges/repository/challenge-repository";
 import type { Challenge, ChallengeDefinition } from "../../src/modules/win-challenges/contracts/schemas";
 
@@ -370,7 +372,7 @@ describe("win-challenges repository and migration", () => {
           const updated = transaction.incrementChallengeCount(
             challenge.id,
             1,
-            current.targetCount ?? 999,
+            current.targetCount ?? MAX_COUNT,
             now,
           );
           if (updated === null) throw new Error("Challenge konnte nicht aktualisiert werden.");
@@ -414,6 +416,112 @@ describe("win-challenges repository and migration", () => {
       inRepository((repository) => execute(repository, "hash-b")),
     ).rejects.toBeInstanceOf(IdempotencyMismatchError);
     expect((await inRepository((repository) => repository.readChallenge(challenge.id)))?.currentCount).toBe(1);
+  });
+
+  it("hält die Schreibbaseline für ein vollendendes increment ein", async () => {
+    const created = await inRepository((repository) =>
+      repository.saveBoard({
+        baseBoardRevision: 1,
+        definitions: [{ ...definition("Complete", 0), targetCount: 1 }],
+        now,
+      }),
+    );
+    const challenge = onlyChallenge(created.snapshot.challenges);
+    const command = {
+      commandId: "55555555-5555-4555-8555-555555555555",
+      scope: "challenge",
+      type: "increment",
+      challengeId: challenge.id,
+      delta: 1,
+    } as const;
+    const requestHash = await hashChallengeCommand(command);
+    const measured = await inRepository((repository) =>
+      repository.measure(() =>
+        createWinChallenges({ repository, clock: () => now }).executeCommandWithHash(
+          command,
+          requestHash,
+        ),
+      ),
+    );
+
+    expect(measured.rowsWritten).toBe(4);
+    expect(measured.result).toMatchObject({
+      response: {
+        replayed: false,
+        challenge: { currentCount: 1, state: "done" },
+      },
+      update: {
+        event: { type: "completed" },
+        challenges: [{ currentCount: 1, state: "done" }],
+      },
+    });
+  });
+
+  it("misst alle drei globalen Timer-Kommandos mit einem Meta-Update", async () => {
+    const created = await inRepository((repository) =>
+      repository.saveBoard({
+        baseBoardRevision: 1,
+        definitions: [definition("One", 0), definition("Two", 1), definition("Three", 2)],
+        now,
+      }),
+    );
+    await inRepository((repository) =>
+      repository.saveSettings({
+        baseSettingsRevision: created.snapshot.settingsRevision,
+        styleId: "plain-list",
+        themeMode: "inherit",
+        surfaceMode: "surface",
+        headerTitle: "CHALLENGES",
+        effectsEnabled: true,
+        maxVisible: 5,
+        globalTimerTotalMs: 120_000,
+        now,
+      }),
+    );
+
+    const commands = [
+      {
+        commandId: "66666666-6666-4666-8666-666666666666",
+        scope: "global",
+        type: "startGlobalTimer",
+      },
+      {
+        commandId: "77777777-7777-4777-8777-777777777777",
+        scope: "global",
+        type: "pauseGlobalTimer",
+      },
+      {
+        commandId: "88888888-8888-4888-8888-888888888888",
+        scope: "global",
+        type: "resetGlobalTimer",
+      },
+    ] as const;
+    const measured = [];
+    for (const command of commands) {
+      const requestHash = await hashChallengeCommand(command);
+      measured.push(
+        await inRepository((repository) =>
+          repository.measure(() =>
+            createWinChallenges({ repository, clock: () => now }).executeCommandWithHash(
+              command,
+              requestHash,
+            ),
+          ),
+        ),
+      );
+    }
+
+    expect(measured.map(({ rowsWritten, rowsRead }) => ({ rowsWritten, rowsRead }))).toEqual([
+      { rowsWritten: 3, rowsRead: 17 },
+      { rowsWritten: 3, rowsRead: 18 },
+      { rowsWritten: 3, rowsRead: 19 },
+    ]);
+    expect(measured.map(({ result }) => result.response.eventSeq)).toEqual([1, 2, 3]);
+    expect(measured.map(({ result }) => result.update.event?.type)).toEqual([
+      "global_started",
+      "global_paused",
+      "global_reset",
+    ]);
   });
 
   it("prunes only commands older than 24 hours", async () => {
@@ -474,7 +582,7 @@ describe("win-challenges repository and migration", () => {
             const updated = transaction.incrementChallengeCount(
               challenge.id,
               1,
-              current.targetCount ?? 999,
+              current.targetCount ?? MAX_COUNT,
               now,
             );
             if (updated === null) throw new Error("Challenge konnte nicht aktualisiert werden.");

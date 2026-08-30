@@ -3,6 +3,7 @@ const challengeGraphemeSegmenter = new Intl.Segmenter("de", {
 });
 
 export const MAX_CHALLENGES = 30 as const;
+export const MAX_COUNT = 999 as const;
 export const MAX_TOTAL_ROWS = 12 as const;
 export const COMPLETED_VISIBILITY_MS = 8_000 as const;
 
@@ -52,10 +53,10 @@ export const isChallengeDescription = (
 
 export const isTargetCount = (value: unknown): value is number | null =>
   value === null ||
-  (typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= 999);
+  (typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= MAX_COUNT);
 
 export const isCurrentCount = (value: unknown): value is number =>
-  typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 999;
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= MAX_COUNT;
 
 export const isTimerTotalMs = (value: unknown): value is number | null =>
   value === null ||

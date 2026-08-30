@@ -519,6 +519,27 @@ const worker = {
       return handleTwitchLookup(request, env);
     }
 
+    const challengeRoutes: Record<string, { pathname: string; protection: "read" | "editor" | "command" }> = {
+      "GET /api/challenges": { pathname: "/challenges", protection: "read" },
+      "POST /api/challenges/commands": { pathname: "/challenges/commands", protection: "command" },
+      "PUT /api/challenges/board": { pathname: "/challenges/board", protection: "editor" },
+      "PUT /api/challenges/settings": { pathname: "/challenges/settings", protection: "editor" },
+    };
+    const challengeRoute = challengeRoutes[`${request.method} ${url.pathname}`];
+    if (challengeRoute !== undefined) {
+      if (challengeRoute.protection === "read") {
+        const originError = requireSameOriginRead(request, env);
+        if (originError !== null) return originError;
+      } else {
+        // Session-Kommandos folgen derselben Herkunftsprüfung wie jede Editor-Mutation.
+        // Ein späterer Bearer-Dock-Weg braucht wegen fehlender Cookie-Credentials kein
+        // CSRF-Gate; dort greifen stattdessen Token-Prüfung und DOCK_TOKEN_LIMITER.
+        const originError = requireSameOriginMutation(request, env);
+        if (originError !== null) return originError;
+      }
+      return proxyToChannel(request, env, challengeRoute.pathname);
+    }
+
     const mutations: Record<string, string> = {
       "/api/state": "/state",
       "/api/state/undo": "/state/undo",

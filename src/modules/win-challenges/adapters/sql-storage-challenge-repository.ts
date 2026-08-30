@@ -1,7 +1,14 @@
 import { z } from "zod";
 
-import { challengeDefinitionSchema, challengeSchema, globalTimerSchema, settingsSchema, type Challenge } from "../contracts/schemas";
-import { MAX_CHALLENGES, isEventSeq, isRevision, isTimerTotalMs } from "../contracts/predicates";
+import {
+  challengeDefinitionSchema,
+  challengeSchema,
+  globalTimerSchema,
+  settingsSchema,
+  type Challenge,
+  type GlobalTimer,
+} from "../contracts/schemas";
+import { MAX_CHALLENGES, MAX_COUNT, isEventSeq, isRevision, isTimerTotalMs } from "../contracts/predicates";
 import { mergeDefinition, normalizeSortOrder } from "../domain/definitions";
 import type { DomainNow } from "../domain/timers";
 import {
@@ -371,9 +378,11 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       }
       this.insertCommand(command);
       const outcome = execute(transaction);
-      const eventSeq = outcome.event === null
-        ? transaction.readSnapshot().eventSeq
-        : this.bumpEventSeq();
+      const eventSeq = outcome.eventSeq ?? (
+        outcome.event === null
+          ? transaction.readSnapshot().eventSeq
+          : this.bumpEventSeq()
+      );
       return { value: outcome.value, eventSeq, replayed: false };
     });
   }
@@ -438,10 +447,11 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     return {
       readSnapshot: () => this.readSnapshotInternal(),
       readChallenge: (challengeId) => this.readChallengeInternal(challengeId),
-      incrementChallengeCount: (challengeId, delta, maximum, updatedAt) =>
-        this.incrementChallengeCount(challengeId, delta, maximum, updatedAt),
+      incrementChallengeCount: (challengeId, delta, maximum, updatedAt, runtime) =>
+        this.incrementChallengeCount(challengeId, delta, maximum, updatedAt, runtime),
       updateChallengeRuntime: (challengeId, runtime, updatedAt) =>
         this.updateChallengeRuntime(challengeId, runtime, updatedAt),
+      updateGlobalTimer: (globalTimer) => this.updateGlobalTimer(globalTimer),
       pruneCommands: (now) => {
         this.pruneCommandsInternal(now);
       },
@@ -526,19 +536,36 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     delta: number,
     maximum: number,
     updatedAt: string,
+    runtime?: Pick<ChallengeRuntime, "state" | "timerEndsAt" | "completedAt">,
   ): Challenge | null {
-    if (!Number.isSafeInteger(delta) || !Number.isSafeInteger(maximum) || maximum < 0 || maximum > 999) {
+    if (!Number.isSafeInteger(delta) || !Number.isSafeInteger(maximum) || maximum < 0 || maximum > MAX_COUNT) {
       throw new ValidationError("Ungültige Zählergrenze.");
     }
-    this.execute<ChallengeRow>(
-      `UPDATE ${this.table("challenges")}
-       SET current_count = MIN(MAX(current_count + ?, 0), ?), updated_at = ?
-       WHERE id = ? AND state <> 'done'`,
-      delta,
-      maximum,
-      updatedAt,
-      challengeId,
-    );
+    if (runtime === undefined) {
+      this.execute<ChallengeRow>(
+        `UPDATE ${this.table("challenges")}
+         SET current_count = MIN(MAX(current_count + ?, 0), ?), updated_at = ?
+         WHERE id = ? AND state <> 'done'`,
+        delta,
+        maximum,
+        updatedAt,
+        challengeId,
+      );
+    } else {
+      this.execute<ChallengeRow>(
+        `UPDATE ${this.table("challenges")} SET
+          current_count = MIN(MAX(current_count + ?, 0), ?), state = ?,
+          timer_ends_at = ?, completed_at = ?, updated_at = ?
+         WHERE id = ? AND state <> 'done'`,
+        delta,
+        maximum,
+        runtime.state,
+        runtime.timerEndsAt,
+        runtime.completedAt,
+        updatedAt,
+        challengeId,
+      );
+    }
     return this.readChallengeInternal(challengeId);
   }
 
@@ -561,10 +588,27 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     return this.readChallengeInternal(challengeId);
   }
 
+  private updateGlobalTimer(globalTimer: GlobalTimer | null): number {
+    this.execute<MetaRow>(
+      `UPDATE ${this.table("meta")} SET
+        global_timer_total_ms = ?, global_timer_ends_at = ?, global_timer_paused_remain_ms = ?,
+        event_seq = event_seq + 1
+       WHERE singleton = 1`,
+      globalTimer?.totalMs ?? null,
+      globalTimer?.endsAt ?? null,
+      globalTimer?.pausedRemainMs ?? null,
+    );
+    return this.readEventSeq();
+  }
+
   private bumpEventSeq(): number {
     this.execute<MetaRow>(
       `UPDATE ${this.table("meta")} SET event_seq = event_seq + 1 WHERE singleton = 1`,
     );
+    return this.readEventSeq();
+  }
+
+  private readEventSeq(): number {
     const row = this.execute<{ event_seq: number }>(
       `SELECT event_seq FROM ${this.table("meta")} WHERE singleton = 1`,
     )[0];

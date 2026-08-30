@@ -20,6 +20,8 @@ export const API_ERROR_CODES = [
   "token_changed",
   "token_invalid",
   "validation_failed",
+  "challenge_timer_not_configured",
+  "global_timer_not_configured",
   "payload_too_large",
   "media_quota_exceeded",
   "socket_limit",
@@ -38,6 +40,7 @@ export const apiErrorSchema = z.strictObject({
     fieldErrors: z.record(z.string(), z.string().min(1).max(160)).optional(),
     currentRevision: z.number().int().min(1).optional(),
     currentState: channelStateSchema.optional(),
+    currentSnapshot: z.unknown().optional(),
   }),
 });
 
@@ -48,6 +51,7 @@ type ApiErrorDetails = {
   fieldErrors?: Record<string, string>;
   currentRevision?: number;
   currentState?: z.infer<typeof channelStateSchema>;
+  currentSnapshot?: unknown;
 };
 
 export const createApiError = (

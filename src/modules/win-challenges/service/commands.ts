@@ -1,0 +1,272 @@
+import type { ChallengeEvent, GlobalTimerEvent } from "../contracts/events";
+import type { Command, Challenge } from "../contracts/schemas";
+import {
+  applyComplete,
+  applyIncrement,
+  applyPauseGlobal,
+  applyReopen,
+  applyResetGlobal,
+  applyStartGlobal,
+  applyStartTimer,
+  applyStopTimer,
+  DOMAIN_ERROR_MESSAGES,
+  type DomainNow,
+} from "../domain/timers";
+import { MAX_COUNT } from "../contracts/predicates";
+import { selectVisible, type VisibleSelection } from "../domain/visibility";
+import {
+  NotFoundError,
+  ValidationError,
+  type BoardSaveResult,
+  type ChallengeRepository,
+  type ChallengeRepositorySettings,
+  type ChallengeRuntime,
+  type ChallengeRepositoryTransaction,
+  type ChallengeSnapshot,
+  type SettingsSaveResult,
+} from "../repository/challenge-repository";
+
+export type ChallengeUpdatePayload = ChallengeSnapshot & {
+  event: ChallengeEvent | GlobalTimerEvent | null;
+};
+
+export type CommandResponse = {
+  eventSeq: number;
+  replayed: boolean;
+  challenge?: Challenge;
+  settings?: ChallengeRepositorySettings;
+};
+
+export type CommandExecutionResult = {
+  response: CommandResponse;
+  update: ChallengeUpdatePayload;
+};
+
+export type ChallengeClock = () => DomainNow;
+
+export type WinChallengesOptions = {
+  repository: ChallengeRepository;
+  clock: ChallengeClock;
+};
+
+type CommandMutationValue = {
+  challenge?: Challenge;
+  settings?: ChallengeRepositorySettings;
+  event: ChallengeEvent | GlobalTimerEvent | null;
+  eventSeq?: number;
+};
+
+const toInstant = (now: DomainNow): string => {
+  const milliseconds = typeof now === "number" ? now : Date.parse(now);
+  if (!Number.isFinite(milliseconds)) throw new ValidationError("Ungültiger Zeitpunkt.");
+  return new Date(milliseconds).toISOString();
+};
+
+const canonicalCommand = (command: Command): string => {
+  if (command.scope === "global") {
+    return JSON.stringify({
+      commandId: command.commandId,
+      scope: command.scope,
+      type: command.type,
+    });
+  }
+  if (command.type === "increment") {
+    return JSON.stringify({
+      commandId: command.commandId,
+      scope: command.scope,
+      type: command.type,
+      challengeId: command.challengeId,
+      delta: command.delta,
+    });
+  }
+  return JSON.stringify({
+    commandId: command.commandId,
+    scope: command.scope,
+    type: command.type,
+    challengeId: command.challengeId,
+  });
+};
+
+export const hashChallengeCommand = async (command: Command): Promise<string> => {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(canonicalCommand(command)),
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+};
+
+const runtimeOf = (challenge: Challenge): ChallengeRuntime => ({
+  currentCount: challenge.currentCount,
+  state: challenge.state,
+  timerEndsAt: challenge.timerEndsAt,
+  completedAt: challenge.completedAt,
+});
+
+const challengeMutation = (
+  transaction: ChallengeRepositoryTransaction,
+  command: Extract<Command, { scope: "challenge" }>,
+  now: DomainNow,
+): CommandMutationValue => {
+  const current = transaction.readChallenge(command.challengeId);
+  if (current === null) throw new NotFoundError();
+
+  if (command.type === "increment") {
+    const transition = applyIncrement(current, command.delta, now);
+    if (transition.error !== undefined) {
+      throw new ValidationError(DOMAIN_ERROR_MESSAGES[transition.error], transition.error);
+    }
+    if (transition.event === null) return { challenge: current, event: null };
+
+    const challenge = transaction.incrementChallengeCount(
+      command.challengeId,
+      transition.challenge.currentCount - current.currentCount,
+      transition.challenge.targetCount ?? MAX_COUNT,
+      transition.challenge.updatedAt,
+      transition.event.type === "completed"
+        ? {
+            state: transition.challenge.state,
+            timerEndsAt: transition.challenge.timerEndsAt,
+            completedAt: transition.challenge.completedAt,
+          }
+        : undefined,
+    );
+    if (challenge === null) throw new NotFoundError();
+    return { challenge, event: transition.event };
+  }
+
+  const transition = command.type === "complete"
+    ? applyComplete(current, now)
+    : command.type === "reopen"
+      ? applyReopen(current, now)
+      : command.type === "startTimer"
+        ? applyStartTimer(current, now)
+        : applyStopTimer(current, now);
+  if (transition.error !== undefined) {
+    throw new ValidationError(DOMAIN_ERROR_MESSAGES[transition.error], transition.error);
+  }
+  if (transition.event === null) return { challenge: current, event: null };
+
+  const challenge = transaction.updateChallengeRuntime(
+    command.challengeId,
+    runtimeOf(transition.challenge),
+    transition.challenge.updatedAt,
+  );
+  if (challenge === null) throw new NotFoundError();
+  return { challenge, event: transition.event };
+};
+
+const globalMutation = (
+  transaction: ChallengeRepositoryTransaction,
+  command: Extract<Command, { scope: "global" }>,
+  now: DomainNow,
+): CommandMutationValue => {
+  const current = transaction.readSnapshot();
+  const transition = command.type === "startGlobalTimer"
+    ? applyStartGlobal(current.settings.globalTimer, now)
+    : command.type === "pauseGlobalTimer"
+      ? applyPauseGlobal(current.settings.globalTimer, now)
+      : applyResetGlobal(current.settings.globalTimer, now);
+  if (transition.error !== undefined) {
+    throw new ValidationError(DOMAIN_ERROR_MESSAGES[transition.error], transition.error);
+  }
+  if (transition.event === null) {
+    return { settings: { ...current.settings, globalTimer: transition.globalTimer }, event: null };
+  }
+  const eventSeq = transaction.updateGlobalTimer(transition.globalTimer);
+  return {
+    settings: { ...current.settings, globalTimer: transition.globalTimer },
+    event: transition.event,
+    eventSeq,
+  };
+};
+
+export class WinChallengesService {
+  private readonly repository: ChallengeRepository;
+  private readonly clock: ChallengeClock;
+
+  public constructor(options: WinChallengesOptions) {
+    this.repository = options.repository;
+    this.clock = options.clock;
+  }
+
+  public readSnapshot(): ChallengeUpdatePayload {
+    return { ...this.repository.readSnapshot(), event: null };
+  }
+
+  public selectVisible(now: DomainNow = this.clock()): VisibleSelection {
+    const snapshot = this.repository.readSnapshot();
+    return selectVisible(snapshot.challenges, snapshot.settings.maxVisible, now);
+  }
+
+  public saveBoard(
+    input: Omit<Parameters<ChallengeRepository["saveBoard"]>[0], "now">,
+  ): BoardSaveResult {
+    return this.repository.saveBoard({ ...input, now: this.clock() });
+  }
+
+  public saveSettings(
+    input: Omit<Parameters<ChallengeRepository["saveSettings"]>[0], "now">,
+  ): SettingsSaveResult {
+    return this.repository.saveSettings({ ...input, now: this.clock() });
+  }
+
+  public async executeCommand(command: Command): Promise<CommandExecutionResult> {
+    const now = this.clock();
+    return this.executeCommandWithHash(command, await hashChallengeCommand(command), now);
+  }
+
+  public executeCommandWithHash(
+    command: Command,
+    requestHash: string,
+    now: DomainNow = this.clock(),
+  ): CommandExecutionResult {
+    const commandResult = this.repository.runCommand<CommandMutationValue>(
+      {
+        commandId: command.commandId,
+        requestHash,
+        createdAt: toInstant(now),
+      },
+      (transaction) => {
+        transaction.pruneCommands(now);
+        const value = command.scope === "challenge"
+          ? challengeMutation(transaction, command, now)
+          : globalMutation(transaction, command, now);
+        if (value.eventSeq === undefined) return { value, event: value.event };
+        return { value, event: value.event, eventSeq: value.eventSeq };
+      },
+      (transaction) => {
+        if (command.scope === "challenge") {
+          const challenge = transaction.readChallenge(command.challengeId);
+          if (challenge === null) throw new NotFoundError();
+          return { challenge, event: null };
+        }
+        return {
+          settings: transaction.readSnapshot().settings,
+          event: null,
+        };
+      },
+    );
+    const snapshot = this.repository.readSnapshot();
+    const update: ChallengeUpdatePayload = {
+      ...snapshot,
+      event: commandResult.replayed ? null : commandResult.value.event,
+    };
+    const response: CommandResponse = {
+      eventSeq: commandResult.eventSeq,
+      replayed: commandResult.replayed,
+    };
+    if (command.scope === "challenge") {
+      if (commandResult.value.challenge === undefined) throw new Error("Challenge-Antwort fehlt.");
+      response.challenge = commandResult.value.challenge;
+    } else {
+      if (commandResult.value.settings === undefined) throw new Error("Settings-Antwort fehlt.");
+      response.settings = commandResult.value.settings;
+    }
+    return { response, update };
+  }
+}
+
+export const createWinChallenges = (options: WinChallengesOptions): WinChallengesService =>
+  new WinChallengesService(options);

@@ -39,6 +39,17 @@ import { errorResponse, jsonResponse, readJson, RequestError } from "../worker/h
 import { hmacHex, randomToken, sha256Hex, timingSafeEqual } from "./crypto";
 import { decryptOverlayToken, encryptOverlayToken, tokenEnvelopeSchema } from "./auth/crypto";
 import { runMigrations } from "./migrations";
+import { createSqlStorageChallengeRepository } from "../modules/win-challenges/adapters/sql-storage-challenge-repository";
+import {
+  boardSaveRequestSchema,
+  commandSchema,
+  settingsSaveRequestSchema,
+} from "../modules/win-challenges/contracts/schemas";
+import { createWinChallenges } from "../modules/win-challenges/service/commands";
+import {
+  ChallengeRepositoryError,
+  RevisionConflictError,
+} from "../modules/win-challenges/repository/challenge-repository";
 
 type StateRow = {
   revision: number;
@@ -193,6 +204,18 @@ export class ChannelObject extends DurableObject<AppEnv> {
       if (request.method === "GET" && url.pathname === "/editor/bootstrap") {
         return await this.bootstrap(request);
       }
+      if (request.method === "GET" && url.pathname === "/challenges") {
+        return this.getChallenges(request);
+      }
+      if (request.method === "POST" && url.pathname === "/challenges/commands") {
+        return await this.runChallengeCommand(request);
+      }
+      if (request.method === "PUT" && url.pathname === "/challenges/board") {
+        return await this.saveChallengeBoard(request);
+      }
+      if (request.method === "PUT" && url.pathname === "/challenges/settings") {
+        return await this.saveChallengeSettings(request);
+      }
       if (request.method === "PUT" && url.pathname === "/state") {
         return await this.save(request);
       }
@@ -232,6 +255,20 @@ export class ChannelObject extends DurableObject<AppEnv> {
         return errorResponse(422, "validation_failed", "Bitte Eingaben prüfen.", {
           fieldErrors: mapZodIssues(error),
         });
+      }
+      if (error instanceof ChallengeRepositoryError) {
+        const status: Record<ChallengeRepositoryError["code"], number> = {
+          idempotency_mismatch: 409,
+          not_found: 404,
+          revision_conflict: 409,
+          validation_failed: 422,
+          challenge_timer_not_configured: 422,
+          global_timer_not_configured: 422,
+        };
+        const details = error instanceof RevisionConflictError
+          ? { currentSnapshot: error.snapshot }
+          : {};
+        return errorResponse(status[error.code], error.code, error.message, details);
       }
       console.error("channel_request_failed", {
         path: url.pathname,
@@ -535,6 +572,52 @@ export class ChannelObject extends DurableObject<AppEnv> {
       serverTime: nowIso(),
     });
     return jsonResponse(response);
+  }
+
+  private challengeService() {
+    return createWinChallenges({
+      repository: createSqlStorageChallengeRepository({
+        sql: this.ctx.storage.sql,
+        transactionSync: this.ctx.storage.transactionSync.bind(this.ctx.storage),
+      }),
+      clock: nowIso,
+    });
+  }
+
+  private getChallenges(request: Request): Response {
+    this.requireSession(request);
+    return jsonResponse(this.challengeService().readSnapshot());
+  }
+
+  private async runChallengeCommand(request: Request): Promise<Response> {
+    await this.requireChallengeCommandAuth(request);
+    const command = commandSchema.parse(await readJson(request, 32_768));
+    const result = await this.challengeService().executeCommand(command);
+    return jsonResponse(result.response);
+  }
+
+  private async saveChallengeBoard(request: Request): Promise<Response> {
+    const session = this.requireSession(request);
+    await this.requireCsrf(request, session);
+    const input = boardSaveRequestSchema.parse(await readJson(request, 32_768));
+    return jsonResponse(this.challengeService().saveBoard({
+      baseBoardRevision: input.baseBoardRevision,
+      definitions: input.challenges,
+    }));
+  }
+
+  private async saveChallengeSettings(request: Request): Promise<Response> {
+    const session = this.requireSession(request);
+    await this.requireCsrf(request, session);
+    const input = settingsSaveRequestSchema.parse(await readJson(request, 32_768));
+    return jsonResponse(this.challengeService().saveSettings(input));
+  }
+
+  private async requireChallengeCommandAuth(request: Request): Promise<void> {
+    const session = this.requireSession(request);
+    // Für den Session-Weg gilt die vollständige Editor-Kette. Ein späterer Bearer-Dock-Weg
+    // kann hier ohne Cookie-Credentials an die Token-Prüfung und DOCK_TOKEN_LIMITER abzweigen.
+    await this.requireCsrf(request, session);
   }
 
   private async save(request: Request): Promise<Response> {

@@ -5,6 +5,7 @@ import {
   CHALLENGE_STYLE_IDS,
   CHALLENGE_THEME_IDS,
   MAX_CHALLENGES,
+  MAX_COUNT,
   isChallengeDescription,
   isChallengeId,
   isChallengeState,
@@ -50,8 +51,9 @@ const challengeDescriptionSchema = normalized(
   isChallengeDescription,
   "Beschreibung muss 0–160 Zeichen lang sein oder null sein.",
 );
-const targetCountSchema = custom(isTargetCount, "Ziel muss null oder eine Zahl von 1–999 sein.");
-const currentCountSchema = custom(isCurrentCount, "Aktueller Stand muss 0–999 sein.");
+const maxCountLabel = String(MAX_COUNT);
+const targetCountSchema = custom(isTargetCount, `Ziel muss null oder eine Zahl von 1–${maxCountLabel} sein.`);
+const currentCountSchema = custom(isCurrentCount, `Aktueller Stand muss 0–${maxCountLabel} sein.`);
 const timerTotalMsSchema = custom(
   isTimerTotalMs,
   "Timerdauer muss null oder 10.000–21.600.000 ms sein.",
@@ -184,6 +186,22 @@ export const commandSchema = z.union([
   }),
 ]);
 
+export const boardSaveRequestSchema = z.strictObject({
+  baseBoardRevision: revisionSchema,
+  challenges: z.array(challengeDefinitionSchema).max(MAX_CHALLENGES),
+});
+
+export const settingsSaveRequestSchema = z.strictObject({
+  baseSettingsRevision: revisionSchema,
+  styleId: styleIdSchema,
+  themeMode: themeModeSchema,
+  surfaceMode: surfaceModeSchema,
+  headerTitle: headerTitleSchema,
+  effectsEnabled: z.boolean(),
+  maxVisible: maxVisibleSchema,
+  globalTimerTotalMs: timerTotalMsSchema,
+});
+
 const challengeEventSchema = z.union([
   z.strictObject({
     scope: z.literal("challenge"),
@@ -228,6 +246,8 @@ export type ChallengeDefinition = z.infer<typeof challengeDefinitionSchema>;
 export type GlobalTimer = z.infer<typeof globalTimerSchema>;
 export type Settings = z.infer<typeof settingsSchema>;
 export type Command = z.infer<typeof commandSchema>;
+export type BoardSaveRequest = z.infer<typeof boardSaveRequestSchema>;
+export type SettingsSaveRequest = z.infer<typeof settingsSaveRequestSchema>;
 export type ChallengeUpdate = z.infer<typeof challengeUpdateSchema>;
 
 export type ChallengeEventPayload = ChallengeEvent;

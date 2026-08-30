@@ -344,7 +344,7 @@ Editor-Routen nutzen die bestehende Kette: Same-Origin, `x-csrf-token`, `x-edito
 | Route | Methode | Auth | Body | Fehler |
 |---|---|---|---|---|
 | `/api/challenges` | GET | Session | — | `unauthorized` |
-| `/api/challenges/commands` | POST | Session **oder** Dock-Token | siehe Kommando-DTO unten | `validation_failed`, `idempotency_mismatch`, `not_found`, `rate_limited` |
+| `/api/challenges/commands` | POST | Session **oder** Dock-Token | siehe Kommando-DTO unten | `validation_failed`, `challenge_timer_not_configured`, `global_timer_not_configured`, `idempotency_mismatch`, `not_found`, `rate_limited` |
 | `/api/challenges/board` | PUT | Session | `{ baseBoardRevision, challenges: Definition[] }` | `revision_conflict` (mit Snapshot), `payload_too_large` |
 | `/api/challenges/settings` | PUT | Session | `{ baseSettingsRevision, styleId, themeMode, surfaceMode, headerTitle, effectsEnabled, maxVisible, globalTimerTotalMs }` | `revision_conflict` (mit Snapshot), `validation_failed` |
 
@@ -642,7 +642,7 @@ liegt, käme der Streamer auf der Live-Seite nicht mehr weiter. Mit der Ableitun
   wirkungslos.
 - `pause` **rechnet nie gegen ein bereits geleertes `ends_at`**. Damit ist die Race
   zwischen zwei gleichzeitigen Pausen strukturell ausgeschlossen, nicht durch Vorsicht.
-- `start` bei `total_ms IS NULL` → `validation_failed`. Das Feature ist dann aus.
+- `start` bei `total_ms IS NULL` → `challenge_timer_not_configured` bzw. `global_timer_not_configured`. Das Feature ist dann aus.
 - `total_ms` während `running` geändert → `ends_at` bleibt unangetastet, die neue Dauer
   gilt ab dem nächsten `start`. Dieselbe Regel wie bei den Challenge-Timern.
 
@@ -815,15 +815,24 @@ als Writes, Indexänderungen als zusätzliche Row-Writes.
 
 Gemessene Baseline der Cursor-Metriken, **ohne** Session-Writes:
 
+Die drei globalen Kommandos sind in der Reihenfolge `start`, `pause`, `reset` auf demselben
+Snapshot mit drei Challenges gemessen; dadurch wächst die Command-Tabelle zwischen den
+Messungen um jeweils einen Eintrag.
+
 | Aktion | `rowsWritten` | `rowsRead` |
 |---|---|---|
-| Mutation mit Event (bestehende Challenge, `increment`) | 4 | 5 |
+| Mutation mit Event (bestehende Challenge, `increment`, einschließlich Auto-Complete) | 4 | 5 |
+| Globales Kommando `startGlobalTimer` (bestehender Snapshot mit 3 Challenges) | 3 | 17 |
+| Globales Kommando `pauseGlobalTimer` (bestehender Snapshot mit 3 Challenges) | 3 | 18 |
+| Globales Kommando `resetGlobalTimer` (bestehender Snapshot mit 3 Challenges) | 3 | 19 |
 | Board-Save mit N = 3 neuen Challenges | 7 | 15 |
 | Settings-Save (bestehender Snapshot mit 3 Challenges) | 1 | 15 |
 | Snapshot-Read mit 3 Challenges | 0 | 7 |
 
 Die Messung läuft gegen den DO-SQLite-Adapter und zählt die tatsächlichen Cursor-Werte
-inklusive Indexkosten. Der Board-Save verwendet **Upsert plus Löschen fehlender IDs**:
+inklusive Indexkosten. Ein globales Kommando schreibt die neue Timerbelegung und den
+`event_seq`-Bump in einem einzigen `wc_meta`-Update; zusammen mit dem Command-Insert
+ergeben sich dadurch 3 `rowsWritten`. Der Board-Save verwendet **Upsert plus Löschen fehlender IDs**:
 erst werden nicht mehr eingereichte IDs gelöscht, danach werden die Definitionen einzeln
 eingefügt oder aktualisiert, zuletzt steigt `board_revision`. In der Baseline sind drei
 neue Einträge angelegt worden; die drei Primary-Key-Index-Writes erklären zusammen mit
@@ -839,7 +848,7 @@ der Write-Zähler. Genau deshalb ist `DOCK_TOKEN_LIMITER` keine Kür.
 Diese gemessene Baseline ist für das Free-Tier-Budget verbindlich: `rowsWritten` enthält
 die Index-Kosten des `TEXT PRIMARY KEY`; Session-Writes und tatsächliche Deletes kommen
 bei den jeweiligen authentisierten Aktionen zusätzlich hinzu. Die Worker-Test-Suite
-friert die vier Messwerte als Regression-Gate ein.
+friert die sieben Messwerte als Regression-Gate ein.
 
 ## Test Coverage Plan
 

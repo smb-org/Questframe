@@ -122,7 +122,8 @@ describe("Win-Challenges-Domain", () => {
     expect(stopped.challenge.timerEndsAt).toBeNull();
     expect(stopped.event?.type).toBe("timer_stopped");
     expect(applyStopTimer(makeChallenge(), now).event).toBeNull();
-    expect(applyStartTimer(makeChallenge({ timerTotalMs: null }), now).error).toBe("validation_failed");
+    expect(applyStartTimer(makeChallenge({ timerTotalMs: null }), now).error)
+      .toBe("challenge_timer_not_configured");
   });
 
   it("öffnet Challenges mit abgelaufenem Timer ohne alten Zeitstempel wieder", () => {
@@ -200,7 +201,7 @@ describe("Win-Challenges-Domain", () => {
   });
 
   it("startet bei ausgeschaltetem globalem Timer nicht und setzt laufend/pausiert zurück", () => {
-    expect(applyStartGlobal(null, now).error).toBe("validation_failed");
+    expect(applyStartGlobal(null, now).error).toBe("global_timer_not_configured");
     expect(applyStartGlobal(makeGlobalTimer({ pausedRemainMs: 15_000 }), now).globalTimer?.endsAt)
       .toBe("2026-08-30T12:00:15.000Z");
     expect(applyPauseGlobal(makeGlobalTimer(), now).event).toBeNull();
