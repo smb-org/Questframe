@@ -1,5 +1,6 @@
 import type { ChallengeEvent, GlobalTimerEvent } from "../contracts/events";
 import type { Command, Challenge } from "../contracts/schemas";
+import type { ChallengeUpdate } from "../../../shared/contracts/win-challenges";
 import {
   applyComplete,
   applyIncrement,
@@ -22,11 +23,11 @@ import {
   type ChallengeRepositorySettings,
   type ChallengeRuntime,
   type ChallengeRepositoryTransaction,
-  type ChallengeSnapshot,
   type SettingsSaveResult,
 } from "../repository/challenge-repository";
 
-export type ChallengeUpdatePayload = ChallengeSnapshot & {
+export type ChallengeUpdatePayload = Omit<ChallengeUpdate, "settings"> & {
+  settings: Omit<ChallengeUpdate["settings"], "themeId">;
   event: ChallengeEvent | GlobalTimerEvent | null;
 };
 

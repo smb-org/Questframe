@@ -9,6 +9,7 @@ import {
   storeOverlaySnapshot,
 } from "./cache";
 import { HudRenderer } from "./HudRenderer";
+import { isStateBearingMessage } from "./message-policy";
 import { parseOverlayMessage } from "./wire";
 
 const OVERLAY_WATCHDOG_MARKER = "irl-stream-hud:overlay-watchdog-reload-at";
@@ -17,13 +18,6 @@ const OVERLAY_WATCHDOG_DELAY_MS = 1_000;
 const reloadOverlayPage = (): void => {
   window.location.reload();
 };
-
-const isStateBearingMessage = (input: unknown): boolean =>
-  typeof input === "object" &&
-  input !== null &&
-  !Array.isArray(input) &&
-  ((input as { type?: unknown }).type === "snapshot" ||
-    (input as { type?: unknown }).type === "state_committed");
 
 // Höchstens ein automatischer Heilversuch pro Störung: Solange der Marker
 // gesetzt ist, blieb der letzte Reload wirkungslos (sonst wäre er über den
@@ -136,6 +130,8 @@ export const OverlayApp = ({ reloadPage = reloadOverlayPage }: { reloadPage?: ()
         }
         const parsed = parseOverlayMessage(input);
         if (parsed === null) {
+          // `challenge_update` gehört zur eigenen Quelle: ein Parse-Fehler dort
+          // darf das HUD vor Zuschauern niemals neu laden.
           if (isStateBearingMessage(input)) scheduleWatchdog();
           return;
         }

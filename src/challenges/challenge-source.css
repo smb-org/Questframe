@@ -1,0 +1,184 @@
+.challenge-source {
+  --wc-source-width: 340px;
+  --wc-source-height: 300px;
+  --wc-header-height: 26px;
+  --wc-timer-height: 40px;
+  --wc-overflow-height: 20px;
+  --wc-inline-padding: 10px;
+  --wc-gap: 8px;
+  --wc-font-size: 12px;
+  --wc-bare-font-size: 14px;
+  --wc-title-size: 13px;
+  --wc-timer-size: 22px;
+  --wc-meta-size: 11px;
+  --wc-surface: rgba(13, 16, 19, 0.88);
+  --wc-line: rgba(213, 170, 87, 0.42);
+  --wc-text: #eef1ef;
+  --wc-muted: #929da3;
+  --wc-accent: #d5aa57;
+  --wc-ok: #5ed08a;
+  --wc-critical: #f36d74;
+  --wc-font-ui: "Atkinson Hyperlegible Next", sans-serif;
+  --wc-font-display: Georgia, serif;
+  --wc-row-height: 33px;
+
+  box-sizing: border-box;
+  width: min(var(--wc-source-width), 100%);
+  max-height: var(--wc-source-height);
+  overflow: hidden;
+  color: var(--wc-text);
+  font-family: var(--wc-font-ui);
+  font-size: var(--wc-font-size);
+  font-weight: 500;
+}
+
+.challenge-source[data-surface-mode="bare"] {
+  --wc-surface: transparent;
+  font-size: var(--wc-bare-font-size);
+  font-weight: 700;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 6px rgba(0, 0, 0, 0.7);
+}
+
+.challenge-source__header,
+.challenge-source__timer,
+.challenge-source__row {
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--wc-line);
+}
+
+.challenge-source__header {
+  height: var(--wc-header-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 var(--wc-inline-padding);
+  background: var(--wc-surface);
+  font-weight: 600;
+}
+
+.challenge-source__title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--wc-accent);
+  font-family: var(--wc-font-display);
+  font-size: var(--wc-title-size);
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.challenge-source__stand,
+.challenge-source__count,
+.challenge-source__time {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.challenge-source__stand {
+  color: var(--wc-muted);
+}
+
+.challenge-source__timer {
+  height: var(--wc-timer-height);
+  display: flex;
+  align-items: center;
+  gap: var(--wc-gap);
+  padding: 0 var(--wc-inline-padding);
+  background: var(--wc-surface);
+  color: var(--wc-accent);
+  font-family: var(--wc-font-display);
+  font-size: var(--wc-timer-size);
+}
+
+.challenge-source__timer--paused {
+  color: var(--wc-muted);
+}
+
+.challenge-source__timer--critical {
+  color: var(--wc-critical);
+  animation: challenge-source-pulse 1.35s ease-in-out infinite;
+}
+
+.challenge-source__timer-label {
+  margin-left: auto;
+  color: var(--wc-muted);
+  font-family: var(--wc-font-ui);
+  font-size: var(--wc-meta-size);
+  font-weight: 600;
+}
+
+.challenge-source__rows {
+  margin: 0;
+  padding: 0;
+}
+
+.challenge-source__row {
+  height: var(--wc-row-height);
+  display: flex;
+  align-items: center;
+  gap: var(--wc-gap);
+  padding: 0 var(--wc-inline-padding);
+  background: var(--wc-surface);
+}
+
+.challenge-source__row--done {
+  color: var(--wc-ok);
+  opacity: 0.58;
+}
+
+.challenge-source__mark {
+  flex: 0 0 12px;
+  color: var(--wc-accent);
+  text-align: center;
+}
+
+.challenge-source__row--done .challenge-source__mark {
+  color: var(--wc-ok);
+}
+
+.challenge-source__row--done .challenge-source__name {
+  text-decoration: line-through;
+}
+
+.challenge-source__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.challenge-source__meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--wc-gap);
+  margin-left: auto;
+}
+
+.challenge-source__count {
+  color: var(--wc-text);
+}
+
+.challenge-source__time {
+  color: var(--wc-accent);
+}
+
+.challenge-source__more {
+  height: var(--wc-overflow-height);
+  box-sizing: border-box;
+  margin: 0;
+  padding: 2px var(--wc-inline-padding) 0 30px;
+  background: var(--wc-surface);
+  color: var(--wc-muted);
+  font-size: var(--wc-meta-size);
+}
+
+@keyframes challenge-source-pulse {
+  50% { opacity: 0.62; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .challenge-source__timer--critical { animation: none; }
+}

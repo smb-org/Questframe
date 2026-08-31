@@ -38,24 +38,12 @@ html[data-surface="challenges"] #root {
   text-transform: uppercase;
 }
 
-.challenge-source-placeholder {
-  width: min(360px, calc(100% - 32px));
-  margin: 16px;
-  padding: 16px 18px;
-  border: 1px solid rgba(240, 202, 120, 0.58);
-  border-radius: 8px;
-  background: rgba(13, 16, 19, 0.88);
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.3);
-}
-
-.challenge-source-placeholder h1,
 .live-placeholder h1 {
   margin-top: 4px;
   font-family: Georgia, serif;
   font-size: 22px;
 }
 
-.challenge-source-placeholder p:last-child,
 .live-placeholder p:last-child {
   margin-top: 8px;
   color: #aab4b9;

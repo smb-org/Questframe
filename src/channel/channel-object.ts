@@ -24,6 +24,7 @@ import {
   type UndoTarget,
 } from "../shared/contracts/api";
 import { DOCK_SOCKET_PROTOCOL, OVERLAY_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
+import type { ChallengeUpdate } from "../shared/contracts/win-challenges";
 import {
   channelStateDraftSchema,
   channelStateSchema,
@@ -624,6 +625,16 @@ export class ChannelObject extends DurableObject<AppEnv> {
     });
   }
 
+  private toChallengeUpdate(update: ChallengeUpdatePayload): ChallengeUpdate {
+    return {
+      ...update,
+      settings: {
+        ...update.settings,
+        themeId: this.getRequiredState().themeId,
+      },
+    };
+  }
+
   private challengeRepository() {
     return createSqlStorageChallengeRepository({
       sql: this.ctx.storage.sql,
@@ -646,7 +657,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       throw new RequestError(403, "forbidden", "Der Dock darf den globalen Timer nicht zurücksetzen.");
     }
     const result = await this.challengeService().executeCommand(command);
-    this.broadcastChallengeUpdate(result.update);
+    this.broadcastChallengeUpdate(this.toChallengeUpdate(result.update));
     return jsonResponse(result.response);
   }
 
@@ -658,7 +669,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       baseBoardRevision: input.baseBoardRevision,
       definitions: input.challenges,
     });
-    this.broadcastChallengeUpdate({ ...result.snapshot, event: null });
+    this.broadcastChallengeUpdate(this.toChallengeUpdate({ ...result.snapshot, event: null }));
     return jsonResponse(result);
   }
 
@@ -667,7 +678,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     await this.requireCsrf(request, session);
     const input = settingsSaveRequestSchema.parse(await readJson(request, 32_768));
     const result = this.challengeService().saveSettings(input);
-    this.broadcastChallengeUpdate({ ...result.snapshot, event: null });
+    this.broadcastChallengeUpdate(this.toChallengeUpdate({ ...result.snapshot, event: null }));
     return jsonResponse(result);
   }
 
@@ -1269,7 +1280,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       tokenGeneration: row.generation,
       connectedAt: nowIso(),
     } satisfies SocketAttachment);
-    server.send(JSON.stringify(this.challengeService().readSnapshot()));
+    server.send(JSON.stringify(this.toChallengeUpdate(this.challengeService().readSnapshot())));
     return new Response(null, {
       status: 101,
       webSocket: client,
@@ -1299,7 +1310,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       tokenGeneration: row.generation,
       connectedAt: nowIso(),
     } satisfies SocketAttachment);
-    server.send(JSON.stringify(this.challengeService().readSnapshot()));
+    server.send(JSON.stringify(this.toChallengeUpdate(this.challengeService().readSnapshot())));
     return new Response(null, {
       status: 101,
       webSocket: client,

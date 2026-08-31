@@ -2,6 +2,7 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { OverlayApp } from "../../../src/overlay/OverlayApp";
+import { isStateBearingMessage } from "../../../src/overlay/message-policy";
 import {
   fingerprintOverlayToken,
   loadOverlaySnapshot,
@@ -60,6 +61,24 @@ afterEach(() => {
 });
 
 describe("OverlayApp realtime shell", () => {
+  it("behandelt challenge_update nicht als HUD-zustandstragende Nachricht", () => {
+    expect(isStateBearingMessage({ eventSeq: 1, boardRevision: 1, settingsRevision: 1 })).toBe(false);
+  });
+
+  it("löst bei einem kaputten challenge_update keinen HUD-Reload aus", async () => {
+    vi.useFakeTimers();
+    const reloadPage = vi.fn();
+    render(<OverlayApp reloadPage={reloadPage} />);
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    act(() => {
+      FakeWebSocket.instances[0]?.emit("message", JSON.stringify({ eventSeq: "kaputt" }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(reloadPage).not.toHaveBeenCalled();
+  });
+
   it("stays transparent and opens no connection for missing or malformed tokens", async () => {
     window.history.replaceState({}, "", "/overlay#token=short");
     const { container } = render(<OverlayApp />);
