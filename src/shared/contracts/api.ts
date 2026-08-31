@@ -61,6 +61,8 @@ export const createApiError = (
 ): ApiError => apiErrorSchema.parse({ error: { code, message, ...details } });
 
 export const MAX_OVERLAY_SOCKETS = 10 as const;
+export const MAX_CHALLENGE_SOCKETS = 2 as const;
+export const MAX_DOCK_SOCKETS = 2 as const;
 
 export const limitsSchema = z.strictObject({
   maxGuests: z.literal(5),
@@ -69,6 +71,8 @@ export const limitsSchema = z.strictObject({
   // Ein bereits laufender DO-Isolate kann während eines Deployments kurz noch
   // den bisherigen Wert liefern. Neue Server erzeugen ausschließlich 10.
   maxOverlaySockets: z.union([z.literal(2), z.literal(MAX_OVERLAY_SOCKETS)]),
+  maxChallengeSockets: z.literal(MAX_CHALLENGE_SOCKETS).optional(),
+  maxDockSockets: z.literal(MAX_DOCK_SOCKETS).optional(),
   maxMediaBytes: z.literal(8_388_608),
 });
 
@@ -113,6 +117,16 @@ export const overlayTokenStatusSchema = z.strictObject({
   token: z.union([z.string().regex(/^[A-Za-z0-9_-]{43}$/), z.null()]),
 });
 
+export const dockTokenStatusSchema = z.strictObject({
+  exists: z.boolean(),
+  generation: z.number().int().min(0),
+  fingerprint: z.union([z.string().regex(/^[A-F0-9]{8}$/), z.null()]),
+  createdAt: z.union([z.iso.datetime({ offset: true }), z.null()]),
+  lastUsedAt: z.union([z.iso.datetime({ offset: true }), z.null()]),
+  connectedSockets: z.number().int().min(0).max(MAX_DOCK_SOCKETS),
+  token: z.union([z.string().regex(/^[A-Za-z0-9_-]{43}$/), z.null()]),
+});
+
 export const bootstrapResponseSchema = z.strictObject({
   capsule: z.strictObject({
     id: z.string().min(1).max(64),
@@ -120,6 +134,9 @@ export const bootstrapResponseSchema = z.strictObject({
     timezone: z.string().min(1).max(64),
     limits: limitsSchema,
     overlayToken: overlayTokenStatusSchema,
+    // Alte Test-/Bootstrap-Fassungen dürfen bis zum nächsten vollständigen Login ohne
+    // Dock-Token gelesen werden; echte Antworten enthalten den Status immer.
+    dockToken: dockTokenStatusSchema.optional(),
     channel: z
       .strictObject({
         id: twitchUserIdSchema,
@@ -172,6 +189,14 @@ export const overlayTokenMutationRequestSchema = z.strictObject({
 });
 
 export const overlayTokenResponseSchema = z.strictObject({
+  requestId: z.uuid(),
+  generation: z.number().int().min(1),
+  fingerprint: z.string().regex(/^[A-F0-9]{8}$/),
+  createdAt: z.iso.datetime({ offset: true }),
+  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+});
+
+export const dockTokenResponseSchema = z.strictObject({
   requestId: z.uuid(),
   generation: z.number().int().min(1),
   fingerprint: z.string().regex(/^[A-F0-9]{8}$/),
@@ -264,3 +289,4 @@ export type UndoTarget = z.infer<typeof undoTargetSchema>;
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 export type OverlayTokenResponse = z.infer<typeof overlayTokenResponseSchema>;
+export type DockTokenResponse = z.infer<typeof dockTokenResponseSchema>;

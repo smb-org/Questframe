@@ -70,3 +70,10 @@ Nach dem Rollback `/healthz`, Login, vollständigen Snapshot, Save, Sichtbarkeit
 ## Free-Tier-Beobachtung
 
 Die Anwendung pollt weder Zustand noch Timer. Bei ungewöhnlichem Traffic zuerst verbundene Socket-Zahlen, Rate-Limit-Antworten und Audit-Aktivität prüfen; keinen höheren Grenzwert blind konfigurieren. Cloudflare-Quoten vor jeder öffentlichen Veröffentlichung erneut gegen die aktuelle offizielle Dokumentation prüfen.
+
+Die getrennten Socket-Caps für Overlay, Challenge-Quelle und Dock im Durable Object
+trennen die Cloudflare-Limiter davor nicht. Weil `/ws/overlay` und `/ws/challenge`
+denselben Overlay-Token als Schlüssel verwenden, kann ein Reconnect-Sturm der
+Challenge-Quelle über `OVERLAY_TOKEN_LIMITER` auch HUD-Verbindungen drosseln. Das ist für
+V1 bewusst akzeptiert; bei der Diagnose deshalb neben den Socket-Caps auch die
+Overlay-Rate-Limit-Antworten prüfen.

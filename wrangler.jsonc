@@ -26,6 +26,16 @@
       "name": "OVERLAY_TOKEN_LIMITER",
       "namespace_id": "11002",
       "simple": { "limit": 30, "period": 10 }
+    },
+    {
+      "name": "DOCK_TOKEN_LIMITER",
+      "namespace_id": "11003",
+      "simple": { "limit": 30, "period": 10 }
+    },
+    {
+      "name": "DOCK_IP_LIMITER",
+      "namespace_id": "11004",
+      "simple": { "limit": 60, "period": 10 }
     }
   ],
   "vars": {
@@ -75,6 +85,16 @@
           "name": "OVERLAY_TOKEN_LIMITER",
           "namespace_id": "12002",
           "simple": { "limit": 30, "period": 10 }
+        },
+        {
+          "name": "DOCK_TOKEN_LIMITER",
+          "namespace_id": "12003",
+          "simple": { "limit": 30, "period": 10 }
+        },
+        {
+          "name": "DOCK_IP_LIMITER",
+          "namespace_id": "12004",
+          "simple": { "limit": 60, "period": 10 }
         }
       ],
       "vars": {
@@ -119,6 +139,16 @@
           "name": "OVERLAY_TOKEN_LIMITER",
           "namespace_id": "13002",
           "simple": { "limit": 30, "period": 10 }
+        },
+        {
+          "name": "DOCK_TOKEN_LIMITER",
+          "namespace_id": "13003",
+          "simple": { "limit": 30, "period": 10 }
+        },
+        {
+          "name": "DOCK_IP_LIMITER",
+          "namespace_id": "13004",
+          "simple": { "limit": 60, "period": 10 }
         }
       ],
       "vars": {

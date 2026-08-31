@@ -17,7 +17,7 @@ const config = JSON.parse(
   readFileSync(resolve(process.cwd(), "wrangler.jsonc"), "utf8"),
 ) as WranglerConfig;
 
-describe("Wrangler overlay rate limits", () => {
+describe("Wrangler Token- und IP-Rate-Limits", () => {
   it.each([
     ["local", config.ratelimits],
     ["staging", config.env.staging?.ratelimits],
@@ -32,6 +32,14 @@ describe("Wrangler overlay rate limits", () => {
         expect.objectContaining({
           name: "OVERLAY_TOKEN_LIMITER",
           simple: { limit: 30, period: 10 },
+        }),
+        expect.objectContaining({
+          name: "DOCK_TOKEN_LIMITER",
+          simple: { limit: 30, period: 10 },
+        }),
+        expect.objectContaining({
+          name: "DOCK_IP_LIMITER",
+          simple: { limit: 60, period: 10 },
         }),
       ]),
     );

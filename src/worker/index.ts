@@ -14,7 +14,7 @@ import {
 } from "../channel/auth/crypto";
 import { errorResponse, jsonResponse } from "./http";
 import { getMissingBindings, type AppEnv } from "./env";
-import { OVERLAY_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
+import { DOCK_SOCKET_PROTOCOL, OVERLAY_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
 import {
   completeTwitchAuthentication,
   refreshTwitchAuthentication,
@@ -122,6 +122,15 @@ const requireSameOriginRead = (request: Request, env: AppEnv): Response | null =
   const allowed =
     origin !== null ? origin === env.PUBLIC_ORIGIN : site === "same-origin" || site === "none";
   return allowed ? null : errorResponse(403, "forbidden", "Ungültiger Ursprung.");
+};
+
+const enforceDockIpLimit = async (request: Request, env: AppEnv): Promise<Response | null> => {
+  // Cloudflare setzt `cf-connecting-ip` am öffentlichen Worker-Rand; unbekannte
+  // Quellen teilen sich absichtlich einen konservativen Fallback-Eimer.
+  const limit = await env.DOCK_IP_LIMITER.limit({
+    key: request.headers.get("cf-connecting-ip") ?? "unknown",
+  });
+  return limit.success ? null : errorResponse(429, "rate_limited", "Zu viele Dock-Anfragen von dieser IP.");
 };
 
 const handleDevAuth = async (env: AppEnv): Promise<Response> => {
@@ -500,6 +509,9 @@ const worker = {
     }
 
     if (request.method === "GET" && url.pathname === "/api/editor/bootstrap") {
+      if (request.headers.get("authorization") !== null) {
+        return errorResponse(403, "forbidden", "Der Dock darf diese Route nicht verwenden.");
+      }
       if (env.APP_ENV !== "local") {
         const revalidation = await handleRevalidation(request, env);
         if (!revalidation.ok) return revalidation;
@@ -524,18 +536,36 @@ const worker = {
       "POST /api/challenges/commands": { pathname: "/challenges/commands", protection: "command" },
       "PUT /api/challenges/board": { pathname: "/challenges/board", protection: "editor" },
       "PUT /api/challenges/settings": { pathname: "/challenges/settings", protection: "editor" },
+      "POST /api/challenges/dock-token": { pathname: "/challenges/dock-token", protection: "editor" },
+      "POST /api/challenges/dock-token/rotate": { pathname: "/challenges/dock-token/rotate", protection: "editor" },
     };
     const challengeRoute = challengeRoutes[`${request.method} ${url.pathname}`];
     if (challengeRoute !== undefined) {
-      if (challengeRoute.protection === "read") {
-        const originError = requireSameOriginRead(request, env);
-        if (originError !== null) return originError;
-      } else {
-        // Session-Kommandos folgen derselben Herkunftsprüfung wie jede Editor-Mutation.
-        // Ein späterer Bearer-Dock-Weg braucht wegen fehlender Cookie-Credentials kein
-        // CSRF-Gate; dort greifen stattdessen Token-Prüfung und DOCK_TOKEN_LIMITER.
-        const originError = requireSameOriginMutation(request, env);
-        if (originError !== null) return originError;
+      const authorization = request.headers.get("authorization");
+      const bearer = authorization?.startsWith("Bearer ") === true
+        ? authorization.slice("Bearer ".length)
+        : null;
+      const originError = challengeRoute.protection === "read"
+        ? requireSameOriginRead(request, env)
+        : requireSameOriginMutation(request, env);
+      if (originError !== null) return originError;
+      if (authorization !== null && challengeRoute.protection !== "command") {
+        return errorResponse(403, "forbidden", "Der Dock darf diese Route nicht verwenden.");
+      }
+      const isDockCommand = challengeRoute.protection === "command" && authorization !== null;
+      if (isDockCommand) {
+        if (bearer === null || !/^[A-Za-z0-9_-]{43}$/.test(bearer)) {
+          return errorResponse(403, "token_invalid", "Dock-Token ungültig.");
+        }
+        const ipLimitError = await enforceDockIpLimit(request, env);
+        if (ipLimitError !== null) return ipLimitError;
+        const tokenLimit = await env.DOCK_TOKEN_LIMITER.limit({
+          key: (await sha256Hex(bearer)).slice(0, 32),
+        });
+        if (!tokenLimit.success) {
+          return errorResponse(429, "rate_limited", "Zu viele Dock-Anfragen.");
+        }
+        return proxyToChannel(request, env, challengeRoute.pathname, { "x-dock-token": bearer });
       }
       return proxyToChannel(request, env, challengeRoute.pathname);
     }
@@ -553,6 +583,9 @@ const worker = {
     if (mutationPath !== undefined) {
       const originError = requireSameOriginMutation(request, env);
       if (originError !== null) return originError;
+      if (request.headers.get("authorization") !== null) {
+        return errorResponse(403, "forbidden", "Der Dock darf diese Route nicht verwenden.");
+      }
       return proxyToChannel(request, env, mutationPath);
     }
 
@@ -576,7 +609,7 @@ const worker = {
       );
     }
 
-    if (request.method === "GET" && url.pathname === "/ws/overlay") {
+    if (request.method === "GET" && (url.pathname === "/ws/overlay" || url.pathname === "/ws/challenge")) {
       const protocolHeader = request.headers.get("sec-websocket-protocol");
       const protocolEntries = protocolHeader?.split(",").map((entry) => entry.trim()) ?? [];
       const [protocolName, token] = protocolEntries;
@@ -595,7 +628,30 @@ const worker = {
       if (!capsuleLimit.success || !tokenLimit.success) {
         return errorResponse(429, "rate_limited", "Zu viele Overlay-Verbindungen.");
       }
-      return proxyToChannel(request, env, "/ws/overlay", { "x-overlay-token": token });
+      return proxyToChannel(request, env, url.pathname, { "x-overlay-token": token });
+    }
+
+    if (request.method === "GET" && url.pathname === "/ws/dock") {
+      const protocolHeader = request.headers.get("sec-websocket-protocol");
+      const protocolEntries = protocolHeader?.split(",").map((entry) => entry.trim()) ?? [];
+      const [protocolName, token] = protocolEntries;
+      if (
+        protocolEntries.length !== 2 ||
+        protocolName !== DOCK_SOCKET_PROTOCOL ||
+        token === undefined ||
+        !/^[A-Za-z0-9_-]{43}$/.test(token)
+      ) {
+        return errorResponse(403, "token_invalid", "Dock-Token ungültig.");
+      }
+      const ipLimitError = await enforceDockIpLimit(request, env);
+      if (ipLimitError !== null) return ipLimitError;
+      const tokenLimit = await env.DOCK_TOKEN_LIMITER.limit({
+        key: (await sha256Hex(token)).slice(0, 32),
+      });
+      if (!tokenLimit.success) {
+        return errorResponse(429, "rate_limited", "Zu viele Dock-Verbindungen.");
+      }
+      return proxyToChannel(request, env, "/ws/dock", { "x-dock-token": token });
     }
 
     if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/auth/") || url.pathname.startsWith("/ws/")) {

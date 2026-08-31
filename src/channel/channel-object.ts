@@ -5,6 +5,9 @@ import {
   auditEntrySchema,
   bootstrapResponseSchema,
   clientMessageSchema,
+  dockTokenResponseSchema,
+  MAX_CHALLENGE_SOCKETS,
+  MAX_DOCK_SOCKETS,
   MAX_OVERLAY_SOCKETS,
   overlayTokenMutationRequestSchema,
   overlayTokenResponseSchema,
@@ -20,7 +23,7 @@ import {
   type AuditEntry,
   type UndoTarget,
 } from "../shared/contracts/api";
-import { OVERLAY_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
+import { DOCK_SOCKET_PROTOCOL, OVERLAY_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
 import {
   channelStateDraftSchema,
   channelStateSchema,
@@ -45,10 +48,11 @@ import {
   commandSchema,
   settingsSaveRequestSchema,
 } from "../modules/win-challenges/contracts/schemas";
-import { createWinChallenges } from "../modules/win-challenges/service/commands";
+import { createWinChallenges, type ChallengeUpdatePayload } from "../modules/win-challenges/service/commands";
 import {
   ChallengeRepositoryError,
   RevisionConflictError,
+  type DockTokenRecord,
 } from "../modules/win-challenges/repository/challenge-repository";
 
 type StateRow = {
@@ -97,6 +101,20 @@ type SocketAttachment =
       connectionId: string;
       tokenGeneration: number;
       connectedAt: string;
+    }
+  | {
+      version: 1;
+      kind: "challenge";
+      connectionId: string;
+      tokenGeneration: number;
+      connectedAt: string;
+    }
+  | {
+      version: 1;
+      kind: "dock";
+      connectionId: string;
+      tokenGeneration: number;
+      connectedAt: string;
     };
 
 const limits = {
@@ -104,6 +122,8 @@ const limits = {
   maxActiveEffects: 8,
   maxEditorSockets: 10,
   maxOverlaySockets: MAX_OVERLAY_SOCKETS,
+  maxChallengeSockets: MAX_CHALLENGE_SOCKETS,
+  maxDockSockets: MAX_DOCK_SOCKETS,
   maxMediaBytes: 8_388_608,
 } as const;
 const maxMediaBlobs = 32;
@@ -216,6 +236,12 @@ export class ChannelObject extends DurableObject<AppEnv> {
       if (request.method === "PUT" && url.pathname === "/challenges/settings") {
         return await this.saveChallengeSettings(request);
       }
+      if (request.method === "POST" && url.pathname === "/challenges/dock-token") {
+        return await this.mutateDockToken(request, false);
+      }
+      if (request.method === "POST" && url.pathname === "/challenges/dock-token/rotate") {
+        return await this.mutateDockToken(request, true);
+      }
       if (request.method === "PUT" && url.pathname === "/state") {
         return await this.save(request);
       }
@@ -245,6 +271,12 @@ export class ChannelObject extends DurableObject<AppEnv> {
       }
       if (request.method === "GET" && url.pathname === "/ws/overlay") {
         return await this.connectOverlay(request);
+      }
+      if (request.method === "GET" && url.pathname === "/ws/challenge") {
+        return await this.connectChallenge(request);
+      }
+      if (request.method === "GET" && url.pathname === "/ws/dock") {
+        return await this.connectDock(request);
       }
       return errorResponse(404, "not_found", "Route nicht gefunden.");
     } catch (error) {
@@ -546,6 +578,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const csrfToken = await this.rotateCsrf(session.session_hash, tabId);
     const state = normalizeStateForRead(this.ensureState(session));
     const overlayToken = this.getOverlayToken();
+    const dockToken = this.getDockToken();
     const broadcasterProfile = this.getBroadcasterProfile();
     const response = bootstrapResponseSchema.parse({
       capsule: {
@@ -562,6 +595,15 @@ export class ChannelObject extends DurableObject<AppEnv> {
           connectedSockets: Math.min(MAX_OVERLAY_SOCKETS, this.ctx.getWebSockets("overlay").length),
           token: await this.readOverlayToken(overlayToken),
         },
+        dockToken: {
+          exists: dockToken !== null,
+          generation: dockToken?.generation ?? 0,
+          fingerprint: dockToken?.fingerprint ?? null,
+          createdAt: dockToken?.createdAt ?? null,
+          lastUsedAt: dockToken?.lastUsedAt ?? null,
+          connectedSockets: Math.min(MAX_DOCK_SOCKETS, this.ctx.getWebSockets("dock").length),
+          token: await this.readDockTokenValue(dockToken),
+        },
       },
       capabilities: getReleaseCapabilities(this.env.RELEASE_STAGE),
       editor: { ...actorFromSession(session), role: "editor" },
@@ -575,12 +617,20 @@ export class ChannelObject extends DurableObject<AppEnv> {
   }
 
   private challengeService() {
+    const repository = this.challengeRepository();
     return createWinChallenges({
-      repository: createSqlStorageChallengeRepository({
-        sql: this.ctx.storage.sql,
-        transactionSync: this.ctx.storage.transactionSync.bind(this.ctx.storage),
-      }),
+      repository,
       clock: nowIso,
+    });
+  }
+
+  private challengeRepository() {
+    return createSqlStorageChallengeRepository({
+      sql: this.ctx.storage.sql,
+      transactionSync: this.ctx.storage.transactionSync.bind(this.ctx.storage),
+      onDockTokenDeleted: () => {
+        this.revokeTokenSockets("dock");
+      },
     });
   }
 
@@ -590,9 +640,13 @@ export class ChannelObject extends DurableObject<AppEnv> {
   }
 
   private async runChallengeCommand(request: Request): Promise<Response> {
-    await this.requireChallengeCommandAuth(request);
+    const auth = await this.requireChallengeCommandAuth(request);
     const command = commandSchema.parse(await readJson(request, 32_768));
+    if (auth === "dock" && command.scope === "global" && command.type === "resetGlobalTimer") {
+      throw new RequestError(403, "forbidden", "Der Dock darf den globalen Timer nicht zurücksetzen.");
+    }
     const result = await this.challengeService().executeCommand(command);
+    this.broadcastChallengeUpdate(result.update);
     return jsonResponse(result.response);
   }
 
@@ -600,24 +654,31 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const session = this.requireSession(request);
     await this.requireCsrf(request, session);
     const input = boardSaveRequestSchema.parse(await readJson(request, 32_768));
-    return jsonResponse(this.challengeService().saveBoard({
+    const result = this.challengeService().saveBoard({
       baseBoardRevision: input.baseBoardRevision,
       definitions: input.challenges,
-    }));
+    });
+    this.broadcastChallengeUpdate({ ...result.snapshot, event: null });
+    return jsonResponse(result);
   }
 
   private async saveChallengeSettings(request: Request): Promise<Response> {
     const session = this.requireSession(request);
     await this.requireCsrf(request, session);
     const input = settingsSaveRequestSchema.parse(await readJson(request, 32_768));
-    return jsonResponse(this.challengeService().saveSettings(input));
+    const result = this.challengeService().saveSettings(input);
+    this.broadcastChallengeUpdate({ ...result.snapshot, event: null });
+    return jsonResponse(result);
   }
 
-  private async requireChallengeCommandAuth(request: Request): Promise<void> {
+  private async requireChallengeCommandAuth(request: Request): Promise<"session" | "dock"> {
+    if (request.headers.get("x-dock-token") !== null) {
+      await this.requireDockToken(request);
+      return "dock";
+    }
     const session = this.requireSession(request);
-    // Für den Session-Weg gilt die vollständige Editor-Kette. Ein späterer Bearer-Dock-Weg
-    // kann hier ohne Cookie-Credentials an die Token-Prüfung und DOCK_TOKEN_LIMITER abzweigen.
     await this.requireCsrf(request, session);
+    return "session";
   }
 
   private async save(request: Request): Promise<Response> {
@@ -802,6 +863,10 @@ export class ChannelObject extends DurableObject<AppEnv> {
       if (token === null) {
         throw new RequestError(409, "idempotency_mismatch", "Token-Anfrage kann nicht wiederhergestellt werden.");
       }
+      if (rotate) {
+        this.revokeTokenSockets("overlay", input.expectedGeneration);
+        this.revokeTokenSockets("challenge", input.expectedGeneration);
+      }
       return jsonResponse(
         overlayTokenResponseSchema.parse({
           requestId: current.request_id,
@@ -851,10 +916,8 @@ export class ChannelObject extends DurableObject<AppEnv> {
       createdAt,
     );
     if (rotate) {
-      for (const socket of this.ctx.getWebSockets("overlay")) {
-        socket.send(JSON.stringify({ type: "token_revoked" }));
-        socket.close(4003, "token_revoked");
-      }
+      this.revokeTokenSockets("overlay", currentGeneration);
+      this.revokeTokenSockets("challenge", currentGeneration);
     }
     return jsonResponse(
       overlayTokenResponseSchema.parse({
@@ -868,14 +931,90 @@ export class ChannelObject extends DurableObject<AppEnv> {
   }
 
   private async readOverlayToken(row: OverlayTokenRow | null): Promise<string | null> {
-    if (row?.token_envelope === null || row?.token_envelope === undefined) return null;
+    return this.readTokenEnvelope(row?.token_envelope ?? null);
+  }
+
+  private async readDockTokenValue(row: DockTokenRecord | null): Promise<string | null> {
+    return this.readTokenEnvelope(row?.tokenEnvelope ?? null);
+  }
+
+  private async readTokenEnvelope(tokenEnvelope: string | null): Promise<string | null> {
+    if (tokenEnvelope === null) return null;
     try {
-      const envelope = tokenEnvelopeSchema.parse(JSON.parse(row.token_envelope) as unknown);
+      const envelope = tokenEnvelopeSchema.parse(JSON.parse(tokenEnvelope) as unknown);
       const token = await decryptOverlayToken(envelope, this.getOverlayTokenPepper(), this.env.CAPSULE_ID);
       return /^[A-Za-z0-9_-]{43}$/.test(token) ? token : null;
     } catch {
       return null;
     }
+  }
+
+  private async mutateDockToken(request: Request, rotate: boolean): Promise<Response> {
+    const session = this.requireSession(request);
+    await this.requireCsrf(request, session);
+    const input = overlayTokenMutationRequestSchema.parse(await readJson(request, 2_048));
+    const pepper = this.getOverlayTokenPepper();
+    const current = this.getDockToken();
+    const currentGeneration = current?.generation ?? 0;
+    if (
+      current !== null &&
+      current.generation === input.expectedGeneration + 1 &&
+      current.requestId === input.requestId
+    ) {
+      if (current.creatingSessionHash !== session.session_hash) {
+        throw new RequestError(409, "idempotency_mismatch", "Token-Anfrage wurde anders wiederholt.");
+      }
+      const token = await this.readDockTokenValue(current);
+      if (token === null) {
+        throw new RequestError(409, "idempotency_mismatch", "Token-Anfrage kann nicht wiederhergestellt werden.");
+      }
+      if (rotate) this.revokeTokenSockets("dock", input.expectedGeneration);
+      return jsonResponse(
+        dockTokenResponseSchema.parse({
+          requestId: current.requestId,
+          generation: current.generation,
+          fingerprint: current.fingerprint,
+          createdAt: current.createdAt,
+          token,
+        }),
+      );
+    }
+    if (currentGeneration !== input.expectedGeneration || (rotate ? current === null : current !== null)) {
+      throw new RequestError(409, "token_changed", "Der Dock-Tokenstatus hat sich geändert.");
+    }
+    const createdAt = nowIso();
+    const generation = currentGeneration + 1;
+    const token = randomToken(32);
+    const tokenHash = await hmacHex(pepper, token);
+    const tokenEnvelope = await encryptOverlayToken(token, pepper, this.env.CAPSULE_ID);
+    const currentAfterCrypto = this.getDockToken();
+    if (
+      (currentAfterCrypto?.generation ?? 0) !== currentGeneration ||
+      (rotate ? currentAfterCrypto === null : currentAfterCrypto !== null)
+    ) {
+      throw new RequestError(409, "token_changed", "Der Dock-Tokenstatus hat sich geändert.");
+    }
+    const fingerprint = tokenHash.slice(0, 8).toUpperCase();
+    this.challengeRepository().upsertDockToken({
+      tokenHash,
+      tokenEnvelope: JSON.stringify(tokenEnvelope),
+      fingerprint,
+      generation,
+      requestId: input.requestId,
+      creatingSessionHash: session.session_hash,
+      createdAt,
+      lastUsedAt: null,
+    });
+    if (rotate) this.revokeTokenSockets("dock", currentGeneration);
+    return jsonResponse(
+      dockTokenResponseSchema.parse({
+        requestId: input.requestId,
+        generation,
+        fingerprint,
+        createdAt,
+        token,
+      }),
+    );
   }
 
   private async uploadMedia(request: Request): Promise<Response> {
@@ -1095,6 +1234,76 @@ export class ChannelObject extends DurableObject<AppEnv> {
       status: 101,
       webSocket: client,
       headers: { "sec-websocket-protocol": OVERLAY_SOCKET_PROTOCOL },
+    });
+  }
+
+  private async connectChallenge(request: Request): Promise<Response> {
+    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+      throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
+    }
+    if (this.ctx.getWebSockets("challenge").length >= limits.maxChallengeSockets) {
+      throw new RequestError(429, "socket_limit", "Zu viele Challenge-Verbindungen.");
+    }
+    const token = request.headers.get("x-overlay-token");
+    if (token === null) throw new RequestError(403, "token_invalid", "OBS-Token ungültig.");
+    const hash = await hmacHex(this.getOverlayTokenPepper(), token);
+    const row = this.getOverlayToken();
+    if (row === null || !timingSafeEqual(row.token_hash, hash)) {
+      throw new RequestError(403, "token_invalid", "OBS-Token ungültig.");
+    }
+    this.ctx.storage.sql.exec(
+      "UPDATE overlay_tokens SET last_used_at = ? WHERE singleton = 1",
+      nowIso(),
+    );
+    const pair = new WebSocketPair();
+    const client = pair[0];
+    const server = pair[1];
+    if (this.ctx.getWebSockets("challenge").length >= limits.maxChallengeSockets) {
+      throw new RequestError(429, "socket_limit", "Zu viele Challenge-Verbindungen.");
+    }
+    this.ctx.acceptWebSocket(server, ["challenge"]);
+    server.serializeAttachment({
+      version: 1,
+      kind: "challenge",
+      connectionId: crypto.randomUUID(),
+      tokenGeneration: row.generation,
+      connectedAt: nowIso(),
+    } satisfies SocketAttachment);
+    server.send(JSON.stringify(this.challengeService().readSnapshot()));
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+      headers: { "sec-websocket-protocol": OVERLAY_SOCKET_PROTOCOL },
+    });
+  }
+
+  private async connectDock(request: Request): Promise<Response> {
+    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+      throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
+    }
+    if (this.ctx.getWebSockets("dock").length >= limits.maxDockSockets) {
+      throw new RequestError(429, "socket_limit", "Zu viele Dock-Verbindungen.");
+    }
+    const row = await this.requireDockToken(request);
+    const pair = new WebSocketPair();
+    const client = pair[0];
+    const server = pair[1];
+    if (this.ctx.getWebSockets("dock").length >= limits.maxDockSockets) {
+      throw new RequestError(429, "socket_limit", "Zu viele Dock-Verbindungen.");
+    }
+    this.ctx.acceptWebSocket(server, ["dock"]);
+    server.serializeAttachment({
+      version: 1,
+      kind: "dock",
+      connectionId: crypto.randomUUID(),
+      tokenGeneration: row.generation,
+      connectedAt: nowIso(),
+    } satisfies SocketAttachment);
+    server.send(JSON.stringify(this.challengeService().readSnapshot()));
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+      headers: { "sec-websocket-protocol": DOCK_SOCKET_PROTOCOL },
     });
   }
 
@@ -1466,6 +1675,27 @@ export class ChannelObject extends DurableObject<AppEnv> {
     );
   }
 
+  private getDockToken(): DockTokenRecord | null {
+    return this.challengeRepository().readDockToken();
+  }
+
+  private async requireDockToken(request: Request): Promise<DockTokenRecord> {
+    const token = request.headers.get("x-dock-token");
+    if (token === null || !/^[A-Za-z0-9_-]{43}$/.test(token)) {
+      throw new RequestError(403, "token_invalid", "Dock-Token ungültig.");
+    }
+    const hash = await hmacHex(this.getOverlayTokenPepper(), token);
+    const row = this.getDockToken();
+    if (row === null || !timingSafeEqual(row.tokenHash, hash)) {
+      throw new RequestError(403, "token_invalid", "Dock-Token ungültig.");
+    }
+    this.ctx.storage.sql.exec(
+      "UPDATE wc_dock_tokens SET last_used_at = ? WHERE singleton = 1",
+      nowIso(),
+    );
+    return row;
+  }
+
   // Bester bekannter Twitch-Kanalname des bearbeiteten Broadcasters, aus dem
   // Cache befüllt via Login/Revalidierung. Kein Treffer ist kein Fehler: das
   // Frontend fällt dann auf capsule.name zurück.
@@ -1569,14 +1799,20 @@ export class ChannelObject extends DurableObject<AppEnv> {
     });
   }
 
-  // Sendet an jeden Socket einzeln: ein widerrufener Editor-Socket wird geschlossen
-  // statt beliefert, und ein fehlschlagender Socket darf die Übertragung an die
-  // übrigen nicht abbrechen.
+  // Sendet an jeden Socket einzeln: widerrufene oder abgelaufene Sockets werden
+  // geschlossen statt beliefert, und ein fehlschlagender Socket darf die
+  // Übertragung an die übrigen nicht abbrechen.
   private sendToSockets(sockets: WebSocket[], message: string): void {
     for (const socket of sockets) {
       const attachment = this.readAttachment(socket);
-      if (attachment?.kind === "editor" && this.closeEditorSocketIfSessionRevoked(socket, attachment)) {
-        continue;
+      if (attachment?.kind === "editor") {
+        if (this.closeEditorSocketIfSessionRevoked(socket, attachment)) continue;
+      } else if (
+        attachment?.kind === "overlay" ||
+        attachment?.kind === "challenge" ||
+        attachment?.kind === "dock"
+      ) {
+        if (this.closeTokenSocketIfRevoked(socket, attachment)) continue;
       }
       try {
         socket.send(message);
@@ -1588,7 +1824,49 @@ export class ChannelObject extends DurableObject<AppEnv> {
 
   private broadcastState(state: ChannelState): void {
     const message = JSON.stringify({ type: "state_committed", state });
-    this.sendToSockets(this.ctx.getWebSockets(), message);
+    this.sendToSockets(
+      [...this.ctx.getWebSockets("editor"), ...this.ctx.getWebSockets("overlay")],
+      message,
+    );
+  }
+
+  private broadcastChallengeUpdate(
+    update: ChallengeUpdatePayload,
+  ): void {
+    const message = JSON.stringify(update);
+    this.sendToSockets(
+      [
+        ...this.ctx.getWebSockets("editor"),
+        ...this.ctx.getWebSockets("challenge"),
+        ...this.ctx.getWebSockets("dock"),
+      ],
+      message,
+    );
+  }
+
+  private revokeTokenSockets(
+    tag: "overlay" | "challenge" | "dock",
+    tokenGeneration?: number,
+  ): void {
+    const message = JSON.stringify({ type: "token_revoked" });
+    for (const socket of this.ctx.getWebSockets(tag)) {
+      if (tokenGeneration !== undefined) {
+        const attachment = this.readAttachment(socket);
+        if (attachment !== null && attachment.kind !== "editor" && attachment.tokenGeneration !== tokenGeneration) {
+          continue;
+        }
+      }
+      try {
+        socket.send(message);
+      } catch {
+        // Ein bereits abgerissener Socket darf die übrigen Widerrufe nicht verhindern.
+      }
+      try {
+        socket.close(4003, "token_revoked");
+      } catch {
+        // Ein bereits geschlossener Socket darf die übrigen Widerrufe nicht verhindern.
+      }
+    }
   }
 
   private broadcastHistoryChanged(): void {
@@ -1616,21 +1894,48 @@ export class ChannelObject extends DurableObject<AppEnv> {
     this.sendToSockets(this.ctx.getWebSockets("editor"), message);
   }
 
-  // Prüft, ob die Session hinter einem Editor-Socket noch existiert und dessen
-  // generation zum Attachment passt; andernfalls wird der Socket beendet.
+  // Prüft, ob die Session hinter einem Editor-Socket noch existiert, nicht
+  // abgelaufen ist und dessen generation zum Attachment passt; andernfalls wird
+  // der Socket beendet.
   // Gibt zurück, ob der Socket geschlossen wurde (der Aufrufer soll ihn dann überspringen).
   private closeEditorSocketIfSessionRevoked(
     socket: WebSocket,
     attachment: Extract<SocketAttachment, { kind: "editor" }>,
   ): boolean {
-    const row = this.ctx.storage.sql
-      .exec<{ generation: number }>(
-        "SELECT generation FROM editor_sessions WHERE session_hash = ?",
-        attachment.sessionRecordId,
-      )
-      .toArray()[0];
-    if (row === undefined || row.generation !== attachment.sessionGeneration) {
-      socket.close(4001, "session_revoked");
+    const row = this.getSessionByHash(attachment.sessionRecordId, false);
+    if (
+      row === null ||
+      row.generation !== attachment.sessionGeneration ||
+      Date.parse(row.role_checked_at) + 60 * 60 * 1_000 <= Date.now()
+    ) {
+      try {
+        socket.close(4001, "session_revoked");
+      } catch {
+        // Ein bereits geschlossener Socket darf die übrigen Sockets nicht blockieren.
+      }
+      return true;
+    }
+    return false;
+  }
+
+  private closeTokenSocketIfRevoked(
+    socket: WebSocket,
+    attachment: Extract<SocketAttachment, { kind: "overlay" | "challenge" | "dock" }>,
+  ): boolean {
+    let currentGeneration: number | null = null;
+    try {
+      currentGeneration = attachment.kind === "dock"
+        ? this.getDockToken()?.generation ?? null
+        : this.getOverlayToken()?.generation ?? null;
+    } catch {
+      // Ein unlesbarer Token-Datensatz ist kein Grund, den Socket weiter zu beliefern.
+    }
+    if (currentGeneration !== attachment.tokenGeneration) {
+      try {
+        socket.close(4003, "token_revoked");
+      } catch {
+        // Ein bereits geschlossener Socket darf die übrigen Sockets nicht blockieren.
+      }
       return true;
     }
     return false;
@@ -1640,7 +1945,10 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const attachment = socket.deserializeAttachment() as Partial<SocketAttachment> | null;
     if (
       attachment?.version !== 1 ||
-      (attachment.kind !== "editor" && attachment.kind !== "overlay") ||
+      (attachment.kind !== "editor" &&
+        attachment.kind !== "overlay" &&
+        attachment.kind !== "challenge" &&
+        attachment.kind !== "dock") ||
       typeof attachment.connectionId !== "string"
     ) {
       return null;

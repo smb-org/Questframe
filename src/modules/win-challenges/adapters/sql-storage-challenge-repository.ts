@@ -130,6 +130,7 @@ type SqlStorageChallengeRepositoryOptions = {
   sql: SqlStorage;
   transactionSync: <T>(callback: () => T) => T;
   tablePrefix: string;
+  onDockTokenDeleted?: () => void;
 };
 
 const validateTablePrefix = (tablePrefix: string): string => {
@@ -236,6 +237,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
   private readonly sql: SqlStorage;
   private readonly transactionSync: <T>(callback: () => T) => T;
   private readonly tablePrefix: string;
+  private readonly onDockTokenDeleted: () => void;
   private metrics: SqlOperationMetrics | null = null;
 
   public static create(
@@ -248,6 +250,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     this.sql = options.sql;
     this.transactionSync = options.transactionSync;
     this.tablePrefix = validateTablePrefix(options.tablePrefix);
+    this.onDockTokenDeleted = options.onDockTokenDeleted ?? (() => undefined);
   }
 
   public transaction<T>(callback: (transaction: ChallengeRepositoryTransaction) => T): T {
@@ -425,6 +428,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
 
   public deleteDockToken(): void {
     this.execute<DockTokenRow>(`DELETE FROM ${this.table("dock_tokens")} WHERE singleton = 1`);
+    this.onDockTokenDeleted();
   }
 
   public measure<T>(operation: () => T): MeasuredSqlOperation<T> {
