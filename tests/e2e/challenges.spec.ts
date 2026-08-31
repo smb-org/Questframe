@@ -67,6 +67,8 @@ const openChallengeAdmin = async (page: Page): Promise<void> => {
   await page.goto("/admin/challenges");
   await expect(page.getByRole("heading", { name: "Board", exact: true })).toBeVisible();
   await expect(page.locator(".challenge-board-shell .connection-state.is-online")).toBeVisible();
+  await page.getByRole("button", { name: "OBS-Einrichtung" }).click();
+  await expect(page.locator(".challenge-setup__source--hud")).toBeVisible();
   await resetChallengeBoard(page);
   await expect(page.locator(".challenge-board-row")).toHaveCount(0);
 };

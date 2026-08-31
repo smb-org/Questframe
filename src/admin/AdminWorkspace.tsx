@@ -16,6 +16,7 @@ import {
   RotateCw,
   Save,
   Search,
+  Settings2,
   Sparkles,
   Trash2,
   Undo2,
@@ -66,6 +67,15 @@ import type {
 import { EFFECT_CATALOG, type EffectDefinition } from "../shared/domain/effects";
 import { HudRenderer } from "../overlay/HudRenderer";
 import { expiryToLocalInput, resolveLocalExpiry } from "./time";
+import { ObsSetupPanel } from "./ui/ObsSetupPanel";
+import {
+  applyOverlayTokenResponse,
+  buildTokenUrl,
+  copyObsUrl,
+  createChallengeObsSources,
+  mutateObsToken,
+  type DockTokenStatus,
+} from "./ui/obsSetup";
 import "./admin.css";
 
 const THEME_LABELS: Record<ThemeId, string> = {
@@ -774,10 +784,6 @@ const WorkspaceSwitcher = ({ current }: { current: AdminWorkspaceId }) => (
   </nav>
 );
 
-type OverlayTokenStatus = BootstrapResponse["capsule"]["overlayToken"];
-type DockTokenStatus = NonNullable<BootstrapResponse["capsule"]["dockToken"]>;
-type SetupSourceId = "hud" | "log" | "live";
-
 const emptyDockTokenStatus = (): DockTokenStatus => ({
   exists: false,
   generation: 0,
@@ -787,262 +793,6 @@ const emptyDockTokenStatus = (): DockTokenStatus => ({
   connectedSockets: 0,
   token: null,
 });
-
-const SetupQrCode = ({ value }: { value: string }) => {
-  const [source, setSource] = useState<string | null>(null);
-  const [error, setError] = useState(false);
-
-  useEffect(() => {
-    let disposed = false;
-    void import("qrcode")
-      .then(({ toDataURL }) => toDataURL(value, {
-        errorCorrectionLevel: "M",
-        margin: 2,
-        width: 220,
-      }))
-      .then((nextSource) => {
-        if (!disposed) setSource(nextSource);
-      })
-      .catch(() => {
-        if (!disposed) setError(true);
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [value]);
-
-  return (
-    <div aria-label="QR-Code für die Live-Bedienseite" className="challenge-setup__qr">
-      {source !== null ? (
-        <img alt="QR-Code für die Live-Bedienseite" src={source} />
-      ) : error ? (
-        <p role="alert">QR-Code konnte nicht erzeugt werden.</p>
-      ) : (
-        <p>QR-Code wird vorbereitet …</p>
-      )}
-    </div>
-  );
-};
-
-const ChallengeSetupPanel = ({
-  api,
-  dockToken,
-  online,
-  onDockToken,
-  onOverlayToken,
-  overlayToken,
-}: {
-  api: AdminApi;
-  dockToken: DockTokenStatus;
-  online: boolean;
-  onDockToken: (token: DockTokenStatus) => void;
-  onOverlayToken: (token: OverlayTokenStatus) => void;
-  overlayToken: OverlayTokenStatus;
-}) => {
-  const [secretsVisible, setSecretsVisible] = useState(false);
-  const [copiedSource, setCopiedSource] = useState<SetupSourceId | null>(null);
-  const [copyError, setCopyError] = useState("");
-  const [tokenError, setTokenError] = useState("");
-  const [busyToken, setBusyToken] = useState<SetupSourceId | null>(null);
-  const copiedTimer = useRef<number | null>(null);
-  const origin = window.location.origin;
-  const hudUrl = overlayToken.token === null ? "" : `${origin}/overlay#token=${overlayToken.token}`;
-  const logUrl = overlayToken.token === null ? "" : `${origin}/overlay/challenges#token=${overlayToken.token}`;
-  const liveUrl = dockToken.token === null ? "" : `${origin}/live/challenges#token=${dockToken.token}`;
-
-  useEffect(() => () => {
-    if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
-  }, []);
-
-  const maskedUrl = (path: string, url: string): string => (
-    url === "" ? `${origin}${path} · Token noch nicht erzeugt` : `${origin}${path}#token=••••••`
-  );
-
-  const copyUrl = async (source: SetupSourceId, url: string) => {
-    if (url === "") return;
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopyError("");
-      setCopiedSource(source);
-      if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
-      copiedTimer.current = window.setTimeout(() => {
-        setCopiedSource(null);
-        copiedTimer.current = null;
-      }, 2_000);
-    } catch {
-      setCopyError("Link konnte nicht kopiert werden.");
-    }
-  };
-
-  const mutateToken = async (source: SetupSourceId) => {
-    if (source === "log") return;
-    const status = source === "hud" ? overlayToken : dockToken;
-    const mutate = source === "hud" ? api.mutateOverlayToken?.bind(api) : api.mutateDockToken?.bind(api);
-    if (mutate === undefined || busyToken !== null || !online) return;
-    const rotate = status.exists;
-    if (rotate && !window.confirm("Alte Token-URL sofort ungültig machen und neuen Token erzeugen?")) return;
-    setBusyToken(source);
-    setTokenError("");
-    try {
-      const result = await mutate(rotate, {
-        requestId: crypto.randomUUID(),
-        expectedGeneration: status.generation,
-      });
-      if (source === "hud") {
-        onOverlayToken({
-          ...overlayToken,
-          exists: true,
-          generation: result.generation,
-          createdAt: result.createdAt,
-          lastUsedAt: null,
-          connectedSockets: 0,
-          token: result.token,
-        });
-      } else {
-        onDockToken({
-          ...dockToken,
-          exists: true,
-          generation: result.generation,
-          fingerprint: result.fingerprint,
-          createdAt: result.createdAt,
-          lastUsedAt: null,
-          connectedSockets: 0,
-          token: result.token,
-        });
-      }
-    } catch (caught) {
-      setTokenError(caught instanceof Error ? caught.message : "Token konnte nicht erzeugt werden.");
-    } finally {
-      setBusyToken(null);
-    }
-  };
-
-  const sources: ReadonlyArray<{
-    id: SetupSourceId;
-    name: string;
-    path: string;
-    url: string;
-    size: string;
-    purpose: string;
-  }> = [
-    {
-      id: "hud",
-      name: "HUD-Overlay",
-      path: "/overlay",
-      url: hudUrl,
-      size: "1920 × 1080 px",
-      purpose: "Zeigt das veröffentlichte HUD in der OBS-Ausgabe.",
-    },
-    {
-      id: "log",
-      name: "Challenge-Log",
-      path: "/overlay/challenges",
-      url: logUrl,
-      size: "340 × 300 px",
-      purpose: "Zeigt offene und kürzlich erledigte Challenges als eigene OBS-Browserquelle.",
-    },
-    {
-      id: "live",
-      name: "Live-Bedienseite",
-      path: "/live/challenges",
-      url: liveUrl,
-      size: "mindestens 280 px breit; Höhe nach Inhalt",
-      purpose: "Steuert Challenges und Timer live, ohne in der Stream-Ausgabe zu erscheinen.",
-    },
-  ];
-
-  return (
-    <section aria-labelledby="challenge-setup-heading" className="challenge-setup-panel">
-      <header className="challenge-setup-heading">
-        <div>
-          <span className="eyebrow">OBS-Einrichtung</span>
-          <h2 id="challenge-setup-heading">Alle Quellen auf einen Blick</h2>
-          <p>Jede URL ist sofort kopierbar. Token bleiben standardmäßig verborgen und werden nur auf ausdrückliche Aktion angezeigt.</p>
-        </div>
-        <button
-          aria-pressed={secretsVisible}
-          className="button button--quiet challenge-setup__reveal"
-          onClick={() => setSecretsVisible((current) => !current)}
-          type="button"
-        >
-          {secretsVisible ? <EyeOff aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}
-          {secretsVisible ? "URLs ausblenden" : "URLs anzeigen"}
-        </button>
-      </header>
-      {copyError !== "" && <p className="challenge-board-error" role="alert">{copyError}</p>}
-      {tokenError !== "" && <p className="challenge-board-error" role="alert">{tokenError}</p>}
-      <div className="challenge-setup__sources">
-        {sources.map((source) => {
-          const canCopy = source.url !== "";
-          const isCopied = copiedSource === source.id;
-          const tokenManagement = source.id === "hud" || source.id === "live";
-          const tokenExists = source.id === "live" ? dockToken.exists : overlayToken.exists;
-          return (
-            <article className={`challenge-setup__source challenge-setup__source--${source.id}`} key={source.id}>
-              <div className="challenge-setup__source-heading">
-                <div>
-                  <h3>{source.name}</h3>
-                  <p>{source.purpose}</p>
-                </div>
-                <span className="challenge-setup__size">
-                  <strong>{source.size}</strong>
-                  {source.id === "hud" && <small>Stage 630 × 259 px innerhalb der OBS-Fläche</small>}
-                </span>
-              </div>
-              <div className="challenge-setup__url-line">
-                <code aria-label={`${source.name} URL`}>{secretsVisible && canCopy ? source.url : maskedUrl(source.path, source.url)}</code>
-                <button
-                  aria-label={`${source.name}-URL kopieren`}
-                  className="button button--quiet challenge-setup__copy"
-                  disabled={!canCopy}
-                  onClick={() => void copyUrl(source.id, source.url)}
-                  type="button"
-                >
-                  {isCopied ? <Check aria-hidden="true" size={15} /> : <Copy aria-hidden="true" size={15} />}
-                  <span>{isCopied ? "Kopiert" : "Kopieren"}</span>
-                </button>
-              </div>
-              {tokenManagement && (
-                <button
-                  className="button button--primary challenge-setup__token-action"
-                  disabled={busyToken !== null || !online || (source.id === "hud" ? api.mutateOverlayToken === undefined : api.mutateDockToken === undefined)}
-                  onClick={() => void mutateToken(source.id)}
-                  type="button"
-                >
-                  {busyToken === source.id && <RotateCw aria-hidden="true" className="spin" size={15} />}
-                  {busyToken === source.id ? "Wird erzeugt …" : tokenExists ? "Token ersetzen" : source.id === "hud" ? "OBS-Link erzeugen" : "Dock-Link erzeugen"}
-                </button>
-              )}
-              {source.id === "live" && (
-                <>
-                  <div className="challenge-setup__live-ways">
-                    <div>
-                      <strong>Handy-Weg</strong>
-                      <p>QR-Code scannen und die Live-Seite neben der Tastatur öffnen.</p>
-                    </div>
-                    <div>
-                      <strong>OBS-Weg</strong>
-                      <p>In OBS: View → Docks → Custom Browser Docks.</p>
-                      <p className="challenge-setup__warning">Browser-Docks stehen unter Wayland nicht zur Verfügung.</p>
-                      <p>Der eingebettete Browser hat ein eigenes Cookie-Profil. Diese Seite authentifiziert per Token-URL, nicht per Login.</p>
-                    </div>
-                  </div>
-                  {secretsVisible && liveUrl !== "" && (
-                    <>
-                      <SetupQrCode key={liveUrl} value={liveUrl} />
-                      <p className="challenge-setup__qr-warning">QR-Code nicht im Stream zeigen – er enthält Schreibzugriff auf deine Challenges.</p>
-                    </>
-                  )}
-                </>
-              )}
-            </article>
-          );
-        })}
-      </div>
-      <p aria-live="polite" className="challenge-setup__privacy">Der Dock-Token darf Challenges verändern. Behandle URL und QR-Code wie ein Geheimnis.</p>
-    </section>
-  );
-};
 
 const ChallengeSettingsPanel = ({
   api,
@@ -1227,6 +977,10 @@ const HudAdminWorkspace = ({
   const [draft, setDraft] = useState(() => toDraft(initialBootstrap.state));
   const [draftBaseRevision, setDraftBaseRevision] = useState(initialBootstrap.state.revision);
   const [audit, setAudit] = useState(initialBootstrap.recentAudit);
+  const auditRef = useRef(initialBootstrap.recentAudit);
+  const [auditOpen, setAuditOpen] = useState(false);
+  const auditOpenRef = useRef(false);
+  const [newAuditCount, setNewAuditCount] = useState(0);
   const [undoTargets, setUndoTargets] = useState(initialBootstrap.undoTargets);
   const [online, setOnline] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1236,6 +990,10 @@ const HudAdminWorkspace = ({
   const [remoteConflict, setRemoteConflict] = useState<ChannelState | null>(null);
   const [effectEditor, setEffectEditor] = useState<ActiveEffect | "new" | null>(null);
   const [overlayToken, setOverlayToken] = useState(initialBootstrap.capsule.overlayToken);
+  const [dockToken, setDockToken] = useState<DockTokenStatus>(
+    () => initialBootstrap.capsule.dockToken ?? emptyDockTokenStatus(),
+  );
+  const [obsSetupOpen, setObsSetupOpen] = useState(false);
   const [obsLinkCopied, setObsLinkCopied] = useState(false);
   const obsLinkCopiedTimer = useRef<number | null>(null);
   const [previewZoom, setPreviewZoom] = useState(100);
@@ -1245,6 +1003,19 @@ const HudAdminWorkspace = ({
     undoTargetsRevisionRef.current = revision;
     setUndoTargets(targets);
   }, []);
+  const addAuditEntry = useCallback((entry: AuditEntry) => {
+    const next = prependAuditEntry(auditRef.current, entry);
+    if (next === auditRef.current) return;
+    auditRef.current = next;
+    setAudit(next);
+    if (!auditOpenRef.current) setNewAuditCount((current) => current + 1);
+  }, []);
+  const toggleAudit = () => {
+    const nextOpen = !auditOpenRef.current;
+    auditOpenRef.current = nextOpen;
+    setAuditOpen(nextOpen);
+    if (nextOpen) setNewAuditCount(0);
+  };
   const dirty = useMemo(
     () => JSON.stringify(draft) !== JSON.stringify(toDraft(committed)),
     [committed, draft],
@@ -1280,7 +1051,7 @@ const HudAdminWorkspace = ({
   const uploadPortrait = api.uploadPortrait?.bind(api);
   const obsUrl = overlayToken.token === null
     ? ""
-    : `${window.location.origin}/overlay#token=${overlayToken.token}`;
+    : buildTokenUrl(window.location.origin, "/overlay", overlayToken.token);
   const obsConnectionLabel = overlayToken.connectedSockets > 0
     ? `${String(overlayToken.connectedSockets)} verbunden`
     : overlayToken.exists
@@ -1320,12 +1091,12 @@ const HudAdminWorkspace = ({
         setOverlayToken((current) => ({ ...current, connectedSockets }));
       },
       onAudit: (entry, undoTargets) => {
-        setAudit((current) => prependAuditEntry(current, entry));
+        addAuditEntry(entry);
         applyUndoTargets(undoTargets, entry.revision);
       },
       onUndoTargets: setUndoTargets,
     });
-  }, [api, applyUndoTargets]);
+  }, [addAuditEntry, api, applyUndoTargets]);
 
   const pendingLeaseHashes = useMemo(() => {
     const committedHashes = new Set(uploadedHashes(committed));
@@ -1386,7 +1157,7 @@ const HudAdminWorkspace = ({
       setCommitted(response.state);
       setDraft(toDraft(response.state));
       setDraftBaseRevision(response.state.revision);
-      setAudit((current) => prependAuditEntry(current, response.auditEntry));
+      addAuditEntry(response.auditEntry);
       applyUndoTargets(response.undoTargets, response.state.revision);
       setRemoteConflict(null);
       setMessage(`Revision ${String(response.state.revision)} ist jetzt in OBS.`);
@@ -1409,7 +1180,7 @@ const HudAdminWorkspace = ({
       setRemoteConflict((current) => current === null ? null : response.state);
       if (response.auditEntry !== null) {
         const auditEntry = response.auditEntry;
-        setAudit((current) => prependAuditEntry(current, auditEntry));
+        addAuditEntry(auditEntry);
       }
       applyUndoTargets(response.undoTargets, response.state.revision);
       setMessage(response.state.overlayEnabled ? "Overlay ist sichtbar." : "Overlay ist vollständig ausgeblendet.");
@@ -1489,29 +1260,24 @@ const HudAdminWorkspace = ({
   const mutateToken = async (rotate: boolean) => {
     if (api.mutateOverlayToken === undefined) return;
     if (rotate && !window.confirm("Alte OBS-URL sofort ungültig machen und neuen Token erzeugen?")) return;
-    const requestId = crypto.randomUUID();
-    const request = { requestId, expectedGeneration: overlayToken.generation };
     try {
-      const result = await api.mutateOverlayToken(rotate, request);
-      setOverlayToken((current) => ({
-        ...current,
-        exists: true,
-        generation: result.generation,
-        createdAt: result.createdAt,
-        lastUsedAt: null,
-        connectedSockets: 0,
-        token: result.token,
-      }));
+      const result = await mutateObsToken({
+        api,
+        kind: "overlay",
+        rotate,
+        expectedGeneration: overlayToken.generation,
+      });
+      setOverlayToken((current) => applyOverlayTokenResponse(current, result));
       setMessage(rotate ? "Neuer OBS-Link ist bereit; der alte wurde gesperrt." : "OBS-Link wurde erzeugt.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Token-Erzeugung fehlgeschlagen.");
     }
   };
 
-  const copyObsUrl = async () => {
+  const copyHeaderObsUrl = async () => {
     if (obsUrl === "") return;
     try {
-      await navigator.clipboard.writeText(obsUrl);
+      await copyObsUrl(obsUrl);
       setError("");
       setObsLinkCopied(true);
       if (obsLinkCopiedTimer.current !== null) window.clearTimeout(obsLinkCopiedTimer.current);
@@ -1533,7 +1299,7 @@ const HudAdminWorkspace = ({
       setDraft(toDraft(response.state));
       setDraftBaseRevision(response.state.revision);
       setRemoteConflict(null);
-      setAudit((current) => prependAuditEntry(current, response.auditEntry));
+      addAuditEntry(response.auditEntry);
       applyUndoTargets(response.undoTargets, response.state.revision);
       setMessage(`Revision ${String(targetRevision)} wurde als neue Revision wiederhergestellt.`);
     } catch (caught) {
@@ -1575,7 +1341,7 @@ const HudAdminWorkspace = ({
               aria-disabled={obsTokenUnavailable ? "true" : undefined}
               className="obs-chip-action"
               disabled={obsUrl === "" && !obsTokenUnavailable}
-              onClick={() => void copyObsUrl()}
+              onClick={() => void copyHeaderObsUrl()}
               title={obsLinkCopied ? "Kopiert" : obsTokenUnavailable ? obsTokenUnavailableMessage : obsUrl === "" ? "OBS-Link noch nicht erzeugt." : "OBS-Link kopieren"}
               type="button"
             >
@@ -1590,6 +1356,17 @@ const HudAdminWorkspace = ({
               type="button"
             >
               {overlayToken.exists ? <RotateCw aria-hidden="true" size={14} /> : <Plus aria-hidden="true" size={15} />}
+            </button>
+            <button
+              aria-controls="hud-obs-setup"
+              aria-expanded={obsSetupOpen}
+              aria-label={obsSetupOpen ? "OBS-Einrichtung schließen" : "OBS-Einrichtung öffnen"}
+              className="obs-chip-action"
+              onClick={() => setObsSetupOpen((current) => !current)}
+              title={obsSetupOpen ? "Einrichtung schließen" : "Einrichtung"}
+              type="button"
+            >
+              <Settings2 aria-hidden="true" size={14} />
             </button>
           </div>
           <span className="revision-pill">Rev. {committed.revision}</span>
@@ -1636,31 +1413,63 @@ const HudAdminWorkspace = ({
 
       {!online && <div className="offline-banner">Offline – Bearbeitung pausiert; OBS wurde nicht geändert.</div>}
 
-      <aside className="audit-rail">
-        <div className="rail-heading"><Clock3 size={15} /><span>Änderungen</span></div>
-        <div className="audit-list">
-          {audit.length === 0 ? (
-            <p className="empty-copy">Noch keine veröffentlichten Änderungen.</p>
-          ) : audit.map((entry) => (
-            <article className="audit-entry" key={entry.id}>
-              <span className="audit-dot" />
-              <div><strong>{entry.actor.displayName}</strong><p>{entry.summary}</p><time>{new Date(entry.createdAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}</time></div>
-            </article>
-          ))}
-        </div>
-        {initialBootstrap.capabilities.undo && undoTargets.length > 0 && (
-          <details className="undo-disclosure">
-            <summary><Undo2 size={14} /> Rückgängig</summary>
-            {undoTargets.slice(0, 6).map((target) => (
-              <button key={target.revision} onClick={() => void undo(target.revision)} type="button">
-                Rev. {target.revision}<span>{target.summary}</span>
-              </button>
-            ))}
-          </details>
+      <aside className={`audit-rail ${auditOpen ? "is-open" : "is-collapsed"}`}>
+        <button
+          aria-controls="audit-log"
+          aria-expanded={auditOpen}
+          className="rail-heading"
+          onClick={toggleAudit}
+          type="button"
+        >
+          <Clock3 aria-hidden="true" size={15} />
+          <span>Änderungen</span>
+          {newAuditCount > 0 && <span aria-label={`${String(newAuditCount)} neue Einträge`} className="audit-new-badge">{newAuditCount}</span>}
+          <ChevronDown aria-hidden="true" className="audit-chevron" size={15} />
+        </button>
+        {auditOpen && (
+          <div id="audit-log" className="audit-rail-content">
+            <div className="audit-list">
+              {audit.length === 0 ? (
+                <p className="empty-copy">Noch keine veröffentlichten Änderungen.</p>
+              ) : audit.map((entry) => (
+                <article className="audit-entry" key={entry.id}>
+                  <span className="audit-dot" />
+                  <div><strong>{entry.actor.displayName}</strong><p>{entry.summary}</p><time>{new Date(entry.createdAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}</time></div>
+                </article>
+              ))}
+            </div>
+            {initialBootstrap.capabilities.undo && undoTargets.length > 0 && (
+              <details className="undo-disclosure">
+                <summary><Undo2 size={14} /> Rückgängig</summary>
+                {undoTargets.slice(0, 6).map((target) => (
+                  <button key={target.revision} onClick={() => void undo(target.revision)} type="button">
+                    Rev. {target.revision}<span>{target.summary}</span>
+                  </button>
+                ))}
+              </details>
+            )}
+          </div>
         )}
       </aside>
 
       <main className="admin-main">
+        {obsSetupOpen && (
+          <div id="hud-obs-setup">
+            <ObsSetupPanel
+              api={api}
+              dockToken={dockToken}
+              online={online}
+              onDockToken={setDockToken}
+              onOverlayToken={setOverlayToken}
+              overlayToken={overlayToken}
+              sources={createChallengeObsSources(
+                window.location.origin,
+                overlayToken,
+                dockToken,
+              )}
+            />
+          </div>
+        )}
         <section className="preview-panel">
           <div className="panel-heading">
             <div><span className="eyebrow">OBS-Komposition</span><h1>Live-Vorschau</h1></div>
@@ -1925,6 +1734,7 @@ const ChallengeAdminWorkspace = ({
   const [online, setOnline] = useState(true);
   const [visibilityBusy, setVisibilityBusy] = useState(false);
   const [error, setError] = useState("");
+  const [obsSetupOpen, setObsSetupOpen] = useState(false);
   const channel = initialBootstrap.capsule.channel ?? null;
   const boardApi = useMemo<ChallengeBoardApi | null>(() => {
     if (api.getChallengeBoard === undefined || api.saveChallengeBoard === undefined) return null;
@@ -2018,14 +1828,30 @@ const ChallengeAdminWorkspace = ({
       {!online && <div className="offline-banner">Offline – Board-Speicherung pausiert; bestehende Challenges bleiben sichtbar.</div>}
       {error !== "" && <p className="challenge-board-error challenge-shell-error" role="alert">{error}</p>}
       <main className="admin-challenges-main">
-        <ChallengeSetupPanel
-          api={api}
-          dockToken={dockToken}
-          online={online}
-          onDockToken={setDockToken}
-          onOverlayToken={setOverlayToken}
-          overlayToken={overlayToken}
-        />
+        <div className="challenge-workspace-tools">
+          <button
+            aria-controls="challenge-obs-setup"
+            aria-expanded={obsSetupOpen}
+            className="button button--quiet"
+            onClick={() => setObsSetupOpen((current) => !current)}
+            type="button"
+          >
+            <Settings2 aria-hidden="true" size={16} /> OBS-Einrichtung
+          </button>
+        </div>
+        {obsSetupOpen && (
+          <div id="challenge-obs-setup">
+            <ObsSetupPanel
+              api={api}
+              dockToken={dockToken}
+              online={online}
+              onDockToken={setDockToken}
+              onOverlayToken={setOverlayToken}
+              overlayToken={overlayToken}
+              sources={createChallengeObsSources(window.location.origin, overlayToken, dockToken)}
+            />
+          </div>
+        )}
         <ChallengeSettingsPanel api={api} challengeUpdate={challengeUpdate} online={online} />
         {boardApi === null ? (
           <section className="challenge-board-shell" role="alert"><div className="challenge-board-empty"><AlertTriangle size={22} /><strong>Challenge-Board ist in dieser Sitzung nicht verfügbar.</strong></div></section>

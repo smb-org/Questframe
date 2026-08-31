@@ -48,6 +48,12 @@ const bootstrap = (): BootstrapResponse => ({
   serverTime: "2026-08-29T12:00:00.000Z",
 });
 
+const auditToggle = (): HTMLButtonElement => {
+  const button = document.querySelector(".audit-rail .rail-heading");
+  if (!(button instanceof HTMLButtonElement)) throw new Error("Audit-Schalter fehlt.");
+  return button;
+};
+
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
@@ -302,6 +308,11 @@ describe("Admin workspace setup", () => {
       workspace="challenges"
     />);
 
+    const setupToggle = screen.getByRole("button", { name: "OBS-Einrichtung" });
+    expect(setupToggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("heading", { name: "HUD-Overlay" })).not.toBeInTheDocument();
+    await user.click(setupToggle);
+    expect(setupToggle).toHaveAttribute("aria-expanded", "true");
     expect(await screen.findByRole("heading", { name: "HUD-Overlay" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Challenge-Log" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Live-Bedienseite" })).toBeInTheDocument();
@@ -313,6 +324,11 @@ describe("Admin workspace setup", () => {
     expect(screen.getByText(/eigenes Cookie-Profil/)).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: "QR-Code für die Live-Bedienseite" })).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(dockToken);
+
+    await user.click(setupToggle);
+    expect(setupToggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("heading", { name: "HUD-Overlay" })).not.toBeInTheDocument();
+    await user.click(setupToggle);
 
     await user.click(screen.getByRole("button", { name: "HUD-Overlay-URL kopieren" }));
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/overlay#token=${overlayToken}`);
@@ -771,6 +787,40 @@ describe("Admin workspace publication boundary", () => {
     expect(screen.queryByText("kein Link")).not.toBeInTheDocument();
   });
 
+  it("zählt neue Audit-Einträge im geschlossenen Rail und leert den Zähler beim Öffnen", async () => {
+    const user = userEvent.setup();
+    const initial = bootstrap();
+    let onAudit: ((entry: AuditEntry, targets: UndoTarget[]) => void) | undefined;
+    render(<AdminWorkspace initialBootstrap={initial} api={{
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      subscribe: (callbacks) => {
+        onAudit = callbacks.onAudit;
+        return () => undefined;
+      },
+    }} />);
+
+    const railToggle = auditToggle();
+    expect(railToggle).toHaveAttribute("aria-expanded", "false");
+    const makeEntry = (id: string, revision: number): AuditEntry => ({
+      id,
+      revision,
+      action: "save",
+      actor,
+      summary: id,
+      createdAt: "2026-08-29T12:01:00.000Z",
+    });
+    act(() => {
+      onAudit?.(makeEntry("Neue Änderung 1", 2), []);
+      onAudit?.(makeEntry("Neue Änderung 2", 3), []);
+    });
+
+    expect(screen.getByText("2", { selector: ".audit-new-badge" })).toHaveAttribute("aria-label", "2 neue Einträge");
+    await user.click(railToggle);
+    expect(railToggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByText("2", { selector: ".audit-new-badge" })).not.toBeInTheDocument();
+  });
+
   it("deduplicates the same audit entry regardless of response and broadcast order", async () => {
     const user = userEvent.setup();
     const initial = bootstrap();
@@ -816,11 +866,13 @@ describe("Admin workspace publication boundary", () => {
     // Danach kann er erneut eintreffen, obwohl die Antwort den Rail schon befüllt hat.
     act(() => onAudit?.(auditEntry, undoTargets));
 
+    await user.click(auditToggle());
     expect(screen.getAllByText(auditEntry.summary)).toHaveLength(1);
     expect(screen.getByRole("button", { name: /Rev\. 1/ })).toBeInTheDocument();
   });
 
-  it("updates undo targets from history broadcasts without changing a local draft", () => {
+  it("updates undo targets from history broadcasts without changing a local draft", async () => {
+    const user = userEvent.setup();
     const initial = bootstrap();
     const undoTargets: UndoTarget[] = [{
       revision: 1,
@@ -842,6 +894,7 @@ describe("Admin workspace publication boundary", () => {
     act(() => onUndoTargets?.(undoTargets));
 
     expect(screen.getByRole("slider", { name: "Gesundheit" })).toHaveValue("42");
+    await user.click(auditToggle());
     expect(screen.getByRole("button", { name: /Rev\. 1/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Änderungen speichern" })).toBeEnabled();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -904,6 +957,7 @@ describe("Admin workspace publication boundary", () => {
       await Promise.resolve();
     });
 
+    await user.click(auditToggle());
     expect(screen.getByRole("button", { name: /Rev\. 2/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Rev\. 1/ })).not.toBeInTheDocument();
   });
@@ -944,6 +998,11 @@ describe("Admin workspace publication boundary", () => {
     expect(copyButton).toBeEnabled();
     await user.click(copyButton);
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/overlay#token=${"A".repeat(43)}`);
+
+    await user.click(screen.getByRole("button", { name: "OBS-Einrichtung öffnen" }));
+    expect(await screen.findByRole("heading", { name: "Alle Quellen auf einen Blick" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "HUD-Overlay-URL kopieren" }));
+    expect(writeText).toHaveBeenLastCalledWith(`${window.location.origin}/overlay#token=${"A".repeat(43)}`);
 
     act(() => onOverlayPresence?.(2));
     expect(await screen.findByText("2 verbunden")).toBeInTheDocument();
@@ -1033,6 +1092,7 @@ describe("Admin workspace publication boundary", () => {
       logout,
     }} />);
 
+    await user.click(auditToggle());
     expect(screen.getAllByText("Startzustand")).toHaveLength(2);
     await user.click(screen.getByText("Einrichten").closest("summary") as HTMLElement);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Live-Charakter" } });
