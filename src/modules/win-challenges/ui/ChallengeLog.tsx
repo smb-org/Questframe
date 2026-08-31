@@ -151,7 +151,10 @@ export const ChallengeLog = ({
 }) => {
   const selection = selectVisible(update.challenges, update.settings.maxVisible, now);
   const globalTimer = update.settings.globalTimer;
-  const maxRowsWithoutOverflow = globalTimer === null ? 8 : 7;
+  // Eine Challenge darf bis zu drei Textzeilen belegen. Die konservative
+  // Kapazität hält Header, optionalen Timer und die Überlaufzeile innerhalb
+  // der festen 300px-OBS-Quelle, auch wenn alle sichtbaren Texte umbrechen.
+  const maxRowsWithoutOverflow = globalTimer === null ? 5 : 4;
   const totalSelectable = selection.challenges.length + selection.remaining;
   const hasOverflow = totalSelectable > maxRowsWithoutOverflow;
   const maxRows = hasOverflow ? maxRowsWithoutOverflow - 1 : maxRowsWithoutOverflow;

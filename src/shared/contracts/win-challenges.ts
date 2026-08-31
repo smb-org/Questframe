@@ -17,7 +17,6 @@ export type ChallengeState = "pending" | "active" | "done";
 export type Challenge = {
   id: string;
   title: string;
-  description: string | null;
   targetCount: number | null;
   timerTotalMs: number | null;
   sortOrder: number;

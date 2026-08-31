@@ -351,7 +351,7 @@ describe("Admin workspace shell", () => {
 
   it("zeigt bei einem Board-Konflikt über die globale Speicherleiste die modul-eigene Konflikt-UI mit Serverstand", async () => {
     const user = userEvent.setup();
-    const localChallenge: ChallengeBoardSnapshot["challenges"][number] = { id: "one", title: "Lokaler Entwurf", description: null, targetCount: null, timerTotalMs: null, sortOrder: 0, hidden: false, currentCount: 0, state: "pending", timerEndsAt: null, completedAt: null, createdAt: "2026-08-31T10:00:00.000Z", updatedAt: "2026-08-31T10:00:00.000Z" };
+    const localChallenge: ChallengeBoardSnapshot["challenges"][number] = { id: "one", title: "Lokaler Entwurf", targetCount: null, timerTotalMs: null, sortOrder: 0, hidden: false, currentCount: 0, state: "pending", timerEndsAt: null, completedAt: null, createdAt: "2026-08-31T10:00:00.000Z", updatedAt: "2026-08-31T10:00:00.000Z" };
     const challengeSnapshot: ChallengeBoardSnapshot = {
       eventSeq: 0,
       boardRevision: 1,

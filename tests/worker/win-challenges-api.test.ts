@@ -31,7 +31,6 @@ const commandId = (): string => crypto.randomUUID();
 const definition = (title = "Eine Challenge"): ChallengeDefinition => ({
   clientId: `client-${title}`,
   title,
-  description: null,
   targetCount: 3,
   timerTotalMs: 10_000,
   sortOrder: 0,
@@ -298,6 +297,14 @@ describe("Win-Challenges-API", () => {
       );
     });
     expect(measuredReplay.rowsWritten).toBe(0);
+  });
+
+  it("akzeptiert das entfernte Beschreibungsfeld nicht mehr im Board-API", async () => {
+    const response = await saveBoard([
+      { ...definition(), description: "veraltetes Feld" } as unknown as ChallengeDefinition,
+    ]);
+    expect(response.status).toBe(422);
+    expect((await response.json<{ error: { code: string } }>()).error.code).toBe("validation_failed");
   });
 
   it("liefert Konflikte mit dem aktuellen Board- und Settings-Snapshot", async () => {

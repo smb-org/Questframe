@@ -64,7 +64,6 @@ const readGlobalTimerRow = async (): Promise<GlobalTimerRow> =>
 const definition = (title: string, sortOrder: number): ChallengeDefinition => ({
   clientId: `client-${String(sortOrder)}`,
   title,
-  description: null,
   targetCount: 10,
   timerTotalMs: 60_000,
   sortOrder,
@@ -74,7 +73,6 @@ const definition = (title: string, sortOrder: number): ChallengeDefinition => ({
 const definitionFor = (challenge: Challenge, title: string): ChallengeDefinition => ({
   id: challenge.id,
   title,
-  description: challenge.description,
   targetCount: challenge.targetCount,
   timerTotalMs: challenge.timerTotalMs,
   sortOrder: challenge.sortOrder,
@@ -141,6 +139,7 @@ describe("win-challenges repository and migration", () => {
     expect(result.versions).toContain(3);
     expect(result.versions).toContain(4);
     expect(result.versions).toContain(5);
+    expect(result.versions).toContain(6);
     expect(result.tables).toEqual([
       "wc_challenges",
       "wc_commands",
@@ -168,7 +167,6 @@ describe("win-challenges repository and migration", () => {
     expect(result.challengeColumns).toEqual([
       "id",
       "title",
-      "description",
       "target_count",
       "timer_total_ms",
       "sort_order",

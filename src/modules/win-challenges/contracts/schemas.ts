@@ -7,7 +7,6 @@ import {
   DEFAULT_CHALLENGE_PLACEMENT,
   MAX_CHALLENGES,
   MAX_COUNT,
-  isChallengeDescription,
   isChallengeId,
   isChallengeState,
   isChallengeStyleId,
@@ -51,11 +50,7 @@ const normalized = <T>(
 
 const challengeIdSchema = custom(isChallengeId, "Challenge-ID ist erforderlich.");
 const clientIdSchema = custom(isClientId, "Client-ID ist erforderlich.");
-const challengeTitleSchema = normalized(isChallengeTitle, "Titel muss 1–80 Zeichen lang sein.");
-const challengeDescriptionSchema = normalized(
-  isChallengeDescription,
-  "Beschreibung muss 0–160 Zeichen lang sein oder null sein.",
-);
+const challengeTitleSchema = normalized(isChallengeTitle, "Challenge muss 1–160 Zeichen lang sein.");
 const maxCountLabel = String(MAX_COUNT);
 const targetCountSchema = custom(isTargetCount, `Ziel muss null oder eine Zahl von 1–${maxCountLabel} sein.`);
 const currentCountSchema = custom(isCurrentCount, `Aktueller Stand muss 0–${maxCountLabel} sein.`);
@@ -108,7 +103,6 @@ const commandIdSchema = custom(isCommandId, "Kommando-ID muss eine UUID sein.");
 
 const challengeDefinitionFields = {
   title: challengeTitleSchema,
-  description: challengeDescriptionSchema,
   targetCount: targetCountSchema,
   timerTotalMs: timerTotalMsSchema,
   sortOrder: sortOrderSchema,
@@ -123,7 +117,6 @@ export const challengeDefinitionSchema = z.union([
 export const challengeSchema = z.strictObject({
   id: challengeIdSchema,
   title: challengeTitleSchema,
-  description: challengeDescriptionSchema,
   targetCount: targetCountSchema,
   timerTotalMs: timerTotalMsSchema,
   sortOrder: sortOrderSchema,

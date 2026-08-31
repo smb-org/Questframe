@@ -51,7 +51,6 @@ class FakeAudio {
 const challenge = (id: string, title: string, state: "pending" | "done", sortOrder: number): ChallengeUpdate["challenges"][number] => ({
   id,
   title,
-  description: null,
   targetCount: state === "done" ? 1 : 10,
   timerTotalMs: null,
   sortOrder,
@@ -724,7 +723,8 @@ describe("ChallengeSourceApp", () => {
       settings: { ...message().settings, maxVisible: 10 },
     });
     render(<ChallengeLog now={fixedNow} update={update} />);
-    expect(screen.getByText("+33 weitere")).toBeInTheDocument();
+    expect(screen.getByText("+36 weitere")).toBeInTheDocument();
+    expect(document.querySelectorAll(".challenge-source__row")).toHaveLength(4);
     expect(document.querySelectorAll(".challenge-source__row").length).toBeLessThanOrEqual(MAX_TOTAL_ROWS);
   });
 });

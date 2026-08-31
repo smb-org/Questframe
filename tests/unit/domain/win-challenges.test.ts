@@ -28,7 +28,6 @@ const nowMilliseconds = Date.parse(now);
 const makeChallenge = (overrides: Partial<Challenge> = {}): Challenge => ({
   id: "challenge-1",
   title: "Eine Challenge",
-  description: null,
   targetCount: 10,
   timerTotalMs: 10_000,
   sortOrder: 0,
@@ -52,7 +51,6 @@ const makeGlobalTimer = (overrides: Partial<GlobalTimer> = {}): GlobalTimer => (
 const definition = {
   id: "challenge-1",
   title: "Eine Challenge",
-  description: null,
   targetCount: 10,
   timerTotalMs: 10_000,
   sortOrder: 0,
@@ -373,7 +371,6 @@ describe("Win-Challenges-Domain", () => {
     const newDefinition = {
       clientId: "client-1",
       title: definition.title,
-      description: definition.description,
       targetCount: definition.targetCount,
       timerTotalMs: definition.timerTotalMs,
       sortOrder: definition.sortOrder,

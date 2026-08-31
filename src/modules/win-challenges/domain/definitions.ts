@@ -29,7 +29,6 @@ export const mergeDefinition = (
     return {
       id: getDefinitionId(definition, generatedId),
       title: definition.title,
-      description: definition.description,
       targetCount: definition.targetCount,
       timerTotalMs: definition.timerTotalMs,
       sortOrder: definition.sortOrder,
@@ -53,7 +52,6 @@ export const mergeDefinition = (
   return {
     ...existing,
     title: definition.title,
-    description: definition.description,
     targetCount: definition.targetCount,
     timerTotalMs: definition.timerTotalMs,
     sortOrder: definition.sortOrder,

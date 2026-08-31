@@ -187,6 +187,16 @@ const hasChallengePlacement = (sql: SqlStorage): boolean =>
     .toArray()
     .some((column) => column.name === "placement_x");
 
+const MIGRATION_6 = `
+ALTER TABLE wc_challenges DROP COLUMN description;
+`;
+
+const hasChallengeDescription = (sql: SqlStorage): boolean =>
+  sql
+    .exec<{ name: string }>("PRAGMA table_info(wc_challenges)")
+    .toArray()
+    .some((column) => column.name === "description");
+
 export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
   sql.exec(MIGRATION_1);
   const versionOneWasApplied = sql
@@ -249,6 +259,18 @@ export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
     sql.exec(
       "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
       5,
+      buildId,
+      new Date().toISOString(),
+    );
+  }
+  const versionSixWasApplied = sql
+    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 6")
+    .toArray().length > 0;
+  if (!versionSixWasApplied) {
+    if (hasChallengeDescription(sql)) sql.exec(MIGRATION_6);
+    sql.exec(
+      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
+      6,
       buildId,
       new Date().toISOString(),
     );

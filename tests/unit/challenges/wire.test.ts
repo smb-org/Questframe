@@ -24,7 +24,6 @@ const update = (): ChallengeUpdate => ({
   challenges: [{
     id: "challenge-1",
     title: "Eine Challenge",
-    description: null,
     targetCount: 10,
     timerTotalMs: 10_000,
     sortOrder: 0,
@@ -42,6 +41,16 @@ const update = (): ChallengeUpdate => ({
 describe("Challenge-Quelle-Wire", () => {
   it("nimmt eine gültige challenge_update-Nachricht an", () => {
     expect(parseChallengeUpdate(update())).toEqual(update());
+  });
+
+  it("weist das entfernte Beschreibungsfeld als unbekannten Wire-Key zurück", () => {
+    const current = update();
+    const challenge = current.challenges[0];
+    if (challenge === undefined) throw new Error("Test-Challenge fehlt.");
+    expect(parseChallengeUpdate({
+      ...current,
+      challenges: [{ ...challenge, description: "veraltet" }],
+    })).toBeNull();
   });
 
   it("verlangt im Challenge-Key-Set das neue hidden-Feld", () => {

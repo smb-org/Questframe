@@ -8,7 +8,6 @@ import {
   settingsSchema,
 } from "../../../src/modules/win-challenges/contracts/schemas";
 import {
-  isChallengeDescription,
   isChallengeTitle,
   isCurrentCount,
   isDelta,
@@ -27,7 +26,6 @@ import {
 const definition = {
   clientId: "client-1",
   title: "Eine Challenge",
-  description: null,
   targetCount: 10,
   timerTotalMs: 10_000,
   sortOrder: 0,
@@ -36,7 +34,6 @@ const definition = {
 const challenge = {
   id: "challenge-1",
   title: "Eine Challenge",
-  description: null,
   targetCount: 10,
   timerTotalMs: 10_000,
   sortOrder: 0,
@@ -64,12 +61,12 @@ const settings = {
 describe("Win-Challenges-Verträge", () => {
   it("erzwingt die kritische Titel-Grenzwerttabelle durch Prädikat und Schema", () => {
     const cases = [
-      { label: "Emoji bis zur UTF-16-Grenze", value: "🧭".repeat(40), accepted: true },
-      { label: "Emoji über die UTF-16-Grenze", value: "🧭".repeat(41), accepted: false },
+      { label: "Emoji bis zur UTF-16-Grenze", value: "🧭".repeat(80), accepted: true },
+      { label: "Emoji über die UTF-16-Grenze", value: "🧭".repeat(81), accepted: false },
       { label: "NFC-Form", value: "e\u0301", accepted: true },
       { label: "Leerstring", value: "", accepted: false },
-      { label: "Maximum", value: "x".repeat(80), accepted: true },
-      { label: "Maximum plus eins", value: "x".repeat(81), accepted: false },
+      { label: "Maximum", value: "x".repeat(160), accepted: true },
+      { label: "Maximum plus eins", value: "x".repeat(161), accepted: false },
     ];
 
     for (const testCase of cases) {
@@ -83,20 +80,13 @@ describe("Win-Challenges-Verträge", () => {
     }
   });
 
+  it("weist das entfernte Beschreibungsfeld in Definition und Snapshot zurück", () => {
+    expect(challengeDefinitionSchema.safeParse({ ...definition, description: "veraltet" }).success).toBe(false);
+    expect(challengeSchema.safeParse({ ...challenge, description: null }).success).toBe(false);
+  });
+
   it("hält alle Feldprädikate und die darüber gebauten Schemas gekoppelt", () => {
     const tables = [
-      {
-        name: "description",
-        predicate: isChallengeDescription,
-        schema: (value: unknown) =>
-          challengeDefinitionSchema.safeParse({ ...definition, description: value }).success,
-        values: [
-          { value: "", accepted: true },
-          { value: "ä".repeat(160), accepted: true },
-          { value: "ä".repeat(161), accepted: false },
-          { value: null, accepted: true },
-        ],
-      },
       {
         name: "targetCount",
         predicate: isTargetCount,

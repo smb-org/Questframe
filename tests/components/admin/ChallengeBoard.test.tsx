@@ -22,7 +22,6 @@ const challenge = (
 ): ChallengeBoardSnapshot["challenges"][number] => ({
   id,
   title,
-  description: null,
   targetCount: 10,
   timerTotalMs: null,
   sortOrder: 0,
@@ -90,6 +89,41 @@ afterEach(() => {
 });
 
 describe("ChallengeBoard", () => {
+  it("zeigt nur den Overlay-Text und gruppiert Laufzeitaktionen sowie Ziel und Timer kompakt", async () => {
+    const initial = snapshot([challenge("one", "Bellen")]);
+    renderBoard(initial);
+
+    const challengeInput = await screen.findByRole("textbox", { name: "Challenge" });
+    const row = challengeInput.closest("article");
+    if (!(row instanceof HTMLElement)) throw new Error("Challenge-Zeile fehlt.");
+
+    expect(within(row).getAllByRole("textbox")).toEqual([challengeInput]);
+    expect(within(row).queryByRole("textbox", { name: "Beschreibung" })).not.toBeInTheDocument();
+    expect(within(row).getByRole("group", { name: "Ziel und Timer" })).toBeInTheDocument();
+
+    const visibility = within(row).getByRole("switch", { name: "Bellen ausblenden" });
+    const remove = within(row).getByRole("button", { name: "Bellen löschen" });
+    expect(visibility.compareDocumentPosition(challengeInput) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    expect(remove.compareDocumentPosition(challengeInput) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+  });
+
+  it("sendet nur den sichtbaren Challenge-Text", async () => {
+    const user = userEvent.setup();
+    const initial = snapshot([challenge("one", "Bellen")]);
+    const save = vi.fn<ChallengeBoardApi["save"]>().mockResolvedValue(responseFor(initial));
+    const { triggerSave } = renderBoard(initial, save);
+
+    const challengeInput = await screen.findByRole("textbox", { name: "Challenge" });
+    await user.clear(challengeInput);
+    await user.type(challengeInput, "Fünfmal bellen");
+    await triggerSave();
+
+    expect(save.mock.calls[0]?.[0].challenges[0]).toMatchObject({
+      title: "Fünfmal bellen",
+    });
+    expect(save.mock.calls[0]?.[0].challenges[0]).not.toHaveProperty("description");
+  });
+
   it("wendet clientId zu id an und sendet danach nur die echte ID", async () => {
     const user = userEvent.setup();
     const initial = snapshot([]);
@@ -101,7 +135,7 @@ describe("ChallengeBoard", () => {
 
     await user.click(await screen.findByRole("button", { name: "Challenge anlegen" }));
     const row = firstRow();
-    const title = within(row).getByLabelText("Titel");
+    const title = within(row).getByLabelText("Challenge");
     await user.clear(title);
     await user.type(title, "Neue Challenge");
     await triggerSave();
@@ -116,7 +150,7 @@ describe("ChallengeBoard", () => {
     expect(screen.getByDisplayValue("Neue Challenge")).toBeInTheDocument();
 
     await user.clear(screen.getByDisplayValue("Neue Challenge"));
-    await user.type(screen.getByLabelText("Titel"), "Umbenannt");
+    await user.type(screen.getByLabelText("Challenge"), "Umbenannt");
     await triggerSave();
     expect(save.mock.calls[1]?.[0].challenges[0]).toMatchObject({ id: "server-id" });
     expect(save.mock.calls[1]?.[0].challenges[0]).not.toHaveProperty("clientId");

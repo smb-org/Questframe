@@ -71,7 +71,6 @@ const update: ChallengeUpdate = {
   challenges: [{
     id: "challenge-1",
     title: "Komposit sichtbar",
-    description: null,
     targetCount: 3,
     timerTotalMs: null,
     sortOrder: 0,

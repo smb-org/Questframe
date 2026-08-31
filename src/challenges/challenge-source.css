@@ -353,7 +353,7 @@
   .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__row {
-  height: var(--wc-row-height);
+  min-height: var(--wc-row-height);
   display: list-item;
   padding: 0;
 }
@@ -364,11 +364,11 @@
   .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__row-inner {
-  height: 100%;
+  min-height: var(--wc-row-height);
   display: flex;
   align-items: center;
   gap: var(--wc-gap);
-  padding: 0 var(--wc-inline-padding);
+  padding: 4px var(--wc-inline-padding);
 }
 
 :is(
@@ -431,10 +431,14 @@
   .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__name {
+  display: -webkit-box;
   min-width: 0;
+  line-height: 1.18;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 :is(

@@ -51,12 +51,7 @@ const isNormalizedText = (
 };
 
 export const isChallengeTitle = (value: unknown): value is string =>
-  isNormalizedText(value, 1, 80);
-
-export const isChallengeDescription = (
-  value: unknown,
-): value is string | null =>
-  value === null || isNormalizedText(value, 0, 160);
+  isNormalizedText(value, 1, 160);
 
 export const isHidden = (value: unknown): value is boolean =>
   typeof value === "boolean";

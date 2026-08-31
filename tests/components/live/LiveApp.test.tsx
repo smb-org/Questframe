@@ -37,7 +37,6 @@ class FakeWebSocket {
 const challenge = (currentCount = 3): ChallengeUpdate["challenges"][number] => ({
   id: "challenge-1",
   title: "Offene Challenge",
-  description: null,
   targetCount: 10,
   timerTotalMs: 60_000,
   sortOrder: 0,

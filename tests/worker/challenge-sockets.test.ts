@@ -231,7 +231,6 @@ const waitForClose = (socket: WebSocket, timeoutMs = 1_000): Promise<CloseEvent 
 const challengeDefinition = {
   clientId: "socket-challenge",
   title: "Socket-Challenge",
-  description: null,
   targetCount: 3,
   timerTotalMs: 10_000,
   sortOrder: 0,

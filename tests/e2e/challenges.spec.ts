@@ -116,7 +116,7 @@ const ensureDockToken = async (page: Page): Promise<string> => {
 const createChallenge = async (page: Page, title: string, targetCount?: number): Promise<void> => {
   await page.getByRole("button", { name: "Challenge anlegen" }).click();
   const row = page.locator(".challenge-board-row").last();
-  await row.getByLabel("Titel").fill(title);
+  await row.getByRole("textbox", { name: "Challenge", exact: true }).fill(title);
   if (targetCount !== undefined) {
     await row.getByRole("checkbox", { name: `${title} mit Zielwert` }).check();
     await row.getByRole("spinbutton", { name: `${title} Zielwert` }).fill(String(targetCount));
@@ -193,6 +193,51 @@ test("eine neue Board-Challenge erscheint in der Challenge-Quelle", async ({ pag
   await createChallenge(page, title);
   await expect(challengeRow(source, title)).toHaveCount(1);
   await expect(challengeRow(source, title).getByText(title, { exact: true })).toBeVisible();
+  await disposePage(source);
+  await disposePage(page);
+});
+
+test("ein langer Challenge-Text bricht innerhalb der Overlay-Grenze um", async ({ page, context }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "Desktop-Challenge-Quelle");
+  await openChallengeAdmin(page);
+  const overlayToken = await ensureOverlayToken(page);
+  const source = await context.newPage();
+  await source.goto(`/overlay/challenges#token=${overlayToken}`);
+
+  const title = "Brudi muss in zwei Minuten fünfmal bellen und danach noch eine richtig lange Zusatzaufgabe für die sichtbare Challenge erledigen";
+  await createChallenge(page, title);
+  const row = challengeRow(source, title);
+  const name = row.locator(".challenge-source__name");
+  await expect(name).toHaveCSS("white-space", "normal");
+  await expect.poll(async () => row.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(33);
+
+  await disposePage(source);
+  await disposePage(page);
+});
+
+test("mehrere lange Challenge-Texte bleiben mit sichtbarem Überlauf innerhalb der Quelle", async ({ page, context }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "Desktop-Challenge-Quelle");
+  await openChallengeAdmin(page);
+  const overlayToken = await ensureOverlayToken(page);
+  const source = await context.newPage();
+  await source.goto(`/overlay/challenges#token=${overlayToken}`);
+
+  for (let index = 0; index < 6; index += 1) {
+    await page.getByRole("button", { name: "Challenge anlegen" }).click();
+    const row = page.locator(".challenge-board-row").last();
+    await row.getByRole("textbox", { name: "Challenge", exact: true }).fill(
+      `Lange Challenge ${String(index + 1)} muss innerhalb der OBS-Quelle sauber über mehrere Zeilen umbrechen und sichtbar bleiben`,
+    );
+  }
+  await page.getByRole("button", { name: "Alle speichern" }).click();
+  await expect(page.getByText(/Board gespeichert · Revision \d+\./)).toBeVisible();
+
+  await expect(source.locator(".challenge-source__row")).toHaveCount(4);
+  await expect(source.locator(".challenge-source__more")).toHaveText("+2 weitere");
+  await expect.poll(async () => source.locator(".challenge-source").evaluate(
+    (element) => element.scrollHeight <= element.clientHeight,
+  )).toBe(true);
+
   await disposePage(source);
   await disposePage(page);
 });

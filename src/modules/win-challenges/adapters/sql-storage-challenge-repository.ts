@@ -58,7 +58,6 @@ type MetaRow = {
 type ChallengeRow = {
   id: string;
   title: string;
-  description: string | null;
   target_count: number | null;
   timer_total_ms: number | null;
   sort_order: number;
@@ -205,7 +204,6 @@ const parseChallenge = (row: ChallengeRow): Challenge =>
   challengeSchema.parse({
     id: row.id,
     title: row.title,
-    description: row.description,
     targetCount: row.target_count,
     timerTotalMs: row.timer_total_ms,
     sortOrder: row.sort_order,
@@ -702,12 +700,11 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
   private insertChallenge(challenge: Challenge): void {
     this.execute<ChallengeRow>(
       `INSERT INTO ${this.table("challenges")}(
-        id, title, description, target_count, timer_total_ms, sort_order,
+        id, title, target_count, timer_total_ms, sort_order,
         hidden, current_count, state, timer_ends_at, completed_at, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       challenge.id,
       challenge.title,
-      challenge.description,
       challenge.targetCount,
       challenge.timerTotalMs,
       challenge.sortOrder,
@@ -725,11 +722,10 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     if (sameRuntime(existing, challenge)) {
       this.execute<ChallengeRow>(
         `UPDATE ${this.table("challenges")} SET
-          title = ?, description = ?, target_count = ?, timer_total_ms = ?,
+          title = ?, target_count = ?, timer_total_ms = ?,
           sort_order = ?, hidden = ?, updated_at = ?
          WHERE id = ?`,
         challenge.title,
-        challenge.description,
         challenge.targetCount,
         challenge.timerTotalMs,
         challenge.sortOrder,
@@ -741,11 +737,10 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     }
     this.execute<ChallengeRow>(
       `UPDATE ${this.table("challenges")} SET
-        title = ?, description = ?, target_count = ?, timer_total_ms = ?, sort_order = ?,
+        title = ?, target_count = ?, timer_total_ms = ?, sort_order = ?,
         hidden = ?, current_count = ?, state = ?, timer_ends_at = ?, completed_at = ?, updated_at = ?
        WHERE id = ?`,
       challenge.title,
-      challenge.description,
       challenge.targetCount,
       challenge.timerTotalMs,
       challenge.sortOrder,

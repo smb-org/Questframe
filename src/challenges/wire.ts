@@ -7,7 +7,6 @@ import type {
   GlobalTimerEvent,
 } from "../shared/contracts/win-challenges";
 import {
-  isChallengeDescription,
   isChallengeId,
   isChallengeState,
   isChallengeStyleId,
@@ -97,7 +96,6 @@ const parseChallenge = (input: unknown): Challenge | null => {
     !exactKeys(input, [
       "id",
       "title",
-      "description",
       "targetCount",
       "timerTotalMs",
       "sortOrder",
@@ -111,7 +109,6 @@ const parseChallenge = (input: unknown): Challenge | null => {
     ]) ||
     !isChallengeId(input.id) ||
     !isChallengeTitle(input.title) ||
-    !isChallengeDescription(input.description) ||
     !isTargetCount(input.targetCount) ||
     !isTimerTotalMs(input.timerTotalMs) ||
     !isSortOrder(input.sortOrder) ||

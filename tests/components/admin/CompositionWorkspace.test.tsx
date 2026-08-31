@@ -31,7 +31,7 @@ const challengeSnapshot = (): ChallengeBoardSnapshot => ({
   boardRevision: 1,
   settingsRevision: 1,
   settings: { styleId: "plain-list", themeMode: "inherit", surfaceMode: "surface", headerTitle: "CHALLENGES", effectsEnabled: true, maxVisible: 5, globalTimer: null, placement: { x: 300, y: 8, scale: 1 } },
-  challenges: [{ id: "challenge-1", title: "Wasser trinken", description: null, targetCount: null, timerTotalMs: null, sortOrder: 0, hidden: false, currentCount: 0, state: "pending", timerEndsAt: null, completedAt: null, createdAt: "2026-08-29T12:00:00.000Z", updatedAt: "2026-08-29T12:00:00.000Z" }],
+  challenges: [{ id: "challenge-1", title: "Wasser trinken", targetCount: null, timerTotalMs: null, sortOrder: 0, hidden: false, currentCount: 0, state: "pending", timerEndsAt: null, completedAt: null, createdAt: "2026-08-29T12:00:00.000Z", updatedAt: "2026-08-29T12:00:00.000Z" }],
 });
 
 const createCompositionApi = (snapshot: ChallengeBoardSnapshot): AdminApi => ({
@@ -380,6 +380,9 @@ describe("Kompositions-Workspace", () => {
     await waitFor(() => expect(saveAllButton).toBeEnabled());
     const bar = within(document.querySelector(".global-save-bar") as HTMLElement);
     expect(bar.getByText("HUD")).toBeInTheDocument();
+    const previewMain = container.querySelector(".composition-main");
+    if (!(previewMain instanceof HTMLElement)) throw new Error("Vorschau-Bereich fehlt.");
+    expect(within(previewMain).getByRole("button", { name: "Alle speichern" })).toBe(saveAllButton);
 
     act(() => onOnlineChange?.(false));
     expect(saveAllButton).toBeDisabled();

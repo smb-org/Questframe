@@ -149,11 +149,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .admin-app--composition .admin-topbar { grid-column: 1 / -1; }
 /* Das eingeklappte Audit-Rail schwebt bei top:64px 48px hoch über dem Inhalt;
    padding-top muss das mindestens ausgleichen, sonst verdeckt es den Panel-Heading. */
-.composition-main { grid-column: 1; grid-row: 2; min-width: 0; padding: clamp(20px, 3vw, 42px); padding-top: max(clamp(20px, 3vw, 42px), 64px); overflow: auto; }
+.composition-main { --composition-preview-frame: min(100%, calc((100vh - 250px) * 16 / 9)); grid-column: 1; grid-row: 2; min-width: 0; padding: clamp(20px, 3vw, 42px); padding-top: max(clamp(20px, 3vw, 42px), 64px); overflow: auto; }
 /* Die Buehne bleibt an die Fensterhoehe gebunden: 100% Breite wuerde bei
    breiten Fenstern eine Vorschau erzeugen, die hoeher als der Bildschirm ist.
    Die Kappung aus der Basisregel (--preview-frame) gilt darum auch hier. */
-.composition-main .preview-panel { width: var(--preview-frame); }
+.composition-main .preview-panel { width: var(--composition-preview-frame); }
 .composition-rails { grid-column: 2; grid-row: 2; min-width: 0; overflow: auto; border-left: 1px solid var(--line); background: #121619; }
 .composition-save-dock { position: sticky; z-index: 15; bottom: 0; }
 .admin-tabs { display: flex; gap: 4px; min-height: 52px; padding: 7px 12px; border-bottom: 1px solid var(--line); background: #121619; }
@@ -170,16 +170,14 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 /* Das Board sitzt in der Komposition in einer 360-520px-Rail, waehrend der
    Viewport breit bleibt: der 760px-Breakpoint greift also nie, obwohl der
-   Platz derselbe ist. Darum hier dasselbe gestapelte Kompaktlayout, sonst
-   ueberlappen Sichtbar-Schalter und Beschreibung. */
+   Platz derselbe ist. Darum bekommt die Rail ein eigenes Kompaktlayout. */
 .composition-challenge-rail .challenge-board-toolbar, .composition-challenge-rail .challenge-board-save-bar, .composition-challenge-rail .challenge-settings-save-bar { align-items: stretch; flex-direction: column; }
 .composition-challenge-rail .challenge-board-toolbar .button, .composition-challenge-rail .challenge-board-save-bar .button--save, .composition-challenge-rail .challenge-settings-save-bar .button--save { width: 100%; }
-.composition-challenge-rail .challenge-board-row { grid-template-columns: 1fr 38px; gap: 8px; padding: 10px; }
-.composition-challenge-rail .challenge-row-order { grid-column: 1 / -1; grid-template-columns: 38px 38px 38px; }
-.composition-challenge-rail .challenge-drag-handle { grid-column: 3; grid-row: 1; }
-.composition-challenge-rail .challenge-row-fields { grid-column: 1 / -1; grid-template-columns: 1fr; gap: 9px; }
-.composition-challenge-rail .challenge-row-runtime { grid-column: 1; min-height: 54px; padding-left: 0; border-left: 0; }
-.composition-challenge-rail .challenge-delete { grid-column: 2; grid-row: 4; align-self: end; }
+.composition-challenge-rail .challenge-board-row { padding: 10px; }
+.composition-challenge-rail .challenge-row-header { gap: 8px; }
+.composition-challenge-rail .challenge-row-runtime { justify-content: flex-end; }
+.composition-challenge-rail .challenge-row-runtime small { flex-basis: 100%; text-align: right; }
+.composition-challenge-rail .challenge-row-fields { grid-template-columns: 1fr; gap: 9px; }
 .composition-challenge-rail .challenge-conflict-actions { display: grid; }
 .composition-challenge-rail .challenge-conflict-actions .button { width: 100%; }
 .composition-challenge-rail .challenge-board-toolbar, .composition-challenge-rail .challenge-board-list, .composition-challenge-rail .challenge-board-save-bar, .composition-challenge-rail .challenge-board-conflict, .composition-challenge-rail .challenge-merge-notices, .composition-challenge-rail > .challenge-board-shell > .challenge-board-empty-copy, .composition-challenge-rail > .challenge-board-shell > .challenge-board-error, .composition-challenge-rail > .challenge-board-shell > .challenge-board-success { margin-right: 16px; margin-left: 16px; }
@@ -199,11 +197,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .preview-module-toggle:hover:not(:disabled) { border-color: var(--line); background: var(--surface-3); }
 .preview-module-toggle:disabled { cursor: not-allowed; opacity: 0.58; }
 
-/* Die eine schwebende Speicherleiste fuer die ganze Ansicht: fixiert unter der Topbar,
-   unabhaengig vom aktiven Tab, damit klar ist, wo gespeichert wird. Bewusst oben rechts
-   statt unten (wie die modul-eigenen Save-Bars) verankert, sonst ueberlappt sie deren
-   Buttons und blockiert Klicks (das Audit-Rail liegt oben links, keine Kollision). */
-.global-save-bar { position: fixed; z-index: 30; top: 76px; right: max(16px, env(safe-area-inset-right)); bottom: auto; left: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; width: min(420px, calc(100vw - 32px)); padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: rgba(18, 22, 25, 0.97); box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35); }
+/* Die Speicherleiste reserviert Platz direkt ueber der Vorschau und kann dadurch
+   weder Vorschau-Steuerung noch Editor-Rail ueberdecken. */
+.global-save-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; width: var(--composition-preview-frame); margin-bottom: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: rgba(18, 22, 25, 0.97); }
 .global-save-bar-copy { display: grid; gap: 4px; min-width: 0; }
 .global-save-bar-copy strong { font-size: 13px; }
 .global-save-bar-copy span { font-size: 11px; }
@@ -381,24 +377,26 @@ input[type="color"] { padding: 4px; }
 .challenge-board-toolbar strong { font-size: 13px; }
 .challenge-board-toolbar span { color: var(--muted); font-size: 11px; line-height: 1.35; }
 .challenge-board-list { display: grid; gap: 8px; }
-.challenge-board-row { display: grid; grid-template-columns: 112px minmax(0, 1fr) 170px 38px; align-items: start; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); transition: border-color 160ms ease, background 160ms ease; }
+.challenge-board-row { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); transition: border-color 160ms ease, background 160ms ease; }
 .challenge-board-row:hover { border-color: var(--surface-3); background: var(--surface-2); }
 .challenge-board-row[draggable="true"] { cursor: grab; }
 .challenge-board-row[draggable="true"]:active { cursor: grabbing; }
-.challenge-row-order { display: grid; grid-template-columns: 38px 38px; gap: 4px; align-items: center; }
+.challenge-row-header { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.challenge-row-order { display: flex; gap: 4px; align-items: center; }
 .challenge-row-order .icon-button { width: 38px; height: 38px; }
-.challenge-drag-handle { grid-column: 1 / -1; min-width: 38px; min-height: 38px; display: grid; place-items: center; border: 1px dashed var(--line); border-radius: 6px; background: transparent; color: var(--muted); cursor: grab; }
+.challenge-drag-handle { min-width: 38px; min-height: 38px; display: grid; place-items: center; border: 1px dashed var(--line); border-radius: 6px; background: transparent; color: var(--muted); cursor: grab; }
 .challenge-drag-handle:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-bright); background: var(--surface-3); }
 .challenge-drag-handle:disabled { cursor: not-allowed; opacity: 0.45; }
-.challenge-row-fields { display: grid; grid-template-columns: minmax(150px, 1.2fr) minmax(180px, 1.5fr) minmax(130px, 0.9fr) minmax(130px, 0.9fr); gap: 10px; }
+.challenge-row-fields { display: grid; grid-template-columns: minmax(240px, 1.2fr) minmax(320px, 1fr); align-items: end; gap: 10px; }
+.challenge-row-goals { min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; padding: 0; border: 0; }
 .challenge-field { min-width: 0; display: grid; gap: 5px; }
 .challenge-field > span:first-child { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
 .challenge-field input:not([type="checkbox"]), .challenge-field textarea { min-height: 38px; }
-.challenge-field textarea { min-height: 64px; }
+.challenge-field textarea { min-height: 64px; resize: vertical; }
 .challenge-toggle-field { min-height: 38px; display: grid; grid-template-columns: 38px minmax(0, 1fr); align-items: center; gap: 6px; }
 .challenge-toggle-field input[type="checkbox"] { width: 38px; height: 38px; margin: 0; accent-color: var(--accent); }
 .challenge-toggle-field input[type="number"] { min-width: 0; }
-.challenge-row-runtime { min-height: 64px; display: grid; align-content: center; gap: 5px; padding: 8px 10px; border-left: 1px solid var(--line); color: var(--muted); }
+.challenge-row-runtime { min-width: 0; display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--muted); }
 .challenge-row-runtime strong { color: var(--text); font-size: 14px; font-variant-numeric: tabular-nums; }
 .challenge-row-runtime small { color: var(--accent-bright); font-size: 10px; line-height: 1.2; }
 .challenge-state { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 800; text-transform: uppercase; }
@@ -415,7 +413,7 @@ input[type="color"] { padding: 4px; }
 .challenge-hidden-toggle.is-on i { background: #80622a; }
 .challenge-hidden-toggle.is-on i::after { transform: translateX(11px); background: #fff1c8; }
 .challenge-hidden-toggle:disabled { cursor: not-allowed; opacity: 0.58; }
-.challenge-delete { width: 38px; height: 38px; min-height: 38px; color: var(--red); }
+.challenge-delete { width: 38px; height: 38px; min-height: 38px; margin-left: auto; color: var(--red); }
 .challenge-board-empty-copy { margin: 0; padding: 28px; border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); text-align: center; }
 .challenge-board-conflict, .challenge-merge-notices { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; margin-bottom: 12px; padding: 14px 16px; border: 1px solid var(--red); border-radius: 8px; background: color-mix(in srgb, var(--red) 12%, var(--surface)); }
 .challenge-merge-notices { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
@@ -465,8 +463,7 @@ input[type="color"] { padding: 4px; }
   .brand-block { border-right: 0; }
   .editor-identity { display: none; }
   .admin-app--composition { grid-template-columns: minmax(0, 1fr) 420px; }
-  .challenge-board-row { grid-template-columns: 78px minmax(0, 1fr) 145px 38px; gap: 8px; }
-  .challenge-row-fields { grid-template-columns: minmax(130px, 1fr) minmax(150px, 1.3fr) minmax(110px, 0.9fr) minmax(110px, 0.9fr); }
+  .challenge-row-fields { grid-template-columns: minmax(220px, 1fr) minmax(300px, 1fr); }
 }
 
 @media (min-width: 768px) and (max-width: 900px) {
@@ -523,17 +520,16 @@ input[type="color"] { padding: 4px; }
   .challenge-board-toolbar, .challenge-board-save-bar, .challenge-settings-save-bar { align-items: stretch; flex-direction: column; }
   .challenge-board-toolbar .button, .challenge-board-save-bar .button--save { width: 100%; }
   .challenge-settings-save-bar .button--save { width: 100%; }
-  .challenge-board-row { grid-template-columns: 1fr 38px; gap: 8px; padding: 10px; }
-  .challenge-row-order { grid-column: 1 / -1; grid-template-columns: 38px 38px 38px; }
-  .challenge-drag-handle { grid-column: 3; grid-row: 1; }
-  .challenge-row-fields { grid-column: 1 / -1; grid-template-columns: 1fr; gap: 9px; }
-  .challenge-row-runtime { grid-column: 1; min-height: 54px; padding-left: 0; border-left: 0; }
-  .challenge-delete { grid-column: 2; grid-row: 4; align-self: end; }
+  .challenge-board-row { padding: 10px; }
+  .challenge-row-header { align-items: flex-start; flex-wrap: wrap; gap: 8px; }
+  .challenge-row-runtime { order: 3; flex-basis: 100%; }
+  .challenge-delete { margin-left: auto; }
+  .challenge-row-fields { grid-template-columns: 1fr; gap: 9px; }
   .challenge-conflict-actions { display: grid; }
   .challenge-conflict-actions .button { width: 100%; }
   .challenge-shell-error { top: 68px; right: 12px; left: 12px; }
   .preview-module-toggles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
-  .global-save-bar { top: 76px; left: 12px; right: 12px; width: auto; flex-direction: column; align-items: stretch; }
+  .global-save-bar { width: 100%; flex-direction: column; align-items: stretch; }
   .global-save-bar .button--save { width: 100%; }
   .obs-setup-dialog { width: calc(100vw - 24px); max-height: calc(100vh - 32px); }
 }

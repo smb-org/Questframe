@@ -42,7 +42,6 @@ type ChallengeDraft = {
   key: string;
   identity: { id: string } | { clientId: string };
   title: string;
-  description: string | null;
   targetCount: number | null;
   timerTotalMs: number | null;
   sortOrder: number;
@@ -74,7 +73,6 @@ const draftFromChallenge = (challenge: Challenge): ChallengeDraft => ({
   key: challenge.id,
   identity: { id: challenge.id },
   title: challenge.title,
-  description: challenge.description,
   targetCount: challenge.targetCount,
   timerTotalMs: challenge.timerTotalMs,
   sortOrder: challenge.sortOrder,
@@ -92,7 +90,6 @@ const draftsFromSnapshot = (snapshot: ChallengeBoardSnapshot): ChallengeDraft[] 
 const definitionFromDraft = (draft: ChallengeDraft): ChallengeDefinition => {
   const fields = {
     title: draft.title,
-    description: draft.description,
     targetCount: draft.targetCount,
     timerTotalMs: draft.timerTotalMs,
     sortOrder: draft.sortOrder,
@@ -206,7 +203,6 @@ const defaultDraft = (sortOrder: number): ChallengeDraft => ({
   key: clientIdForNewChallenge(),
   identity: { clientId: clientIdForNewChallenge() },
   title: "Neue Challenge",
-  description: null,
   targetCount: null,
   timerTotalMs: null,
   sortOrder,
@@ -249,136 +245,129 @@ const ChallengeRow = ({
         onDrop();
       }}
     >
-      <div className="challenge-row-order">
+      <div className="challenge-row-header">
+        <div className="challenge-row-order">
+          <button
+            aria-label={`${draft.title} nach oben verschieben`}
+            className="icon-button"
+            disabled={disabled || index === 0}
+            onClick={() => onMove(index - 1)}
+            type="button"
+          >
+            <ArrowUp size={16} />
+          </button>
+          <button
+            aria-label={`${draft.title} nach unten verschieben`}
+            className="icon-button"
+            disabled={disabled || index === total - 1}
+            onClick={() => onMove(index + 1)}
+            type="button"
+          >
+            <ArrowDown size={16} />
+          </button>
+          <button
+            aria-label={`${draft.title} sortieren`}
+            className="challenge-drag-handle"
+            disabled={disabled}
+            draggable={!disabled}
+            onDragStart={onDragStart}
+            title="Zum Sortieren ziehen"
+            type="button"
+          >
+            <GripVertical size={18} />
+          </button>
+        </div>
+        <div className="challenge-row-runtime" aria-label={`${draft.title} Laufzeitstand`}>
+          <span className={`challenge-state challenge-state--${draft.state}`}>
+            <i aria-hidden="true" /> {draft.state === "active" ? "läuft" : draft.state === "done" ? "erledigt" : "offen"}
+          </span>
+          <strong>
+            {draft.targetCount === null
+              ? `Stand ${String(draft.currentCount)}`
+              : `${String(draft.currentCount)} / ${String(draft.targetCount)}`}
+          </strong>
+          <button
+            aria-checked={draft.hidden}
+            aria-label={`${draft.title} ${draft.hidden ? "einblenden" : "ausblenden"}`}
+            className={`challenge-hidden-toggle ${draft.hidden ? "is-on" : "is-off"}`}
+            disabled={disabled || draft.state === "done"}
+            onClick={() => onChange({ hidden: !draft.hidden })}
+            role="switch"
+            title={draft.state === "done" ? "Erledigte Challenges können nicht ausgeblendet werden." : "Challenge im OBS-Overlay ein- oder ausblenden."}
+            type="button"
+          >
+            <span>{draft.hidden ? "Aus" : "Sichtbar"}</span>
+            <i aria-hidden="true" />
+          </button>
+          {draft.state === "done" && <small>Erledigte Challenges bleiben sichtbar.</small>}
+          {draft.targetCount === null && draft.currentCount > 0 && <small>Stand bleibt erhalten</small>}
+        </div>
         <button
-          aria-label={`${draft.title} nach oben verschieben`}
-          className="icon-button"
-          disabled={disabled || index === 0}
-          onClick={() => onMove(index - 1)}
-          type="button"
-        >
-          <ArrowUp size={16} />
-        </button>
-        <button
-          aria-label={`${draft.title} nach unten verschieben`}
-          className="icon-button"
-          disabled={disabled || index === total - 1}
-          onClick={() => onMove(index + 1)}
-          type="button"
-        >
-          <ArrowDown size={16} />
-        </button>
-        <button
-          aria-label={`${draft.title} sortieren`}
-          className="challenge-drag-handle"
+          aria-label={`${draft.title} löschen`}
+          className="icon-button challenge-delete"
           disabled={disabled}
-          draggable={!disabled}
-          onDragStart={onDragStart}
-          title="Zum Sortieren ziehen"
+          onClick={onDelete}
           type="button"
         >
-          <GripVertical size={18} />
+          <Trash2 size={17} />
         </button>
       </div>
       <div className="challenge-row-fields">
         <label className="challenge-field challenge-field--title">
-          <span>Titel</span>
-          <input
-            disabled={disabled}
-            maxLength={80}
-            value={draft.title}
-            onChange={(event) => onChange({ title: event.target.value })}
-          />
-        </label>
-        <label className="challenge-field challenge-field--description">
-          <span>Beschreibung</span>
+          <span>Challenge</span>
           <textarea
             disabled={disabled}
             maxLength={160}
             rows={2}
-            value={draft.description ?? ""}
-            onChange={(event) => onChange({ description: event.target.value === "" ? null : event.target.value })}
+            value={draft.title}
+            onChange={(event) => onChange({ title: event.target.value })}
           />
         </label>
-        <label className="challenge-field">
-          <span>Zielwert</span>
-          <span className="challenge-toggle-field">
-            <input
-              aria-label={`${draft.title} mit Zielwert`}
-              checked={hasTarget}
-              disabled={disabled}
-              onChange={(event) => onChange({ targetCount: event.target.checked ? Math.max(1, draft.currentCount) : null })}
-              type="checkbox"
-            />
-            <input
-              aria-label={`${draft.title} Zielwert`}
-              disabled={disabled || !hasTarget}
-              max={999}
-              min={1}
-              type="number"
-              value={hasTarget ? String(draft.targetCount) : ""}
-              onChange={(event) => onChange({ targetCount: event.target.value === "" ? null : Number(event.target.value) })}
-            />
-          </span>
-        </label>
-        <label className="challenge-field">
-          <span>Timer (Sekunden)</span>
-          <span className="challenge-toggle-field">
-            <input
-              aria-label={`${draft.title} mit Timer`}
-              checked={hasTimer}
-              disabled={disabled}
-              onChange={(event) => onChange({ timerTotalMs: event.target.checked ? 60_000 : null })}
-              type="checkbox"
-            />
-            <input
-              aria-label={`${draft.title} Timerdauer in Sekunden`}
-              disabled={disabled || !hasTimer}
-              max={21_600}
-              min={10}
-              type="number"
-              value={secondsFromTimer(draft.timerTotalMs)}
-              onChange={(event) => onChange({ timerTotalMs: parseTimerSeconds(event.target.value) })}
-            />
-          </span>
-        </label>
+        <fieldset aria-label="Ziel und Timer" className="challenge-row-goals">
+          <label className="challenge-field">
+            <span>Zielwert</span>
+            <span className="challenge-toggle-field">
+              <input
+                aria-label={`${draft.title} mit Zielwert`}
+                checked={hasTarget}
+                disabled={disabled}
+                onChange={(event) => onChange({ targetCount: event.target.checked ? Math.max(1, draft.currentCount) : null })}
+                type="checkbox"
+              />
+              <input
+                aria-label={`${draft.title} Zielwert`}
+                disabled={disabled || !hasTarget}
+                max={999}
+                min={1}
+                type="number"
+                value={hasTarget ? String(draft.targetCount) : ""}
+                onChange={(event) => onChange({ targetCount: event.target.value === "" ? null : Number(event.target.value) })}
+              />
+            </span>
+          </label>
+          <label className="challenge-field">
+            <span>Timer (Sekunden)</span>
+            <span className="challenge-toggle-field">
+              <input
+                aria-label={`${draft.title} mit Timer`}
+                checked={hasTimer}
+                disabled={disabled}
+                onChange={(event) => onChange({ timerTotalMs: event.target.checked ? 60_000 : null })}
+                type="checkbox"
+              />
+              <input
+                aria-label={`${draft.title} Timerdauer in Sekunden`}
+                disabled={disabled || !hasTimer}
+                max={21_600}
+                min={10}
+                type="number"
+                value={secondsFromTimer(draft.timerTotalMs)}
+                onChange={(event) => onChange({ timerTotalMs: parseTimerSeconds(event.target.value) })}
+              />
+            </span>
+          </label>
+        </fieldset>
       </div>
-      <div className="challenge-row-runtime" aria-label={`${draft.title} Laufzeitstand`}>
-        <span className={`challenge-state challenge-state--${draft.state}`}>
-          <i aria-hidden="true" /> {draft.state === "active" ? "läuft" : draft.state === "done" ? "erledigt" : "offen"}
-        </span>
-        <button
-          aria-checked={draft.hidden}
-          aria-label={`${draft.title} ${draft.hidden ? "einblenden" : "ausblenden"}`}
-          className={`challenge-hidden-toggle ${draft.hidden ? "is-on" : "is-off"}`}
-          disabled={disabled || draft.state === "done"}
-          onClick={() => onChange({ hidden: !draft.hidden })}
-          role="switch"
-          title={draft.state === "done" ? "Erledigte Challenges können nicht ausgeblendet werden." : "Challenge im OBS-Overlay ein- oder ausblenden."}
-          type="button"
-        >
-          <span>{draft.hidden ? "Ausgeblendet" : "Sichtbar"}</span>
-          <i aria-hidden="true" />
-        </button>
-        <strong>
-          {draft.targetCount === null
-            ? `Stand ${String(draft.currentCount)}`
-            : `${String(draft.currentCount)} / ${String(draft.targetCount)}`}
-        </strong>
-        {draft.state === "done" && <small>Erledigte Challenges bleiben sichtbar.</small>}
-        {draft.targetCount === null && draft.currentCount > 0 && (
-          <small>Stand bleibt erhalten</small>
-        )}
-      </div>
-      <button
-        aria-label={`${draft.title} löschen`}
-        className="icon-button challenge-delete"
-        disabled={disabled}
-        onClick={onDelete}
-        type="button"
-      >
-        <Trash2 size={17} />
-      </button>
     </article>
   );
 };
