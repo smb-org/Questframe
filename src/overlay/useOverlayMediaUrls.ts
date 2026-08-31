@@ -17,6 +17,9 @@ const uploadedHashes = (state: ChannelState): string[] => {
   ];
 };
 
+const sameUrls = (left: ReadonlyMap<string, string>, right: ReadonlyMap<string, string>): boolean =>
+  left.size === right.size && [...right].every(([hash, url]) => left.get(hash) === url);
+
 export const useOverlayMediaUrls = (
   state: ChannelState | null,
   token: string | null,
@@ -28,12 +31,10 @@ export const useOverlayMediaUrls = (
     if (token === null || state === null) return;
     const needed = new Set(uploadedHashes(state));
     let disposed = false;
-    let changed = false;
     for (const [hash, url] of objectUrlsRef.current) {
       if (!needed.has(hash)) {
         URL.revokeObjectURL(url);
         objectUrlsRef.current.delete(hash);
-        changed = true;
       }
     }
     const missing = [...needed].filter((hash) => !objectUrlsRef.current.has(hash));
@@ -56,11 +57,13 @@ export const useOverlayMediaUrls = (
           return;
         }
         objectUrlsRef.current.set(hash, url);
-        changed = true;
       }),
     ).then(() => {
-      // Nur bei tatsaechlicher Aenderung neu publizieren, sonst unnoetiger Render.
-      if (changed && !disposed) setMediaUrls(new Map(objectUrlsRef.current));
+      if (disposed) return;
+      // Gegen den veroeffentlichten Stand vergleichen, nicht gegen den eigenen
+      // Lauf: ein verworfener Lauf kann eine URL in der Ref hinterlassen, die
+      // sonst nie sichtbar wird. Gleiche Referenz zurueckgeben heisst kein Render.
+      setMediaUrls((current) => sameUrls(current, objectUrlsRef.current) ? current : new Map(objectUrlsRef.current));
     });
     return () => {
       disposed = true;
