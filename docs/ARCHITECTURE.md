@@ -53,14 +53,14 @@ stilles Überschreiben in der Konfiguration.
 
 ## Socket-Tags und Broadcasts
 
-Es gibt vier Tags: `editor`, `overlay`, `challenge` und `dock`. Die Broadcast-Regeln sind
-fest verdrahtet:
+Es gibt fünf Tags: `editor`, `overlay`, `composite`, `challenge` und `dock`. Die
+Broadcast-Regeln sind fest verdrahtet:
 
 | Broadcast | erreicht | erreicht nicht |
 | --- | --- | --- |
-| `state_committed` und `snapshot` | `editor`, `overlay` | `challenge`, `dock` |
-| `challenge_update` | `editor`, `challenge`, `dock` | `overlay` |
-| `overlay_presence`, `history_changed`, `audit_appended` | `editor` | `overlay`, `challenge`, `dock` |
+| `state_committed` und `snapshot` | `editor`, `overlay`, `composite` | `challenge`, `dock` |
+| `challenge_update` | `editor`, `challenge`, `dock`, `composite` | `overlay` |
+| `overlay_presence`, `history_changed`, `audit_appended` | `editor` | `overlay`, `composite`, `challenge`, `dock` |
 
 Der Dock-Token ist schreibberechtigt, aber seine Sicherheitsgrenze ist hart: Er gilt nur für
 `/api/challenges/commands` und `/ws/dock`. Board, Settings, HUD-State, Token-Rotation und
@@ -69,19 +69,32 @@ darf den globalen Timer nur starten und pausieren.
 
 Der Widerruf wird vor jedem Senden geprüft, nicht nur beim Schließen einer Verbindung. Ein
 Socket mit veralteter Token-Generation wird übersprungen und geschlossen. Eine Rotation
-sendet `token_revoked` und schließt die betroffenen Sockets aktiv.
+sendet `token_revoked` und schließt die betroffenen Sockets aktiv. `overlay`, `composite` und
+`challenge` authentifizieren sich mit demselben Overlay-Token; ein Widerruf oder eine Rotation
+dieses Tokens schließt darum alle drei Tag-Gruppen gemeinsam, während der Dock-Token
+ausschließlich `dock`-Sockets betrifft.
 
 ## Flächen und Routenauflösung
 
-Die Routentabelle in `src/routing.ts` löst vier Flächen auf: `admin`, `overlay`,
-`challenges` und `live`.
+Die Routentabelle in `src/routing.ts` löst fünf Flächen auf: `admin`, `overlay`,
+`composite`, `challenges` und `live`.
 
 | Fläche | Route | App bzw. Workspace |
 | --- | --- | --- |
-| `admin` | `/admin`, `/admin/challenges` | `AdminApp`, HUD- bzw. Challenges-Workspace |
+| `admin` | `/admin`, `/admin/composition`, `/admin/challenges` | `AdminApp`, HUD- bzw. Challenges-Tab |
 | `overlay` | `/overlay` | `OverlayApp` |
+| `composite` | `/overlay/all` | `CompositeApp` |
 | `challenges` | `/overlay/challenges` | `ChallengeSourceApp` |
 | `live` | `/live/challenges` | `LiveApp` |
+
+`/admin` ist die zusammengelegte Kompositions-Ansicht mit Tabs für HUD und Challenges.
+`/admin/composition` und `/admin/challenges` bleiben gültige Einstiegs-URLs, wählen beim
+Laden nur den jeweiligen Tab vor und normalisieren die Adresse per `history.replaceState`
+auf `/admin`.
+
+`/overlay/all` liefert HUD und Challenge-Log zusammen in einem vollflächigen
+1920 × 1080-Dokument. Es ist über den Overlay-Token authentifiziert (`x-overlay-token`
+bzw. dasselbe Token im Socket-Protokoll) und verbindet sich über `/ws/composite`.
 
 Die spezifischeren Pfade stehen vor den Präfixpfaden. `/login` und unbekannte Pfade fallen
 auf die Admin-Auflösung zurück; der Pfad entscheidet damit vor dem Lazy-Import, welches
@@ -92,6 +105,8 @@ Bundle überhaupt geladen wird.
 Die Admin-Konsole hält `draft` und `committed` getrennt. Texteingaben, Slider, Pet, Gruppe, Themes und Effekte verändern ausschließlich `draft`. Save sendet `baseRevision` plus vollständigen Draft. Bei einer parallelen Änderung antwortet der Server mit Konflikt; die UI bietet dann Serverstand laden oder einen explizit gegen die inzwischen beobachtete Revision geschützten Replace an.
 
 Nur der globale Sichtbarkeitsschalter ist eine unmittelbare Mutation. Er bewahrt einen vorhandenen lokalen Draft und veröffentlicht eine neue Revision mit unverändertem HUD-Inhalt.
+
+`compositeHudVisible` und `compositeChallengesVisible` sind zwei weitere State-Felder (Default `true`) und laufen über denselben HUD-Speicherweg wie Pet, Gruppe, Themes und Effekte, inklusive Undo und Audit. Sie steuern nicht die Sichtbarkeit im HUD- bzw. Challenges-Overlay selbst, sondern die Mitgliedschaft von HUD und Challenge-Log in der Sammelquelle `/overlay/all`.
 
 ## Authentifizierung
 
