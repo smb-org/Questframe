@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   challengeDefinitionSchema,
+  challengePlacementSchema,
   challengeSchema,
   globalTimerSchema,
   settingsSchema,
@@ -46,6 +47,9 @@ type MetaRow = {
   header_title: string;
   effects_enabled: number;
   max_visible: number;
+  placement_x: number;
+  placement_y: number;
+  placement_scale: number;
   global_timer_total_ms: number | null;
   global_timer_ends_at: string | null;
   global_timer_paused_remain_ms: number | null;
@@ -97,6 +101,9 @@ const metaRowSchema = z.strictObject({
   header_title: z.string(),
   effects_enabled: z.number().int(),
   max_visible: z.number().int(),
+  placement_x: z.number().int(),
+  placement_y: z.number().int(),
+  placement_scale: z.number(),
   global_timer_total_ms: z.union([z.number().int(), z.null()]),
   global_timer_ends_at: z.union([z.string(), z.null()]),
   global_timer_paused_remain_ms: z.union([z.number().int(), z.null()]),
@@ -180,6 +187,11 @@ const parseMeta = (row: MetaRow): ChallengeSnapshot["settings"] &
     effectsEnabled: parseBooleanInteger(parsedRow.effects_enabled),
     maxVisible: parsedRow.max_visible,
     globalTimer,
+    placement: challengePlacementSchema.parse({
+      x: parsedRow.placement_x,
+      y: parsedRow.placement_y,
+      scale: parsedRow.placement_scale,
+    }),
   });
   return {
     eventSeq: parsedRow.event_seq,
@@ -349,6 +361,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         `UPDATE ${this.table("meta")} SET
           style_id = ?, theme_mode = ?, surface_mode = ?, header_title = ?,
           effects_enabled = ?, max_visible = ?, global_timer_total_ms = ?,
+          placement_x = ?, placement_y = ?, placement_scale = ?,
           global_timer_ends_at = CASE WHEN ? IS NULL THEN NULL ELSE global_timer_ends_at END,
           global_timer_paused_remain_ms = CASE WHEN ? IS NULL THEN NULL ELSE global_timer_paused_remain_ms END,
           settings_revision = settings_revision + 1
@@ -360,6 +373,9 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         nextSettings.effectsEnabled ? 1 : 0,
         nextSettings.maxVisible,
         input.globalTimerTotalMs,
+        nextSettings.placement.x,
+        nextSettings.placement.y,
+        nextSettings.placement.scale,
         input.globalTimerTotalMs,
         input.globalTimerTotalMs,
       );
@@ -508,6 +524,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         effectsEnabled: parsedMeta.effectsEnabled,
         maxVisible: parsedMeta.maxVisible,
         globalTimer: parsedMeta.globalTimer,
+        placement: parsedMeta.placement,
       },
       challenges,
     };
@@ -666,6 +683,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       effectsEnabled: input.effectsEnabled,
       maxVisible: input.maxVisible,
       globalTimer,
+      placement: input.placement,
     });
   }
 

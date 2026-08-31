@@ -45,7 +45,7 @@ import type {
   SaveResponse,
   UndoTarget,
 } from "../shared/contracts/api";
-import type { ChallengeUpdate } from "../shared/contracts/win-challenges";
+import type { ChallengePlacement, ChallengeUpdate } from "../shared/contracts/win-challenges";
 import {
   challengeBoardSnapshotSchema,
   type BoardSaveRequest,
@@ -794,6 +794,9 @@ const emptyDockTokenStatus = (): DockTokenStatus => ({
   token: null,
 });
 
+const sameChallengePlacement = (left: ChallengePlacement | null, right: ChallengePlacement): boolean =>
+  left !== null && left.x === right.x && left.y === right.y && left.scale === right.scale;
+
 const ChallengeSettingsPanel = ({
   api,
   online,
@@ -805,12 +808,14 @@ const ChallengeSettingsPanel = ({
 }) => {
   const [snapshot, setSnapshot] = useState<ChallengeBoardSnapshot | null>(null);
   const [effectsEnabled, setEffectsEnabled] = useState<boolean | null>(null);
+  const [placement, setPlacement] = useState<ChallengePlacement | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const snapshotRef = useRef<ChallengeBoardSnapshot | null>(null);
   const effectsEnabledRef = useRef<boolean | null>(null);
+  const placementRef = useRef<ChallengePlacement | null>(null);
 
   useEffect(() => {
     snapshotRef.current = snapshot;
@@ -820,14 +825,22 @@ const ChallengeSettingsPanel = ({
     effectsEnabledRef.current = effectsEnabled;
   }, [effectsEnabled]);
 
+  useEffect(() => {
+    placementRef.current = placement;
+  }, [placement]);
+
   const applyRemoteSnapshot = useCallback((next: ChallengeBoardSnapshot) => {
     const current = snapshotRef.current;
     if (current !== null && next.settingsRevision <= current.settingsRevision) return;
     const localValue = effectsEnabledRef.current;
+    const localPlacement = placementRef.current;
     const localDraftChanged = current !== null
       && localValue !== null
-      && localValue !== current.settings.effectsEnabled;
-    const localDraftStillDiffers = localValue !== null && localValue !== next.settings.effectsEnabled;
+      && (localValue !== current.settings.effectsEnabled
+        || !sameChallengePlacement(localPlacement, current.settings.placement));
+    const localDraftStillDiffers = localValue !== null
+      && (localValue !== next.settings.effectsEnabled
+        || !sameChallengePlacement(localPlacement, next.settings.placement));
 
     snapshotRef.current = next;
     setSnapshot(next);
@@ -837,7 +850,9 @@ const ChallengeSettingsPanel = ({
       return;
     }
     effectsEnabledRef.current = next.settings.effectsEnabled;
+    placementRef.current = next.settings.placement;
     setEffectsEnabled(next.settings.effectsEnabled);
+    setPlacement(next.settings.placement);
     setError("");
     setMessage("");
   }, []);
@@ -877,9 +892,13 @@ const ChallengeSettingsPanel = ({
   if (api.getChallengeBoard === undefined || api.saveChallengeSettings === undefined) return null;
   const saveChallengeSettings = api.saveChallengeSettings;
 
-  const dirty = snapshot !== null && effectsEnabled !== null && effectsEnabled !== snapshot.settings.effectsEnabled;
+  const dirty = snapshot !== null
+    && effectsEnabled !== null
+    && placement !== null
+    && (effectsEnabled !== snapshot.settings.effectsEnabled
+      || !sameChallengePlacement(placement, snapshot.settings.placement));
   const save = async () => {
-    if (snapshot === null || effectsEnabled === null || !dirty || saving || !online) return;
+    if (snapshot === null || effectsEnabled === null || placement === null || !dirty || saving || !online) return;
     setSaving(true);
     setError("");
     setMessage("");
@@ -894,12 +913,15 @@ const ChallengeSettingsPanel = ({
         effectsEnabled,
         maxVisible: settings.maxVisible,
         globalTimerTotalMs: settings.globalTimer?.totalMs ?? null,
+        placement,
       };
       const response = await saveChallengeSettings(request);
       snapshotRef.current = response.snapshot;
       effectsEnabledRef.current = response.snapshot.settings.effectsEnabled;
+      placementRef.current = response.snapshot.settings.placement;
       setSnapshot(response.snapshot);
       setEffectsEnabled(response.snapshot.settings.effectsEnabled);
+      setPlacement(response.snapshot.settings.placement);
       setMessage("Zeremonie-Einstellung veröffentlicht.");
     } catch (caught) {
       const candidate = typeof caught === "object" && caught !== null
@@ -948,6 +970,49 @@ const ChallengeSettingsPanel = ({
           <small>Der Schalter gilt für alle Challenge-Styles und alle OBS-Quellen.</small>
         </span>
       </label>
+      <div className="placement-grid">
+        <label>
+          <span>X</span>
+          <input
+            disabled={loading || saving || !online || placement === null}
+            max={384}
+            min={0}
+            type="number"
+            value={placement?.x ?? 300}
+            onChange={(event) => {
+              setPlacement((current) => current === null ? current : { ...current, x: Number(event.target.value) });
+              setMessage("");
+            }}
+          />
+        </label>
+        <label>
+          <span>Y</span>
+          <input
+            disabled={loading || saving || !online || placement === null}
+            max={216}
+            min={0}
+            type="number"
+            value={placement?.y ?? 8}
+            onChange={(event) => {
+              setPlacement((current) => current === null ? current : { ...current, y: Number(event.target.value) });
+              setMessage("");
+            }}
+          />
+        </label>
+        <label>
+          <span>Skalierung</span>
+          <select
+            disabled={loading || saving || !online || placement === null}
+            value={placement?.scale ?? 1}
+            onChange={(event) => {
+              setPlacement((current) => current === null ? current : { ...current, scale: Number(event.target.value) });
+              setMessage("");
+            }}
+          >
+            {HUD_SCALE_OPTIONS.map((scale) => <option key={scale} value={scale}>{Math.round(scale * 100)}%</option>)}
+          </select>
+        </label>
+      </div>
       <footer className="challenge-settings-save-bar">
         <span aria-live="polite" className={dirty ? "save-dirty" : ""}>
           {loading ? "Einstellungen werden geladen …" : message !== "" ? message : dirty ? "Ungespeicherte Einstellung" : "Einstellung veröffentlicht"}

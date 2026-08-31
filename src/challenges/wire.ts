@@ -20,6 +20,7 @@ import {
   isInstant,
   isMaxVisible,
   isPausedRemainMs,
+  isChallengePlacement,
   isRevision,
   isSortOrder,
   isTargetCount,
@@ -72,6 +73,7 @@ const parseSettings = (input: unknown): ChallengeSettings | null => {
       "maxVisible",
       "themeId",
       "globalTimer",
+      "placement",
     ]) ||
     !isChallengeStyleId(input.styleId) ||
     !isThemeMode(input.themeMode) ||
@@ -79,7 +81,10 @@ const parseSettings = (input: unknown): ChallengeSettings | null => {
     !isHeaderTitle(input.headerTitle) ||
     typeof input.effectsEnabled !== "boolean" ||
     !isMaxVisible(input.maxVisible) ||
-    !isThemeId(input.themeId)
+    !isThemeId(input.themeId) ||
+    !isChallengePlacement(input.placement) ||
+    !isRecord(input.placement) ||
+    !exactKeys(input.placement, ["x", "y", "scale"])
   ) return null;
 
   if (input.globalTimer !== null && parseGlobalTimer(input.globalTimer) === null) return null;

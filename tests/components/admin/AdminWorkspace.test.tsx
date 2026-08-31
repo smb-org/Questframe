@@ -105,6 +105,7 @@ describe("Admin workspace shell", () => {
         effectsEnabled: true,
         maxVisible: 5,
         globalTimer: null,
+        placement: { x: 300, y: 8, scale: 1 },
       },
       challenges: [],
     };
@@ -137,6 +138,7 @@ describe("Admin workspace shell", () => {
         effectsEnabled: true,
         maxVisible: 5,
         globalTimer: null,
+        placement: { x: 300, y: 8, scale: 1 },
       },
       challenges: [],
     };
@@ -154,11 +156,15 @@ describe("Admin workspace shell", () => {
     const toggle = await screen.findByRole("checkbox", { name: "Zeremonien und Töne aktiv" });
     expect(toggle).toBeChecked();
     await user.click(toggle);
+    fireEvent.change(screen.getByLabelText("X"), { target: { value: "250" } });
+    fireEvent.change(screen.getByLabelText("Y"), { target: { value: "12" } });
+    fireEvent.change(screen.getByLabelText("Skalierung"), { target: { value: "1.25" } });
     await user.click(screen.getByRole("button", { name: "Challenge-Einstellungen speichern" }));
 
     expect(saveChallengeSettings).toHaveBeenCalledWith(expect.objectContaining({
       baseSettingsRevision: 3,
       effectsEnabled: false,
+      placement: { x: 250, y: 12, scale: 1.25 },
     }));
   });
 
@@ -176,6 +182,7 @@ describe("Admin workspace shell", () => {
         effectsEnabled: true,
         maxVisible: 5,
         globalTimer: null,
+        placement: { x: 300, y: 8, scale: 1 },
       },
       challenges: [],
     };
@@ -222,6 +229,7 @@ describe("Admin workspace shell", () => {
         effectsEnabled: true,
         maxVisible: 5,
         globalTimer: null,
+        placement: { x: 300, y: 8, scale: 1 },
       },
       challenges: [],
     };
@@ -293,6 +301,7 @@ describe("Admin workspace setup", () => {
         effectsEnabled: true,
         maxVisible: 5,
         globalTimer: null,
+        placement: { x: 300, y: 8, scale: 1 },
       },
       challenges: [],
     };
@@ -316,8 +325,7 @@ describe("Admin workspace setup", () => {
     expect(await screen.findByRole("heading", { name: "HUD-Overlay" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Challenge-Log" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Live-Bedienseite" })).toBeInTheDocument();
-    expect(screen.getByText("1920 × 1080 px")).toBeInTheDocument();
-    expect(screen.getByText("340 × 300 px")).toBeInTheDocument();
+    expect(screen.getAllByText("1920 × 1080 px")).toHaveLength(2);
     expect(screen.getByText("mindestens 280 px breit; Höhe nach Inhalt")).toBeInTheDocument();
     expect(screen.getByText(/View → Docks → Custom Browser Docks/)).toBeInTheDocument();
     expect(screen.getByText("Browser-Docks stehen unter Wayland nicht zur Verfügung.")).toBeInTheDocument();

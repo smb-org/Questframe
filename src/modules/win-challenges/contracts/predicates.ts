@@ -1,3 +1,5 @@
+import type { ChallengePlacement } from "../../../shared/contracts/win-challenges";
+
 const challengeGraphemeSegmenter = new Intl.Segmenter("de", {
   granularity: "grapheme",
 });
@@ -5,6 +7,12 @@ const challengeGraphemeSegmenter = new Intl.Segmenter("de", {
 export const MAX_CHALLENGES = 30 as const;
 export const MAX_COUNT = 999 as const;
 export const MAX_TOTAL_ROWS = 12 as const;
+
+export const DEFAULT_CHALLENGE_PLACEMENT = {
+  x: 300,
+  y: 8,
+  scale: 1,
+} as const satisfies ChallengePlacement;
 
 export const CHALLENGE_STYLE_IDS = [
   "plain-list",
@@ -90,6 +98,27 @@ export const isSortOrder = (value: unknown): value is number =>
 
 export const isMaxVisible = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 3 && value <= 10;
+
+export const isPlacementX = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 384;
+
+export const isPlacementY = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 216;
+
+export const isPlacementScale = (value: unknown): value is number =>
+  typeof value === "number" &&
+  Number.isFinite(value) &&
+  value >= 0.75 &&
+  value <= 2 &&
+  Math.abs(value * 100 - Math.round(value * 100)) < 1e-6;
+
+export const isChallengePlacement = (value: unknown): value is ChallengePlacement =>
+  typeof value === "object" &&
+  value !== null &&
+  !Array.isArray(value) &&
+  isPlacementX((value as { x?: unknown }).x) &&
+  isPlacementY((value as { y?: unknown }).y) &&
+  isPlacementScale((value as { scale?: unknown }).scale);
 
 export const isHeaderTitle = (value: unknown): value is string =>
   isNormalizedText(value, 1, 24);

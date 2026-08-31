@@ -108,6 +108,9 @@ CREATE TABLE IF NOT EXISTS wc_meta (
   header_title TEXT NOT NULL,
   effects_enabled INTEGER NOT NULL CHECK (effects_enabled IN (0, 1)),
   max_visible INTEGER NOT NULL CHECK (max_visible BETWEEN 3 AND 10),
+  placement_x INTEGER NOT NULL DEFAULT 300 CHECK (placement_x BETWEEN 0 AND 384),
+  placement_y INTEGER NOT NULL DEFAULT 8 CHECK (placement_y BETWEEN 0 AND 216),
+  placement_scale REAL NOT NULL DEFAULT 1 CHECK (placement_scale BETWEEN 0.75 AND 2),
   global_timer_total_ms INTEGER,
   global_timer_ends_at TEXT,
   global_timer_paused_remain_ms INTEGER,
@@ -150,8 +153,9 @@ CREATE TABLE IF NOT EXISTS wc_dock_tokens (
 INSERT INTO wc_meta(
   singleton, event_seq, board_revision, settings_revision, style_id,
   theme_mode, surface_mode, header_title, effects_enabled, max_visible,
+  placement_x, placement_y, placement_scale,
   global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms
-) VALUES (1, 0, 1, 1, 'plain-list', 'inherit', 'surface', 'CHALLENGES', 1, 5, NULL, NULL, NULL)
+) VALUES (1, 0, 1, 1, 'plain-list', 'inherit', 'surface', 'CHALLENGES', 1, 5, 300, 8, 1, NULL, NULL, NULL)
 ON CONFLICT(singleton) DO NOTHING;
 `;
 
@@ -170,6 +174,18 @@ const hasChallengeHidden = (sql: SqlStorage): boolean =>
     .exec<{ name: string }>("PRAGMA table_info(wc_challenges)")
     .toArray()
     .some((column) => column.name === "hidden");
+
+const MIGRATION_5 = `
+ALTER TABLE wc_meta ADD COLUMN placement_x INTEGER NOT NULL DEFAULT 300 CHECK (placement_x BETWEEN 0 AND 384);
+ALTER TABLE wc_meta ADD COLUMN placement_y INTEGER NOT NULL DEFAULT 8 CHECK (placement_y BETWEEN 0 AND 216);
+ALTER TABLE wc_meta ADD COLUMN placement_scale REAL NOT NULL DEFAULT 1 CHECK (placement_scale BETWEEN 0.75 AND 2);
+`;
+
+const hasChallengePlacement = (sql: SqlStorage): boolean =>
+  sql
+    .exec<{ name: string }>("PRAGMA table_info(wc_meta)")
+    .toArray()
+    .some((column) => column.name === "placement_x");
 
 export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
   sql.exec(MIGRATION_1);
@@ -221,6 +237,18 @@ export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
     sql.exec(
       "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
       4,
+      buildId,
+      new Date().toISOString(),
+    );
+  }
+  const versionFiveWasApplied = sql
+    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 5")
+    .toArray().length > 0;
+  if (!versionFiveWasApplied) {
+    if (!hasChallengePlacement(sql)) sql.exec(MIGRATION_5);
+    sql.exec(
+      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
+      5,
       buildId,
       new Date().toISOString(),
     );

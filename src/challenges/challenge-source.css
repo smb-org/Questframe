@@ -11,6 +11,9 @@
 ) {
   --wc-source-width: 340px;
   --wc-source-height: 300px;
+  --wc-x: 0px;
+  --wc-y: 0px;
+  --wc-scale: 1;
   --wc-header-height: 26px;
   --wc-timer-height: 40px;
   --wc-overflow-height: 20px;
@@ -45,6 +48,11 @@
   --wc-label-weight: 600;
 
   box-sizing: border-box;
+  position: absolute;
+  top: var(--wc-y);
+  left: var(--wc-x);
+  transform: scale(var(--wc-scale));
+  transform-origin: top left;
   width: min(var(--wc-source-width), 100%);
   max-height: var(--wc-source-height);
   overflow: hidden;
@@ -506,6 +514,15 @@
   50% { opacity: 0.62; }
 }
 
+/* Die OBS-Quelle ist eine vollflaechige 1920x1080-Komposition. Nur der Log-Root
+   wird innerhalb dieses Dokuments ueber sein Placement positioniert. */
+.challenge-source-ceremony {
+  position: relative;
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+}
+
 /* Die Quelle liefert nur neutrale Zielattribute; die Zeremonien bleiben Host-CSS. */
 :is(
   .challenge-source-ceremony[data-style="plain-list"],
@@ -513,7 +530,7 @@
   .challenge-source-ceremony[data-style="plain-numbered"],
   .challenge-source-ceremony[data-style="quest-log"]
 ) {
-  display: contents;
+  display: block;
 }
 
 :is(

@@ -77,6 +77,7 @@ const message = (): ChallengeUpdate => ({
     maxVisible: 5,
     themeId: "trail-wood",
     globalTimer: null,
+    placement: { x: 300, y: 8, scale: 1 },
   },
   challenges: [
     challenge("done", "Erledigt unten", "done", 0),
@@ -151,6 +152,11 @@ describe("ChallengeSourceApp", () => {
     await deliver(socket, message());
     await waitFor(() => expect(screen.getByText("CHALLENGES")).toBeInTheDocument());
     expect(screen.getByText("CHALLENGES")).toBeInTheDocument();
+    expect(screen.getByRole("main", { name: "Challenge-Quelle" })).toHaveStyle({
+      "--wc-x": "1500px",
+      "--wc-y": "40px",
+      "--wc-scale": "1",
+    });
     expect(screen.getByText("3 / 10")).toBeInTheDocument();
     const rows = [...document.querySelectorAll(".challenge-source__row")];
     expect(rows.map((row) => row.textContent)).toEqual(["Offene Challenge3 / 10", "✓Erledigt unten1 / 1"]);

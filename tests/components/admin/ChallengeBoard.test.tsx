@@ -50,6 +50,7 @@ const snapshot = (
     effectsEnabled: true,
     maxVisible: 5,
     globalTimer: null,
+    placement: { x: 300, y: 8, scale: 1 },
   },
   challenges,
 });

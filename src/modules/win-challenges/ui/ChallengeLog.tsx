@@ -156,6 +156,12 @@ export const ChallengeLog = ({
 
   if (challenges.length === 0 && (globalTimer === null || globalState === "idle")) return null;
 
+  const placementStyle: CSSProperties = {
+    "--wc-x": `${String(update.settings.placement.x * 5)}px`,
+    "--wc-y": `${String(update.settings.placement.y * 5)}px`,
+    "--wc-scale": String(update.settings.placement.scale),
+  } as CSSProperties;
+
   return (
     <main
       aria-label="Challenge-Quelle"
@@ -164,6 +170,7 @@ export const ChallengeLog = ({
       data-surface-mode={update.settings.surfaceMode}
       data-theme-mode={update.settings.themeMode}
       data-theme-id={update.settings.themeId}
+      style={placementStyle}
     >
       <header className="challenge-source__header">
         <span className="challenge-source__title">{update.settings.headerTitle}</span>

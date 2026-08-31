@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   challengeDefinitionSchema,
+  challengePlacementSchema,
   challengeSchema,
   commandSchema,
   settingsSchema,
@@ -14,6 +15,10 @@ import {
   isHeaderTitle,
   isInstant,
   isMaxVisible,
+  isChallengePlacement,
+  isPlacementScale,
+  isPlacementX,
+  isPlacementY,
   isSortOrder,
   isTargetCount,
   isTimerTotalMs,
@@ -53,6 +58,7 @@ const settings = {
   maxVisible: 3,
   themeId: "trail-wood" as const,
   globalTimer: null,
+  placement: { x: 300, y: 8, scale: 1 },
 };
 
 describe("Win-Challenges-Verträge", () => {
@@ -220,5 +226,41 @@ describe("Win-Challenges-Verträge", () => {
     expect(challengeDefinitionSchema.parse(definition)).toMatchObject({ hidden: false });
     expect(challengeDefinitionSchema.safeParse({ ...definition, hidden: true }).success).toBe(true);
     expect(challengeDefinitionSchema.safeParse({ ...definition, hidden: "yes" }).success).toBe(false);
+  });
+
+  it("validiert das Challenge-Placement und setzt den Default", () => {
+    const values = [
+      { value: { x: 0, y: 0, scale: 0.75 }, accepted: true },
+      { value: { x: 384, y: 216, scale: 2 }, accepted: true },
+      { value: { x: -1, y: 8, scale: 1 }, accepted: false },
+      { value: { x: 300, y: 217, scale: 1 }, accepted: false },
+      { value: { x: 300, y: 8, scale: 0.74 }, accepted: false },
+      { value: { x: 300, y: 8, scale: 1.001 }, accepted: false },
+    ];
+
+    for (const { value, accepted } of values) {
+      expect(isChallengePlacement(value)).toBe(accepted);
+      expect(challengePlacementSchema.safeParse(value).success).toBe(accepted);
+    }
+    expect(isPlacementX(384)).toBe(true);
+    expect(isPlacementY(216)).toBe(true);
+    expect(isPlacementScale(0.75)).toBe(true);
+    expect(settingsSchema.parse({ ...settings, placement: undefined }).placement).toEqual({
+      x: 300,
+      y: 8,
+      scale: 1,
+    });
+  });
+
+  it("akzeptiert alle Admin-Skalierungsstufen trotz Float-Rundungsfehlern", () => {
+    const accepted = [0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2];
+    const rejected = [0.5, 2.25, 1.005];
+
+    for (const scale of accepted) {
+      expect(isPlacementScale(scale)).toBe(true);
+    }
+    for (const scale of rejected) {
+      expect(isPlacementScale(scale)).toBe(false);
+    }
   });
 });

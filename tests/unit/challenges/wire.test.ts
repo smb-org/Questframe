@@ -19,6 +19,7 @@ const update = (): ChallengeUpdate => ({
     maxVisible: 5,
     themeId: "trail-wood",
     globalTimer: null,
+    placement: { x: 300, y: 8, scale: 1 },
   },
   challenges: [{
     id: "challenge-1",
@@ -54,6 +55,27 @@ describe("Challenge-Quelle-Wire", () => {
 
     expect(parseChallengeUpdate(current)).toEqual(current);
     expect(parseChallengeUpdate(oldWire)).toBeNull();
+  });
+
+  it("verlangt im Settings-Key-Set das Placement", () => {
+    const withoutPlacement = {
+      ...update(),
+      settings: Object.fromEntries(
+        Object.entries(update().settings).filter(([key]) => key !== "placement"),
+      ),
+    };
+    expect(parseChallengeUpdate(update())).toEqual(update());
+    expect(parseChallengeUpdate(withoutPlacement)).toBeNull();
+  });
+
+  it("verlangt auch im Placement exakte Keys", () => {
+    expect(parseChallengeUpdate({
+      ...update(),
+      settings: {
+        ...update().settings,
+        placement: { ...update().settings.placement, extra: true },
+      },
+    })).toBeNull();
   });
 
   it.each([

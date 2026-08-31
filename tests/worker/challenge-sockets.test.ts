@@ -78,6 +78,7 @@ const resetTables = async (): Promise<void> => {
         event_seq = 0, board_revision = 1, settings_revision = 1,
         style_id = 'plain-list', theme_mode = 'inherit', surface_mode = 'surface',
         header_title = 'CHALLENGES', effects_enabled = 1, max_visible = 5,
+        placement_x = 300, placement_y = 8, placement_scale = 1,
         global_timer_total_ms = NULL, global_timer_ends_at = NULL,
         global_timer_paused_remain_ms = NULL
        WHERE singleton = 1`,
@@ -647,6 +648,7 @@ describe("Win-Challenges-Sockets", () => {
           effectsEnabled: true,
           maxVisible: 5,
           globalTimerTotalMs: 60_000,
+          placement: { x: 300, y: 8, scale: 1 },
         }),
       });
       expect(settings.status).toBe(200);

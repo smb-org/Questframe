@@ -63,6 +63,7 @@ const message = (currentCount = 3): ChallengeUpdate => ({
     maxVisible: 5,
     themeId: "trail-wood",
     globalTimer: null,
+    placement: { x: 300, y: 8, scale: 1 },
   },
   challenges: [challenge(currentCount)],
   event: null,

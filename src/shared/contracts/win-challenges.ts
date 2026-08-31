@@ -36,6 +36,12 @@ export type GlobalTimer = {
   pausedRemainMs: number | null;
 };
 
+export type ChallengePlacement = {
+  x: number;
+  y: number;
+  scale: number;
+};
+
 export type ChallengeSettings = {
   styleId: ChallengeStyleId;
   themeMode: "inherit" | "own";
@@ -45,6 +51,7 @@ export type ChallengeSettings = {
   maxVisible: number;
   themeId: ChallengeThemeId;
   globalTimer: GlobalTimer | null;
+  placement: ChallengePlacement;
 };
 
 export type ChallengeEventType =

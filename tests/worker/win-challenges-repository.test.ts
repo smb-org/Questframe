@@ -13,6 +13,7 @@ const now = "2026-08-30T12:00:00.000Z";
 const future = "2026-08-30T13:00:00.000Z";
 const testChannelId = `win-challenges-step-2-${crypto.randomUUID()}`;
 const stub = env.CHANNEL.get(env.CHANNEL.idFromName(testChannelId));
+const legacyStub = env.CHANNEL.get(env.CHANNEL.idFromName(`win-challenges-legacy-${crypto.randomUUID()}`));
 
 type GlobalTimerRow = {
   global_timer_total_ms: number | null;
@@ -41,6 +42,7 @@ const resetModuleTables = async (): Promise<void> => {
         event_seq = 0, board_revision = 1, settings_revision = 1,
         style_id = 'plain-list', theme_mode = 'inherit', surface_mode = 'surface',
         header_title = 'CHALLENGES', effects_enabled = 1, max_visible = 5,
+        placement_x = 300, placement_y = 8, placement_scale = 1,
         global_timer_total_ms = NULL, global_timer_ends_at = NULL,
         global_timer_paused_remain_ms = NULL
        WHERE singleton = 1`,
@@ -118,6 +120,9 @@ describe("win-challenges repository and migration", () => {
           header_title: string;
           effects_enabled: number;
           max_visible: number;
+          placement_x: number;
+          placement_y: number;
+          placement_scale: number;
           global_timer_total_ms: number | null;
           global_timer_ends_at: string | null;
           global_timer_paused_remain_ms: number | null;
@@ -135,6 +140,7 @@ describe("win-challenges repository and migration", () => {
 
     expect(result.versions).toContain(3);
     expect(result.versions).toContain(4);
+    expect(result.versions).toContain(5);
     expect(result.tables).toEqual([
       "wc_challenges",
       "wc_commands",
@@ -152,6 +158,9 @@ describe("win-challenges repository and migration", () => {
       "header_title",
       "effects_enabled",
       "max_visible",
+      "placement_x",
+      "placement_y",
+      "placement_scale",
       "global_timer_total_ms",
       "global_timer_ends_at",
       "global_timer_paused_remain_ms",
@@ -181,10 +190,61 @@ describe("win-challenges repository and migration", () => {
       header_title: "CHALLENGES",
       effects_enabled: 1,
       max_visible: 5,
+      placement_x: 300,
+      placement_y: 8,
+      placement_scale: 1,
       global_timer_total_ms: null,
       global_timer_ends_at: null,
       global_timer_paused_remain_ms: null,
     });
+  });
+
+  it("setzt bei bestehenden Meta-Zeilen den Placement-Default per Migration", async () => {
+    const placement = await runInDurableObject(legacyStub, (_instance, state) => {
+      state.storage.sql.exec(`
+        DROP TABLE wc_meta;
+        DROP TABLE _sql_schema_migrations;
+        CREATE TABLE _sql_schema_migrations (
+          version INTEGER PRIMARY KEY,
+          build_id TEXT NOT NULL,
+          applied_at TEXT NOT NULL
+        );
+        CREATE TABLE wc_meta (
+          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+          event_seq INTEGER NOT NULL,
+          board_revision INTEGER NOT NULL,
+          settings_revision INTEGER NOT NULL,
+          style_id TEXT NOT NULL,
+          theme_mode TEXT NOT NULL,
+          surface_mode TEXT NOT NULL,
+          header_title TEXT NOT NULL,
+          effects_enabled INTEGER NOT NULL,
+          max_visible INTEGER NOT NULL,
+          global_timer_total_ms INTEGER,
+          global_timer_ends_at TEXT,
+          global_timer_paused_remain_ms INTEGER
+        );
+        INSERT INTO _sql_schema_migrations(version, build_id, applied_at)
+        VALUES
+          (1, 'legacy', '2026-08-30T12:00:00.000Z'),
+          (2, 'legacy', '2026-08-30T12:00:00.000Z'),
+          (3, 'legacy', '2026-08-30T12:00:00.000Z'),
+          (4, 'legacy', '2026-08-30T12:00:00.000Z');
+        INSERT INTO wc_meta(
+          singleton, event_seq, board_revision, settings_revision, style_id,
+          theme_mode, surface_mode, header_title, effects_enabled, max_visible,
+          global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms
+        ) VALUES (1, 0, 1, 1, 'plain-list', 'inherit', 'surface', 'CHALLENGES', 1, 5, NULL, NULL, NULL);
+      `);
+      runMigrations(state.storage.sql, "worker-test-legacy");
+      return state.storage.sql
+        .exec<{ placement_x: number; placement_y: number; placement_scale: number }>(
+          "SELECT placement_x, placement_y, placement_scale FROM wc_meta WHERE singleton = 1",
+        )
+        .toArray()[0];
+    });
+
+    expect(placement).toEqual({ placement_x: 300, placement_y: 8, placement_scale: 1 });
   });
 
   it("enforces both global timer CHECK constraints", async () => {
@@ -326,6 +386,7 @@ describe("win-challenges repository and migration", () => {
         effectsEnabled: false,
         maxVisible: 6,
         globalTimerTotalMs: 180_000,
+        placement: { x: 12, y: 34, scale: 1.25 },
         now: future,
       }),
     );
@@ -337,6 +398,7 @@ describe("win-challenges repository and migration", () => {
       headerTitle: "RUN",
       effectsEnabled: false,
       maxVisible: 6,
+      placement: { x: 12, y: 34, scale: 1.25 },
       globalTimer: { totalMs: 180_000, endsAt: future, pausedRemainMs: null },
     });
   });
@@ -360,6 +422,7 @@ describe("win-challenges repository and migration", () => {
         effectsEnabled: true,
         maxVisible: 5,
         globalTimerTotalMs: null,
+        placement: { x: 300, y: 8, scale: 1 },
         now: future,
       }),
     );
@@ -391,6 +454,7 @@ describe("win-challenges repository and migration", () => {
         effectsEnabled: true,
         maxVisible: 5,
         globalTimerTotalMs: null,
+        placement: { x: 300, y: 8, scale: 1 },
         now: now,
       }),
     );
@@ -540,6 +604,7 @@ describe("win-challenges repository and migration", () => {
         effectsEnabled: true,
         maxVisible: 5,
         globalTimerTotalMs: 120_000,
+        placement: { x: 300, y: 8, scale: 1 },
         now,
       }),
     );
@@ -682,6 +747,7 @@ describe("win-challenges repository and migration", () => {
           effectsEnabled: true,
           maxVisible: 5,
           globalTimerTotalMs: null,
+          placement: { x: 300, y: 8, scale: 1 },
           now: now,
         }),
       ),

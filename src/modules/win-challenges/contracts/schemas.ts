@@ -4,6 +4,7 @@ import type { ChallengeEvent, GlobalTimerEvent } from "./events";
 import {
   CHALLENGE_STYLE_IDS,
   CHALLENGE_THEME_IDS,
+  DEFAULT_CHALLENGE_PLACEMENT,
   MAX_CHALLENGES,
   MAX_COUNT,
   isChallengeDescription,
@@ -21,6 +22,9 @@ import {
   isInstant,
   isMaxVisible,
   isPausedRemainMs,
+  isPlacementScale,
+  isPlacementX,
+  isPlacementY,
   isRevision,
   isSortOrder,
   isTargetCount,
@@ -67,6 +71,15 @@ const deltaSchema = custom(isDelta, "Delta muss zwischen -99 und 99 liegen.");
 const instantSchema = custom(isInstant, "Zeitpunkt muss ein ISO-Instant sein.");
 const sortOrderSchema = custom(isSortOrder, "Sortierung muss 0–29 sein.");
 const maxVisibleSchema = custom(isMaxVisible, "Maximal sichtbar müssen 3–10 Einträge sein.");
+const placementXSchema = custom(isPlacementX, "X-Position muss eine Ganzzahl von 0–384 sein.");
+const placementYSchema = custom(isPlacementY, "Y-Position muss eine Ganzzahl von 0–216 sein.");
+const placementScaleSchema = custom(isPlacementScale, "Skalierung muss 0,75–2,00 in 0,01-Schritten sein.");
+
+export const challengePlacementSchema = z.strictObject({
+  x: placementXSchema,
+  y: placementYSchema,
+  scale: placementScaleSchema,
+});
 const headerTitleSchema = normalized(
   isHeaderTitle,
   "Kopfzeile muss 1–24 Zeichen lang sein.",
@@ -155,6 +168,7 @@ export const settingsSchema = z.strictObject({
   maxVisible: maxVisibleSchema,
   themeId: themeIdSchema,
   globalTimer: z.union([globalTimerSchema, z.null()]),
+  placement: challengePlacementSchema.default(DEFAULT_CHALLENGE_PLACEMENT),
 });
 
 const challengeRepositorySettingsSchema = settingsSchema.omit({ themeId: true });
@@ -222,6 +236,7 @@ export const settingsSaveRequestSchema = z.strictObject({
   effectsEnabled: z.boolean(),
   maxVisible: maxVisibleSchema,
   globalTimerTotalMs: timerTotalMsSchema,
+  placement: challengePlacementSchema,
 });
 
 const challengeEventSchema = z.union([

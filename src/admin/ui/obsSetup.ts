@@ -134,8 +134,8 @@ export const createChallengeObsSources = (
     name: "Challenge-Log",
     path: "/overlay/challenges",
     url: buildTokenUrl(origin, "/overlay/challenges", overlayToken.token),
-    size: "340 × 300 px",
-    purpose: "Zeigt offene und erledigte Challenges als eigene OBS-Browserquelle.",
+    size: "1920 × 1080 px",
+    purpose: "Wird vollflächig in OBS eingebunden; die Position und Skalierung des Challenge-Logs stellst du im Admin ein.",
   },
   {
     id: "live",
