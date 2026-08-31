@@ -2,7 +2,13 @@ import { useEffect, useState } from "react";
 
 import type { ChallengeUpdate } from "../shared/contracts/win-challenges";
 import { OVERLAY_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
-import { ChallengeLog, type ChallengeLogCeremonyTarget } from "../modules/win-challenges/ui/ChallengeLog";
+import {
+  hasWatchdogReloadMarker,
+  markWatchdogReload,
+  nextReconnectDelayMs,
+  reloadWindow,
+} from "../shared/reconnect";
+import { ChallengeCeremonyStage } from "./ChallengeCeremonyStage";
 import {
   parseChallengeMessage,
   tokenFromLocation,
@@ -11,29 +17,19 @@ import { loadChallengeStyle, type ChallengeStyleLoader } from "./style-loader";
 import { loadChallengeTheme, type ChallengeThemeLoader } from "./theme-loader";
 import { useChallengePresentation } from "./useChallengePresentation";
 
-const RETRY_BASE_MS = 750;
 const PARSE_RELOAD_STORAGE_KEY = "wc-parse-reload-at";
 const PARSE_RELOAD_COOLDOWN_MS = 5 * 60 * 1_000;
 
-const reloadWindow = (): void => {
-  window.location.reload();
-};
-
+// Zeitstempelbasierte 5-Minuten-Sperre statt Overlays "ein Versuch pro
+// Störung": Ein Parse-Fehler hier kann durch ein stehengebliebenes OBS-Bundle
+// dauerhaft sein, ohne dass je wieder ein sauberer Zustand ankommt (der den
+// Marker löschen würde) — die Sperre muss also von selbst verfallen.
 const reloadAfterWireParseFailure = (reload: () => void): void => {
-  try {
-    const storage = window.sessionStorage;
-    const now = Date.now();
-    const storedAt = storage.getItem(PARSE_RELOAD_STORAGE_KEY);
-    const lastReloadAt = storedAt === null ? null : Number(storedAt);
-    if (lastReloadAt !== null && Number.isFinite(lastReloadAt) && now - lastReloadAt <= PARSE_RELOAD_COOLDOWN_MS) {
-      return;
-    }
-    storage.setItem(PARSE_RELOAD_STORAGE_KEY, String(now));
-    reload();
-  } catch {
-    // Im OBS-Kontext kann sessionStorage fehlen. Dann bleibt die Quelle schwarz,
-    // statt ohne Sperre eine Reload-Schleife zu riskieren.
-  }
+  if (hasWatchdogReloadMarker(PARSE_RELOAD_STORAGE_KEY, PARSE_RELOAD_COOLDOWN_MS)) return;
+  // markWatchdogReload() try/catch-t intern; bei blockiertem Storage bleibt die
+  // Quelle schwarz, statt ohne Sperre eine Reload-Schleife zu riskieren.
+  if (!markWatchdogReload(PARSE_RELOAD_STORAGE_KEY)) return;
+  reload();
 };
 
 type ChallengeSourceAppProps = {
@@ -102,9 +98,9 @@ export const ChallengeSourceApp = ({
       socket.addEventListener("close", () => {
         if (disposed || revoked) return;
         setUpdate(null);
-        const delay = Math.min(30_000, RETRY_BASE_MS * 2 ** retry);
+        const delay = nextReconnectDelayMs(retry);
         retry += 1;
-        retryTimer = window.setTimeout(connect, delay + Math.floor(Math.random() * 400));
+        retryTimer = window.setTimeout(connect, delay);
       });
     };
 
@@ -117,17 +113,5 @@ export const ChallengeSourceApp = ({
   }, [acceptUpdate, reloadPage]);
 
   if (!presentation.ready || update === null) return null;
-  const ceremonyTarget: ChallengeLogCeremonyTarget | null = presentation.ceremonyTarget;
-  return (
-    <div
-      key={presentation.activeCeremony?.eventSeq ?? "idle"}
-      className="challenge-source-ceremony"
-      data-ceremony-event={presentation.activeCeremony?.eventType}
-      data-ceremony-motion={presentation.activeCeremony === null ? undefined : presentation.reducedMotion ? "static" : "animated"}
-      data-ceremony-type={presentation.activeCeremony?.visual}
-      data-style={update.settings.styleId}
-    >
-      <ChallengeLog ceremonyTarget={ceremonyTarget} now={presentation.now} update={update} />
-    </div>
-  );
+  return <ChallengeCeremonyStage presentation={presentation} update={update} />;
 };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveRoute } from "../../src/routing";
+import { canonicalAdminRedirectFor, resolveRoute } from "../../src/routing";
 
 describe("Routenauflösung", () => {
   it.each([
@@ -21,5 +21,27 @@ describe("Routenauflösung", () => {
     ["/unbekannt", { surface: "admin", app: "admin", workspace: "hud" }],
   ])("ordnet %s korrekt zu", (path, expected) => {
     expect(resolveRoute(path)).toEqual(expected);
+  });
+});
+
+describe("canonicalAdminRedirectFor", () => {
+  it.each([
+    ["/admin/composition", "/admin"],
+    ["/admin/composition/", "/admin"],
+    ["/admin/challenges", "/admin"],
+    ["/admin/challenges/", "/admin"],
+  ])("leitet %s auf %s um", (path, expected) => {
+    expect(canonicalAdminRedirectFor(path)).toBe(expected);
+  });
+
+  it.each([
+    "/admin",
+    "/admin/",
+    "/admin/composition/foo",
+    "/login",
+    "/overlay",
+    "/unbekannt",
+  ])("liefert für %s null (kein Redirect)", (path) => {
+    expect(canonicalAdminRedirectFor(path)).toBeNull();
   });
 });

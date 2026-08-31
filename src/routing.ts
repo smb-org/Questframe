@@ -36,3 +36,19 @@ export const resolveRoute = (path: string): RouteResolution => {
   }
   return { surface: "admin", app: "admin", workspace: "hud" };
 };
+
+// Alte Admin-Unterseiten, die auf das zusammengelegte /admin umgeleitet
+// werden. Kanonische Quelle ist ROUTES: nur die früheren eigenständigen
+// Admin-Routen (app "admin", ohne "/admin" selbst und ohne "/login") gelten
+// als Redirect-Ziel. Bewusst nur Exakttreffer (mit oder ohne einen
+// Trailing-Slash) statt matchesRoute()s Subpfad-Erkennung — sonst würde z.B.
+// "/admin/composition/foo" seinen Suffix beim Redirect verlieren, was das
+// alte main.tsx-Verhalten nicht tat. Liefert null, wenn `path` keine solche
+// Alt-Adresse ist.
+export const canonicalAdminRedirectFor = (path: string): string | null => {
+  const isOldAdminSubroute = ROUTES.some((candidate) =>
+    candidate.app === "admin"
+    && candidate.path !== "/admin"
+    && (path === candidate.path || path === `${candidate.path}/`));
+  return isOldAdminSubroute ? "/admin" : null;
+};

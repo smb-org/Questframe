@@ -3,6 +3,13 @@ import { useEffect, useMemo, useState } from "react";
 import { OVERLAY_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
 import type { ChannelState } from "../shared/contracts/state";
 import {
+  clearWatchdogReloadMarker,
+  hasWatchdogReloadMarker,
+  markWatchdogReload,
+  nextReconnectDelayMs,
+  reloadWindow,
+} from "../shared/reconnect";
+import {
   fingerprintOverlayToken,
   loadOverlaySnapshot,
   removeOverlaySnapshot,
@@ -16,42 +23,13 @@ import { parseOverlayMessage } from "./wire";
 const OVERLAY_WATCHDOG_MARKER = "irl-stream-hud:overlay-watchdog-reload-at";
 const OVERLAY_WATCHDOG_DELAY_MS = 1_000;
 
-const reloadOverlayPage = (): void => {
-  window.location.reload();
-};
-
 // Höchstens ein automatischer Heilversuch pro Störung: Solange der Marker
 // gesetzt ist, blieb der letzte Reload wirkungslos (sonst wäre er über den
 // "snapshot"/"state_committed"-Zweig längst gelöscht worden) — ein weiterer
 // Reload würde also nur denselben dauerhaft unparsbaren Zustand wiederholen.
-const hasWatchdogReloadMarker = (): boolean => {
-  try {
-    return window.sessionStorage.getItem(OVERLAY_WATCHDOG_MARKER) !== null;
-  } catch {
-    return false;
-  }
-};
+// Deshalb hier ohne cooldownMs: reine Existenzprüfung, kein Verfall.
 
-const markWatchdogReload = (): boolean => {
-  try {
-    window.sessionStorage.setItem(OVERLAY_WATCHDOG_MARKER, String(Date.now()));
-    return true;
-  } catch {
-    // Ohne persistenten Marker nicht reloaden: eine blockierte Storage-API darf
-    // keinen dauerhaften Reload-Sturm in der OBS-Browserquelle auslösen.
-    return false;
-  }
-};
-
-const clearWatchdogReloadMarker = (): void => {
-  try {
-    window.sessionStorage.removeItem(OVERLAY_WATCHDOG_MARKER);
-  } catch {
-    // Session-Storage ist optional; ein fehlender Marker ist kein Overlay-Fehler.
-  }
-};
-
-export const OverlayApp = ({ reloadPage = reloadOverlayPage }: { reloadPage?: () => void } = {}) => {
+export const OverlayApp = ({ reloadPage = reloadWindow }: { reloadPage?: () => void } = {}) => {
   const [state, setState] = useState<ChannelState | null>(null);
   const [nowMilliseconds, setNowMilliseconds] = useState(() => Date.now());
   const params = useMemo(
@@ -87,10 +65,10 @@ export const OverlayApp = ({ reloadPage = reloadOverlayPage }: { reloadPage?: ()
     };
 
     const scheduleWatchdog = () => {
-      if (disposed || watchdogTimer !== null || hasWatchdogReloadMarker()) return;
+      if (disposed || watchdogTimer !== null || hasWatchdogReloadMarker(OVERLAY_WATCHDOG_MARKER)) return;
       watchdogTimer = window.setTimeout(() => {
         watchdogTimer = null;
-        if (disposed || revoked || hasWatchdogReloadMarker() || !markWatchdogReload()) return;
+        if (disposed || revoked || hasWatchdogReloadMarker(OVERLAY_WATCHDOG_MARKER) || !markWatchdogReload(OVERLAY_WATCHDOG_MARKER)) return;
         reloadPage();
       }, OVERLAY_WATCHDOG_DELAY_MS);
     };
@@ -122,7 +100,7 @@ export const OverlayApp = ({ reloadPage = reloadOverlayPage }: { reloadPage?: ()
         }
         if (parsed.type === "snapshot" || parsed.type === "state_committed") {
           cancelWatchdog();
-          clearWatchdogReloadMarker();
+          clearWatchdogReloadMarker(OVERLAY_WATCHDOG_MARKER);
           setState(parsed.state);
           if (fingerprint !== "") {
             storeOverlaySnapshot(capsuleScope, fingerprint, parsed.state);
@@ -137,9 +115,9 @@ export const OverlayApp = ({ reloadPage = reloadOverlayPage }: { reloadPage?: ()
       });
       socket.addEventListener("close", () => {
         if (disposed || revoked) return;
-        const delay = Math.min(30_000, 750 * 2 ** retry);
+        const delay = nextReconnectDelayMs(retry);
         retry += 1;
-        retryTimer = window.setTimeout(connect, delay + Math.floor(Math.random() * 400));
+        retryTimer = window.setTimeout(connect, delay);
       });
     };
 

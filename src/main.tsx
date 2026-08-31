@@ -1,15 +1,16 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import { resolveRoute } from "./routing";
+import { canonicalAdminRedirectFor, resolveRoute } from "./routing";
 import "./styles/global.css";
 
 const path = window.location.pathname;
 const route = resolveRoute(path);
 document.documentElement.dataset.surface = route.surface;
 
-if (path === "/admin/composition" || path === "/admin/composition/" || path === "/admin/challenges" || path === "/admin/challenges/") {
-  window.history.replaceState(window.history.state, "", `/admin${window.location.search}${window.location.hash}`);
+const adminRedirect = canonicalAdminRedirectFor(path);
+if (adminRedirect !== null) {
+  window.history.replaceState(window.history.state, "", `${adminRedirect}${window.location.search}${window.location.hash}`);
 }
 
 const root = document.getElementById("root");

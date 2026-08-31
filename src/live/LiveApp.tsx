@@ -11,9 +11,9 @@ import {
   timerIsCritical,
 } from "../modules/win-challenges/ui/timer";
 import { parseChallengeMessage, tokenFromLocation } from "../challenges/wire";
+import { nextReconnectDelayMs } from "../shared/reconnect";
 import "./live.css";
 
-const RETRY_BASE_MS = 750;
 const ERROR_VISIBLE_MS = 3_000;
 const DELETED_NOTICE_MS = 1_500;
 
@@ -366,9 +366,9 @@ export const LiveApp = () => {
       socket.addEventListener("close", () => {
         if (disposed || revoked) return;
         setConnection("offline");
-        const delay = Math.min(30_000, RETRY_BASE_MS * 2 ** retry);
+        const delay = nextReconnectDelayMs(retry);
         retry += 1;
-        retryTimer = window.setTimeout(connect, delay + Math.floor(Math.random() * 400));
+        retryTimer = window.setTimeout(connect, delay);
       });
     };
 
