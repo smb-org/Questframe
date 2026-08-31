@@ -106,19 +106,35 @@ const kibibytes = (bytes) => `${(bytes / 1024).toFixed(2)} KiB`;
 const compressedSize = async (relative) =>
   gzipSync(await readFile(path.join(clientRoot, relative)), { level: 9 }).byteLength;
 
+const collectDynamicImports = (rootKey) => {
+  const seen = new Set();
+  const dynamicImports = new Set();
+  const pending = [rootKey];
+  while (pending.length > 0) {
+    const key = pending.pop();
+    if (key === undefined || seen.has(key)) continue;
+    seen.add(key);
+    const entry = manifest[key];
+    if (entry === undefined) continue;
+    for (const dynamicKey of entry.dynamicImports ?? []) dynamicImports.add(dynamicKey);
+    for (const importKey of entry.imports ?? []) pending.push(importKey);
+  }
+  return dynamicImports;
+};
+
 const temporalKeyCandidates = Object.keys(manifest).filter((key) => key.endsWith(temporalKeySuffix));
 if (temporalKeyCandidates.length !== 1) {
   throw new Error(`Expected exactly one manifest entry ending in ${temporalKeySuffix}, found ${String(temporalKeyCandidates.length)}.`);
 }
 const [temporalKey] = temporalKeyCandidates;
-const challengeSourceEntry = manifest[challengeSourceKey];
-const challengeThemeKeys = challengeSourceEntry?.dynamicImports?.filter((key) => (
+const challengeSourceDynamicImports = collectDynamicImports(challengeSourceKey);
+const challengeThemeKeys = [...challengeSourceDynamicImports].filter((key) => (
   manifest[key]?.name === "theme"
-)) ?? [];
+));
 if (challengeThemeKeys.length !== 6) {
   throw new Error(`Expected six dynamic Challenge-Theme-Chunks, found ${String(challengeThemeKeys.length)}.`);
 }
-const challengeStyleKeys = challengeSourceEntry?.dynamicImports?.filter((key) => (
+const challengeStyleKeys = [...challengeSourceDynamicImports].filter((key) => (
   manifest[key]?.src?.startsWith("src/modules/win-challenges/styles/") && manifest[key]?.isDynamicEntry === true
 )) ?? [];
 if (challengeStyleKeys.length !== 4) {
@@ -130,7 +146,18 @@ if (qrCodeKeyCandidates.length !== 1) {
   throw new Error(`Expected exactly one dynamic QR-Code entry ending in ${qrCodeKeySuffix}, found ${String(qrCodeKeyCandidates.length)}.`);
 }
 const [qrCodeKey] = qrCodeKeyCandidates;
-const budgetDeclarations = createBudgetDeclarations(temporalKey, challengeThemeKeys, challengeStyleKeys, qrCodeKey);
+const sharedChallengeLoaderKeys = [
+  "src/challenges/style-loader.ts",
+  "src/challenges/theme-loader.ts",
+].filter((key) => manifest[key] !== undefined);
+const budgetDeclarations = [
+  ...createBudgetDeclarations(temporalKey, challengeThemeKeys, challengeStyleKeys, qrCodeKey),
+  ...sharedChallengeLoaderKeys.map((key) => ({
+    type: "exempt",
+    key,
+    reason: "Der Loader ist ein kleiner geteilter Bruecken-Chunk; seine konkreten Style- und Theme-Varianten werden separat als variantMax gemessen.",
+  })),
+];
 
 const overlayClosure = collectStaticClosure(manifest, [indexKey, overlayKey]);
 const adminClosure = collectStaticClosure(manifest, [indexKey, adminKey]);

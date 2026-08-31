@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, KeyboardEventHandler, PointerEventHandler } from "react";
 
 import type {
   Challenge,
@@ -124,10 +124,30 @@ export const ChallengeLog = ({
   update,
   now,
   ceremonyTarget = null,
+  placement,
+  className,
+  ariaLabel,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
+  onLostPointerCapture,
+  onKeyDown,
+  rootTag,
 }: {
   update: ChallengeUpdate;
   now: number;
   ceremonyTarget?: ChallengeLogCeremonyTarget | null;
+  placement?: ChallengeUpdate["settings"]["placement"];
+  className?: string;
+  ariaLabel?: string;
+  onPointerDown?: PointerEventHandler<HTMLElement>;
+  onPointerMove?: PointerEventHandler<HTMLElement>;
+  onPointerUp?: PointerEventHandler<HTMLElement>;
+  onPointerCancel?: PointerEventHandler<HTMLElement>;
+  onLostPointerCapture?: PointerEventHandler<HTMLElement>;
+  onKeyDown?: KeyboardEventHandler<HTMLElement>;
+  rootTag?: "main" | "section";
 }) => {
   const selection = selectVisible(update.challenges, update.settings.maxVisible, now);
   const globalTimer = update.settings.globalTimer;
@@ -157,19 +177,27 @@ export const ChallengeLog = ({
   if (challenges.length === 0 && (globalTimer === null || globalState === "idle")) return null;
 
   const placementStyle: CSSProperties = {
-    "--wc-x": `${String(update.settings.placement.x * 5)}px`,
-    "--wc-y": `${String(update.settings.placement.y * 5)}px`,
-    "--wc-scale": String(update.settings.placement.scale),
+    "--wc-x": `${String((placement ?? update.settings.placement).x * 5)}px`,
+    "--wc-y": `${String((placement ?? update.settings.placement).y * 5)}px`,
+    "--wc-scale": String((placement ?? update.settings.placement).scale),
   } as CSSProperties;
+  const Root = rootTag ?? "main";
 
   return (
-    <main
-      aria-label="Challenge-Quelle"
-      className={`challenge-source${update.settings.themeMode === "inherit" ? ` hud-theme--${update.settings.themeId}` : ""}`}
+    <Root
+      aria-label={ariaLabel ?? "Challenge-Quelle"}
+      className={`challenge-source${update.settings.themeMode === "inherit" ? ` hud-theme--${update.settings.themeId}` : ""}${className === undefined ? "" : ` ${className}`}`}
       data-style={update.settings.styleId}
       data-surface-mode={update.settings.surfaceMode}
       data-theme-mode={update.settings.themeMode}
       data-theme-id={update.settings.themeId}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onLostPointerCapture={onLostPointerCapture}
+      onKeyDown={onKeyDown}
+      tabIndex={ariaLabel === undefined ? undefined : 0}
       style={placementStyle}
     >
       <header className="challenge-source__header">
@@ -196,6 +224,6 @@ export const ChallengeLog = ({
           {remaining > 0 && <li className="challenge-source__more">+{remaining} weitere</li>}
         </ul>
       )}
-    </main>
+    </Root>
   );
 };

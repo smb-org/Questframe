@@ -146,6 +146,32 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .preview-foot span { display: flex; align-items: center; gap: 6px; }
 .anchor-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 
+/* The composition keeps the reference canvas and both persistence boundaries
+   visible at once. The rail contents retain their existing controls and save
+   bars; only their outer shell changes from a page rail to an accordion. */
+.admin-app--composition { grid-template-columns: minmax(540px, 1fr) minmax(360px, 520px); }
+.admin-app--composition .admin-topbar { grid-column: 1 / -1; }
+.composition-main { grid-column: 1; grid-row: 2; min-width: 0; padding: clamp(20px, 3vw, 42px); overflow: auto; }
+.composition-main .preview-panel { width: 100%; }
+.composition-rails { grid-column: 2; grid-row: 2; min-width: 0; overflow: auto; border-left: 1px solid var(--line); background: #121619; }
+.composition-rail { border-bottom: 1px solid var(--line); }
+.composition-rail > summary { min-height: 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; color: var(--text); font-size: 13px; font-weight: 800; letter-spacing: 0.04em; cursor: pointer; list-style: none; }
+.composition-rail > summary::-webkit-details-marker { display: none; }
+.composition-rail > summary:hover { background: var(--surface); }
+.composition-rail > summary svg { color: var(--muted); transition: transform 160ms ease; }
+.composition-rail[open] > summary svg { transform: rotate(180deg); }
+.composition-rail > .editor-rail { position: static; grid-column: auto; grid-row: auto; height: auto; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; border-left: 0; }
+.composition-rail > .editor-rail .editor-rail-heading { display: none; }
+.composition-rail > .editor-rail .editor-scroll { max-height: none; overflow: visible; }
+.composition-challenge-rail .challenge-settings-panel, .composition-challenge-rail .challenge-board-shell { width: auto; margin: 0; border-right: 0; border-left: 0; border-radius: 0; }
+.composition-challenge-rail .challenge-settings-panel { border-top: 0; }
+.composition-challenge-rail .challenge-board-heading { padding: 0 16px; }
+.composition-challenge-rail .challenge-board-toolbar, .composition-challenge-rail .challenge-board-list, .composition-challenge-rail .challenge-board-save-bar, .composition-challenge-rail .challenge-board-conflict, .composition-challenge-rail .challenge-merge-notices, .composition-challenge-rail > .challenge-board-shell > .challenge-board-empty-copy, .composition-challenge-rail > .challenge-board-shell > .challenge-board-error, .composition-challenge-rail > .challenge-board-shell > .challenge-board-success { margin-right: 16px; margin-left: 16px; }
+.composition-draggable-module { cursor: grab !important; outline: 1px dashed rgba(240, 206, 131, 0.48); outline-offset: 5px; pointer-events: auto !important; }
+.composition-draggable-module:hover { outline-color: var(--accent-bright); }
+.composition-draggable-module.is-dragging { cursor: grabbing !important; outline: 2px solid var(--accent-bright); filter: drop-shadow(0 0 10px rgba(240, 206, 131, 0.45)); }
+.composition-draggable-module--challenge { z-index: 4; }
+
 .editor-rail { position: sticky; top: 64px; grid-column: 3; grid-row: 2; height: calc(100vh - 64px); display: grid; grid-template-rows: 68px minmax(0, 1fr) auto; border-left: 1px solid var(--line); background: #121619; }
 .editor-rail-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border-bottom: 1px solid var(--line); }
 .editor-rail-heading h2 { font-size: 18px; }
@@ -406,6 +432,7 @@ input[type="color"] { padding: 4px; }
   .audit-rail.is-open { height: auto; max-height: calc(100vh - 76px); min-height: 0; overflow: auto; }
   .admin-main { grid-column: 1; }
   .editor-rail { grid-column: 2; }
+  .admin-app--composition { grid-template-columns: minmax(0, 1fr) 420px; }
   .challenge-board-row { grid-template-columns: 78px minmax(0, 1fr) 145px 38px; gap: 8px; }
   .challenge-row-fields { grid-template-columns: minmax(130px, 1fr) minmax(150px, 1.3fr) minmax(110px, 0.9fr) minmax(110px, 0.9fr); }
 }
@@ -450,6 +477,11 @@ input[type="color"] { padding: 4px; }
   .effect-form { grid-template-columns: 1fr; max-height: 38vh; overflow-y: auto; }
   .button, .icon-button, input, select { min-height: 44px; }
   .admin-app--challenges { display: block; padding-top: 64px; }
+  .admin-app--composition { display: block; padding-top: 64px; }
+  .composition-main { padding: 15px 12px 4px; overflow: visible; }
+  .composition-rails { overflow: visible; border-left: 0; }
+  .composition-rail > .editor-rail { display: block; }
+  .composition-rail > .editor-rail .editor-rail-heading { display: none; }
   .admin-challenges-main { padding: 15px 12px 4px; overflow: visible; }
   .challenge-workspace-tools { justify-content: flex-start; }
   .challenge-board-heading { align-items: start; flex-direction: column; gap: 12px; margin-bottom: 16px; }

@@ -190,6 +190,33 @@ test("eine neue Board-Challenge erscheint in der Challenge-Quelle", async ({ pag
   await disposePage(page);
 });
 
+test("die Komposition verschiebt und veröffentlicht die Challenge-Quelle", async ({ page, context }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "Desktop-Komposition");
+  await openChallengeAdmin(page);
+  const overlayToken = await ensureOverlayToken(page);
+  const title = "E2E Komposition Position";
+  await createChallenge(page, title);
+
+  await page.goto("/admin/composition");
+  await expect(page.getByRole("heading", { name: "Live-Vorschau" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" })).toBeVisible();
+
+  const source = await context.newPage();
+  await source.goto(`/overlay/challenges#token=${overlayToken}`);
+  await expect(challengeRow(source, title)).toHaveCount(1);
+
+  const challengeRail = page.locator(".composition-challenge-rail");
+  const currentX = Number(await challengeRail.getByLabel("X").inputValue());
+  const nextX = currentX >= 384 ? currentX - 1 : currentX + 1;
+  await challengeRail.getByLabel("X").fill(String(nextX));
+  await page.getByRole("button", { name: "Challenge-Einstellungen speichern" }).click();
+  await expect(page.getByText("Zeremonie-Einstellung veröffentlicht.")).toBeVisible();
+  await expect.poll(async () => source.locator(".challenge-source").evaluate((element) => getComputedStyle(element).getPropertyValue("--wc-x").trim())).toBe(`${String(nextX * 5)}px`);
+
+  await disposePage(source);
+  await disposePage(page);
+});
+
 test("ein Live-Plus erhöht den Stand in der Challenge-Quelle", async ({ page, context }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-desktop", "Desktop-Live-Challenge");
   await openChallengeAdmin(page);

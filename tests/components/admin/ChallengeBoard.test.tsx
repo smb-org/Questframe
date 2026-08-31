@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -237,5 +237,27 @@ describe("ChallengeBoard", () => {
     expect(await screen.findByText("Jemand anderes hat das Board gespeichert.")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Mein Entwurf")).toBeInTheDocument();
     expect(screen.getByText("Von außen")).toBeInTheDocument();
+  });
+
+  it("verwirft eine verspätete Load-Antwort mit älterer Board-Revision als ein Socket-Update", async () => {
+    let resolveLoad: ((value: ChallengeBoardSnapshot) => void) | undefined;
+    let onUpdate: ((update: ChallengeUpdate) => void) | undefined;
+    const initial = snapshot([challenge("one", "Aus Load")], 1);
+    const incoming = snapshot([challenge("one", "Aus Socket")], 2);
+    const api: ChallengeBoardApi = {
+      load: vi.fn(() => new Promise<ChallengeBoardSnapshot>((resolve) => { resolveLoad = resolve; })),
+      save: vi.fn(),
+      subscribe: (callbacks) => {
+        onUpdate = callbacks.onChallengeUpdate;
+        return () => undefined;
+      },
+    };
+    render(<ChallengeBoard api={api} />);
+
+    await waitFor(() => expect(onUpdate).toBeDefined());
+    onUpdate?.({ ...incoming, settings: { ...incoming.settings, themeId: "trail-wood" }, event: null });
+    resolveLoad?.(initial);
+    expect(await screen.findByDisplayValue("Aus Socket")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Aus Load")).not.toBeInTheDocument();
   });
 });

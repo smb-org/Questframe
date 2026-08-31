@@ -7,34 +7,16 @@ import {
   Copy,
   Eye,
   EyeOff,
-  ImagePlus,
   LogOut,
-  MessageSquare,
-  PawPrint,
   Plus,
   Radio,
   RotateCw,
   Save,
-  Search,
   Settings2,
-  Sparkles,
-  Trash2,
   Undo2,
-  Users,
   Volume2,
-  X,
-  ZoomIn,
 } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type ComponentProps,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   AuditEntry,
@@ -45,7 +27,7 @@ import type {
   SaveResponse,
   UndoTarget,
 } from "../shared/contracts/api";
-import type { ChallengePlacement, ChallengeUpdate } from "../shared/contracts/win-challenges";
+import type { ChallengePlacement, ChallengeStyleId, ChallengeThemeId, ChallengeUpdate } from "../shared/contracts/win-challenges";
 import {
   challengeBoardSnapshotSchema,
   type BoardSaveRequest,
@@ -55,757 +37,68 @@ import {
   type SettingsSaveResponse,
 } from "../modules/win-challenges/contracts/schemas";
 import { ChallengeBoard, type ChallengeBoardApi, type ChallengeBoardSubscription } from "../modules/win-challenges/ui/ChallengeBoard";
+import { ChallengeLog } from "../modules/win-challenges/ui/ChallengeLog";
 import type { AdminWorkspace as AdminWorkspaceId } from "../routing";
-import type {
-  ActiveEffect,
-  ChannelState,
-  ChannelStateDraft,
-  GroupMember,
-  PortraitRef,
-  ThemeId,
-} from "../shared/contracts/state";
-import { EFFECT_CATALOG, type EffectDefinition } from "../shared/domain/effects";
-import { HudRenderer } from "../overlay/HudRenderer";
-import { expiryToLocalInput, resolveLocalExpiry } from "./time";
+import type { ChannelState, PortraitRef } from "../shared/contracts/state";
 import { ObsSetupPanel } from "./ui/ObsSetupPanel";
-import {
-  applyOverlayTokenResponse,
-  buildTokenUrl,
-  copyObsUrl,
-  createChallengeObsSources,
-  mutateObsToken,
-  type DockTokenStatus,
-} from "./ui/obsSetup";
+import { HudEditorRail, useHudEditorState } from "./ui/HudEditorRail";
+import { THEME_LABELS } from "./ui/hudConstants";
+import { PreviewPanel } from "./ui/PreviewPanel";
+import { createChallengeObsSources, type DockTokenStatus } from "./ui/obsSetup";
+import { PIXELS_PER_HUD_UNIT, PIXELS_PER_RASTER_UNIT, stagePixelsToRaster } from "./ui/placement";
 import "./admin.css";
 
-const THEME_LABELS: Record<ThemeId, string> = {
-  "trail-wood": "Trail Wood",
-  "field-journal": "Field Journal",
-  "forged-compass": "Forged Compass",
-  "classic-simple": "Classic Simple",
-  "modern-compact": "Modern Compact",
-  "modern-minimal": "Modern Minimal",
-};
-
-const HUD_SCALE_OPTIONS = [0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2] as const;
-
-const RESOURCE_PRESETS = [
-  { name: "Wut", color: "#FF0000" },
-  { name: "Mana", color: "#0000FF" },
-  { name: "Energie", color: "#FFFF00" },
-  { name: "Fokus", color: "#FF8040" },
-  { name: "Ausdauer", color: "#22C55E" },
-] as const;
-const CUSTOM_RESOURCE = "Custom" as const;
-
-const getResourceSelection = (resource: ChannelStateDraft["player"]["resource"]): string =>
-  RESOURCE_PRESETS.find(
-    (preset) => preset.name === resource.name && preset.color === resource.color.toUpperCase(),
-  )?.name ?? CUSTOM_RESOURCE;
-
-export type TwitchUser = {
-  id: string;
-  login: string;
-  displayName: string;
-  profileImageUrl: string;
-};
+export type TwitchUser = { id: string; login: string; displayName: string; profileImageUrl: string };
 
 export type AdminApi = {
   save: (request: SaveRequest) => Promise<SaveResponse>;
-  setVisibility: (enabled: boolean) => Promise<{
-    state: ChannelState;
-    auditEntry: BootstrapResponse["recentAudit"][number] | null;
-    undoTargets: BootstrapResponse["undoTargets"];
-    serverTime: string;
-  }>;
+  setVisibility: (enabled: boolean) => Promise<{ state: ChannelState; auditEntry: BootstrapResponse["recentAudit"][number] | null; undoTargets: BootstrapResponse["undoTargets"]; serverTime: string }>;
   undo?: ((baseRevision: number, targetRevision: number) => Promise<SaveResponse>) | undefined;
-  mutateOverlayToken?:
-    | ((rotate: boolean, request: {
-        requestId: string;
-        expectedGeneration: number;
-      }) => Promise<OverlayTokenResponse>)
-    | undefined;
-  mutateDockToken?:
-    | ((rotate: boolean, request: {
-        requestId: string;
-        expectedGeneration: number;
-      }) => Promise<DockTokenResponse>)
-    | undefined;
+  mutateOverlayToken?: ((rotate: boolean, request: { requestId: string; expectedGeneration: number }) => Promise<OverlayTokenResponse>) | undefined;
+  mutateDockToken?: ((rotate: boolean, request: { requestId: string; expectedGeneration: number }) => Promise<DockTokenResponse>) | undefined;
   uploadPortrait?: ((blob: Blob) => Promise<PortraitRef>) | undefined;
   renewMediaLeases?: ((contentHashes: string[]) => Promise<void>) | undefined;
-  lookupTwitchUser?:
-    | ((login: string) => Promise<TwitchUser>)
-    | undefined;
+  lookupTwitchUser?: ((login: string) => Promise<TwitchUser>) | undefined;
   getChallengeBoard?: (() => Promise<ChallengeBoardSnapshot>) | undefined;
   saveChallengeBoard?: ((request: BoardSaveRequest) => Promise<BoardSaveResponse>) | undefined;
   saveChallengeSettings?: ((request: SettingsSaveRequest) => Promise<SettingsSaveResponse>) | undefined;
-  subscribe?:
-    | ((callbacks: {
-        onState: (state: ChannelState) => void;
-        onOnlineChange: (online: boolean) => void;
-        onOverlayPresence: (connectedSockets: number) => void;
-        onAudit: (entry: AuditEntry, undoTargets: UndoTarget[]) => void;
-        onUndoTargets: (undoTargets: UndoTarget[]) => void;
-        onChallengeUpdate?: (update: ChallengeUpdate) => void;
-      }) => () => void)
-    | undefined;
+  subscribe?: ((callbacks: { onState: (state: ChannelState) => void; onOnlineChange: (online: boolean) => void; onOverlayPresence: (connectedSockets: number) => void; onAudit: (entry: AuditEntry, undoTargets: UndoTarget[]) => void; onUndoTargets: (undoTargets: UndoTarget[]) => void; onChallengeUpdate?: (update: ChallengeUpdate) => void }) => () => void) | undefined;
   logout?: (() => Promise<void>) | undefined;
 };
 
-const toDraft = (state: ChannelState): ChannelStateDraft => {
-  const {
-    revision: _revision,
-    overlayEnabled: _overlayEnabled,
-    updatedAt: _updatedAt,
-    updatedBy: _updatedBy,
-    ...draft
-  } = state;
-  void [_revision, _overlayEnabled, _updatedAt, _updatedBy];
-  return draft;
-};
-
-const uploadedHashes = (state: ChannelStateDraft | ChannelState): string[] => {
-  const portraits = [
-    state.player.portrait,
-    state.pet?.portrait,
-    ...state.group.map((member) => member.portrait),
-  ];
-  return [
-    ...new Set(
-      portraits.flatMap((portrait) =>
-        portrait?.kind === "uploaded" ? [portrait.contentHash] : [],
-      ),
-    ),
-  ];
-};
-
-// Der Auslöser einer Änderung bekommt den Eintrag doppelt: einmal in der HTTP-Antwort
-// und einmal über den Broadcast. Die ID entscheidet, nicht die Reihenfolge.
-const prependAuditEntry = (current: AuditEntry[], entry: AuditEntry): AuditEntry[] => {
-  if (current.some((existing) => existing.id === entry.id)) return current;
-  return [entry, ...current].slice(0, 50);
-};
-
-// Kapselt den Sekundentakt der Vorschau, damit nicht die gesamte Konsole
-// jede Sekunde neu rendert, während jemand tippt.
-const TickingPreview = (props: Omit<ComponentProps<typeof HudRenderer>, "nowMilliseconds">) => {
-  const [nowMilliseconds, setNowMilliseconds] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setNowMilliseconds(Date.now());
-    }, 1_000);
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, []);
-  return <HudRenderer {...props} nowMilliseconds={nowMilliseconds} />;
-};
-
-const THEME_PREVIEW_NOW = Date.now();
-
-const ThemePreviewCard = ({
-  theme,
-  preview,
-  previewMediaUrls,
-}: {
-  theme: ThemeId;
-  preview: ChannelState;
-  previewMediaUrls: ReadonlyMap<string, string>;
-}) => {
-  const previewState: ChannelState = {
-    ...preview,
-    themeId: theme,
-    placement: { x: 0, y: 0, scale: 1 },
-    effects: [],
-    featuredEffectId: null,
-    pet: null,
-    group: [],
-  };
-  return (
-    <div aria-hidden="true" className="theme-preview">
-      <div className="theme-preview-inner">
-        <HudRenderer
-          autoFitPlayerName={false}
-          forceVisible
-          mediaUrls={previewMediaUrls}
-          nowMilliseconds={THEME_PREVIEW_NOW}
-          state={previewState}
-        />
-      </div>
-    </div>
-  );
-};
-
-const toPreview = (draft: ChannelStateDraft, committed: ChannelState): ChannelState => ({
-  ...draft,
-  revision: committed.revision,
-  overlayEnabled: committed.overlayEnabled,
-  updatedAt: committed.updatedAt,
-  updatedBy: committed.updatedBy,
-});
-
-type EffectFlyoverProps = {
-  effect?: ActiveEffect | undefined;
-  initialFeatured: boolean;
-  timezone: string;
-  onClose: () => void;
-  onCommit: (effect: ActiveEffect, featured: boolean) => void;
-};
-
-const EffectFlyover = ({ effect, initialFeatured, timezone, onClose, onCommit }: EffectFlyoverProps) => {
-  const initialDefinition = EFFECT_CATALOG.find((item) => item.id === effect?.catalogId);
-  const [kind, setKind] = useState<"all" | "buff" | "debuff">("all");
-  const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<EffectDefinition | null>(initialDefinition ?? null);
-  const [name, setName] = useState(effect?.name ?? initialDefinition?.name ?? "");
-  const [description, setDescription] = useState(effect?.description ?? initialDefinition?.description ?? "");
-  const [timed, setTimed] = useState(effect?.expiresAt !== null && effect?.expiresAt !== undefined);
-  const [expiresLocal, setExpiresLocal] = useState("");
-  const [featured, setFeatured] = useState(initialFeatured);
-  const [ambiguousChoices, setAmbiguousChoices] = useState<readonly { expiresAt: string; offset: string }[]>([]);
-  const [selectedInstant, setSelectedInstant] = useState("");
-  const [resolving, setResolving] = useState(false);
-  const [error, setError] = useState("");
-  const [openedAt] = useState(() => Date.now());
-  const filtered = EFFECT_CATALOG.filter(
-    (item) =>
-      (kind === "all" || item.kind === kind) &&
-      item.name.toLocaleLowerCase("de").includes(query.toLocaleLowerCase("de")),
-  );
-
-  useEffect(() => {
-    if (effect?.expiresAt === null || effect?.expiresAt === undefined) return;
-    void expiryToLocalInput(effect.expiresAt, timezone).then(setExpiresLocal).catch(() => {
-      setError("Die gespeicherte Ablaufzeit konnte nicht gelesen werden.");
-    });
-  }, [effect?.expiresAt, timezone]);
-
-  const choose = (definition: EffectDefinition) => {
-    setSelected(definition);
-    setName(definition.name);
-    setDescription(definition.description);
-    if (definition.suggestedMinutes !== null) {
-      setTimed(true);
-      void expiryToLocalInput(
-        new Date(openedAt + definition.suggestedMinutes * 60_000).toISOString(),
-        timezone,
-      ).then(setExpiresLocal);
-    } else {
-      setTimed(false);
-      setExpiresLocal("");
-    }
-  };
-
-  const commit = async () => {
-    if (selected === null && effect === undefined) {
-      setError("Bitte zuerst einen Effekt auswählen.");
-      return;
-    }
-    if (name.trim() === "") {
-      setError("Der Effekt braucht einen Namen.");
-      return;
-    }
-    if (featured && description.trim() === "") {
-      setError("Für die sichtbare Beschreibung fehlt Text.");
-      return;
-    }
-    let expiresAt: string | null = null;
-    if (timed) {
-      setResolving(true);
-      const resolution = await resolveLocalExpiry(expiresLocal, timezone);
-      setResolving(false);
-      if (resolution.kind === "invalid") {
-        setError("Bitte eine gültige absolute Uhrzeit wählen.");
-        return;
-      }
-      if (resolution.kind === "nonexistent") {
-        setError(`Diese Uhrzeit existiert in ${timezone} nicht (Zeitumstellung).`);
-        return;
-      }
-      if (resolution.kind === "ambiguous") {
-        setAmbiguousChoices(resolution.choices);
-        if (!resolution.choices.some((choice) => choice.expiresAt === selectedInstant)) {
-          setError("Diese Uhrzeit kommt zweimal vor. Bitte Sommer- oder Winterzeit wählen.");
-          return;
-        }
-        expiresAt = selectedInstant;
-      } else {
-        expiresAt = resolution.expiresAt;
-      }
-    }
-    const definition = selected ?? initialDefinition;
-    onCommit(
-      {
-        id: effect?.id ?? crypto.randomUUID(),
-        catalogId: definition?.id ?? null,
-        kind: definition?.kind ?? effect?.kind ?? "buff",
-        name: name.trim(),
-        description: description.trim() === "" ? null : description.trim(),
-        iconId: definition?.iconId ?? effect?.iconId ?? "buff-gestaerkt",
-        stacks: effect?.stacks ?? null,
-        expiresAt,
-        order: effect?.order ?? 0,
-      },
-      featured,
-    );
-  };
-
-  return (
-    <div className="effect-backdrop" role="presentation" onMouseDown={onClose}>
-      <section
-        aria-label={effect === undefined ? "Effekt hinzufügen" : "Effekt bearbeiten"}
-        aria-modal="true"
-        className="effect-flyover"
-        role="dialog"
-        onMouseDown={(event) => {
-          event.stopPropagation();
-        }}
-      >
-        <header className="effect-flyover-header">
-          <div>
-            <span className="eyebrow">Effekt-Slot</span>
-            <h2>{effect === undefined ? "Effekt hinzufügen" : "Effekt bearbeiten"}</h2>
-          </div>
-          <button className="icon-button" aria-label="Schließen" onClick={onClose} type="button">
-            <X size={18} />
-          </button>
-        </header>
-        <div className="effect-tabs" role="tablist" aria-label="Effekttyp">
-          {(["all", "buff", "debuff"] as const).map((tab) => (
-            <button
-              aria-selected={kind === tab}
-              className={kind === tab ? "is-active" : ""}
-              key={tab}
-              onClick={() => setKind(tab)}
-              role="tab"
-              type="button"
-            >
-              {tab === "all" ? "Alle" : tab === "buff" ? "Buffs" : "Debuffs"}
-            </button>
-          ))}
-        </div>
-        <label className="search-field">
-          <Search size={16} />
-          <span className="sr-only">Effekt suchen</span>
-          <input
-            placeholder="Effekt suchen …"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </label>
-        <div className="effect-catalog">
-          {filtered.map((definition) => (
-            <button
-              className={selected?.id === definition.id ? "effect-tile is-selected" : "effect-tile"}
-              key={definition.id}
-              onClick={() => choose(definition)}
-              type="button"
-            >
-              <img alt="" src={`/assets/effects/${definition.iconId}.webp`} />
-              <span>{definition.name}</span>
-            </button>
-          ))}
-        </div>
-        <div className="effect-form">
-          <label>
-            <span>Name</span>
-            <input maxLength={24} value={name} onChange={(event) => setName(event.target.value)} />
-          </label>
-          <label>
-            <span>Beschreibung (optional)</span>
-            <textarea
-              maxLength={90}
-              rows={2}
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-            />
-          </label>
-          <label className="check-row">
-            <input
-              checked={timed}
-              onChange={(event) => setTimed(event.target.checked)}
-              type="checkbox"
-            />
-            <span>Endet zu einer festen Uhrzeit</span>
-          </label>
-          {timed && (
-            <label>
-              <span>Endet am · {timezone}</span>
-              <input
-                type="datetime-local"
-                value={expiresLocal}
-                onChange={(event) => {
-                  setExpiresLocal(event.target.value);
-                  setAmbiguousChoices([]);
-                  setSelectedInstant("");
-                  setError("");
-                }}
-              />
-            </label>
-          )}
-          {ambiguousChoices.length > 0 && (
-            <fieldset className="dst-choices">
-              <legend>Zeitumstellung wählen</legend>
-              {ambiguousChoices.map((choice) => (
-                <label className="check-row" key={choice.expiresAt}>
-                  <input
-                    checked={selectedInstant === choice.expiresAt}
-                    name="dst-instant"
-                    type="radio"
-                    value={choice.expiresAt}
-                    onChange={() => {
-                      setSelectedInstant(choice.expiresAt);
-                      setError("");
-                    }}
-                  />
-                  <span>UTC{choice.offset}</span>
-                </label>
-              ))}
-            </fieldset>
-          )}
-          <label className="check-row">
-            <input
-              checked={featured}
-              onChange={(event) => setFeatured(event.target.checked)}
-              type="checkbox"
-            />
-            <span>Beschreibung im Overlay anzeigen</span>
-          </label>
-          {error !== "" && <p className="field-error" role="alert">{error}</p>}
-        </div>
-        <footer className="effect-actions">
-          <button className="button button--quiet" onClick={onClose} type="button">Abbrechen</button>
-          <button className="button button--primary" disabled={resolving} onClick={() => void commit()} type="button">
-            {resolving ? "Prüfe Uhrzeit …" : effect === undefined ? "Hinzufügen" : "Übernehmen"}
-          </button>
-        </footer>
-      </section>
-    </div>
-  );
-};
-
-const Section = ({
-  icon,
-  title,
-  children,
-  defaultOpen = true,
-  headerAction,
-  isHidden = false,
-}: {
-  icon: ReactNode;
-  title: string;
-  children: ReactNode;
-  defaultOpen?: boolean;
-  headerAction?: ReactNode | undefined;
-  isHidden?: boolean;
-}) => (
-  <details className={`editor-section${isHidden ? " is-hidden" : ""}`} open={defaultOpen}>
-    <summary>
-      <span className="section-icon">{icon}</span>
-      <span className="section-title">
-        {title}
-        {isHidden && <small className="section-hidden-label">ausgeblendet</small>}
-      </span>
-      {headerAction !== undefined && (
-        <span
-          className="section-header-action"
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" || event.key === " ") event.stopPropagation();
-          }}
-        >
-          {headerAction}
-        </span>
-      )}
-      <ChevronDown className="section-chevron" size={17} />
-    </summary>
-    <div className="editor-section-body">{children}</div>
-  </details>
-);
-
-const RangeField = ({
-  label,
-  value,
-  disabled,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  disabled: boolean;
-  onChange: (value: number) => void;
-}) => (
-  <label className="range-field">
-    <span className="range-label">
-      <span>{label}</span>
-      <strong>{value}%</strong>
-    </span>
-    <input
-      aria-label={label}
-      disabled={disabled}
-      max={100}
-      min={0}
-      type="range"
-      value={value}
-      onChange={(event) => onChange(Number(event.target.value))}
-    />
-  </label>
-);
-
-const encodePortrait = async (file: File): Promise<Blob> => {
-  const bitmap = await createImageBitmap(file);
-  const side = Math.min(bitmap.width, bitmap.height);
-  const target = Math.min(512, Math.max(32, side));
-  const canvas = document.createElement("canvas");
-  canvas.width = target;
-  canvas.height = target;
-  const context = canvas.getContext("2d");
-  if (context === null) throw new Error("Bildverarbeitung nicht verfügbar.");
-  context.drawImage(
-    bitmap,
-    (bitmap.width - side) / 2,
-    (bitmap.height - side) / 2,
-    side,
-    side,
-    0,
-    0,
-    target,
-    target,
-  );
-  bitmap.close();
-  for (const quality of [0.9, 0.78, 0.64, 0.5]) {
-    const blob = await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob(resolve, "image/webp", quality);
-    });
-    if (blob !== null && blob.size <= 262_144) return blob;
-  }
-  throw new Error("Das optimierte Portrait ist noch größer als 256 KiB.");
-};
-
-const PortraitInput = ({
-  disabled,
-  upload,
-  onPortrait,
-}: {
-  disabled: boolean;
-  upload?: AdminApi["uploadPortrait"];
-  onPortrait: (portrait: PortraitRef) => void;
-}) => {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const change = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file === undefined || upload === undefined) return;
-    setBusy(true);
-    setError("");
-    try {
-      onPortrait(await upload(await encodePortrait(file)));
-    } catch (caught) {
-      setError(
-        caught instanceof Error && caught.message.trim() !== ""
-          ? caught.message
-          : "Portrait konnte nicht verarbeitet werden.",
-      );
-    } finally {
-      setBusy(false);
-      event.target.value = "";
-    }
-  };
-  return (
-    <div className="portrait-input">
-      <label className="button button--quiet">
-        <ImagePlus size={15} />
-        <span>{busy ? "Wird optimiert …" : "Portrait hochladen"}</span>
-        <input accept="image/*" disabled={disabled || busy} onChange={(event) => void change(event)} type="file" />
-      </label>
-      {error !== "" && <span className="field-error">{error}</span>}
-    </div>
-  );
-};
-
-const isTwitchUserNotFound = (caught: unknown): boolean => {
-  if (typeof caught !== "object" || caught === null) return false;
-  const error = caught as { code?: unknown; status?: unknown };
-  return error.code === "not_found" || error.status === 404;
-};
-
-const GuestAdder = ({
-  disabled,
-  existingTwitchUserIds,
-  lookup,
-  onAddManual,
-  onAddTwitch,
-}: {
-  disabled: boolean;
-  existingTwitchUserIds: readonly string[];
-  lookup?: AdminApi["lookupTwitchUser"];
-  onAddManual: (name: string) => void;
-  onAddTwitch: (user: TwitchUser) => void;
-}) => {
-  const [value, setValue] = useState("");
-  const [pendingUser, setPendingUser] = useState<TwitchUser | null>(null);
-  const [notFound, setNotFound] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const trimmedValue = value.trim();
-  const isLogin = trimmedValue !== "" && /^[a-z0-9_]{1,25}$/.test(trimmedValue.toLowerCase());
-  const alreadyInGroup = pendingUser !== null && existingTwitchUserIds.includes(pendingUser.id);
-
-  const reset = () => {
-    setValue("");
-    setPendingUser(null);
-    setNotFound(false);
-    setError("");
-  };
-
-  const addManual = (name: string) => {
-    onAddManual(name);
-    reset();
-  };
-
-  const submit = async () => {
-    if (disabled || busy || trimmedValue === "") return;
-    if (!isLogin) {
-      addManual(trimmedValue);
-      return;
-    }
-    setBusy(true);
-    setPendingUser(null);
-    setNotFound(false);
-    setError("");
-    try {
-      if (lookup === undefined) throw new Error("Twitch-Lookup nicht verfügbar.");
-      setPendingUser(await lookup(trimmedValue.toLowerCase()));
-    } catch (caught) {
-      if (isTwitchUserNotFound(caught)) {
-        setNotFound(true);
-      } else {
-        setError("Twitch-Gast konnte nicht geladen werden.");
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="guest-adders">
-      <form
-        className="guest-adder-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submit();
-        }}
-      >
-        <input
-          aria-label="Twitch-Login oder Name"
-          disabled={disabled || busy}
-          maxLength={32}
-          placeholder="Twitch-Login oder Name"
-          value={value}
-          onChange={(event) => {
-            setValue(event.target.value);
-            setPendingUser(null);
-            setNotFound(false);
-            setError("");
-          }}
-        />
-        <button
-          className={isLogin ? "button button--twitch" : "button button--primary"}
-          disabled={disabled || busy || trimmedValue === ""}
-          type="submit"
-        >
-          {busy && <RotateCw className="spin" size={14} />}
-          {!busy && isLogin && <MessageSquare size={14} />}
-          {busy ? "Wird gesucht …" : isLogin ? "Auf Twitch suchen" : "Als Gast hinzufügen"}
-        </button>
-      </form>
-
-      <div aria-live="polite" className="guest-adder-status">
-        {pendingUser !== null && (
-          <div className="guest-lookup-card">
-            <div className="guest-lookup-identity">
-              <img alt={`Profilbild von ${pendingUser.displayName}`} src={pendingUser.profileImageUrl} />
-              <span>
-                <strong>{pendingUser.displayName}</strong>
-                <small>@{pendingUser.login}</small>
-              </span>
-            </div>
-            {alreadyInGroup && <p className="guest-lookup-existing">bereits in der Gruppe</p>}
-            <div className="guest-lookup-actions">
-              <button
-                className="button button--primary"
-                disabled={disabled || alreadyInGroup}
-                onClick={() => {
-                  onAddTwitch(pendingUser);
-                  reset();
-                }}
-                type="button"
-              >
-                Hinzufügen
-              </button>
-              <button className="button button--quiet" disabled={disabled} onClick={() => reset()} type="button">
-                Abbrechen
-              </button>
-            </div>
-            {/* Ohne diesen Ausweg liesse sich kein manueller Gast anlegen, dessen
-                Name zufaellig wie ein Twitch-Login aussieht ("kevin", "papa"). */}
-            <button className="button button--quiet" disabled={disabled} onClick={() => addManual(trimmedValue)} type="button">
-              „{trimmedValue}“ als manuellen Gast hinzufügen
-            </button>
-          </div>
-        )}
-        {notFound && (
-          <div className="guest-lookup-message">
-            <p>Kein Twitch-Konto mit diesem Login</p>
-            <button className="button button--quiet" disabled={disabled} onClick={() => addManual(trimmedValue)} type="button">
-              „{trimmedValue}“ als manuellen Gast hinzufügen
-            </button>
-          </div>
-        )}
-        {error !== "" && (
-          <div className="guest-lookup-message">
-            <p className="guest-adder-error" role="alert">{error}</p>
-            <button className="button button--quiet" disabled={disabled} onClick={() => addManual(trimmedValue)} type="button">
-              „{trimmedValue}“ als manuellen Gast hinzufügen
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
+const emptyDockTokenStatus = (): DockTokenStatus => ({ exists: false, generation: 0, fingerprint: null, createdAt: null, lastUsedAt: null, connectedSockets: 0, token: null });
 
 const WorkspaceSwitcher = ({ current }: { current: AdminWorkspaceId }) => (
   <nav aria-label="Workspace" className="workspace-switcher">
     <a aria-current={current === "hud" ? "page" : undefined} className={current === "hud" ? "is-active" : ""} href="/admin">HUD</a>
+    <a aria-current={current === "composition" ? "page" : undefined} className={current === "composition" ? "is-active" : ""} href="/admin/composition">Komposition</a>
     <a aria-current={current === "challenges" ? "page" : undefined} className={current === "challenges" ? "is-active" : ""} href="/admin/challenges">Challenges</a>
   </nav>
 );
 
-const emptyDockTokenStatus = (): DockTokenStatus => ({
-  exists: false,
-  generation: 0,
-  fingerprint: null,
-  createdAt: null,
-  lastUsedAt: null,
-  connectedSockets: 0,
-  token: null,
-});
+const sameChallengePlacement = (left: ChallengePlacement | null, right: ChallengePlacement): boolean => left !== null && left.x === right.x && left.y === right.y && left.scale === right.scale;
 
-const sameChallengePlacement = (left: ChallengePlacement | null, right: ChallengePlacement): boolean =>
-  left !== null && left.x === right.x && left.y === right.y && left.scale === right.scale;
+const callPointerCapture = (element: HTMLElement, method: "setPointerCapture" | "releasePointerCapture", pointerId: number): void => {
+  const candidate = (element as unknown as Record<string, unknown>)[method];
+  if (typeof candidate !== "function") return;
+  try {
+    Reflect.apply(candidate, element, [pointerId]);
+  } catch {
+    // lostpointercapture can fire after the browser has already released the pointer.
+  }
+};
 
-const ChallengeSettingsPanel = ({
-  api,
-  online,
-  challengeUpdate,
-}: {
-  api: AdminApi;
-  online: boolean;
-  challengeUpdate: ChallengeUpdate | null;
-}) => {
+const loadCompositionChallengeStyle = async (styleId: ChallengeStyleId): Promise<void> => {
+  const { loadChallengeStyle } = await import("../challenges/style-loader");
+  await loadChallengeStyle(styleId);
+};
+
+const loadCompositionChallengeTheme = async (themeId: ChallengeThemeId): Promise<void> => {
+  const { loadChallengeTheme } = await import("../challenges/theme-loader");
+  await loadChallengeTheme(themeId);
+};
+
+const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, onPlacementDraftChange }: { api: AdminApi; online: boolean; challengeUpdate: ChallengeUpdate | null; placementDraft?: ChallengePlacement | null; onPlacementDraftChange?: (placement: ChallengePlacement) => void }) => {
   const [snapshot, setSnapshot] = useState<ChallengeBoardSnapshot | null>(null);
   const [effectsEnabled, setEffectsEnabled] = useState<boolean | null>(null);
   const [placement, setPlacement] = useState<ChallengePlacement | null>(null);
@@ -816,32 +109,18 @@ const ChallengeSettingsPanel = ({
   const snapshotRef = useRef<ChallengeBoardSnapshot | null>(null);
   const effectsEnabledRef = useRef<boolean | null>(null);
   const placementRef = useRef<ChallengePlacement | null>(null);
-
-  useEffect(() => {
-    snapshotRef.current = snapshot;
-  }, [snapshot]);
-
-  useEffect(() => {
-    effectsEnabledRef.current = effectsEnabled;
-  }, [effectsEnabled]);
-
-  useEffect(() => {
-    placementRef.current = placement;
-  }, [placement]);
+  const effectivePlacement = placementDraft ?? placement;
+  useEffect(() => { snapshotRef.current = snapshot; }, [snapshot]);
+  useEffect(() => { effectsEnabledRef.current = effectsEnabled; }, [effectsEnabled]);
+  useEffect(() => { placementRef.current = effectivePlacement; }, [effectivePlacement]);
 
   const applyRemoteSnapshot = useCallback((next: ChallengeBoardSnapshot) => {
     const current = snapshotRef.current;
     if (current !== null && next.settingsRevision <= current.settingsRevision) return;
     const localValue = effectsEnabledRef.current;
     const localPlacement = placementRef.current;
-    const localDraftChanged = current !== null
-      && localValue !== null
-      && (localValue !== current.settings.effectsEnabled
-        || !sameChallengePlacement(localPlacement, current.settings.placement));
-    const localDraftStillDiffers = localValue !== null
-      && (localValue !== next.settings.effectsEnabled
-        || !sameChallengePlacement(localPlacement, next.settings.placement));
-
+    const localDraftChanged = current !== null && ((localValue !== null && localValue !== current.settings.effectsEnabled) || (localPlacement !== null && !sameChallengePlacement(localPlacement, current.settings.placement)));
+    const localDraftStillDiffers = localValue !== null && (localValue !== next.settings.effectsEnabled || !sameChallengePlacement(localPlacement, next.settings.placement));
     snapshotRef.current = next;
     setSnapshot(next);
     if (localDraftChanged && localDraftStillDiffers) {
@@ -853,948 +132,77 @@ const ChallengeSettingsPanel = ({
     placementRef.current = next.settings.placement;
     setEffectsEnabled(next.settings.effectsEnabled);
     setPlacement(next.settings.placement);
+    onPlacementDraftChange?.(next.settings.placement);
     setError("");
     setMessage("");
-  }, []);
+  }, [onPlacementDraftChange]);
 
   useEffect(() => {
-    if (api.getChallengeBoard === undefined) {
-      return;
-    }
+    if (api.getChallengeBoard === undefined) return;
     let disposed = false;
-    void api.getChallengeBoard().then((next) => {
-      if (disposed) return;
-      applyRemoteSnapshot(next);
-    }).catch((caught: unknown) => {
-      if (disposed) return;
-      setError(caught instanceof Error ? caught.message : "Challenge-Einstellungen konnten nicht geladen werden.");
-    }).finally(() => {
-      if (!disposed) setLoading(false);
-    });
-    return () => {
-      disposed = true;
-    };
+    void api.getChallengeBoard().then((next) => { if (!disposed) applyRemoteSnapshot(next); }).catch((caught: unknown) => { if (!disposed) setError(caught instanceof Error ? caught.message : "Challenge-Einstellungen konnten nicht geladen werden."); }).finally(() => { if (!disposed) setLoading(false); });
+    return () => { disposed = true; };
   }, [api, applyRemoteSnapshot]);
-
   useEffect(() => {
     if (challengeUpdate === null) return;
     const { themeId: _themeId, ...settings } = challengeUpdate.settings;
     void _themeId;
-    applyRemoteSnapshot({
-      eventSeq: challengeUpdate.eventSeq,
-      boardRevision: challengeUpdate.boardRevision,
-      settingsRevision: challengeUpdate.settingsRevision,
-      settings,
-      challenges: challengeUpdate.challenges,
-    });
+    applyRemoteSnapshot({ eventSeq: challengeUpdate.eventSeq, boardRevision: challengeUpdate.boardRevision, settingsRevision: challengeUpdate.settingsRevision, settings, challenges: challengeUpdate.challenges });
   }, [applyRemoteSnapshot, challengeUpdate]);
-
   if (api.getChallengeBoard === undefined || api.saveChallengeSettings === undefined) return null;
-  const saveChallengeSettings = api.saveChallengeSettings;
-
-  const dirty = snapshot !== null
-    && effectsEnabled !== null
-    && placement !== null
-    && (effectsEnabled !== snapshot.settings.effectsEnabled
-      || !sameChallengePlacement(placement, snapshot.settings.placement));
+  const saveChallengeSettings = api.saveChallengeSettings.bind(api);
+  const dirty = snapshot !== null && effectsEnabled !== null && effectivePlacement !== null && (effectsEnabled !== snapshot.settings.effectsEnabled || !sameChallengePlacement(effectivePlacement, snapshot.settings.placement));
+  const updatePlacement = (next: ChallengePlacement) => { setPlacement(next); placementRef.current = next; onPlacementDraftChange?.(next); setMessage(""); };
   const save = async () => {
-    if (snapshot === null || effectsEnabled === null || placement === null || !dirty || saving || !online) return;
-    setSaving(true);
-    setError("");
-    setMessage("");
-    const settings = snapshot.settings;
+    if (snapshot === null || effectsEnabled === null || effectivePlacement === null || !dirty || saving || !online) return;
+    setSaving(true); setError(""); setMessage("");
     try {
-      const request: SettingsSaveRequest = {
-        baseSettingsRevision: snapshot.settingsRevision,
-        styleId: settings.styleId,
-        themeMode: settings.themeMode,
-        surfaceMode: settings.surfaceMode,
-        headerTitle: settings.headerTitle,
-        effectsEnabled,
-        maxVisible: settings.maxVisible,
-        globalTimerTotalMs: settings.globalTimer?.totalMs ?? null,
-        placement,
-      };
-      const response = await saveChallengeSettings(request);
-      snapshotRef.current = response.snapshot;
-      effectsEnabledRef.current = response.snapshot.settings.effectsEnabled;
-      placementRef.current = response.snapshot.settings.placement;
-      setSnapshot(response.snapshot);
-      setEffectsEnabled(response.snapshot.settings.effectsEnabled);
-      setPlacement(response.snapshot.settings.placement);
-      setMessage("Zeremonie-Einstellung veröffentlicht.");
+      const settings = snapshot.settings;
+      const response = await saveChallengeSettings({ baseSettingsRevision: snapshot.settingsRevision, styleId: settings.styleId, themeMode: settings.themeMode, surfaceMode: settings.surfaceMode, headerTitle: settings.headerTitle, effectsEnabled, maxVisible: settings.maxVisible, globalTimerTotalMs: settings.globalTimer?.totalMs ?? null, placement: effectivePlacement });
+      snapshotRef.current = response.snapshot; effectsEnabledRef.current = response.snapshot.settings.effectsEnabled; placementRef.current = response.snapshot.settings.placement;
+      setSnapshot(response.snapshot); setEffectsEnabled(response.snapshot.settings.effectsEnabled); setPlacement(response.snapshot.settings.placement); onPlacementDraftChange?.(response.snapshot.settings.placement); setMessage("Zeremonie-Einstellung veröffentlicht.");
     } catch (caught) {
-      const candidate = typeof caught === "object" && caught !== null
-        ? caught as { code?: unknown; currentSnapshot?: unknown }
-        : {};
-      const parsedCurrentSnapshot = candidate.code === "revision_conflict"
-        ? challengeBoardSnapshotSchema.safeParse(candidate.currentSnapshot)
-        : null;
-      if (parsedCurrentSnapshot?.success === true) {
-        const currentSnapshot = parsedCurrentSnapshot.data;
-        snapshotRef.current = currentSnapshot;
-        setSnapshot(currentSnapshot);
-        setError("Einstellungen wurden inzwischen geändert. Der aktuelle Serverstand ist übernommen; dein Entwurf bleibt erhalten.");
-      } else {
-        setError(caught instanceof Error ? caught.message : "Challenge-Einstellungen konnten nicht gespeichert werden.");
-      }
-    } finally {
-      setSaving(false);
-    }
+      const candidate = typeof caught === "object" && caught !== null ? caught as { code?: unknown; currentSnapshot?: unknown } : {};
+      const parsedCurrentSnapshot = candidate.code === "revision_conflict" ? challengeBoardSnapshotSchema.safeParse(candidate.currentSnapshot) : null;
+      if (parsedCurrentSnapshot?.success === true) { snapshotRef.current = parsedCurrentSnapshot.data; setSnapshot(parsedCurrentSnapshot.data); setError("Einstellungen wurden inzwischen geändert. Der aktuelle Serverstand ist übernommen; dein Entwurf bleibt erhalten."); } else setError(caught instanceof Error ? caught.message : "Challenge-Einstellungen konnten nicht gespeichert werden.");
+    } finally { setSaving(false); }
   };
-
+  const fallbackPlacement = effectivePlacement ?? { x: 300, y: 8, scale: 1 };
   return (
     <section aria-labelledby="challenge-settings-heading" className="challenge-settings-panel">
-      <header className="challenge-settings-heading">
-        <div>
-          <span className="eyebrow">Publikumssignal</span>
-          <h2 id="challenge-settings-heading">Zeremonien</h2>
-          <p>Nicht jedes Setup ist ein Quest-Log. Bewegung, Aufblitzen und Ton lassen sich gemeinsam abschalten.</p>
-        </div>
-        <Volume2 aria-hidden="true" size={20} />
-      </header>
+      <header className="challenge-settings-heading"><div><span className="eyebrow">Publikumssignal</span><h2 id="challenge-settings-heading">Zeremonien</h2><p>Nicht jedes Setup ist ein Quest-Log. Bewegung, Aufblitzen und Ton lassen sich gemeinsam abschalten.</p></div><Volume2 aria-hidden="true" size={20} /></header>
       {error !== "" && <p className="challenge-board-error" role="alert">{error}</p>}
-      <label className="challenge-effects-toggle">
-        <input
-          aria-label="Zeremonien und Töne aktiv"
-          checked={effectsEnabled ?? false}
-          disabled={loading || saving || !online || snapshot === null}
-          onChange={(event) => {
-            setEffectsEnabled(event.target.checked);
-            setMessage("");
-          }}
-          type="checkbox"
-        />
-        <span>
-          <strong>Zeremonien und Töne aktiv</strong>
-          <small>Der Schalter gilt für alle Challenge-Styles und alle OBS-Quellen.</small>
-        </span>
-      </label>
-      <div className="placement-grid">
-        <label>
-          <span>X</span>
-          <input
-            disabled={loading || saving || !online || placement === null}
-            max={384}
-            min={0}
-            type="number"
-            value={placement?.x ?? 300}
-            onChange={(event) => {
-              setPlacement((current) => current === null ? current : { ...current, x: Number(event.target.value) });
-              setMessage("");
-            }}
-          />
-        </label>
-        <label>
-          <span>Y</span>
-          <input
-            disabled={loading || saving || !online || placement === null}
-            max={216}
-            min={0}
-            type="number"
-            value={placement?.y ?? 8}
-            onChange={(event) => {
-              setPlacement((current) => current === null ? current : { ...current, y: Number(event.target.value) });
-              setMessage("");
-            }}
-          />
-        </label>
-        <label>
-          <span>Skalierung</span>
-          <select
-            disabled={loading || saving || !online || placement === null}
-            value={placement?.scale ?? 1}
-            onChange={(event) => {
-              setPlacement((current) => current === null ? current : { ...current, scale: Number(event.target.value) });
-              setMessage("");
-            }}
-          >
-            {HUD_SCALE_OPTIONS.map((scale) => <option key={scale} value={scale}>{Math.round(scale * 100)}%</option>)}
-          </select>
-        </label>
-      </div>
-      <footer className="challenge-settings-save-bar">
-        <span aria-live="polite" className={dirty ? "save-dirty" : ""}>
-          {loading ? "Einstellungen werden geladen …" : message !== "" ? message : dirty ? "Ungespeicherte Einstellung" : "Einstellung veröffentlicht"}
-        </span>
-        <button
-          aria-label="Challenge-Einstellungen speichern"
-          className="button button--save"
-          disabled={!dirty || saving || !online}
-          onClick={() => void save()}
-          type="button"
-        >
-          <Save size={17} /> {saving ? "Wird gespeichert …" : "Einstellungen speichern"}
-        </button>
-      </footer>
+      <label className="challenge-effects-toggle"><input aria-label="Zeremonien und Töne aktiv" checked={effectsEnabled ?? false} disabled={loading || saving || !online || snapshot === null} onChange={(event) => { setEffectsEnabled(event.target.checked); setMessage(""); }} type="checkbox" /><span><strong>Zeremonien und Töne aktiv</strong><small>Der Schalter gilt für alle Challenge-Styles und alle OBS-Quellen.</small></span></label>
+      <div className="placement-grid"><label><span>X</span><input disabled={loading || saving || !online || effectivePlacement === null} max={384} min={0} type="number" value={fallbackPlacement.x} onChange={(event) => updatePlacement({ ...fallbackPlacement, x: Number(event.target.value) })} /></label><label><span>Y</span><input disabled={loading || saving || !online || effectivePlacement === null} max={216} min={0} type="number" value={fallbackPlacement.y} onChange={(event) => updatePlacement({ ...fallbackPlacement, y: Number(event.target.value) })} /></label><label><span>Skalierung</span><select disabled={loading || saving || !online || effectivePlacement === null} value={fallbackPlacement.scale} onChange={(event) => updatePlacement({ ...fallbackPlacement, scale: Number(event.target.value) })}>{[0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2].map((scale) => <option key={scale} value={scale}>{Math.round(scale * 100)}%</option>)}</select></label></div>
+      <footer className="challenge-settings-save-bar"><span aria-live="polite" className={dirty ? "save-dirty" : ""}>{loading ? "Einstellungen werden geladen …" : message !== "" ? message : dirty ? "Ungespeicherte Einstellung" : "Einstellung veröffentlicht"}</span><button aria-label="Challenge-Einstellungen speichern" className="button button--save" disabled={!dirty || saving || !online} onClick={() => void save()} type="button"><Save size={17} /> {saving ? "Wird gespeichert …" : "Einstellungen speichern"}</button></footer>
     </section>
   );
 };
 
-const HudAdminWorkspace = ({
-  initialBootstrap,
-  api,
-}: {
-  initialBootstrap: BootstrapResponse;
-  api: AdminApi;
-}) => {
-  const [committed, setCommitted] = useState(initialBootstrap.state);
-  const [draft, setDraft] = useState(() => toDraft(initialBootstrap.state));
-  const [draftBaseRevision, setDraftBaseRevision] = useState(initialBootstrap.state.revision);
-  const [audit, setAudit] = useState(initialBootstrap.recentAudit);
-  const auditRef = useRef(initialBootstrap.recentAudit);
-  const [auditOpen, setAuditOpen] = useState(false);
-  const auditOpenRef = useRef(false);
-  const [newAuditCount, setNewAuditCount] = useState(0);
-  const [undoTargets, setUndoTargets] = useState(initialBootstrap.undoTargets);
-  const [online, setOnline] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [visibilityBusy, setVisibilityBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const [remoteConflict, setRemoteConflict] = useState<ChannelState | null>(null);
-  const [effectEditor, setEffectEditor] = useState<ActiveEffect | "new" | null>(null);
-  const [overlayToken, setOverlayToken] = useState(initialBootstrap.capsule.overlayToken);
-  const [dockToken, setDockToken] = useState<DockTokenStatus>(
-    () => initialBootstrap.capsule.dockToken ?? emptyDockTokenStatus(),
-  );
-  const [obsSetupOpen, setObsSetupOpen] = useState(false);
-  const [obsLinkCopied, setObsLinkCopied] = useState(false);
-  const obsLinkCopiedTimer = useRef<number | null>(null);
-  const [previewZoom, setPreviewZoom] = useState(100);
-  const undoTargetsRevisionRef = useRef(initialBootstrap.state.revision);
-  const applyUndoTargets = useCallback((targets: UndoTarget[], revision: number) => {
-    if (revision < undoTargetsRevisionRef.current) return;
-    undoTargetsRevisionRef.current = revision;
-    setUndoTargets(targets);
-  }, []);
-  const addAuditEntry = useCallback((entry: AuditEntry) => {
-    const next = prependAuditEntry(auditRef.current, entry);
-    if (next === auditRef.current) return;
-    auditRef.current = next;
-    setAudit(next);
-    if (!auditOpenRef.current) setNewAuditCount((current) => current + 1);
-  }, []);
-  const toggleAudit = () => {
-    const nextOpen = !auditOpenRef.current;
-    auditOpenRef.current = nextOpen;
-    setAuditOpen(nextOpen);
-    if (nextOpen) setNewAuditCount(0);
-  };
-  const dirty = useMemo(
-    () => JSON.stringify(draft) !== JSON.stringify(toDraft(committed)),
-    [committed, draft],
-  );
-  const dirtyRef = useRef(dirty);
-  useEffect(() => {
-    dirtyRef.current = dirty;
-  }, [dirty]);
-  useEffect(() => () => {
-    if (obsLinkCopiedTimer.current !== null) window.clearTimeout(obsLinkCopiedTimer.current);
-  }, []);
+const channelIdentity = (initialBootstrap: BootstrapResponse) => {
   const channel = initialBootstrap.capsule.channel ?? null;
-  const channelHandle =
-    channel !== null && channel.login.toLowerCase() !== channel.displayName.toLowerCase()
-      ? `@${channel.login}`
-      : null;
-  const preview = toPreview(draft, committed);
-  const previewMediaUrls = useMemo(() => {
-    const portraits = [
-      draft.player.portrait,
-      draft.pet?.portrait,
-      ...draft.group.map((member) => member.portrait),
-    ];
-    return new Map(
-      portraits.flatMap((portrait) =>
-        portrait?.kind === "uploaded"
-          ? [[portrait.contentHash, `/api/media/${portrait.contentHash}`] as const]
-          : [],
-      ),
-    );
-  }, [draft.group, draft.pet?.portrait, draft.player.portrait]);
-  const locked = saving || !online;
-  const uploadPortrait = api.uploadPortrait?.bind(api);
-  const obsUrl = overlayToken.token === null
-    ? ""
-    : buildTokenUrl(window.location.origin, "/overlay", overlayToken.token);
-  const obsConnectionLabel = overlayToken.connectedSockets > 0
-    ? `${String(overlayToken.connectedSockets)} verbunden`
-    : overlayToken.exists
-      ? "nicht verbunden"
-      : "kein Link";
-  const obsConnectionDescription = `OBS-Verbindung: ${obsConnectionLabel}`;
-  const obsChipState = overlayToken.connectedSockets > 0
-    ? "is-live"
-    : overlayToken.exists
-      ? "is-idle"
-      : "is-empty";
-  const obsTokenUnavailable = overlayToken.exists && obsUrl === "";
-  const obsTokenUnavailableMessage = "Dieser alte Token ist nicht wiederherstellbar. Bitte einen neuen Token erzeugen.";
+  if (channel === null) return <div aria-hidden="true" className="channel-identity" />;
+  const handle = channel.login.toLowerCase() !== channel.displayName.toLowerCase() ? `@${channel.login}` : null;
+  return <div className="channel-identity"><span className="eyebrow">Twitch-Kanal</span><div><strong title={channel.displayName}>{channel.displayName}</strong>{handle !== null && <small>{handle}</small>}</div></div>;
+};
 
-  useEffect(() => {
-    if (api.subscribe === undefined) return;
-    return api.subscribe({
-      onState: (state) => {
-        if (state.revision > undoTargetsRevisionRef.current) {
-          undoTargetsRevisionRef.current = state.revision;
-        }
-        setCommitted((previous) => {
-          if (state.revision <= previous.revision) return previous;
-          const contentChanged = JSON.stringify(toDraft(state)) !== JSON.stringify(toDraft(previous));
-          if (dirtyRef.current && contentChanged) {
-            setRemoteConflict(state);
-          } else {
-            if (!dirtyRef.current) setDraft(toDraft(state));
-            setDraftBaseRevision(state.revision);
-            setRemoteConflict(null);
-          }
-          return state;
-        });
-      },
-      onOnlineChange: setOnline,
-      onOverlayPresence: (connectedSockets) => {
-        setOverlayToken((current) => ({ ...current, connectedSockets }));
-      },
-      onAudit: (entry, undoTargets) => {
-        addAuditEntry(entry);
-        applyUndoTargets(undoTargets, entry.revision);
-      },
-      onUndoTargets: setUndoTargets,
-    });
-  }, [addAuditEntry, api, applyUndoTargets]);
-
-  const pendingLeaseHashes = useMemo(() => {
-    const committedHashes = new Set(uploadedHashes(committed));
-    return uploadedHashes(draft).filter((hash) => !committedHashes.has(hash));
-  }, [committed, draft]);
-  const pendingLeaseHashesRef = useRef(pendingLeaseHashes);
-  useEffect(() => {
-    pendingLeaseHashesRef.current = pendingLeaseHashes;
-  }, [pendingLeaseHashes]);
-
-  // Das Intervall haengt bewusst nur an der API: der Draft aendert sich bei jedem
-  // Tastendruck, eine Abhaengigkeit darauf wuerde den Timer endlos neu starten.
-  useEffect(() => {
-    if (api.renewMediaLeases === undefined) return;
-    const renewFn = api.renewMediaLeases.bind(api);
-    const timer = window.setInterval(() => {
-      const hashes = pendingLeaseHashesRef.current;
-      if (hashes.length === 0) return;
-      void renewFn(hashes).catch(() => {
-        // Fehler stillschweigend schlucken
-      });
-    }, 30 * 60 * 1_000);
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [api]);
-
-  const updatePlayer = (patch: Partial<ChannelStateDraft["player"]>) => {
-    setDraft((current) => ({ ...current, player: { ...current.player, ...patch } }));
-    setMessage("");
-  };
-
-  const selectResource = (selection: string) => {
-    const preset = RESOURCE_PRESETS.find(({ name }) => name === selection);
-    updatePlayer({
-      resource: preset === undefined
-        ? { ...draft.player.resource, name: "Eigene Ressource" }
-        : { ...draft.player.resource, ...preset },
-    });
-  };
-
-  const save = async (replace = false) => {
-    if (!dirty || locked) return;
-    if (remoteConflict !== null && !replace) {
-      setError("Der OBS-Stand wurde inzwischen geändert. Bitte eine Konfliktaktion wählen.");
-      return;
-    }
-    setSaving(true);
-    setError("");
-    setMessage("");
-    const requestDraft = structuredClone(draft);
-    try {
-      const response = await api.save({
-        baseRevision: draftBaseRevision,
-        ...(replace && remoteConflict !== null ? { replaceRevision: remoteConflict.revision } : {}),
-        state: requestDraft,
-      });
-      setCommitted(response.state);
-      setDraft(toDraft(response.state));
-      setDraftBaseRevision(response.state.revision);
-      addAuditEntry(response.auditEntry);
-      applyUndoTargets(response.undoTargets, response.state.revision);
-      setRemoteConflict(null);
-      setMessage(`Revision ${String(response.state.revision)} ist jetzt in OBS.`);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Speichern fehlgeschlagen.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const toggleVisibility = async () => {
-    if (visibilityBusy || !online) return;
-    if (committed.overlayEnabled && !window.confirm("Overlay in OBS sofort ausblenden? Zuschauer sehen das HUD dann nicht mehr.")) return;
-    setVisibilityBusy(true);
-    setError("");
-    try {
-      const response = await api.setVisibility(!committed.overlayEnabled);
-      setCommitted(response.state);
-      setDraftBaseRevision((current) => remoteConflict === null ? response.state.revision : current);
-      setRemoteConflict((current) => current === null ? null : response.state);
-      if (response.auditEntry !== null) {
-        const auditEntry = response.auditEntry;
-        addAuditEntry(auditEntry);
-      }
-      applyUndoTargets(response.undoTargets, response.state.revision);
-      setMessage(response.state.overlayEnabled ? "Overlay ist sichtbar." : "Overlay ist vollständig ausgeblendet.");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Overlay-Schalter fehlgeschlagen.");
-    } finally {
-      setVisibilityBusy(false);
-    }
-  };
-
-  const commitEffect = (effect: ActiveEffect, featured: boolean) => {
-    setDraft((current) => {
-      const exists = current.effects.some((item) => item.id === effect.id);
-      const effects = (exists
-        ? current.effects.map((item) => (item.id === effect.id ? effect : item))
-        : [...current.effects, effect]
-      ).map((item, order) => ({ ...item, order }));
-      return {
-        ...current,
-        effects,
-        featuredEffectId: featured
-          ? effect.id
-          : current.featuredEffectId === effect.id
-            ? null
-            : current.featuredEffectId,
-      };
-    });
-    setEffectEditor(null);
-  };
-
-  const removeEffect = (id: string) => {
-    setDraft((current) => ({
-      ...current,
-      effects: current.effects.filter((effect) => effect.id !== id).map((effect, order) => ({ ...effect, order })),
-      featuredEffectId: current.featuredEffectId === id ? null : current.featuredEffectId,
-    }));
-  };
-
-  const addManualGuest = (input: string) => {
-    const name = input.trim();
-    if (name === "") return;
-    setDraft((current) => {
-      if (current.group.length >= 5) return current;
-      const member: GroupMember = {
-        id: crypto.randomUUID(),
-        source: "manual",
-        twitchUserId: null,
-        name,
-        portrait: { kind: "initials", text: name.slice(0, 2).toUpperCase() },
-        hpPercent: 100,
-      };
-      return { ...current, group: [...current.group, member] };
-    });
-  };
-
-  const addTwitchGuest = (user: TwitchUser) => {
-    setDraft((current) => {
-      if (current.group.length >= 5 || current.group.some((member) => member.twitchUserId === user.id)) {
-        return current;
-      }
-      const member: GroupMember = {
-        id: crypto.randomUUID(),
-        source: "twitch",
-        twitchUserId: user.id as GroupMember["twitchUserId"],
-        name: user.displayName,
-        portrait: {
-          kind: "twitch",
-          userId: user.id as Exclude<PortraitRef, { kind: "initials" | "uploaded" | "bundled" }>["userId"],
-          url: user.profileImageUrl,
-        },
-        hpPercent: 100,
-      };
-      return { ...current, group: [...current.group, member] };
-    });
-  };
-
-  const mutateToken = async (rotate: boolean) => {
-    if (api.mutateOverlayToken === undefined) return;
-    if (rotate && !window.confirm("Alte OBS-URL sofort ungültig machen und neuen Token erzeugen?")) return;
-    try {
-      const result = await mutateObsToken({
-        api,
-        kind: "overlay",
-        rotate,
-        expectedGeneration: overlayToken.generation,
-      });
-      setOverlayToken((current) => applyOverlayTokenResponse(current, result));
-      setMessage(rotate ? "Neuer OBS-Link ist bereit; der alte wurde gesperrt." : "OBS-Link wurde erzeugt.");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Token-Erzeugung fehlgeschlagen.");
-    }
-  };
-
-  const copyHeaderObsUrl = async () => {
-    if (obsUrl === "") return;
-    try {
-      await copyObsUrl(obsUrl);
-      setError("");
-      setObsLinkCopied(true);
-      if (obsLinkCopiedTimer.current !== null) window.clearTimeout(obsLinkCopiedTimer.current);
-      obsLinkCopiedTimer.current = window.setTimeout(() => {
-        setObsLinkCopied(false);
-        obsLinkCopiedTimer.current = null;
-      }, 2_000);
-    } catch {
-      setError("OBS-Link konnte nicht kopiert werden.");
-    }
-  };
-
-  const undo = async (targetRevision: number) => {
-    if (api.undo === undefined || !window.confirm(`Revision ${String(targetRevision)} wiederherstellen?`)) return;
-    setSaving(true);
-    try {
-      const response = await api.undo(committed.revision, targetRevision);
-      setCommitted(response.state);
-      setDraft(toDraft(response.state));
-      setDraftBaseRevision(response.state.revision);
-      setRemoteConflict(null);
-      addAuditEntry(response.auditEntry);
-      applyUndoTargets(response.undoTargets, response.state.revision);
-      setMessage(`Revision ${String(targetRevision)} wurde als neue Revision wiederhergestellt.`);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Undo fehlgeschlagen.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
+const HudAdminWorkspace = ({ initialBootstrap, api }: { initialBootstrap: BootstrapResponse; api: AdminApi }) => {
+  const state = useHudEditorState({ initialBootstrap, api });
   return (
     <div className="admin-app">
-      <header className="admin-topbar">
-        <div className="brand-block">
-          <span className="brand-mark"><Activity size={19} /></span>
-          <div><strong>{initialBootstrap.capsule.name}</strong><span>Live-Regie</span></div>
-        </div>
-        <div className="topbar-status">
-          <WorkspaceSwitcher current="hud" />
-          {/* Der Chip meldet ausschliesslich die OBS-Verbindung. Ueber eine
-              gestoerte Editor-Verbindung informiert der Offline-Banner. */}
-          <div
-            aria-label={obsConnectionDescription}
-            className={`obs-chip ${obsChipState}`}
-            role="group"
-            title={obsConnectionDescription}
-          >
-            <i aria-hidden="true" />
-            <Radio aria-hidden="true" size={14} />
-            <span className="obs-chip-label">OBS</span>
-            <span className="obs-chip-connection">{obsConnectionLabel}</span>
-            {obsTokenUnavailable && (
-              <span className="sr-only" id="obs-link-unavailable-help">
-                {obsTokenUnavailableMessage}
-              </span>
-            )}
-            <button
-              aria-label="OBS-Link kopieren"
-              aria-describedby={obsTokenUnavailable ? "obs-link-unavailable-help" : undefined}
-              aria-disabled={obsTokenUnavailable ? "true" : undefined}
-              className="obs-chip-action"
-              disabled={obsUrl === "" && !obsTokenUnavailable}
-              onClick={() => void copyHeaderObsUrl()}
-              title={obsLinkCopied ? "Kopiert" : obsTokenUnavailable ? obsTokenUnavailableMessage : obsUrl === "" ? "OBS-Link noch nicht erzeugt." : "OBS-Link kopieren"}
-              type="button"
-            >
-              {obsLinkCopied ? <Check aria-hidden="true" size={14} /> : <Copy aria-hidden="true" size={14} />}
-            </button>
-            <button
-              aria-label={overlayToken.exists ? "Neuen Token erzeugen" : "OBS-Link erzeugen"}
-              className="obs-chip-action"
-              disabled={!online}
-              onClick={() => void mutateToken(overlayToken.exists)}
-              title={overlayToken.exists ? "Neuen Token erzeugen" : "OBS-Link erzeugen"}
-              type="button"
-            >
-              {overlayToken.exists ? <RotateCw aria-hidden="true" size={14} /> : <Plus aria-hidden="true" size={15} />}
-            </button>
-            <button
-              aria-controls="hud-obs-setup"
-              aria-expanded={obsSetupOpen}
-              aria-label={obsSetupOpen ? "OBS-Einrichtung schließen" : "OBS-Einrichtung öffnen"}
-              className="obs-chip-action"
-              onClick={() => setObsSetupOpen((current) => !current)}
-              title={obsSetupOpen ? "Einrichtung schließen" : "Einrichtung"}
-              type="button"
-            >
-              <Settings2 aria-hidden="true" size={14} />
-            </button>
-          </div>
-          <span className="revision-pill">Rev. {committed.revision}</span>
-        </div>
-        {channel === null ? (
-          <div aria-hidden="true" className="channel-identity" />
-        ) : (
-          <div className="channel-identity">
-            <span className="eyebrow">Twitch-Kanal</span>
-            <div>
-              <strong title={channel.displayName}>{channel.displayName}</strong>
-              {channelHandle !== null && <small>{channelHandle}</small>}
-            </div>
-          </div>
-        )}
-        <button
-          aria-checked={committed.overlayEnabled}
-          aria-label="Overlay aktiv"
-          className={`overlay-switch ${committed.overlayEnabled ? "is-on" : "is-off"}`}
-          disabled={visibilityBusy || !online}
-          onClick={() => void toggleVisibility()}
-          role="switch"
-          type="button"
-        >
-          {committed.overlayEnabled ? <Eye size={17} /> : <EyeOff size={17} />}
-          <span>{committed.overlayEnabled ? "Overlay aktiv" : "Overlay aus"}</span>
-          <i aria-hidden="true" />
-        </button>
-        <div className="editor-identity"><span>{initialBootstrap.editor.displayName}</span><small>Editor</small></div>
-        {api.logout !== undefined && (
-          <button
-            aria-label="Abmelden"
-            className="icon-button logout-button"
-            onClick={() => {
-              void api.logout?.().then(() => window.location.assign("/login"));
-            }}
-            title="Abmelden"
-            type="button"
-          >
-            <LogOut size={16} />
-          </button>
-        )}
-      </header>
-
-      {!online && <div className="offline-banner">Offline – Bearbeitung pausiert; OBS wurde nicht geändert.</div>}
-
-      <aside className={`audit-rail ${auditOpen ? "is-open" : "is-collapsed"}`}>
-        <button
-          aria-controls="audit-log"
-          aria-expanded={auditOpen}
-          className="rail-heading"
-          onClick={toggleAudit}
-          type="button"
-        >
-          <Clock3 aria-hidden="true" size={15} />
-          <span>Änderungen</span>
-          {newAuditCount > 0 && <span aria-label={`${String(newAuditCount)} neue Einträge`} className="audit-new-badge">{newAuditCount}</span>}
-          <ChevronDown aria-hidden="true" className="audit-chevron" size={15} />
-        </button>
-        {auditOpen && (
-          <div id="audit-log" className="audit-rail-content">
-            <div className="audit-list">
-              {audit.length === 0 ? (
-                <p className="empty-copy">Noch keine veröffentlichten Änderungen.</p>
-              ) : audit.map((entry) => (
-                <article className="audit-entry" key={entry.id}>
-                  <span className="audit-dot" />
-                  <div><strong>{entry.actor.displayName}</strong><p>{entry.summary}</p><time>{new Date(entry.createdAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}</time></div>
-                </article>
-              ))}
-            </div>
-            {initialBootstrap.capabilities.undo && undoTargets.length > 0 && (
-              <details className="undo-disclosure">
-                <summary><Undo2 size={14} /> Rückgängig</summary>
-                {undoTargets.slice(0, 6).map((target) => (
-                  <button key={target.revision} onClick={() => void undo(target.revision)} type="button">
-                    Rev. {target.revision}<span>{target.summary}</span>
-                  </button>
-                ))}
-              </details>
-            )}
-          </div>
-        )}
-      </aside>
-
-      <main className="admin-main">
-        {obsSetupOpen && (
-          <div id="hud-obs-setup">
-            <ObsSetupPanel
-              api={api}
-              dockToken={dockToken}
-              online={online}
-              onDockToken={setDockToken}
-              onOverlayToken={setOverlayToken}
-              overlayToken={overlayToken}
-              sources={createChallengeObsSources(
-                window.location.origin,
-                overlayToken,
-                dockToken,
-              )}
-            />
-          </div>
-        )}
-        <section className="preview-panel">
-          <div className="panel-heading">
-            <div><span className="eyebrow">OBS-Komposition</span><h1>Live-Vorschau</h1></div>
-            <div className="preview-controls">
-              <div className="preview-zoom">
-                <ZoomIn aria-hidden="true" size={14} />
-                <input
-                  aria-label="Vorschau-Zoom"
-                  max={200}
-                  min={60}
-                  onChange={(event) => setPreviewZoom(Number(event.target.value))}
-                  step={10}
-                  type="range"
-                  value={previewZoom}
-                />
-                <output>{previewZoom}%</output>
-                <button
-                  aria-label="Vorschau-Zoom auf 100 % zurücksetzen"
-                  className="preview-reset"
-                  disabled={previewZoom === 100}
-                  onClick={() => setPreviewZoom(100)}
-                  type="button"
-                >100%</button>
-              </div>
-              <span className="preview-scale">1920 × 1080 Referenz</span>
-            </div>
-          </div>
-          <div className="preview-viewport">
-            <div className="preview-stage" style={{ width: `${String(previewZoom)}%` }}>
-              <div className="preview-canvas">
-                <div className="preview-safe-area" />
-                <div className="preview-hud-wrap">
-                  <TickingPreview
-                    forceVisible
-                    mediaUrls={previewMediaUrls}
-                    state={preview}
-                    previewOverlay={!committed.overlayEnabled ? <div className="disabled-veil">Overlay deaktiviert</div> : undefined}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-          <div className="preview-foot">
-            <span><i className="anchor-dot" />Oben links verankert</span>
-            <span>{THEME_LABELS[draft.themeId]}</span>
-          </div>
-        </section>
-      </main>
-
-      <aside className="editor-rail" aria-busy={saving}>
-        <div className="editor-rail-heading">
-          <div><span className="eyebrow">Moderator-Konsole</span><h2>Live-Steuerung</h2></div>
-          <Radio size={19} />
-        </div>
-        <div className="editor-scroll">
-          <Section icon={<Activity size={16} />} title={draft.player.name}>
-            <RangeField
-              disabled={locked}
-              label="Gesundheit"
-              value={draft.player.hpPercent}
-              onChange={(hpPercent) => updatePlayer({ hpPercent })}
-            />
-            <RangeField
-              disabled={locked}
-              label={draft.player.resource.name}
-              value={draft.player.resource.percent}
-              onChange={(percent) => updatePlayer({ resource: { ...draft.player.resource, percent } })}
-            />
-          </Section>
-
-          <Section icon={<Sparkles size={16} />} title="Buffs & Debuffs">
-            <div className="active-effects">
-              {draft.effects.length === 0 && <p className="empty-copy">Keine aktiven Effekte.</p>}
-              {draft.effects.map((effect) => (
-                <div className={`active-effect active-effect--${effect.kind}`} key={effect.id}>
-                  <button onClick={() => setEffectEditor(effect)} type="button">
-                    <img alt="" src={`/assets/effects/${effect.iconId}.webp`} />
-                    <span><strong>{effect.name}</strong><small>{effect.expiresAt === null ? "Ohne Ablauf" : new Date(effect.expiresAt).toLocaleString("de-DE", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}</small></span>
-                  </button>
-                  <button aria-label={`${effect.name} entfernen`} className="icon-button" disabled={locked} onClick={() => removeEffect(effect.id)} type="button"><Trash2 size={14} /></button>
-                </div>
-              ))}
-            </div>
-            <button className="button button--quiet button--full" disabled={locked || draft.effects.length >= 8} onClick={() => setEffectEditor("new")} type="button">
-              <Plus size={15} /> Effekt hinzufügen <span>{draft.effects.length}/8</span>
-            </button>
-          </Section>
-
-          {initialBootstrap.capabilities.petEditor && (
-            <div className="desktop-only">
-            <Section
-              headerAction={draft.pet === null ? undefined : (
-                <button
-                  aria-checked={draft.petVisible}
-                  aria-label="Pet im Overlay anzeigen"
-                  className={`section-switch ${draft.petVisible ? "is-on" : "is-off"}`}
-                  disabled={locked}
-                  onClick={() => setDraft((current) => ({ ...current, petVisible: !current.petVisible }))}
-                  role="switch"
-                  type="button"
-                >
-                  <span>{draft.petVisible ? "An" : "Aus"}</span>
-                  <i aria-hidden="true" />
-                </button>
-              )}
-              icon={<PawPrint size={16} />}
-              isHidden={draft.pet !== null && !draft.petVisible}
-              title="Pet"
-            >
-              {draft.pet === null ? (
-                <button className="button button--quiet button--full" disabled={locked} onClick={() => setDraft((current) => ({ ...current, pet: { name: "Begleiter", subtitle: null, portrait: { kind: "initials", text: "BE" }, hpPercent: 100 } }))} type="button">
-                  <Plus size={15} /> Pet einrichten
-                </button>
-              ) : (
-                <>
-                  <RangeField disabled={locked} label={`${draft.pet.name} Gesundheit`} value={draft.pet.hpPercent} onChange={(hpPercent) => setDraft((current) => ({ ...current, pet: current.pet === null ? null : { ...current.pet, hpPercent } }))} />
-                  <div className="field-grid">
-                    <label><span>Name</span><input disabled={locked} maxLength={32} value={draft.pet.name} onChange={(event) => setDraft((current) => ({ ...current, pet: current.pet === null ? null : { ...current.pet, name: event.target.value } }))} /></label>
-                    <label><span>Unterzeile</span><input disabled={locked} maxLength={40} value={draft.pet.subtitle ?? ""} onChange={(event) => setDraft((current) => ({ ...current, pet: current.pet === null ? null : { ...current.pet, subtitle: event.target.value === "" ? null : event.target.value } }))} /></label>
-                  </div>
-                  <PortraitInput disabled={locked} upload={uploadPortrait} onPortrait={(portrait) => setDraft((current) => ({ ...current, pet: current.pet === null ? null : { ...current.pet, portrait } }))} />
-                  <button className="text-button text-button--danger" disabled={locked} onClick={() => setDraft((current) => ({ ...current, pet: null }))} type="button">Pet löschen</button>
-                </>
-              )}
-            </Section>
-            </div>
-          )}
-
-          {initialBootstrap.capabilities.groupEditor && (
-            <div className="desktop-only">
-            <Section
-              headerAction={draft.group.length === 0 ? undefined : (
-                <button
-                  aria-checked={draft.groupVisible}
-                  aria-label="Gruppe im Overlay anzeigen"
-                  className={`section-switch ${draft.groupVisible ? "is-on" : "is-off"}`}
-                  disabled={locked}
-                  onClick={() => setDraft((current) => ({ ...current, groupVisible: !current.groupVisible }))}
-                  role="switch"
-                  type="button"
-                >
-                  <span>{draft.groupVisible ? "An" : "Aus"}</span>
-                  <i aria-hidden="true" />
-                </button>
-              )}
-              icon={<Users size={16} />}
-              isHidden={draft.group.length > 0 && !draft.groupVisible}
-              title="Gruppe"
-            >
-              {draft.group.length === 0 && <p className="empty-copy">Keine Gäste im Stream.</p>}
-              {draft.group.map((member, index) => (
-                <div className="guest-control" key={member.id}>
-                  <div className="guest-heading"><span>{member.source === "twitch" && <MessageSquare size={13} />}{member.name}</span><button aria-label={`${member.name} entfernen`} className="icon-button" onClick={() => setDraft((current) => ({ ...current, group: current.group.filter((item) => item.id !== member.id) }))} type="button"><Trash2 size={14} /></button></div>
-                  <RangeField disabled={locked} label={`${member.name} Gesundheit`} value={member.hpPercent} onChange={(hpPercent) => setDraft((current) => ({ ...current, group: current.group.map((item, itemIndex) => itemIndex === index ? { ...item, hpPercent } : item) }))} />
-                </div>
-              ))}
-              {draft.group.length < 5 && (
-                <GuestAdder
-                  disabled={locked}
-                  existingTwitchUserIds={draft.group.flatMap((member) => member.twitchUserId === null ? [] : [member.twitchUserId])}
-                  lookup={api.lookupTwitchUser?.bind(api)}
-                  onAddManual={addManualGuest}
-                  onAddTwitch={addTwitchGuest}
-                />
-              )}
-            </Section>
-            </div>
-          )}
-
-          <div className="desktop-only">
-          <Section defaultOpen={false} icon={<ChevronDown size={16} />} title="Einrichten">
-            <div className="field-grid">
-              <label><span>Name</span><input disabled={locked} maxLength={32} value={draft.player.name} onChange={(event) => updatePlayer({ name: event.target.value })} /></label>
-              <label><span>Titel</span><input disabled={locked} maxLength={40} value={draft.player.title ?? ""} onChange={(event) => updatePlayer({ title: event.target.value === "" ? null : event.target.value })} /></label>
-              <label><span>Level</span><input disabled={locked} max={999} min={1} type="number" value={draft.player.level} onChange={(event) => updatePlayer({ level: Number(event.target.value) })} /></label>
-              <label><span>Ressource</span><select disabled={locked} value={getResourceSelection(draft.player.resource)} onChange={(event) => selectResource(event.target.value)}>{RESOURCE_PRESETS.map((preset) => <option key={preset.name} value={preset.name}>{preset.name}</option>)}<option value={CUSTOM_RESOURCE}>{CUSTOM_RESOURCE}</option></select></label>
-              {getResourceSelection(draft.player.resource) === CUSTOM_RESOURCE && <label><span>Eigene Farbe</span><input disabled={locked} type="color" value={draft.player.resource.color} onChange={(event) => updatePlayer({ resource: { ...draft.player.resource, color: event.target.value.toUpperCase() } })} /></label>}
-            </div>
-                  <PortraitInput disabled={locked} upload={uploadPortrait} onPortrait={(portrait) => updatePlayer({ portrait })} />
-            <div className="theme-picker" aria-label="Theme">
-              {initialBootstrap.capabilities.enabledThemes.map((theme) => (
-                <button
-                  aria-pressed={draft.themeId === theme}
-                  className={draft.themeId === theme ? "theme-card is-selected" : "theme-card"}
-                  disabled={locked}
-                  key={theme}
-                  onClick={() => setDraft((current) => ({ ...current, themeId: theme }))}
-                  type="button"
-                >
-                  <ThemePreviewCard preview={preview} previewMediaUrls={previewMediaUrls} theme={theme} />
-                  <strong>{THEME_LABELS[theme]}</strong>
-                  {draft.themeId === theme && <span aria-hidden="true" className="theme-card-check"><Check size={12} /></span>}
-                </button>
-              ))}
-            </div>
-            <div className="placement-grid">
-              <label><span>X</span><input disabled={locked} max={384} min={0} type="number" value={draft.placement.x} onChange={(event) => setDraft((current) => ({ ...current, placement: { ...current.placement, x: Number(event.target.value) } }))} /></label>
-              <label><span>Y</span><input disabled={locked} max={216} min={0} type="number" value={draft.placement.y} onChange={(event) => setDraft((current) => ({ ...current, placement: { ...current.placement, y: Number(event.target.value) } }))} /></label>
-              <label><span>Skalierung</span><select disabled={locked} value={draft.placement.scale} onChange={(event) => setDraft((current) => ({ ...current, placement: { ...current.placement, scale: Number(event.target.value) } }))}>{HUD_SCALE_OPTIONS.map((scale) => <option key={scale} value={scale}>{Math.round(scale * 100)}%</option>)}</select></label>
-            </div>
-          </Section>
-          </div>
-
-        </div>
-
-        <footer className="save-dock">
-          {remoteConflict !== null && (
-            <div className="save-conflict" role="alert">
-              <strong>OBS wurde inzwischen geändert</strong>
-              <span>Rev. {draftBaseRevision} → {remoteConflict.revision}. Dein Entwurf ist noch lokal.</span>
-              <div>
-                <button
-                  className="text-button"
-                  onClick={() => {
-                    setCommitted(remoteConflict);
-                    setDraft(toDraft(remoteConflict));
-                    setDraftBaseRevision(remoteConflict.revision);
-                    setRemoteConflict(null);
-                    setError("");
-                  }}
-                  type="button"
-                >Serverstand laden</button>
-                <button className="text-button text-button--danger" onClick={() => void save(true)} type="button">Meinen Entwurf veröffentlichen</button>
-              </div>
-            </div>
-          )}
-          <div className="publication-state" aria-live="polite">
-            {error !== "" ? <span className="save-error">{error}</span> : message !== "" ? <span className="save-success">{message}</span> : dirty ? <span className="save-dirty">Noch nicht an OBS gesendet</span> : <span>Alles veröffentlicht</span>}
-          </div>
-          <button className="button button--save" disabled={!dirty || locked} onClick={() => void save()} type="button" aria-label="Änderungen speichern">
-            {saving ? <RotateCw className="spin" size={17} /> : <Save size={17} />}{saving ? "Wird gespeichert …" : "Änderungen speichern"}
-          </button>
-        </footer>
-      </aside>
-
-      {effectEditor !== null && (
-        <EffectFlyover
-          effect={effectEditor === "new" ? undefined : effectEditor}
-          initialFeatured={effectEditor !== "new" && effectEditor.id === draft.featuredEffectId}
-          timezone={initialBootstrap.capsule.timezone}
-          onClose={() => setEffectEditor(null)}
-          onCommit={commitEffect}
-        />
-      )}
+      <header className="admin-topbar"><div className="brand-block"><span className="brand-mark"><Activity size={19} /></span><div><strong>{initialBootstrap.capsule.name}</strong><span>Live-Regie</span></div></div><div className="topbar-status"><WorkspaceSwitcher current="hud" /><div aria-label={state.obsConnectionDescription} className={`obs-chip ${state.obsChipState}`} role="group" title={state.obsConnectionDescription}><i aria-hidden="true" /><Radio aria-hidden="true" size={14} /><span className="obs-chip-label">OBS</span><span className="obs-chip-connection">{state.obsConnectionLabel}</span>{state.obsTokenUnavailable && <span className="sr-only" id="obs-link-unavailable-help">Dieser alte Token ist nicht wiederherstellbar. Bitte einen neuen Token erzeugen.</span>}<button aria-label="OBS-Link kopieren" aria-describedby={state.obsTokenUnavailable ? "obs-link-unavailable-help" : undefined} aria-disabled={state.obsTokenUnavailable ? "true" : undefined} className="obs-chip-action" disabled={state.obsUrl === "" && !state.obsTokenUnavailable} onClick={() => void state.copyHeaderObsUrl()} title={state.obsLinkCopied ? "Kopiert" : state.obsTokenUnavailable ? "Dieser alte Token ist nicht wiederherstellbar. Bitte einen neuen Token erzeugen." : state.obsUrl === "" ? "OBS-Link noch nicht erzeugt." : "OBS-Link kopieren"} type="button">{state.obsLinkCopied ? <Check size={14} /> : <Copy size={14} />}</button><button aria-label={state.overlayToken.exists ? "Neuen Token erzeugen" : "OBS-Link erzeugen"} className="obs-chip-action" disabled={!state.online} onClick={() => void state.mutateToken(state.overlayToken.exists)} title={state.overlayToken.exists ? "Neuen Token erzeugen" : "OBS-Link erzeugen"} type="button">{state.overlayToken.exists ? <RotateCw aria-hidden="true" size={14} /> : <Plus aria-hidden="true" size={15} />}</button><button aria-controls="hud-obs-setup" aria-expanded={state.obsSetupOpen} aria-label={state.obsSetupOpen ? "OBS-Einrichtung schließen" : "OBS-Einrichtung öffnen"} className="obs-chip-action" onClick={() => state.setObsSetupOpen((current) => !current)} title={state.obsSetupOpen ? "Einrichtung schließen" : "Einrichtung"} type="button"><Settings2 size={14} /></button></div><span className="revision-pill">Rev. {state.committed.revision}</span></div>{channelIdentity(initialBootstrap)}<button aria-checked={state.committed.overlayEnabled} aria-label="Overlay aktiv" className={`overlay-switch ${state.committed.overlayEnabled ? "is-on" : "is-off"}`} disabled={state.visibilityBusy || !state.online} onClick={() => void state.toggleVisibility()} role="switch" type="button">{state.committed.overlayEnabled ? <Eye size={17} /> : <EyeOff size={17} />}<span>{state.committed.overlayEnabled ? "Overlay aktiv" : "Overlay aus"}</span><i aria-hidden="true" /></button><div className="editor-identity"><span>{initialBootstrap.editor.displayName}</span><small>Editor</small></div>{api.logout !== undefined && <button aria-label="Abmelden" className="icon-button logout-button" onClick={() => { void api.logout?.().then(() => window.location.assign("/login")); }} title="Abmelden" type="button"><LogOut size={16} /></button>}</header>
+      {!state.online && <div className="offline-banner">Offline – Bearbeitung pausiert; OBS wurde nicht geändert.</div>}
+      <aside className={`audit-rail ${state.auditOpen ? "is-open" : "is-collapsed"}`}><button aria-controls="audit-log" aria-expanded={state.auditOpen} className="rail-heading" onClick={state.toggleAudit} type="button"><Clock3 aria-hidden="true" size={15} /><span>Änderungen</span>{state.newAuditCount > 0 && <span aria-label={`${String(state.newAuditCount)} neue Einträge`} className="audit-new-badge">{state.newAuditCount}</span>}<ChevronDown aria-hidden="true" className="audit-chevron" size={15} /></button>{state.auditOpen && <div id="audit-log" className="audit-rail-content"><div className="audit-list">{state.audit.length === 0 ? <p className="empty-copy">Noch keine veröffentlichten Änderungen.</p> : state.audit.map((entry) => <article className="audit-entry" key={entry.id}><span className="audit-dot" /><div><strong>{entry.actor.displayName}</strong><p>{entry.summary}</p><time>{new Date(entry.createdAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}</time></div></article>)}</div>{initialBootstrap.capabilities.undo && state.undoTargets.length > 0 && <details className="undo-disclosure"><summary><Undo2 size={14} /> Rückgängig</summary>{state.undoTargets.slice(0, 6).map((target) => <button key={target.revision} onClick={() => void state.undo(target.revision)} type="button">Rev. {target.revision}<span>{target.summary}</span></button>)}</details>}</div>}</aside>
+      <main className="admin-main">{state.obsSetupOpen && <div id="hud-obs-setup"><ObsSetupPanel api={api} dockToken={state.dockToken} online={state.online} onDockToken={state.setDockToken} onOverlayToken={state.setOverlayToken} overlayToken={state.overlayToken} sources={createChallengeObsSources(window.location.origin, state.overlayToken, state.dockToken)} /></div>}<PreviewPanel mediaUrls={state.previewMediaUrls} previewOverlay={!state.committed.overlayEnabled ? <div className="disabled-veil">Overlay deaktiviert</div> : undefined} state={state.preview} themeLabel={THEME_LABELS[state.draft.themeId]} /></main>
+      <HudEditorRail api={api} initialBootstrap={initialBootstrap} state={state} />
     </div>
   );
 };
 
-const ChallengeAdminWorkspace = ({
-  initialBootstrap,
-  api,
-}: {
-  initialBootstrap: BootstrapResponse;
-  api: AdminApi;
-}) => {
+const ChallengeAdminWorkspace = ({ initialBootstrap, api }: { initialBootstrap: BootstrapResponse; api: AdminApi }) => {
   const [committed, setCommitted] = useState(initialBootstrap.state);
   const [overlayToken, setOverlayToken] = useState(initialBootstrap.capsule.overlayToken);
-  const [dockToken, setDockToken] = useState<DockTokenStatus>(
-    () => initialBootstrap.capsule.dockToken ?? emptyDockTokenStatus(),
-  );
+  const [dockToken, setDockToken] = useState<DockTokenStatus>(() => initialBootstrap.capsule.dockToken ?? emptyDockTokenStatus());
   const [challengeUpdate, setChallengeUpdate] = useState<ChallengeUpdate | null>(null);
   const [online, setOnline] = useState(true);
   const [visibilityBusy, setVisibilityBusy] = useState(false);
@@ -1803,139 +211,124 @@ const ChallengeAdminWorkspace = ({
   const channel = initialBootstrap.capsule.channel ?? null;
   const boardApi = useMemo<ChallengeBoardApi | null>(() => {
     if (api.getChallengeBoard === undefined || api.saveChallengeBoard === undefined) return null;
-    const next: ChallengeBoardApi = {
-      load: api.getChallengeBoard.bind(api),
-      save: api.saveChallengeBoard.bind(api),
-    };
-    if (api.subscribe !== undefined) {
-      next.subscribe = (callbacks: ChallengeBoardSubscription) => api.subscribe?.({
-        onState: () => undefined,
-        onOnlineChange: callbacks.onOnlineChange ?? (() => undefined),
-        onOverlayPresence: (connectedSockets) => {
-          setOverlayToken((current) => ({ ...current, connectedSockets }));
-        },
-        onAudit: () => undefined,
-        onUndoTargets: () => undefined,
-        onChallengeUpdate: (update) => {
-          setChallengeUpdate(update);
-          callbacks.onChallengeUpdate(update);
-        },
-      }) ?? (() => undefined);
-    }
+    const next: ChallengeBoardApi = { load: api.getChallengeBoard.bind(api), save: api.saveChallengeBoard.bind(api) };
+    if (api.subscribe !== undefined) next.subscribe = (callbacks: ChallengeBoardSubscription) => api.subscribe?.({ onState: () => undefined, onOnlineChange: callbacks.onOnlineChange ?? (() => undefined), onOverlayPresence: (connectedSockets) => setOverlayToken((current) => ({ ...current, connectedSockets })), onAudit: () => undefined, onUndoTargets: () => undefined, onChallengeUpdate: (update) => { setChallengeUpdate(update); callbacks.onChallengeUpdate(update); } }) ?? (() => undefined);
     return next;
   }, [api]);
-  const obsConnectionLabel = overlayToken.connectedSockets > 0
-    ? `${String(overlayToken.connectedSockets)} verbunden`
-    : overlayToken.exists
-      ? "nicht verbunden"
-      : "kein Link";
+  const obsConnectionLabel = overlayToken.connectedSockets > 0 ? `${String(overlayToken.connectedSockets)} verbunden` : overlayToken.exists ? "nicht verbunden" : "kein Link";
   const toggleVisibility = async () => {
     if (visibilityBusy || !online) return;
     if (committed.overlayEnabled && !window.confirm("Overlay in OBS sofort ausblenden? Zuschauer sehen das HUD dann nicht mehr.")) return;
-    setVisibilityBusy(true);
-    setError("");
-    try {
-      const response = await api.setVisibility(!committed.overlayEnabled);
-      setCommitted(response.state);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Overlay-Schalter fehlgeschlagen.");
-    } finally {
-      setVisibilityBusy(false);
-    }
+    setVisibilityBusy(true); setError("");
+    try { const response = await api.setVisibility(!committed.overlayEnabled); setCommitted(response.state); } catch (caught) { setError(caught instanceof Error ? caught.message : "Overlay-Schalter fehlgeschlagen."); } finally { setVisibilityBusy(false); }
   };
-
   return (
-    <div className="admin-app admin-app--challenges">
-      <header className="admin-topbar">
-        <div className="brand-block">
-          <span className="brand-mark"><Activity size={19} /></span>
-          <div><strong>{initialBootstrap.capsule.name}</strong><span>Live-Regie</span></div>
-        </div>
-        <div className="topbar-status">
-          <WorkspaceSwitcher current="challenges" />
-          <div aria-label={`OBS-Verbindung: ${obsConnectionLabel}`} className={`obs-chip ${overlayToken.connectedSockets > 0 ? "is-live" : overlayToken.exists ? "is-idle" : "is-empty"}`} role="group">
-            <i aria-hidden="true" />
-            <Radio aria-hidden="true" size={14} />
-            <span className="obs-chip-label">OBS</span>
-            <span className="obs-chip-connection">{obsConnectionLabel}</span>
-          </div>
-          <span className="revision-pill">Board</span>
-        </div>
-        {channel === null ? (
-          <div aria-hidden="true" className="channel-identity" />
-        ) : (
-          <div className="channel-identity">
-            <span className="eyebrow">Twitch-Kanal</span>
-            <div><strong title={channel.displayName}>{channel.displayName}</strong></div>
-          </div>
-        )}
-        <button
-          aria-checked={committed.overlayEnabled}
-          aria-label="Overlay aktiv"
-          className={`overlay-switch ${committed.overlayEnabled ? "is-on" : "is-off"}`}
-          disabled={visibilityBusy || !online}
-          onClick={() => void toggleVisibility()}
-          role="switch"
-          type="button"
-        >
-          {committed.overlayEnabled ? <Eye size={17} /> : <EyeOff size={17} />}
-          <span>{committed.overlayEnabled ? "Overlay aktiv" : "Overlay aus"}</span>
-          <i aria-hidden="true" />
-        </button>
-        <div className="editor-identity"><span>{initialBootstrap.editor.displayName}</span><small>Editor</small></div>
-        {api.logout !== undefined && (
-          <button aria-label="Abmelden" className="icon-button logout-button" onClick={() => { void api.logout?.().then(() => window.location.assign("/login")); }} title="Abmelden" type="button">
-            <LogOut size={16} />
-          </button>
-        )}
-      </header>
-
-      {!online && <div className="offline-banner">Offline – Board-Speicherung pausiert; bestehende Challenges bleiben sichtbar.</div>}
-      {error !== "" && <p className="challenge-board-error challenge-shell-error" role="alert">{error}</p>}
-      <main className="admin-challenges-main">
-        <div className="challenge-workspace-tools">
-          <button
-            aria-controls="challenge-obs-setup"
-            aria-expanded={obsSetupOpen}
-            className="button button--quiet"
-            onClick={() => setObsSetupOpen((current) => !current)}
-            type="button"
-          >
-            <Settings2 aria-hidden="true" size={16} /> OBS-Einrichtung
-          </button>
-        </div>
-        {obsSetupOpen && (
-          <div id="challenge-obs-setup">
-            <ObsSetupPanel
-              api={api}
-              dockToken={dockToken}
-              online={online}
-              onDockToken={setDockToken}
-              onOverlayToken={setOverlayToken}
-              overlayToken={overlayToken}
-              sources={createChallengeObsSources(window.location.origin, overlayToken, dockToken)}
-            />
-          </div>
-        )}
-        <ChallengeSettingsPanel api={api} challengeUpdate={challengeUpdate} online={online} />
-        {boardApi === null ? (
-          <section className="challenge-board-shell" role="alert"><div className="challenge-board-empty"><AlertTriangle size={22} /><strong>Challenge-Board ist in dieser Sitzung nicht verfügbar.</strong></div></section>
-        ) : (
-          <ChallengeBoard api={boardApi} onOnlineChange={setOnline} />
-        )}
-      </main>
-    </div>
+    <div className="admin-app admin-app--challenges"><header className="admin-topbar"><div className="brand-block"><span className="brand-mark"><Activity size={19} /></span><div><strong>{initialBootstrap.capsule.name}</strong><span>Live-Regie</span></div></div><div className="topbar-status"><WorkspaceSwitcher current="challenges" /><div aria-label={`OBS-Verbindung: ${obsConnectionLabel}`} className={`obs-chip ${overlayToken.connectedSockets > 0 ? "is-live" : overlayToken.exists ? "is-idle" : "is-empty"}`} role="group"><i aria-hidden="true" /><Radio aria-hidden="true" size={14} /><span className="obs-chip-label">OBS</span><span className="obs-chip-connection">{obsConnectionLabel}</span></div><span className="revision-pill">Board</span></div>{channel === null ? <div aria-hidden="true" className="channel-identity" /> : <div className="channel-identity"><span className="eyebrow">Twitch-Kanal</span><div><strong title={channel.displayName}>{channel.displayName}</strong></div></div>}<button aria-checked={committed.overlayEnabled} aria-label="Overlay aktiv" className={`overlay-switch ${committed.overlayEnabled ? "is-on" : "is-off"}`} disabled={visibilityBusy || !online} onClick={() => void toggleVisibility()} role="switch" type="button">{committed.overlayEnabled ? <Eye size={17} /> : <EyeOff size={17} />}<span>{committed.overlayEnabled ? "Overlay aktiv" : "Overlay aus"}</span><i aria-hidden="true" /></button><div className="editor-identity"><span>{initialBootstrap.editor.displayName}</span><small>Editor</small></div>{api.logout !== undefined && <button aria-label="Abmelden" className="icon-button logout-button" onClick={() => { void api.logout?.().then(() => window.location.assign("/login")); }} title="Abmelden" type="button"><LogOut size={16} /></button>}</header>{!online && <div className="offline-banner">Offline – Board-Speicherung pausiert; bestehende Challenges bleiben sichtbar.</div>}{error !== "" && <p className="challenge-board-error challenge-shell-error" role="alert">{error}</p>}<main className="admin-challenges-main"><div className="challenge-workspace-tools"><button aria-controls="challenge-obs-setup" aria-expanded={obsSetupOpen} className="button button--quiet" onClick={() => setObsSetupOpen((current) => !current)} type="button"><Settings2 aria-hidden="true" size={16} /> OBS-Einrichtung</button></div>{obsSetupOpen && <div id="challenge-obs-setup"><ObsSetupPanel api={api} dockToken={dockToken} online={online} onDockToken={setDockToken} onOverlayToken={setOverlayToken} overlayToken={overlayToken} sources={createChallengeObsSources(window.location.origin, overlayToken, dockToken)} /></div>}<ChallengeSettingsPanel api={api} challengeUpdate={challengeUpdate} online={online} />{boardApi === null ? <section className="challenge-board-shell" role="alert"><div className="challenge-board-empty"><AlertTriangle size={22} /><strong>Challenge-Board ist in dieser Sitzung nicht verfügbar.</strong></div></section> : <ChallengeBoard api={boardApi} onOnlineChange={setOnline} />}</main></div>
   );
 };
 
-export const AdminWorkspace = ({
-  initialBootstrap,
-  api,
-  workspace = "hud",
-}: {
-  initialBootstrap: BootstrapResponse;
-  api: AdminApi;
-  workspace?: AdminWorkspaceId;
-}) => workspace === "challenges"
+const CompositionWorkspace = ({ initialBootstrap, api }: { initialBootstrap: BootstrapResponse; api: AdminApi }) => {
+  const [challengeUpdate, setChallengeUpdate] = useState<ChallengeUpdate | null>(null);
+  const [challengePlacementDraft, setChallengePlacementDraft] = useState<ChallengePlacement | null>(null);
+  const [previewZoom, setPreviewZoom] = useState(100);
+  const [challengeNow, setChallengeNow] = useState(() => Date.now());
+  const [dragging, setDragging] = useState<"hud" | "challenges" | null>(null);
+  const draggingRef = useRef<{ kind: "hud" | "challenges"; pointerId: number } | null>(null);
+  const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
+  const [challengeCss, setChallengeCss] = useState<{ style: string | null; theme: string | null }>({ style: null, theme: null });
+  const state = useHudEditorState({ initialBootstrap, api, onChallengeUpdate: setChallengeUpdate });
+  const committedThemeId = state.committed.themeId;
+  useEffect(() => {
+    const timer = window.setInterval(() => setChallengeNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    if (api.getChallengeBoard === undefined) return;
+    let disposed = false;
+    void api.getChallengeBoard().then((snapshot) => { if (!disposed) setChallengeUpdate((current) => current ?? { eventSeq: snapshot.eventSeq, boardRevision: snapshot.boardRevision, settingsRevision: snapshot.settingsRevision, settings: { ...snapshot.settings, themeId: committedThemeId }, challenges: snapshot.challenges, event: null }); }).catch(() => undefined);
+    return () => { disposed = true; };
+  }, [api, committedThemeId]);
+  const displayedChallengeUpdate = useMemo(() => challengeUpdate === null ? null : { ...challengeUpdate, settings: { ...challengeUpdate.settings, themeId: committedThemeId } }, [challengeUpdate, committedThemeId]);
+  useEffect(() => {
+    const styleId = displayedChallengeUpdate?.settings.styleId ?? null;
+    const themeMode = displayedChallengeUpdate?.settings.themeMode ?? null;
+    const themeId = displayedChallengeUpdate?.settings.themeId ?? null;
+    let disposed = false;
+    if (styleId === null) return () => { disposed = true; };
+    void loadCompositionChallengeStyle(styleId).then(() => { if (!disposed) setChallengeCss((current) => ({ ...current, style: styleId })); }).catch(() => undefined);
+    if (themeMode !== "own" && themeId !== null) void loadCompositionChallengeTheme(themeId).then(() => { if (!disposed) setChallengeCss((current) => ({ ...current, theme: themeId })); }).catch(() => undefined);
+    return () => { disposed = true; };
+  }, [displayedChallengeUpdate]);
+  const getPointerStagePoint = (event: React.PointerEvent<HTMLElement>) => {
+    const canvas = event.currentTarget.closest(".preview-canvas");
+    if (canvas === null) return null;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: ((event.clientX - rect.left) / rect.width) * 1920,
+      y: ((event.clientY - rect.top) / rect.height) * 1080,
+    };
+  };
+  const getPlacementForDrag = (kind: "hud" | "challenges") => kind === "hud"
+    ? state.draft.placement
+    : challengePlacementDraft ?? displayedChallengeUpdate?.settings.placement ?? { x: 0, y: 0, scale: 1 };
+  const pixelsPerUnitFor = (kind: "hud" | "challenges") => kind === "hud" ? PIXELS_PER_HUD_UNIT : PIXELS_PER_RASTER_UNIT;
+  const updatePlacementFromPointer = (kind: "hud" | "challenges", event: React.PointerEvent<HTMLElement>) => {
+    const pointer = getPointerStagePoint(event);
+    if (pointer === null) return;
+    const offset = dragOffsetRef.current;
+    const pixelsPerUnit = pixelsPerUnitFor(kind);
+    const next = stagePixelsToRaster({
+      x: pointer.x - (offset?.x ?? 0) * pixelsPerUnit,
+      y: pointer.y - (offset?.y ?? 0) * pixelsPerUnit,
+    }, pixelsPerUnit);
+    if (kind === "hud") state.setDraft((current) => ({ ...current, placement: { ...current.placement, ...next } }));
+    else setChallengePlacementDraft((current) => ({ ...(current ?? displayedChallengeUpdate?.settings.placement ?? { x: 0, y: 0, scale: 1 }), ...next }));
+  };
+  const startDrag = (kind: "hud" | "challenges", event: React.PointerEvent<HTMLElement>) => {
+    if (event.button !== 0 || !state.online) return;
+    const pointer = getPointerStagePoint(event);
+    if (pointer === null) return;
+    const placement = getPlacementForDrag(kind);
+    const pixelsPerUnit = pixelsPerUnitFor(kind);
+    dragOffsetRef.current = {
+      x: pointer.x / pixelsPerUnit - placement.x,
+      y: pointer.y / pixelsPerUnit - placement.y,
+    };
+    draggingRef.current = { kind, pointerId: event.pointerId }; setDragging(kind); callPointerCapture(event.currentTarget, "setPointerCapture", event.pointerId);
+  };
+  const moveDrag = (kind: "hud" | "challenges", event: React.PointerEvent<HTMLElement>) => { const drag = draggingRef.current; if (drag?.kind === kind && drag.pointerId === event.pointerId) updatePlacementFromPointer(kind, event); };
+  const stopDrag = (kind: "hud" | "challenges", event: React.PointerEvent<HTMLElement>) => { const drag = draggingRef.current; if (drag?.kind !== kind || drag.pointerId !== event.pointerId) return; draggingRef.current = null; dragOffsetRef.current = null; setDragging(null); callPointerCapture(event.currentTarget, "releasePointerCapture", event.pointerId); };
+  const movePlacementWithKeyboard = (kind: "hud" | "challenges", event: React.KeyboardEvent<HTMLElement>) => {
+    if (!state.online) return;
+    const step = event.shiftKey ? 10 : 1;
+    let delta: { x: number; y: number } | null = null;
+    if (event.key === "ArrowLeft") delta = { x: -step, y: 0 };
+    if (event.key === "ArrowRight") delta = { x: step, y: 0 };
+    if (event.key === "ArrowUp") delta = { x: 0, y: -step };
+    if (event.key === "ArrowDown") delta = { x: 0, y: step };
+    if (delta === null) return;
+    event.preventDefault();
+    const pixelsPerUnit = pixelsPerUnitFor(kind);
+    const placement = getPlacementForDrag(kind);
+    const next = stagePixelsToRaster({ x: (placement.x + delta.x) * pixelsPerUnit, y: (placement.y + delta.y) * pixelsPerUnit }, pixelsPerUnit);
+    if (kind === "hud") state.setDraft((current) => ({ ...current, placement: { ...current.placement, ...next } }));
+    else setChallengePlacementDraft({ ...placement, ...next });
+  };
+  const effectiveChallengePlacement = challengePlacementDraft ?? displayedChallengeUpdate?.settings.placement ?? null;
+  const compositionHud = state.preview;
+  const compositionBoardApi = useMemo<ChallengeBoardApi | null>(() => {
+    if (api.getChallengeBoard === undefined || api.saveChallengeBoard === undefined) return null;
+    return { load: api.getChallengeBoard.bind(api), save: api.saveChallengeBoard.bind(api) };
+  }, [api]);
+  const challengeReady = displayedChallengeUpdate !== null && challengeCss.style === displayedChallengeUpdate.settings.styleId && (displayedChallengeUpdate.settings.themeMode === "own" || challengeCss.theme === displayedChallengeUpdate.settings.themeId);
+  const challengePreview = displayedChallengeUpdate === null || !challengeReady ? null : <ChallengeLog ariaLabel="Challenge-Log verschieben, Pfeiltasten" className={`composition-draggable-module composition-draggable-module--challenge ${dragging === "challenges" ? "is-dragging" : ""}`} onKeyDown={(event) => movePlacementWithKeyboard("challenges", event)} onLostPointerCapture={(event) => stopDrag("challenges", event)} onPointerCancel={(event) => stopDrag("challenges", event)} onPointerDown={(event) => startDrag("challenges", event)} onPointerMove={(event) => moveDrag("challenges", event)} onPointerUp={(event) => stopDrag("challenges", event)} placement={effectiveChallengePlacement ?? displayedChallengeUpdate.settings.placement} rootTag="section" now={challengeNow} update={displayedChallengeUpdate} />;
+  return (
+    <div className="admin-app admin-app--composition"><header className="admin-topbar"><div className="brand-block"><span className="brand-mark"><Activity size={19} /></span><div><strong>{initialBootstrap.capsule.name}</strong><span>Live-Regie</span></div></div><div className="topbar-status"><WorkspaceSwitcher current="composition" /><span className="revision-pill">Komposition</span></div>{channelIdentity(initialBootstrap)}<button aria-checked={state.committed.overlayEnabled} aria-label="Overlay aktiv" className={`overlay-switch ${state.committed.overlayEnabled ? "is-on" : "is-off"}`} disabled={state.visibilityBusy || !state.online} onClick={() => void state.toggleVisibility()} role="switch" type="button">{state.committed.overlayEnabled ? <Eye size={17} /> : <EyeOff size={17} />}<span>{state.committed.overlayEnabled ? "Overlay aktiv" : "Overlay aus"}</span><i aria-hidden="true" /></button><div className="editor-identity"><span>{initialBootstrap.editor.displayName}</span><small>Editor</small></div>{api.logout !== undefined && <button aria-label="Abmelden" className="icon-button logout-button" onClick={() => { void api.logout?.().then(() => window.location.assign("/login")); }} title="Abmelden" type="button"><LogOut size={16} /></button>}</header>{!state.online && <div className="offline-banner">Offline – Speichern pausiert; bestehende Werte bleiben sichtbar.</div>}<main className="composition-main"><PreviewPanel hudInteraction={{ ariaLabel: "HUD-Modul verschieben, Pfeiltasten", className: `composition-draggable-module composition-draggable-module--hud ${dragging === "hud" ? "is-dragging" : ""}`, onKeyDown: (event) => movePlacementWithKeyboard("hud", event), onLostPointerCapture: (event) => stopDrag("hud", event), onPointerCancel: (event) => stopDrag("hud", event), onPointerDown: (event) => startDrag("hud", event), onPointerMove: (event) => moveDrag("hud", event), onPointerUp: (event) => stopDrag("hud", event) }} mediaUrls={state.previewMediaUrls} onZoomChange={setPreviewZoom} previewOverlay={!state.committed.overlayEnabled ? <div className="disabled-veil">Overlay deaktiviert</div> : undefined} state={compositionHud} themeLabel={THEME_LABELS[state.preview.themeId]} zoom={previewZoom}>{challengePreview}</PreviewPanel></main><aside className="composition-rails"><details className="composition-rail" open><summary><span>HUD</span><ChevronDown size={17} /></summary><HudEditorRail api={api} initialBootstrap={initialBootstrap} state={state} /></details><details className="composition-rail" open><summary><span>Challenges</span><ChevronDown size={17} /></summary><div className="composition-challenge-rail"><ChallengeSettingsPanel api={api} challengeUpdate={displayedChallengeUpdate} online={state.online} onPlacementDraftChange={setChallengePlacementDraft} placementDraft={challengePlacementDraft} />{compositionBoardApi === null ? <section className="challenge-board-shell" role="alert"><div className="challenge-board-empty"><AlertTriangle size={22} /><strong>Challenge-Board ist in dieser Sitzung nicht verfügbar.</strong></div></section> : <ChallengeBoard api={compositionBoardApi} challengeUpdate={displayedChallengeUpdate} online={state.online} />}</div></details></aside></div>
+  );
+};
+
+export const AdminWorkspace = ({ initialBootstrap, api, workspace = "hud" }: { initialBootstrap: BootstrapResponse; api: AdminApi; workspace?: AdminWorkspaceId }) => workspace === "challenges"
   ? <ChallengeAdminWorkspace api={api} initialBootstrap={initialBootstrap} />
-  : <HudAdminWorkspace api={api} initialBootstrap={initialBootstrap} />;
+  : workspace === "composition"
+    ? <CompositionWorkspace api={api} initialBootstrap={initialBootstrap} />
+    : <HudAdminWorkspace api={api} initialBootstrap={initialBootstrap} />;

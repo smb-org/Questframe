@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEventHandler, type PointerEventHandler, type ReactNode } from "react";
 
 import type {
   ActiveEffect,
@@ -238,6 +238,14 @@ export type HudRendererProps = {
   previewOverlay?: ReactNode;
   forceVisible?: boolean;
   autoFitPlayerName?: boolean;
+  className?: string;
+  ariaLabel?: string;
+  onPointerDown?: PointerEventHandler<HTMLDivElement>;
+  onPointerMove?: PointerEventHandler<HTMLDivElement>;
+  onPointerUp?: PointerEventHandler<HTMLDivElement>;
+  onPointerCancel?: PointerEventHandler<HTMLDivElement>;
+  onLostPointerCapture?: PointerEventHandler<HTMLDivElement>;
+  onKeyDown?: KeyboardEventHandler<HTMLDivElement>;
 };
 
 export const HudRenderer = ({
@@ -247,6 +255,14 @@ export const HudRenderer = ({
   previewOverlay,
   forceVisible = false,
   autoFitPlayerName = true,
+  className,
+  ariaLabel,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
+  onLostPointerCapture,
+  onKeyDown,
 }: HudRendererProps) => {
   const [initialNow] = useState(() => Date.now());
   const effectiveNow = nowMilliseconds ?? initialNow;
@@ -267,7 +283,17 @@ export const HudRenderer = ({
       style={style}
       data-theme={state.themeId}
     >
-      <div className="hud-stage">
+      <div
+        aria-label={ariaLabel}
+        className={`hud-stage${className === undefined ? "" : ` ${className}`}`}
+        onKeyDown={onKeyDown}
+        onLostPointerCapture={onLostPointerCapture}
+        onPointerCancel={onPointerCancel}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        tabIndex={ariaLabel === undefined ? undefined : 0}
+      >
         <section className="hud-player" aria-label={`${state.player.name} Unitframe`}>
           <div className="hud-player-portrait">
             <div className="hud-player-portrait-clip">

@@ -92,6 +92,29 @@ describe("Admin workspace channel identity", () => {
 });
 
 describe("Admin workspace shell", () => {
+  it("stellt dynamische OBS-Einrichtungslabels und Lucide-Token-Icons wieder her", async () => {
+    const initial = bootstrap();
+    initial.capsule.overlayToken = {
+      exists: true,
+      generation: 2,
+      createdAt: "2026-08-29T12:00:00.000Z",
+      lastUsedAt: null,
+      connectedSockets: 0,
+      token: "overlay-token",
+    };
+    const user = userEvent.setup();
+    render(<AdminWorkspace api={{ save: vi.fn(), setVisibility: vi.fn() }} initialBootstrap={initial} />);
+
+    const setup = screen.getByRole("button", { name: "OBS-Einrichtung öffnen" });
+    expect(setup).toHaveAttribute("title", "Einrichtung");
+    await user.click(setup);
+    expect(screen.getByRole("button", { name: "OBS-Einrichtung schließen" })).toHaveAttribute("title", "Einrichtung schließen");
+
+    const rotate = screen.getByRole("button", { name: "Neuen Token erzeugen" });
+    expect(rotate.querySelector("svg")).not.toBeNull();
+    expect(rotate).not.toHaveTextContent("↻");
+  });
+
   it("hält Challenges außerhalb der HUD-editor-rail und markiert beide Workspaces", async () => {
     const challengeSnapshot: ChallengeBoardSnapshot = {
       eventSeq: 0,

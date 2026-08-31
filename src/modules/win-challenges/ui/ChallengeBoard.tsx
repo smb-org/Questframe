@@ -380,9 +380,13 @@ const ChallengeRow = ({
 export const ChallengeBoard = ({
   api,
   onOnlineChange,
+  challengeUpdate,
+  online: onlineOverride,
 }: {
   api: ChallengeBoardApi;
   onOnlineChange?: (online: boolean) => void;
+  challengeUpdate?: ChallengeUpdate | null;
+  online?: boolean;
 }) => {
   const [snapshot, setSnapshot] = useState<ChallengeBoardSnapshot | null>(null);
   const [drafts, setDrafts] = useState<ChallengeDraft[]>([]);
@@ -410,7 +414,24 @@ export const ChallengeBoard = ({
     [drafts, snapshot],
   );
 
+  const applyChallengeUpdate = useCallback((update: ChallengeUpdate) => {
+    const incoming = snapshotFromUpdate(update);
+    const current = snapshotRef.current;
+    if (current !== null && incoming.boardRevision <= current.boardRevision) return;
+    snapshotRef.current = incoming;
+    const currentDrafts = draftsRef.current;
+    const isDirty = current !== null && !sameDefinitions(currentDrafts, draftsFromSnapshot(current));
+    setSnapshot(incoming);
+    if (isDirty) {
+      setConflict(incoming);
+    } else {
+      setDrafts(draftsFromSnapshot(incoming));
+      setConflict(null);
+    }
+  }, []);
+
   const applySnapshot = useCallback((next: ChallengeBoardSnapshot, nextMessage = "") => {
+    snapshotRef.current = next;
     setSnapshot(next);
     setDrafts(draftsFromSnapshot(next));
     setConflict(null);
@@ -424,7 +445,8 @@ export const ChallengeBoard = ({
       .load()
       .then((loaded) => {
         if (disposed) return;
-        applySnapshot(loaded);
+        const current = snapshotRef.current;
+        if (current === null || loaded.boardRevision > current.boardRevision) applySnapshot(loaded);
       })
       .catch(() => {
         if (!disposed) setError("Das Challenge-Board konnte nicht geladen werden.");
@@ -444,22 +466,17 @@ export const ChallengeBoard = ({
         setOnline(nextOnline);
         onOnlineChange?.(nextOnline);
       },
-      onChallengeUpdate: (update) => {
-        const incoming = snapshotFromUpdate(update);
-        const current = snapshotRef.current;
-        if (current !== null && incoming.boardRevision <= current.boardRevision) return;
-        const currentDrafts = draftsRef.current;
-        const isDirty = current !== null && !sameDefinitions(currentDrafts, draftsFromSnapshot(current));
-        setSnapshot(incoming);
-        if (isDirty) {
-          setConflict(incoming);
-        } else {
-          setDrafts(draftsFromSnapshot(incoming));
-          setConflict(null);
-        }
-      },
+      onChallengeUpdate: applyChallengeUpdate,
     });
-  }, [api, onOnlineChange]);
+  }, [api, applyChallengeUpdate, onOnlineChange]);
+
+  useEffect(() => {
+    if (challengeUpdate !== undefined && challengeUpdate !== null) {
+      applyChallengeUpdate(challengeUpdate);
+    }
+  }, [applyChallengeUpdate, challengeUpdate]);
+
+  const effectiveOnline = onlineOverride ?? online;
 
   const updateDraft = (key: string, patch: Partial<ChallengeDraft>) => {
     setDrafts((current) => current.map((draft) => (draft.key === key ? { ...draft, ...patch } : draft)));
@@ -476,7 +493,7 @@ export const ChallengeBoard = ({
   };
 
   const save = async (replaceForeignBoard = false) => {
-    if (snapshot === null || !dirty || saving || !online) return;
+    if (snapshot === null || !dirty || saving || !effectiveOnline) return;
     if (conflict !== null && !replaceForeignBoard) {
       setError("Jemand anderes hat das Board gespeichert. Bitte eine Konfliktaktion wählen.");
       return;
@@ -538,8 +555,8 @@ export const ChallengeBoard = ({
         </div>
         <div className="challenge-board-meta">
           <span className="challenge-revision">Board-Revision {snapshot.boardRevision}</span>
-          <span className={online ? "connection-state is-online" : "connection-state is-offline"}>
-            <i aria-hidden="true" /> {online ? "Live verbunden" : "Offline"}
+            <span className={effectiveOnline ? "connection-state is-online" : "connection-state is-offline"}>
+            <i aria-hidden="true" /> {effectiveOnline ? "Live verbunden" : "Offline"}
           </span>
         </div>
       </header>
@@ -572,7 +589,7 @@ export const ChallengeBoard = ({
         </div>
         <button
           className="button button--quiet"
-          disabled={drafts.length >= 30 || saving || !online}
+          disabled={drafts.length >= 30 || saving || !effectiveOnline}
           onClick={() => {
             setDrafts((current) => [...current, defaultDraft(current.length)]);
             setMessage("");
@@ -588,7 +605,7 @@ export const ChallengeBoard = ({
         {drafts.map((draft, index) => (
           <ChallengeRow
             draft={draft}
-            disabled={saving || !online}
+            disabled={saving || !effectiveOnline}
             index={index}
             key={draft.key}
             onChange={(patch) => updateDraft(draft.key, patch)}
@@ -630,7 +647,7 @@ export const ChallengeBoard = ({
         <button
           aria-label="Challenge-Board speichern"
           className="button button--save"
-          disabled={!dirty || saving || !online || conflict !== null}
+          disabled={!dirty || saving || !effectiveOnline || conflict !== null}
           onClick={() => void save()}
           type="button"
         >

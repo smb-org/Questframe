@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createDefaultState, twitchUserIdSchema } from "../../../src/shared/contracts/state";
 import { HudRenderer } from "../../../src/overlay/HudRenderer";
@@ -199,6 +199,32 @@ describe("HUD renderer", () => {
     expect(container.querySelectorAll(".hud-party-member")).toHaveLength(0);
     expect(hiddenState.pet).not.toBeNull();
     expect(hiddenState.group).toHaveLength(1);
+  });
+
+  it("binds composition interaction to the visible HUD stage instead of the full root", () => {
+    const state = createDefaultState(actor, "2026-08-29T12:00:00.000Z");
+    const onPointerDown = vi.fn();
+    const { container } = render(
+      <HudRenderer
+        ariaLabel="HUD-Modul verschieben, Pfeiltasten"
+        className="composition-draggable-module"
+        onPointerDown={onPointerDown}
+        state={state}
+      />,
+    );
+
+    const root = container.querySelector<HTMLElement>(".hud-root");
+    const stage = container.querySelector<HTMLElement>(".hud-stage");
+    if (!root || !stage) throw new Error("HUD root and stage should render");
+    expect(root).not.toHaveClass("composition-draggable-module");
+    expect(stage).toHaveClass("composition-draggable-module");
+    expect(stage).toHaveAttribute("aria-label", "HUD-Modul verschieben, Pfeiltasten");
+    expect(stage).toHaveAttribute("tabindex", "0");
+
+    fireEvent.pointerDown(root, { button: 0, pointerId: 1 });
+    expect(onPointerDown).not.toHaveBeenCalled();
+    fireEvent.pointerDown(stage, { button: 0, pointerId: 1 });
+    expect(onPointerDown).toHaveBeenCalledTimes(1);
   });
 
   it("is fully transparent when disabled and hides locally expired effects", () => {
