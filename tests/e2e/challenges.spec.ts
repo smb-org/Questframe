@@ -71,6 +71,10 @@ const openChallengeAdmin = async (page: Page): Promise<void> => {
   await expect(page.locator(".challenge-board-shell .connection-state.is-online")).toBeVisible();
   await page.getByRole("button", { name: "OBS-Einrichtung öffnen" }).click();
   await expect(page.locator(".challenge-setup__source--hud")).toBeVisible();
+  // Die Einrichtung ist ein modaler Dialog: erst schliessen, sonst ist der
+  // Rest des Admins inert und die folgenden Klicks laufen ins Leere.
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".challenge-setup__source--hud")).toBeHidden();
   await resetChallengeBoard(page);
   await expect(page.locator(".challenge-board-row")).toHaveCount(0);
 };

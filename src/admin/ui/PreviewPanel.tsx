@@ -25,6 +25,7 @@ export const PreviewPanel = ({
   onZoomChange,
   hudInteraction,
   showHud = true,
+  headingControls,
 }: {
   state: ChannelState;
   mediaUrls: ReadonlyMap<string, string>;
@@ -35,6 +36,9 @@ export const PreviewPanel = ({
   onZoomChange?: (zoom: number) => void;
   showHud?: boolean;
   hudInteraction?: Pick<ComponentProps<typeof HudRenderer>, "className" | "ariaLabel" | "onPointerDown" | "onPointerMove" | "onPointerUp" | "onPointerCancel" | "onLostPointerCapture" | "onKeyDown"> | undefined;
+  // Optionale Steuerelemente links vom Zoom-Regler (z.B. Modul-Schalter der Komposition);
+  // andere Aufrufer (reiner HUD-Modus) lassen dieses Prop einfach weg.
+  headingControls?: ReactNode;
 }) => {
   const [internalZoom, setInternalZoom] = useState(100);
   const previewZoom = zoom ?? internalZoom;
@@ -45,6 +49,7 @@ export const PreviewPanel = ({
       <div className="panel-heading">
         <div><span className="eyebrow">OBS-Komposition</span><h1>Live-Vorschau</h1></div>
         <div className="preview-controls">
+          {headingControls}
           <div className="preview-zoom">
             <ZoomIn aria-hidden="true" size={14} />
             <input

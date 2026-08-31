@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -50,6 +50,11 @@ const mockCanvasRect = (canvas: Element, width: number, height: number): void =>
 
 afterEach(() => cleanup());
 
+// Beide Tabpanels bleiben dauerhaft gemountet; HUD- und Challenge-Rail haben eigene
+// gleichnamige Placement-Felder (X/Y/Skalierung). Gezielt im sichtbaren Panel suchen.
+const challengesPanel = () => within(document.querySelector("#admin-composition-panel-challenges") as HTMLElement);
+const hudPanel = () => within(document.querySelector("#admin-composition-panel-hud") as HTMLElement);
+
 describe("Kompositions-Workspace", () => {
   it("schaltet nur die rechte Rail per Tabs und lässt die Bühne stehen", async () => {
     const user = userEvent.setup();
@@ -74,23 +79,23 @@ describe("Kompositions-Workspace", () => {
     expect(challengesTab).toHaveAttribute("aria-selected", "false");
   });
 
-  it("blendet HUD und Challenges mit Draft-Modul-Schaltern aus der Vorschau aus und macht den Save aktiv", async () => {
+  it("bietet die Modul-Schalter in der Vorschau-Kopfzeile an, blendet HUD und Challenges aus und macht den Save aktiv", async () => {
     const user = userEvent.setup();
     const { container } = render(<AdminWorkspace api={createCompositionApi(challengeSnapshot())} initialBootstrap={bootstrap()} />);
     await screen.findByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" });
-    const hudToggle = screen.getByRole("switch", { name: "HUD im Sammel-Overlay anzeigen" });
-    const challengesToggle = screen.getByRole("switch", { name: "Challenges im Sammel-Overlay anzeigen" });
-    expect(screen.getByText("Im Sammel-Overlay zeigen")).toBeInTheDocument();
-    expect(screen.getByText("Die Vorschau reagiert sofort. Die OBS-Quelle übernimmt die Auswahl erst mit dem Speichern.")).toBeInTheDocument();
+    // Bug 5: die Schalter sitzen in der Vorschau-Kopfzeile, links vom Zoom-Regler.
+    const heading = container.querySelector(".preview-panel .panel-heading");
+    if (heading === null) throw new Error("Vorschau-Kopfzeile fehlt.");
+    const hudToggle = within(heading as HTMLElement).getByRole("switch", { name: "HUD im Sammel-Overlay anzeigen" });
+    const challengesToggle = within(heading as HTMLElement).getByRole("switch", { name: "Challenges im Sammel-Overlay anzeigen" });
+    expect(within(heading as HTMLElement).getByRole("group", { name: "Im Sammel-Overlay zeigen" })).toBeInTheDocument();
 
     await user.click(hudToggle);
     expect(hudToggle).toHaveAttribute("aria-checked", "false");
-    expect(hudToggle).toHaveTextContent("Aus");
     expect(container.querySelector(".preview-canvas .hud-root")).not.toBeInTheDocument();
 
     await user.click(challengesToggle);
     expect(challengesToggle).toHaveAttribute("aria-checked", "false");
-    expect(challengesToggle).toHaveTextContent("Aus");
     expect(screen.queryByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Änderungen speichern" })).toBeEnabled();
   });
@@ -176,9 +181,9 @@ describe("Kompositions-Workspace", () => {
       fireEvent.pointerDown(log, { button: 0, clientX: start.x, clientY: start.y, pointerId: 1 });
       fireEvent.pointerMove(log, { clientX: move.x, clientY: move.y, pointerId: 1 });
       fireEvent.pointerUp(log, { clientX: move.x, clientY: move.y, pointerId: 1 });
-      await waitFor(() => expect(screen.getByLabelText("X")).toHaveValue(320));
-      const xField = screen.getByLabelText("X");
-      const yField = screen.getByLabelText("Y");
+      await waitFor(() => expect(challengesPanel().getByLabelText("X")).toHaveValue(320));
+      const xField = challengesPanel().getByLabelText("X");
+      const yField = challengesPanel().getByLabelText("Y");
       if (!(xField instanceof HTMLInputElement) || !(yField instanceof HTMLInputElement)) throw new Error("Challenge-Placement-Feld fehlt.");
       const placement = { x: Number(xField.value), y: Number(yField.value) };
       cleanup();
@@ -200,8 +205,8 @@ describe("Kompositions-Workspace", () => {
     mockCanvasRect(canvas, 1_920, 1_080);
     fireEvent.pointerDown(log, { button: 0, clientX: 1_600, clientY: 100, pointerId: 1 });
     fireEvent.pointerUp(log, { clientX: 1_600, clientY: 100, pointerId: 1 });
-    expect(screen.getByLabelText("X")).toHaveValue(300);
-    expect(screen.getByLabelText("Y")).toHaveValue(8);
+    expect(challengesPanel().getByLabelText("X")).toHaveValue(300);
+    expect(challengesPanel().getByLabelText("Y")).toHaveValue(8);
   });
 
   it("verschiebt beim Drag aus der Modulmitte um das Cursor-Delta", async () => {
@@ -214,8 +219,8 @@ describe("Kompositions-Workspace", () => {
     fireEvent.pointerDown(log, { button: 0, clientX: 1_670, clientY: 190, pointerId: 1 });
     fireEvent.pointerMove(log, { clientX: 1_770, clientY: 240, pointerId: 1 });
     fireEvent.pointerUp(log, { clientX: 1_770, clientY: 240, pointerId: 1 });
-    await waitFor(() => expect(screen.getByLabelText("X")).toHaveValue(320));
-    expect(screen.getByLabelText("Y")).toHaveValue(18);
+    await waitFor(() => expect(challengesPanel().getByLabelText("X")).toHaveValue(320));
+    expect(challengesPanel().getByLabelText("Y")).toHaveValue(18);
   });
 
   it("draggt das HUD in 1:1-Einheiten statt im Challenge-Raster", async () => {
@@ -227,8 +232,8 @@ describe("Kompositions-Workspace", () => {
     fireEvent.pointerDown(hud, { button: 0, clientX: 100, clientY: 100, pointerId: 1 });
     fireEvent.pointerMove(hud, { clientX: 200, clientY: 200, pointerId: 1 });
     fireEvent.pointerUp(hud, { clientX: 200, clientY: 200, pointerId: 1 });
-    await waitFor(() => expect(screen.getByLabelText("X")).toHaveValue(112));
-    expect(screen.getByLabelText("Y")).toHaveValue(112);
+    await waitFor(() => expect(hudPanel().getByLabelText("X")).toHaveValue(112));
+    expect(hudPanel().getByLabelText("Y")).toHaveValue(112);
   });
 
   it("zeigt im Kompositions-Preview den ungespeicherten HUD-Entwurf", async () => {
@@ -249,13 +254,13 @@ describe("Kompositions-Workspace", () => {
     mockCanvasRect(canvas, 1_920, 1_080);
     fireEvent.pointerDown(log, { button: 0, clientX: 1_600, clientY: 100, pointerId: 1 });
     fireEvent.pointerMove(log, { clientX: 1_700, clientY: 200, pointerId: 2 });
-    expect(screen.getByLabelText("X")).toHaveValue(300);
+    expect(challengesPanel().getByLabelText("X")).toHaveValue(300);
     fireEvent.pointerMove(log, { clientX: 1_700, clientY: 200, pointerId: 1 });
-    await waitFor(() => expect(screen.getByLabelText("X")).toHaveValue(320));
+    await waitFor(() => expect(challengesPanel().getByLabelText("X")).toHaveValue(320));
     fireEvent.pointerCancel(log, { clientX: 1_700, clientY: 200, pointerId: 1 });
     fireEvent.pointerMove(log, { clientX: 1_800, clientY: 300, pointerId: 1 });
-    expect(screen.getByLabelText("X")).toHaveValue(320);
-    expect(screen.getByLabelText("Y")).toHaveValue(28);
+    expect(challengesPanel().getByLabelText("X")).toHaveValue(320);
+    expect(challengesPanel().getByLabelText("Y")).toHaveValue(28);
   });
 
   it("verschiebt das fokussierte Challenge-Log per Pfeiltasten in Einheiten", async () => {
@@ -266,8 +271,8 @@ describe("Kompositions-Workspace", () => {
     })();
     fireEvent.keyDown(log, { key: "ArrowRight" });
     fireEvent.keyDown(log, { key: "ArrowDown", shiftKey: true });
-    await waitFor(() => expect(screen.getByLabelText("X")).toHaveValue(301));
-    expect(screen.getByLabelText("Y")).toHaveValue(18);
+    await waitFor(() => expect(challengesPanel().getByLabelText("X")).toHaveValue(301));
+    expect(challengesPanel().getByLabelText("Y")).toHaveValue(18);
   });
 
   it("hält HUD- und Challenge-Save getrennt", async () => {
@@ -279,9 +284,115 @@ describe("Kompositions-Workspace", () => {
     render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} />);
     await userEvent.setup().click(screen.getByRole("tab", { name: "Challenges" }));
     await screen.findByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" });
-    fireEvent.change(screen.getByLabelText("X"), { target: { value: "200" } });
+    fireEvent.change(challengesPanel().getByLabelText("X"), { target: { value: "200" } });
     await user.click(screen.getByRole("button", { name: "Challenge-Einstellungen speichern" }));
     expect(saveChallengeSettings).toHaveBeenCalledWith(expect.objectContaining({ placement: { x: 200, y: 8, scale: 1 } }));
     expect(save).not.toHaveBeenCalled();
+  });
+
+  // Bug 1: OBS-Einrichtung ist ein natives <dialog> (Popover), das die Buehne nie
+  // verschiebt und per Escape schließt, mit Fokus-Rückgabe an den auslösenden Chip.
+  it("zeigt die OBS-Einrichtung als Dialog, ohne die Vorschau zu verschieben, und schließt per Escape mit Fokus-Rückgabe", async () => {
+    const user = userEvent.setup();
+    const { container } = render(<AdminWorkspace api={createCompositionApi(challengeSnapshot())} initialBootstrap={bootstrap()} />);
+    const main = container.querySelector(".composition-main");
+    if (main === null) throw new Error("composition-main fehlt.");
+    expect(main.firstElementChild).toHaveClass("preview-panel");
+    const dialog = document.querySelector("dialog#admin-obs-setup");
+    if (dialog === null) throw new Error("OBS-Setup-Dialog fehlt.");
+    expect(dialog).not.toHaveAttribute("open");
+
+    const trigger = screen.getByRole("button", { name: "OBS-Einrichtung öffnen" });
+    await user.click(trigger);
+    expect(screen.getByRole("button", { name: "OBS-Einrichtung schließen" })).toHaveAttribute("aria-expanded", "true");
+    expect(dialog).toHaveAttribute("open");
+    expect(within(dialog as HTMLElement).getByRole("heading", { name: "Alle Quellen auf einen Blick" })).toBeInTheDocument();
+    expect(main.firstElementChild).toHaveClass("preview-panel");
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(dialog).not.toHaveAttribute("open"));
+    expect(screen.getByRole("button", { name: "OBS-Einrichtung öffnen" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("button", { name: "OBS-Einrichtung öffnen" })).toHaveFocus();
+
+    // Klick auf die Dialogflaeche selbst (statt auf ein Kind) simuliert den nativen
+    // Backdrop-Klick von showModal(): das Ziel ist dann der Dialog selbst.
+    await user.click(trigger);
+    expect(dialog).toHaveAttribute("open");
+    fireEvent.click(dialog);
+    await waitFor(() => expect(dialog).not.toHaveAttribute("open"));
+  });
+
+  // Bug 7: ein Button an der Buehne fuer beide Placements, nur aktiv bei Abweichung
+  // vom committeten Stand, offline gesperrt.
+  it("aktiviert Positionen übernehmen erst bei Verschiebung und sperrt es offline", async () => {
+    let onOnlineChange: ((online: boolean) => void) | undefined;
+    const { container } = render(<AdminWorkspace api={{
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      getChallengeBoard: vi.fn(() => Promise.resolve(challengeSnapshot())),
+      saveChallengeBoard: vi.fn(),
+      saveChallengeSettings: vi.fn(),
+      subscribe: (callbacks) => { onOnlineChange = callbacks.onOnlineChange; return () => undefined; },
+    }} initialBootstrap={bootstrap()} />);
+    await screen.findByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" });
+    const commitButton = screen.getByRole("button", { name: "Positionen übernehmen" });
+    expect(commitButton).toBeDisabled();
+
+    const hud = screen.getByLabelText("HUD-Modul verschieben, Pfeiltasten");
+    const canvas = container.querySelector(".preview-canvas");
+    if (canvas === null) throw new Error("Preview-Bühne fehlt.");
+    mockCanvasRect(canvas, 1_920, 1_080);
+    fireEvent.pointerDown(hud, { button: 0, clientX: 100, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(hud, { clientX: 200, clientY: 200, pointerId: 1 });
+    fireEvent.pointerUp(hud, { clientX: 200, clientY: 200, pointerId: 1 });
+    await waitFor(() => expect(commitButton).toBeEnabled());
+
+    act(() => onOnlineChange?.(false));
+    expect(commitButton).toBeDisabled();
+  });
+
+  // Bug 7 – wichtigster Test: der Positions-Button darf nur das Placement committen,
+  // keine anderen offenen Draft-Änderungen (hier: der geänderte Spielername).
+  it("übernimmt per Positions-Button nur die HUD-Position, ohne andere Draft-Änderungen zu veröffentlichen", async () => {
+    const user = userEvent.setup();
+    const initial = bootstrap();
+    const save = vi.fn<AdminApi["save"]>((request) => Promise.resolve({
+      state: { ...initial.state, ...request.state, revision: 2, updatedAt: "2026-08-29T12:01:00.000Z", updatedBy: actor },
+      auditEntry: { id: "audit-placement", revision: 2, action: "save", actor, summary: "Position übernommen", createdAt: "2026-08-29T12:01:00.000Z" },
+      undoTargets: [],
+      serverTime: "2026-08-29T12:01:00.000Z",
+    }));
+    const { container } = render(<AdminWorkspace api={{
+      save,
+      setVisibility: vi.fn(),
+      getChallengeBoard: vi.fn(() => Promise.resolve(challengeSnapshot())),
+      saveChallengeBoard: vi.fn(),
+      saveChallengeSettings: vi.fn(),
+      subscribe: () => () => undefined,
+    }} initialBootstrap={initial} />);
+
+    const name = screen.getByDisplayValue("Streamer");
+    await user.clear(name);
+    await user.type(name, "Draft Streamer");
+
+    const hud = await screen.findByLabelText("HUD-Modul verschieben, Pfeiltasten");
+    const canvas = container.querySelector(".preview-canvas");
+    if (canvas === null) throw new Error("Preview-Bühne fehlt.");
+    mockCanvasRect(canvas, 1_920, 1_080);
+    fireEvent.pointerDown(hud, { button: 0, clientX: 100, clientY: 100, pointerId: 1 });
+    fireEvent.pointerMove(hud, { clientX: 200, clientY: 200, pointerId: 1 });
+    fireEvent.pointerUp(hud, { clientX: 200, clientY: 200, pointerId: 1 });
+
+    const commitButton = await screen.findByRole("button", { name: "Positionen übernehmen" });
+    await waitFor(() => expect(commitButton).toBeEnabled());
+    await user.click(commitButton);
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    const request = save.mock.calls[0]?.[0];
+    expect(request?.baseRevision).toBe(1);
+    expect(request?.state.placement).toEqual({ x: 112, y: 112, scale: 1 });
+    expect(request?.state.player.name).toBe("Streamer");
+    expect(screen.getByDisplayValue("Draft Streamer")).toBeInTheDocument();
+    expect(await screen.findByText("Positionen übernommen.")).toBeInTheDocument();
   });
 });

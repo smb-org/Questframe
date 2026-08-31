@@ -96,7 +96,7 @@ describe("AdminApp authentication shell", () => {
     const copyButton = await screen.findByRole("button", { name: "OBS-Link kopieren" });
     expect(copyButton).toBeEnabled();
     await user.click(copyButton);
-    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/overlay#token=${"A".repeat(43)}`);
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/overlay/all#token=${"A".repeat(43)}`);
   });
 
   it("keeps the explanation for an existing legacy token without recoverable plaintext reachable", async () => {

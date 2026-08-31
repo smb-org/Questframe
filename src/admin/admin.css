@@ -15,6 +15,7 @@
   --green: #5ed08a;
   --red: #f36d74;
   --violet: #a970ff;
+  --offline-banner-height: 40px;
 }
 
 * { box-sizing: border-box; }
@@ -86,7 +87,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .editor-identity small { margin-top: 3px; color: var(--muted); font-size: 10px; text-transform: uppercase; }
 .logout-button { margin-right: 10px; }
 
-.offline-banner { position: fixed; z-index: 30; top: 64px; right: 0; left: 0; padding: 10px 16px; background: #8e2730; color: #fff; text-align: center; font-size: 13px; font-weight: 700; }
+.offline-banner { position: fixed; z-index: 30; top: 64px; right: 0; left: 0; min-height: var(--offline-banner-height); padding: 10px 16px; background: #8e2730; color: #fff; text-align: center; font-size: 13px; font-weight: 700; }
+
+/* DOM-Reihenfolge Topbar -> offline-banner -> AuditRail: solange der Banner steht,
+   muss das Rail unter ihm einklinken, sonst verdeckt der Banner den 48px-Rail-Button. */
+.offline-banner ~ .audit-rail { top: calc(64px + var(--offline-banner-height)); }
 
 .audit-rail { position: fixed; z-index: 25; top: 64px; left: 12px; width: min(270px, calc(100vw - 24px)); height: 48px; min-height: 0; overflow: hidden; border: 1px solid var(--line); border-top: 0; border-radius: 0 0 8px 8px; background: #101316; box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3); }
 .audit-rail.is-open { height: auto; max-height: calc(100vh - 76px); min-height: 0; overflow: auto; }
@@ -142,9 +147,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
    visible at once. The right rail changes by tab while the stage stays put. */
 .admin-app--composition { display: grid; grid-template-columns: minmax(540px, 1fr) minmax(360px, 520px); grid-template-rows: 64px minmax(0, 1fr); }
 .admin-app--composition .admin-topbar { grid-column: 1 / -1; }
-.composition-main { grid-column: 1; grid-row: 2; min-width: 0; padding: clamp(20px, 3vw, 42px); overflow: auto; }
-.composition-main .preview-panel { width: 100%; }
+/* Das eingeklappte Audit-Rail schwebt bei top:64px 48px hoch über dem Inhalt;
+   padding-top muss das mindestens ausgleichen, sonst verdeckt es den Panel-Heading. */
+.composition-main { grid-column: 1; grid-row: 2; min-width: 0; padding: clamp(20px, 3vw, 42px); padding-top: max(clamp(20px, 3vw, 42px), 64px); overflow: auto; }
+/* Die Buehne bleibt an die Fensterhoehe gebunden: 100% Breite wuerde bei
+   breiten Fenstern eine Vorschau erzeugen, die hoeher als der Bildschirm ist.
+   Die Kappung aus der Basisregel (--preview-frame) gilt darum auch hier. */
+.composition-main .preview-panel { width: var(--preview-frame); }
 .composition-rails { grid-column: 2; grid-row: 2; min-width: 0; overflow: auto; border-left: 1px solid var(--line); background: #121619; }
+.composition-save-dock { position: sticky; z-index: 15; bottom: 0; }
 .admin-tabs { display: flex; gap: 4px; min-height: 52px; padding: 7px 12px; border-bottom: 1px solid var(--line); background: #121619; }
 .admin-tabs button { min-width: 0; min-height: 38px; flex: 1; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--muted); font-size: 12px; font-weight: 800; cursor: pointer; }
 .admin-tabs button:hover { color: var(--text); background: var(--surface-2); }
@@ -156,26 +167,50 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .composition-challenge-rail .challenge-settings-panel, .composition-challenge-rail .challenge-board-shell { width: auto; margin: 0; border-right: 0; border-left: 0; border-radius: 0; }
 .composition-challenge-rail .challenge-settings-panel { border-top: 0; }
 .composition-challenge-rail .challenge-board-heading { padding: 0 16px; }
+
+/* Das Board sitzt in der Komposition in einer 360-520px-Rail, waehrend der
+   Viewport breit bleibt: der 760px-Breakpoint greift also nie, obwohl der
+   Platz derselbe ist. Darum hier dasselbe gestapelte Kompaktlayout, sonst
+   ueberlappen Sichtbar-Schalter und Beschreibung. */
+.composition-challenge-rail .challenge-board-toolbar, .composition-challenge-rail .challenge-board-save-bar, .composition-challenge-rail .challenge-settings-save-bar { align-items: stretch; flex-direction: column; }
+.composition-challenge-rail .challenge-board-toolbar .button, .composition-challenge-rail .challenge-board-save-bar .button--save, .composition-challenge-rail .challenge-settings-save-bar .button--save { width: 100%; }
+.composition-challenge-rail .challenge-board-row { grid-template-columns: 1fr 38px; gap: 8px; padding: 10px; }
+.composition-challenge-rail .challenge-row-order { grid-column: 1 / -1; grid-template-columns: 38px 38px 38px; }
+.composition-challenge-rail .challenge-drag-handle { grid-column: 3; grid-row: 1; }
+.composition-challenge-rail .challenge-row-fields { grid-column: 1 / -1; grid-template-columns: 1fr; gap: 9px; }
+.composition-challenge-rail .challenge-row-runtime { grid-column: 1; min-height: 54px; padding-left: 0; border-left: 0; }
+.composition-challenge-rail .challenge-delete { grid-column: 2; grid-row: 4; align-self: end; }
+.composition-challenge-rail .challenge-conflict-actions { display: grid; }
+.composition-challenge-rail .challenge-conflict-actions .button { width: 100%; }
 .composition-challenge-rail .challenge-board-toolbar, .composition-challenge-rail .challenge-board-list, .composition-challenge-rail .challenge-board-save-bar, .composition-challenge-rail .challenge-board-conflict, .composition-challenge-rail .challenge-merge-notices, .composition-challenge-rail > .challenge-board-shell > .challenge-board-empty-copy, .composition-challenge-rail > .challenge-board-shell > .challenge-board-error, .composition-challenge-rail > .challenge-board-shell > .challenge-board-success { margin-right: 16px; margin-left: 16px; }
 .composition-draggable-module { cursor: grab !important; outline: 1px dashed rgba(240, 206, 131, 0.48); outline-offset: 5px; pointer-events: auto !important; }
 .composition-draggable-module:hover { outline-color: var(--accent-bright); }
 .composition-draggable-module.is-dragging { cursor: grabbing !important; outline: 2px solid var(--accent-bright); filter: drop-shadow(0 0 10px rgba(240, 206, 131, 0.45)); }
 .composition-draggable-module--challenge { z-index: 4; }
 
-.module-visibility-strip { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
-.module-visibility-copy { display: grid; gap: 4px; min-width: 0; }
-.module-visibility-copy strong { font-size: 13px; }
-.module-visibility-copy span { color: var(--muted); font-size: 11px; line-height: 1.4; }
-.module-visibility-controls { display: flex; flex-wrap: wrap; gap: 8px; }
-.module-visibility-toggle { min-width: 116px; min-height: 44px; display: flex; align-items: center; gap: 10px; justify-content: space-between; padding: 5px 9px 5px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--muted); cursor: pointer; }
-.module-visibility-toggle > span { display: grid; gap: 2px; text-align: left; }
-.module-visibility-toggle strong { color: var(--text); font-size: 12px; }
-.module-visibility-toggle small { font-size: 11px; font-weight: 800; }
-.module-visibility-toggle i { position: relative; width: 32px; height: 18px; flex: 0 0 32px; border-radius: 99px; background: #343b40; }
-.module-visibility-toggle i::after { content: ""; position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%; background: #bbc2c5; transition: transform 160ms ease; }
-.module-visibility-toggle.is-on { border-color: rgba(94, 208, 138, 0.38); color: var(--green); }
-.module-visibility-toggle.is-on i { background: #347e52; }
-.module-visibility-toggle.is-on i::after { transform: translateX(14px); background: #effff3; }
+/* Kompakte Modul-Schalter in der Vorschau-Kopfzeile, links vom Zoom-Regler (Bug 5). */
+.preview-module-toggles { display: flex; flex-wrap: wrap; gap: 6px; }
+.preview-module-toggle { height: 30px; display: inline-flex; align-items: center; gap: 7px; padding: 0 9px 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--muted); font-size: 11px; font-weight: 700; cursor: pointer; }
+.preview-module-toggle i { position: relative; width: 26px; height: 15px; flex: 0 0 26px; border-radius: 99px; background: #343b40; }
+.preview-module-toggle i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: #bbc2c5; transition: transform 160ms ease; }
+.preview-module-toggle.is-on { border-color: rgba(94, 208, 138, 0.38); color: var(--green); }
+.preview-module-toggle.is-on i { background: #347e52; }
+.preview-module-toggle.is-on i::after { transform: translateX(11px); background: #effff3; }
+.preview-module-toggle:hover:not(:disabled) { border-color: var(--line); background: var(--surface-3); }
+.preview-module-toggle:disabled { cursor: not-allowed; opacity: 0.58; }
+
+/* Ein-Button-Positionsleiste an der Buehne statt zweier getrennter Save-Bars (Bug 7). */
+.placement-commit-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.placement-commit-copy { display: grid; gap: 4px; min-width: 0; }
+.placement-commit-copy strong { font-size: 13px; }
+.placement-commit-copy span { font-size: 11px; }
+.placement-commit-bar .button--save { width: auto; min-width: 210px; }
+
+/* Natives <dialog> statt Eigenbau-Overlay fuer die OBS-Einrichtung (Bug 1): schwebt per
+   Top-Layer ueber dem Inhalt, verschiebt die Buehne nie. */
+.obs-setup-dialog { position: fixed; inset: 0; margin: auto; width: min(920px, calc(100vw - 32px)); max-height: calc(100vh - 64px); padding: 0; border: 0; border-radius: 10px; background: transparent; overflow: hidden; box-shadow: 0 28px 90px rgba(0, 0, 0, 0.58); }
+.obs-setup-dialog::backdrop { background: rgba(4, 6, 8, 0.7); backdrop-filter: blur(4px); }
+.obs-setup-dialog .challenge-setup-panel { width: 100%; max-height: calc(100vh - 64px); margin: 0; overflow-y: auto; }
 
 .editor-rail { min-width: 0; display: grid; grid-template-rows: 68px minmax(0, 1fr) auto; border-left: 1px solid var(--line); background: #121619; }
 .editor-rail-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border-bottom: 1px solid var(--line); }
@@ -426,8 +461,6 @@ input[type="color"] { padding: 4px; }
   .channel-identity { align-items: flex-start; justify-self: start; padding-left: 16px; text-align: left; }
   .brand-block { border-right: 0; }
   .editor-identity { display: none; }
-  .audit-rail { position: fixed; z-index: 25; top: 64px; left: 12px; width: min(270px, calc(100vw - 24px)); height: 48px; min-height: 0; border: 1px solid var(--line); border-top: 0; border-radius: 0 0 8px 8px; box-shadow: 0 12px 28px rgba(0, 0, 0, 0.3); }
-  .audit-rail.is-open { height: auto; max-height: calc(100vh - 76px); min-height: 0; overflow: auto; }
   .admin-app--composition { grid-template-columns: minmax(0, 1fr) 420px; }
   .challenge-board-row { grid-template-columns: 78px minmax(0, 1fr) 145px 38px; gap: 8px; }
   .challenge-row-fields { grid-template-columns: minmax(130px, 1fr) minmax(150px, 1.3fr) minmax(110px, 0.9fr) minmax(110px, 0.9fr); }
@@ -470,7 +503,7 @@ input[type="color"] { padding: 4px; }
   .effect-form { grid-template-columns: 1fr; max-height: 38vh; overflow-y: auto; }
   .button, .icon-button, input, select { min-height: 44px; }
   .admin-app--composition { display: block; padding-top: 64px; }
-  .composition-main { padding: 15px 12px 4px; overflow: visible; }
+  .composition-main { padding: 15px 12px 4px; padding-top: max(15px, 64px); overflow: visible; }
   .composition-rails { overflow: visible; border-left: 0; }
   .composition-tabpanel { overflow: visible; }
   .composition-tabpanel > .editor-rail { min-height: 0; display: block; }
@@ -496,9 +529,10 @@ input[type="color"] { padding: 4px; }
   .challenge-conflict-actions { display: grid; }
   .challenge-conflict-actions .button { width: 100%; }
   .challenge-shell-error { top: 68px; right: 12px; left: 12px; }
-  .module-visibility-strip { grid-template-columns: 1fr; gap: 10px; }
-  .module-visibility-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .module-visibility-toggle { width: 100%; }
+  .preview-module-toggles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .placement-commit-bar { flex-direction: column; align-items: stretch; }
+  .placement-commit-bar .button--save { width: 100%; }
+  .obs-setup-dialog { width: calc(100vw - 24px); max-height: calc(100vh - 32px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -176,7 +176,7 @@ const channelIdentity = (initialBootstrap: BootstrapResponse) => {
   return <div className="channel-identity"><span className="eyebrow">Twitch-Kanal</span><div><strong title={channel.displayName}>{channel.displayName}</strong>{handle !== null && <small>{handle}</small>}</div></div>;
 };
 
-const AdminTopbar = ({ initialBootstrap, api, state }: { initialBootstrap: BootstrapResponse; api: AdminApi; state: HudEditorState }) => (
+const AdminTopbar = ({ initialBootstrap, api, state, obsSetupTriggerRef }: { initialBootstrap: BootstrapResponse; api: AdminApi; state: HudEditorState; obsSetupTriggerRef: React.RefObject<HTMLButtonElement | null> }) => (
   <header className="admin-topbar">
     <div className="brand-block"><span className="brand-mark"><Activity size={19} /></span><div><strong>{initialBootstrap.capsule.name}</strong><span>Live-Regie</span></div></div>
     <div className="topbar-status">
@@ -185,7 +185,7 @@ const AdminTopbar = ({ initialBootstrap, api, state }: { initialBootstrap: Boots
         {state.obsTokenUnavailable && <span className="sr-only" id="obs-link-unavailable-help">Dieser alte Token ist nicht wiederherstellbar. Bitte einen neuen Token erzeugen.</span>}
         <button aria-label="OBS-Link kopieren" aria-describedby={state.obsTokenUnavailable ? "obs-link-unavailable-help" : undefined} aria-disabled={state.obsTokenUnavailable ? "true" : undefined} className="obs-chip-action" disabled={state.obsUrl === "" && !state.obsTokenUnavailable} onClick={() => void state.copyHeaderObsUrl()} title={state.obsLinkCopied ? "Kopiert" : state.obsTokenUnavailable ? "Dieser alte Token ist nicht wiederherstellbar. Bitte einen neuen Token erzeugen." : state.obsUrl === "" ? "OBS-Link noch nicht erzeugt." : "OBS-Link kopieren"} type="button">{state.obsLinkCopied ? <Check size={14} /> : <Copy size={14} />}</button>
         <button aria-label={state.overlayToken.exists ? "Neuen Token erzeugen" : "OBS-Link erzeugen"} className="obs-chip-action" disabled={!state.online} onClick={() => void state.mutateToken(state.overlayToken.exists)} title={state.overlayToken.exists ? "Neuen Token erzeugen" : "OBS-Link erzeugen"} type="button">{state.overlayToken.exists ? <RotateCw aria-hidden="true" size={14} /> : <Plus aria-hidden="true" size={15} />}</button>
-        <button aria-controls="admin-obs-setup" aria-expanded={state.obsSetupOpen} aria-label={state.obsSetupOpen ? "OBS-Einrichtung schließen" : "OBS-Einrichtung öffnen"} className="obs-chip-action" onClick={() => state.setObsSetupOpen((current) => !current)} title={state.obsSetupOpen ? "Einrichtung schließen" : "Einrichtung"} type="button"><Settings2 size={14} /></button>
+        <button aria-controls="admin-obs-setup" aria-expanded={state.obsSetupOpen} aria-label={state.obsSetupOpen ? "OBS-Einrichtung schließen" : "OBS-Einrichtung öffnen"} className="obs-chip-action" onClick={() => state.setObsSetupOpen((current) => !current)} ref={obsSetupTriggerRef} title={state.obsSetupOpen ? "Einrichtung schließen" : "Einrichtung"} type="button"><Settings2 size={14} /></button>
       </div>
       <span className="revision-pill">Rev. {state.committed.revision}</span>
     </div>
@@ -195,6 +195,40 @@ const AdminTopbar = ({ initialBootstrap, api, state }: { initialBootstrap: Boots
     {api.logout !== undefined && <button aria-label="Abmelden" className="icon-button logout-button" onClick={() => { void api.logout?.().then(() => window.location.assign("/login")); }} title="Abmelden" type="button"><LogOut size={16} /></button>}
   </header>
 );
+
+/* Natives <dialog> statt Eigenbau-Overlay: showModal()/close() übernehmen Fokusfalle
+   und Top-Layer-Darstellung, sodass die Buehne nie verschoben wird. jsdom (Tests) kennt
+   showModal/close nicht, darum die Feature-Detection-Fallbacks auf das open-Attribut. */
+const ObsSetupDialog = ({ api, state, triggerRef }: { api: AdminApi; state: HudEditorState; triggerRef: React.RefObject<HTMLButtonElement | null> }) => {
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+  const wasOpenRef = useRef(false);
+  const close = () => state.setObsSetupOpen(false);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog === null) return;
+    if (state.obsSetupOpen) {
+      if (typeof dialog.showModal === "function") { if (!dialog.open) dialog.showModal(); } else dialog.setAttribute("open", "");
+      dialog.querySelector<HTMLElement>("button, [href], input, select, textarea, [tabindex]")?.focus();
+    } else if (wasOpenRef.current) {
+      if (typeof dialog.close === "function") { if (dialog.open) dialog.close(); } else dialog.removeAttribute("open");
+      triggerRef.current?.focus();
+    }
+    wasOpenRef.current = state.obsSetupOpen;
+  }, [state.obsSetupOpen, triggerRef]);
+  return (
+    <dialog
+      aria-labelledby="obs-setup-heading"
+      className="obs-setup-dialog"
+      id="admin-obs-setup"
+      onClick={(event) => { if (event.target === dialogRef.current) close(); }}
+      onClose={close}
+      onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); close(); } }}
+      ref={dialogRef}
+    >
+      <ObsSetupPanel api={api} dockToken={state.dockToken} online={state.online} onDockToken={state.setDockToken} onOverlayToken={state.setOverlayToken} overlayToken={state.overlayToken} sources={createChallengeObsSources(window.location.origin, state.overlayToken, state.dockToken)} />
+    </dialog>
+  );
+};
 
 const AuditRail = ({ initialBootstrap, state }: { initialBootstrap: BootstrapResponse; state: HudEditorState }) => (
   <aside className={`audit-rail ${state.auditOpen ? "is-open" : "is-collapsed"}`}>
@@ -215,7 +249,7 @@ const AdminTabs = ({ activeTab, onChange }: { activeTab: AdminWorkspaceId; onCha
   };
   return (
     <div aria-label="Kompositionsbereiche" className="admin-tabs" role="tablist">
-      {tabs.map((tab) => <button aria-controls="admin-composition-panel" aria-selected={activeTab === tab.id} className={activeTab === tab.id ? "is-active" : ""} id={`admin-tab-${tab.id}`} key={tab.id} onClick={() => onChange(tab.id)} onKeyDown={(event) => {
+      {tabs.map((tab) => <button aria-controls={`admin-composition-panel-${tab.id}`} aria-selected={activeTab === tab.id} className={activeTab === tab.id ? "is-active" : ""} id={`admin-tab-${tab.id}`} key={tab.id} onClick={() => onChange(tab.id)} onKeyDown={(event) => {
         if (event.key === "ArrowRight" || event.key === "ArrowDown") { event.preventDefault(); moveTab(tab.id, 1); }
         if (event.key === "ArrowLeft" || event.key === "ArrowUp") { event.preventDefault(); moveTab(tab.id, -1); }
         if (event.key === "Home") { const first = tabs[0]; if (first === undefined) return; event.preventDefault(); onChange(first.id); tabRefs.current[first.id]?.focus(); }
@@ -225,32 +259,65 @@ const AdminTabs = ({ activeTab, onChange }: { activeTab: AdminWorkspaceId; onCha
   );
 };
 
-const ModuleVisibilityStrip = ({ state }: { state: HudEditorState }) => (
-  <section aria-labelledby="module-visibility-heading" className="module-visibility-strip">
-    <div className="module-visibility-copy"><strong id="module-visibility-heading">Im Sammel-Overlay zeigen</strong><span>Die Vorschau reagiert sofort. Die OBS-Quelle übernimmt die Auswahl erst mit dem Speichern.</span></div>
-    <div className="module-visibility-controls">
-      <button aria-checked={state.draft.compositeHudVisible} aria-label="HUD im Sammel-Overlay anzeigen" className={`module-visibility-toggle ${state.draft.compositeHudVisible ? "is-on" : "is-off"}`} disabled={state.locked} onClick={() => state.setDraft((current) => ({ ...current, compositeHudVisible: !current.compositeHudVisible }))} role="switch" type="button"><span><strong>HUD</strong><small>{state.draft.compositeHudVisible ? "An" : "Aus"}</small></span><i aria-hidden="true" /></button>
-      <button aria-checked={state.draft.compositeChallengesVisible} aria-label="Challenges im Sammel-Overlay anzeigen" className={`module-visibility-toggle ${state.draft.compositeChallengesVisible ? "is-on" : "is-off"}`} disabled={state.locked} onClick={() => state.setDraft((current) => ({ ...current, compositeChallengesVisible: !current.compositeChallengesVisible }))} role="switch" type="button"><span><strong>Challenges</strong><small>{state.draft.compositeChallengesVisible ? "An" : "Aus"}</small></span><i aria-hidden="true" /></button>
-    </div>
-  </section>
+/* Kompakt fuer die Vorschau-Kopfzeile (links vom Zoom-Regler): die Erklaerung aus dem
+   frueheren Strip-Block steckt jetzt im title-Tooltip statt als eigener Absatz. */
+const ModuleVisibilityControls = ({ state }: { state: HudEditorState }) => (
+  <div aria-label="Im Sammel-Overlay zeigen" className="preview-module-toggles" role="group" title="Die Vorschau reagiert sofort. Die OBS-Quelle übernimmt die Auswahl erst mit dem Speichern.">
+    <button aria-checked={state.draft.compositeHudVisible} aria-label="HUD im Sammel-Overlay anzeigen" className={`preview-module-toggle ${state.draft.compositeHudVisible ? "is-on" : "is-off"}`} disabled={state.locked} onClick={() => state.setDraft((current) => ({ ...current, compositeHudVisible: !current.compositeHudVisible }))} role="switch" type="button"><span>HUD</span><i aria-hidden="true" /></button>
+    <button aria-checked={state.draft.compositeChallengesVisible} aria-label="Challenges im Sammel-Overlay anzeigen" className={`preview-module-toggle ${state.draft.compositeChallengesVisible ? "is-on" : "is-off"}`} disabled={state.locked} onClick={() => state.setDraft((current) => ({ ...current, compositeChallengesVisible: !current.compositeChallengesVisible }))} role="switch" type="button"><span>Challenges</span><i aria-hidden="true" /></button>
+  </div>
+);
+
+/* Der Sekunden-Tick fürs Challenge-Log lebt nur hier, nicht auf Workspace-Ebene:
+   so re-rendert er ausschließlich diesen Preview-Zweig statt die gesamte Admin-App,
+   und läuft nur, solange das Challenge-Log tatsächlich im Preview sichtbar ist. */
+const ChallengeLogPreview = (props: Omit<React.ComponentProps<typeof ChallengeLog>, "now">) => {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return <ChallengeLog {...props} now={now} />;
+};
+
+/* Konflikt-Dialog, Fehleranzeige und Speicherleiste auf Workspace-Ebene: die Rail
+   (HudEditorRail) zeigt ihre eigene Speicherleiste nur im HUD-Tab, deshalb bräuchte
+   ein Konflikt aus einem parallelen Save sonst keine Auflösung, solange der
+   Challenges-Tab aktiv ist. Wird nur gerendert, während der Challenges-Tab aktiv
+   ist – im HUD-Tab übernimmt die Rail dieselbe Optik, keine Doppel-Anzeige. */
+const CompositionSaveDock = ({ state }: { state: HudEditorState }) => (
+  <footer className="save-dock composition-save-dock">
+    {state.remoteConflict !== null && <div className="save-conflict" role="alert"><strong>OBS wurde inzwischen geändert</strong><span>Rev. {state.draftBaseRevision} → {state.remoteConflict.revision}. Dein Entwurf ist noch lokal.</span><div><button className="text-button" onClick={state.resolveRemoteConflict} type="button">Serverstand laden</button><button className="text-button text-button--danger" onClick={() => void state.save(true)} type="button">Meinen Entwurf veröffentlichen</button></div></div>}
+    <div className="publication-state" aria-live="polite">{state.error !== "" ? <span className="save-error">{state.error}</span> : state.message !== "" ? <span className="save-success">{state.message}</span> : state.dirty ? <span className="save-dirty">Noch nicht an OBS gesendet</span> : <span>Alles veröffentlicht</span>}</div>
+    <button aria-label="Änderungen speichern" className="button button--save" disabled={!state.dirty || state.locked} onClick={() => void state.save()} type="button">{state.saving ? <RotateCw className="spin" size={17} /> : <Save size={17} />}{state.saving ? "Wird gespeichert …" : "Änderungen speichern"}</button>
+  </footer>
+);
+
+/* Ein Button an der Buehne fuer beide Placements, unabhaengig von den Save-Bars der
+   Tabs: der committet nur das jeweils bewegte Placement (siehe savePlacementOnly /
+   saveChallengeSettings mit committeten Werten unten), keine anderen Draft-Aenderungen. */
+const PlacementCommitBar = ({ busy, dirty, error, message, online, onCommit }: { busy: boolean; dirty: boolean; error: string; message: string; online: boolean; onCommit: () => void }) => (
+  <div className="placement-commit-bar">
+    <div className="placement-commit-copy"><strong>Positionen auf der Bühne</strong><span aria-live="polite">{error !== "" ? <span className="save-error">{error}</span> : message !== "" ? <span className="save-success">{message}</span> : dirty ? <span className="save-dirty">Verschoben, noch nicht übernommen</span> : <span>Position ist live</span>}</span></div>
+    <button aria-label="Positionen übernehmen" className="button button--save" disabled={!dirty || busy || !online} onClick={onCommit} type="button">{busy ? <RotateCw className="spin" size={17} /> : <Save size={17} />}{busy ? "Wird übernommen …" : "Positionen übernehmen"}</button>
+  </div>
 );
 
 const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBootstrap: BootstrapResponse; api: AdminApi; initialTab: AdminWorkspaceId }) => {
   const [challengeUpdate, setChallengeUpdate] = useState<ChallengeUpdate | null>(null);
   const [challengePlacementDraft, setChallengePlacementDraft] = useState<ChallengePlacement | null>(null);
   const [previewZoom, setPreviewZoom] = useState(100);
-  const [challengeNow, setChallengeNow] = useState(() => Date.now());
   const [dragging, setDragging] = useState<"hud" | "challenges" | null>(null);
   const [activeTab, setActiveTab] = useState<AdminWorkspaceId>(initialTab);
   const draggingRef = useRef<{ kind: "hud" | "challenges"; pointerId: number } | null>(null);
   const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
   const [challengeCss, setChallengeCss] = useState<{ style: string | null; theme: string | null }>({ style: null, theme: null });
+  const obsSetupTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [placementCommitBusy, setPlacementCommitBusy] = useState(false);
+  const [placementCommitError, setPlacementCommitError] = useState("");
+  const [placementCommitMessage, setPlacementCommitMessage] = useState("");
   const state = useHudEditorState({ initialBootstrap, api, onChallengeUpdate: setChallengeUpdate });
   const committedThemeId = state.committed.themeId;
-  useEffect(() => {
-    const timer = window.setInterval(() => setChallengeNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, []);
   useEffect(() => {
     if (api.getChallengeBoard === undefined) return;
     let disposed = false;
@@ -330,9 +397,32 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
     return { load: api.getChallengeBoard.bind(api), save: api.saveChallengeBoard.bind(api) };
   }, [api]);
   const challengeReady = displayedChallengeUpdate !== null && challengeCss.style === displayedChallengeUpdate.settings.styleId && (displayedChallengeUpdate.settings.themeMode === "own" || challengeCss.theme === displayedChallengeUpdate.settings.themeId);
-  const challengePreview = !state.draft.compositeChallengesVisible || displayedChallengeUpdate === null || !challengeReady ? null : <ChallengeLog ariaLabel="Challenge-Log verschieben, Pfeiltasten" className={`composition-draggable-module composition-draggable-module--challenge ${dragging === "challenges" ? "is-dragging" : ""}`} onKeyDown={(event) => movePlacementWithKeyboard("challenges", event)} onLostPointerCapture={(event) => stopDrag("challenges", event)} onPointerCancel={(event) => stopDrag("challenges", event)} onPointerDown={(event) => startDrag("challenges", event)} onPointerMove={(event) => moveDrag("challenges", event)} onPointerUp={(event) => stopDrag("challenges", event)} placement={effectiveChallengePlacement ?? displayedChallengeUpdate.settings.placement} rootTag="section" now={challengeNow} update={displayedChallengeUpdate} />;
+  const challengePreview = !state.draft.compositeChallengesVisible || displayedChallengeUpdate === null || !challengeReady ? null : <ChallengeLogPreview ariaLabel="Challenge-Log verschieben, Pfeiltasten" className={`composition-draggable-module composition-draggable-module--challenge ${dragging === "challenges" ? "is-dragging" : ""}`} onKeyDown={(event) => movePlacementWithKeyboard("challenges", event)} onLostPointerCapture={(event) => stopDrag("challenges", event)} onPointerCancel={(event) => stopDrag("challenges", event)} onPointerDown={(event) => startDrag("challenges", event)} onPointerMove={(event) => moveDrag("challenges", event)} onPointerUp={(event) => stopDrag("challenges", event)} placement={effectiveChallengePlacement ?? displayedChallengeUpdate.settings.placement} rootTag="section" update={displayedChallengeUpdate} />;
+  // Nur aktiv, wenn eine Position tatsaechlich vom committeten Stand abweicht – unabhaengig
+  // von sonstigen offenen Drafts in den beiden Tabs (Bug 7).
+  const hudPlacementDirty = !sameChallengePlacement(state.draft.placement, state.committed.placement);
+  const challengeCommittedPlacement = displayedChallengeUpdate?.settings.placement ?? null;
+  const challengePlacementDirty = challengePlacementDraft !== null && challengeCommittedPlacement !== null && !sameChallengePlacement(challengePlacementDraft, challengeCommittedPlacement);
+  const placementDirty = hudPlacementDirty || challengePlacementDirty;
+  const commitPlacements = async () => {
+    if (!placementDirty || placementCommitBusy || !state.online) return;
+    setPlacementCommitBusy(true); setPlacementCommitError(""); setPlacementCommitMessage("");
+    try {
+      if (hudPlacementDirty) await state.savePlacementOnly();
+      if (challengePlacementDirty && api.saveChallengeSettings !== undefined && challengeUpdate !== null) {
+        const settings = challengeUpdate.settings;
+        const response = await api.saveChallengeSettings({ baseSettingsRevision: challengeUpdate.settingsRevision, styleId: settings.styleId, themeMode: settings.themeMode, surfaceMode: settings.surfaceMode, headerTitle: settings.headerTitle, effectsEnabled: settings.effectsEnabled, maxVisible: settings.maxVisible, globalTimerTotalMs: settings.globalTimer?.totalMs ?? null, placement: challengePlacementDraft });
+        setChallengeUpdate((current) => current === null ? current : { ...current, settingsRevision: response.snapshot.settingsRevision, boardRevision: response.snapshot.boardRevision, settings: { ...current.settings, ...response.snapshot.settings } });
+      }
+      setPlacementCommitMessage("Positionen übernommen.");
+    } catch (caught) {
+      setPlacementCommitError(caught instanceof Error ? caught.message : "Positionen konnten nicht übernommen werden.");
+    } finally {
+      setPlacementCommitBusy(false);
+    }
+  };
   return (
-    <div className="admin-app admin-app--composition"><AdminTopbar api={api} initialBootstrap={initialBootstrap} state={state} />{!state.online && <div className="offline-banner">Offline – Speichern pausiert; bestehende Werte bleiben sichtbar.</div>}<AuditRail initialBootstrap={initialBootstrap} state={state} /><main className="composition-main">{state.obsSetupOpen && <div id="admin-obs-setup"><ObsSetupPanel api={api} dockToken={state.dockToken} online={state.online} onDockToken={state.setDockToken} onOverlayToken={state.setOverlayToken} overlayToken={state.overlayToken} sources={createChallengeObsSources(window.location.origin, state.overlayToken, state.dockToken)} /></div>}<PreviewPanel hudInteraction={state.draft.compositeHudVisible ? { ariaLabel: "HUD-Modul verschieben, Pfeiltasten", className: `composition-draggable-module composition-draggable-module--hud ${dragging === "hud" ? "is-dragging" : ""}`, onKeyDown: (event) => movePlacementWithKeyboard("hud", event), onLostPointerCapture: (event) => stopDrag("hud", event), onPointerCancel: (event) => stopDrag("hud", event), onPointerDown: (event) => startDrag("hud", event), onPointerMove: (event) => moveDrag("hud", event), onPointerUp: (event) => stopDrag("hud", event) } : undefined} mediaUrls={state.previewMediaUrls} onZoomChange={setPreviewZoom} previewOverlay={!state.committed.overlayEnabled ? <div className="disabled-veil">Overlay deaktiviert</div> : undefined} showHud={state.draft.compositeHudVisible} state={compositionHud} themeLabel={THEME_LABELS[state.preview.themeId]} zoom={previewZoom}>{challengePreview}</PreviewPanel><ModuleVisibilityStrip state={state} /></main><aside className="composition-rails"><AdminTabs activeTab={activeTab} onChange={setActiveTab} /><div aria-labelledby={`admin-tab-${activeTab}`} className="composition-tabpanel" id="admin-composition-panel" role="tabpanel">{activeTab === "hud" ? <HudEditorRail api={api} initialBootstrap={initialBootstrap} state={state} /> : <div className="composition-challenge-rail"><ChallengeSettingsPanel api={api} challengeUpdate={displayedChallengeUpdate} online={state.online} onPlacementDraftChange={setChallengePlacementDraft} placementDraft={challengePlacementDraft} />{compositionBoardApi === null ? <section className="challenge-board-shell" role="alert"><div className="challenge-board-empty"><AlertTriangle size={22} /><strong>Challenge-Board ist in dieser Sitzung nicht verfügbar.</strong></div></section> : <ChallengeBoard api={compositionBoardApi} challengeUpdate={displayedChallengeUpdate} online={state.online} />}</div>}</div></aside></div>
+    <div className="admin-app admin-app--composition"><AdminTopbar api={api} initialBootstrap={initialBootstrap} obsSetupTriggerRef={obsSetupTriggerRef} state={state} />{!state.online && <div className="offline-banner">Offline – Speichern pausiert; bestehende Werte bleiben sichtbar.</div>}<AuditRail initialBootstrap={initialBootstrap} state={state} /><ObsSetupDialog api={api} state={state} triggerRef={obsSetupTriggerRef} /><main className="composition-main"><PreviewPanel headingControls={<ModuleVisibilityControls state={state} />} hudInteraction={state.draft.compositeHudVisible ? { ariaLabel: "HUD-Modul verschieben, Pfeiltasten", className: `composition-draggable-module composition-draggable-module--hud ${dragging === "hud" ? "is-dragging" : ""}`, onKeyDown: (event) => movePlacementWithKeyboard("hud", event), onLostPointerCapture: (event) => stopDrag("hud", event), onPointerCancel: (event) => stopDrag("hud", event), onPointerDown: (event) => startDrag("hud", event), onPointerMove: (event) => moveDrag("hud", event), onPointerUp: (event) => stopDrag("hud", event) } : undefined} mediaUrls={state.previewMediaUrls} onZoomChange={setPreviewZoom} previewOverlay={!state.committed.overlayEnabled ? <div className="disabled-veil">Overlay deaktiviert</div> : undefined} showHud={state.draft.compositeHudVisible} state={compositionHud} themeLabel={THEME_LABELS[state.preview.themeId]} zoom={previewZoom}>{challengePreview}</PreviewPanel><PlacementCommitBar busy={placementCommitBusy} dirty={placementDirty} error={placementCommitError} message={placementCommitMessage} online={state.online} onCommit={() => void commitPlacements()} /></main><aside className="composition-rails"><AdminTabs activeTab={activeTab} onChange={setActiveTab} />{/* Beide Tabpanels bleiben dauerhaft gemountet (ChallengeBoard-Refetch/State sonst pro Tab-Wechsel weg); nur das inaktive wird per hidden-Attribut versteckt. */}<div aria-labelledby="admin-tab-hud" className="composition-tabpanel" hidden={activeTab !== "hud"} id="admin-composition-panel-hud" role="tabpanel"><HudEditorRail api={api} initialBootstrap={initialBootstrap} state={state} /></div><div aria-labelledby="admin-tab-challenges" className="composition-tabpanel" hidden={activeTab !== "challenges"} id="admin-composition-panel-challenges" role="tabpanel"><div className="composition-challenge-rail"><ChallengeSettingsPanel api={api} challengeUpdate={displayedChallengeUpdate} online={state.online} onPlacementDraftChange={setChallengePlacementDraft} placementDraft={challengePlacementDraft} />{compositionBoardApi === null ? <section className="challenge-board-shell" role="alert"><div className="challenge-board-empty"><AlertTriangle size={22} /><strong>Challenge-Board ist in dieser Sitzung nicht verfügbar.</strong></div></section> : <ChallengeBoard api={compositionBoardApi} challengeUpdate={displayedChallengeUpdate} online={state.online} />}</div></div>{activeTab === "challenges" && <CompositionSaveDock state={state} />}</aside></div>
   );
 };
 

@@ -170,7 +170,7 @@ export const createChallengeObsSources = (
     path: "/overlay/all",
     url: buildTokenUrl(origin, "/overlay/all", overlayToken.token),
     size: "1920 × 1080 px",
-    purpose: "Liefert HUD und Challenge-Log gemeinsam in einer vollflächigen OBS-Quelle; beide Positionen stellst du im Admin ein.",
+    purpose: "Liefert HUD und Challenge-Log gemeinsam in einer vollflächigen OBS-Quelle; beide Positionen stellst du im Admin ein. Ersetzt die einzelnen HUD- und Challenge-Log-Quellen – nicht zusätzlich einbinden, sonst erscheinen Bild und Zeremonie-Ton doppelt.",
     tokenKind: "overlay",
   },
 ];

@@ -440,6 +440,7 @@ export type HudEditorState = {
   updatePlayer: (patch: Partial<ChannelStateDraft["player"]>) => void;
   selectResource: (selection: string) => void;
   save: (replace?: boolean) => Promise<void>;
+  savePlacementOnly: () => Promise<void>;
   toggleVisibility: () => Promise<void>;
   undo: (targetRevision: number) => Promise<void>;
   commitEffect: (effect: ActiveEffect, featured: boolean) => void;
@@ -512,7 +513,7 @@ export const useHudEditorState = ({
   }, [draft.group, draft.pet?.portrait, draft.player.portrait]);
   const locked = saving || !online;
   const uploadPortrait = api.uploadPortrait?.bind(api);
-  const obsUrl = overlayToken.token === null ? "" : buildTokenUrl(window.location.origin, "/overlay", overlayToken.token);
+  const obsUrl = overlayToken.token === null ? "" : buildTokenUrl(window.location.origin, "/overlay/all", overlayToken.token);
   const obsConnectionLabel = overlayToken.connectedSockets > 0 ? `${String(overlayToken.connectedSockets)} verbunden` : overlayToken.exists ? "nicht verbunden" : "kein Link";
   const obsConnectionDescription = `OBS-Verbindung: ${obsConnectionLabel}`;
   const obsChipState = overlayToken.connectedSockets > 0 ? "is-live" : overlayToken.exists ? "is-idle" : "is-empty";
@@ -567,6 +568,18 @@ export const useHudEditorState = ({
       setCommitted(response.state); setDraft(toDraft(response.state)); setDraftBaseRevision(response.state.revision); addAuditEntry(response.auditEntry); applyUndoTargets(response.undoTargets, response.state.revision); setRemoteConflict(null); setMessage(`Revision ${String(response.state.revision)} ist jetzt in OBS.`);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Speichern fehlgeschlagen."); } finally { setSaving(false); }
   };
+  // Nur das Placement aus dem committeten Stand veroeffentlichen, keine sonstigen
+  // Draft-Aenderungen: state = committed in Draft-Form + neues placement, nicht `draft`.
+  // Fehler/Status verwaltet der Aufrufer selbst (Positionen-Button an der Buehne).
+  const savePlacementOnly = async (): Promise<void> => {
+    if (locked) return;
+    const response = await api.save({ baseRevision: committed.revision, state: structuredClone({ ...toDraft(committed), placement: draft.placement }) });
+    setCommitted(response.state);
+    setDraft((current) => ({ ...current, placement: response.state.placement }));
+    setDraftBaseRevision(response.state.revision);
+    addAuditEntry(response.auditEntry);
+    applyUndoTargets(response.undoTargets, response.state.revision);
+  };
   const toggleVisibility = async () => {
     if (visibilityBusy || !online) return;
     if (committed.overlayEnabled && !window.confirm("Overlay in OBS sofort ausblenden? Zuschauer sehen das HUD dann nicht mehr.")) return;
@@ -600,7 +613,7 @@ export const useHudEditorState = ({
     setError("");
   };
 
-  return { committed, draft, setDraft, draftBaseRevision, audit, auditOpen, newAuditCount, undoTargets, online, saving, visibilityBusy, message, error, remoteConflict, overlayToken, dockToken, obsSetupOpen, obsLinkCopied, obsUrl, obsConnectionLabel, obsConnectionDescription, obsChipState, obsTokenUnavailable, dirty, locked, preview, previewMediaUrls, effectEditor, setEffectEditor, setObsSetupOpen, setOverlayToken, setDockToken, toggleAudit, updatePlayer, selectResource, save, toggleVisibility, undo, commitEffect, removeEffect, addManualGuest, addTwitchGuest, mutateToken, copyHeaderObsUrl, resolveRemoteConflict, uploadPortrait };
+  return { committed, draft, setDraft, draftBaseRevision, audit, auditOpen, newAuditCount, undoTargets, online, saving, visibilityBusy, message, error, remoteConflict, overlayToken, dockToken, obsSetupOpen, obsLinkCopied, obsUrl, obsConnectionLabel, obsConnectionDescription, obsChipState, obsTokenUnavailable, dirty, locked, preview, previewMediaUrls, effectEditor, setEffectEditor, setObsSetupOpen, setOverlayToken, setDockToken, toggleAudit, updatePlayer, selectResource, save, savePlacementOnly, toggleVisibility, undo, commitEffect, removeEffect, addManualGuest, addTwitchGuest, mutateToken, copyHeaderObsUrl, resolveRemoteConflict, uploadPortrait };
 };
 
 export const HudEditorRail = ({

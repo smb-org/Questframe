@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -115,7 +115,7 @@ describe("Admin workspace shell", () => {
     expect(rotate).not.toHaveTextContent("↻");
   });
 
-  it("zeigt den Challenge-Tab ohne die HUD-editor-rail und markiert beide Bereiche", async () => {
+  it("zeigt den Challenge-Tab und hält die HUD-editor-rail unsichtbar, markiert beide Bereiche", async () => {
     const challengeSnapshot: ChallengeBoardSnapshot = {
       eventSeq: 0,
       boardRevision: 1,
@@ -142,7 +142,10 @@ describe("Admin workspace shell", () => {
     render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="challenges" />);
 
     expect(await screen.findByRole("heading", { name: "Board" })).toBeInTheDocument();
-    expect(document.querySelector(".editor-rail")).not.toBeInTheDocument();
+    // Die HUD-Rail bleibt dauerhaft gemountet (kein Remount beim Tab-Wechsel), ist im Challenge-Tab
+    // aber per hidden-Attribut auf dem Tabpanel unsichtbar.
+    expect(document.querySelector("#admin-composition-panel-hud")).toHaveAttribute("hidden");
+    expect(document.querySelector(".editor-rail")).not.toBeVisible();
     expect(screen.getByRole("tab", { name: "HUD" })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByRole("tab", { name: "Challenges" })).toHaveAttribute("aria-selected", "true");
   });
@@ -179,9 +182,12 @@ describe("Admin workspace shell", () => {
     const toggle = await screen.findByRole("checkbox", { name: "Zeremonien und Töne aktiv" });
     expect(toggle).toBeChecked();
     await user.click(toggle);
-    fireEvent.change(screen.getByLabelText("X"), { target: { value: "250" } });
-    fireEvent.change(screen.getByLabelText("Y"), { target: { value: "12" } });
-    fireEvent.change(screen.getByLabelText("Skalierung"), { target: { value: "1.25" } });
+    // Die HUD-Rail ist ebenfalls dauerhaft gemountet und hat eigene X/Y/Skalierung-Felder;
+    // hier gezielt im sichtbaren Challenge-Tabpanel suchen.
+    const challengesPanel = within(document.querySelector("#admin-composition-panel-challenges") as HTMLElement);
+    fireEvent.change(challengesPanel.getByLabelText("X"), { target: { value: "250" } });
+    fireEvent.change(challengesPanel.getByLabelText("Y"), { target: { value: "12" } });
+    fireEvent.change(challengesPanel.getByLabelText("Skalierung"), { target: { value: "1.25" } });
     await user.click(screen.getByRole("button", { name: "Challenge-Einstellungen speichern" }));
 
     expect(saveChallengeSettings).toHaveBeenCalledWith(expect.objectContaining({
@@ -396,7 +402,7 @@ describe("Admin workspace publication boundary", () => {
     const copyButton = screen.getByRole("button", { name: "OBS-Link kopieren" });
     expect(copyButton).toBeEnabled();
     await user.click(copyButton);
-    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/overlay#token=${"C".repeat(43)}`);
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/overlay/all#token=${"C".repeat(43)}`);
   });
 
   it("macht den Hinweis zu einem vorhandenen Alt-Token ohne Envelope erreichbar", () => {
@@ -1029,7 +1035,7 @@ describe("Admin workspace publication boundary", () => {
     expect(obsChip).toHaveAttribute("title", "OBS-Verbindung: nicht verbunden");
     expect(copyButton).toBeEnabled();
     await user.click(copyButton);
-    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/overlay#token=${"A".repeat(43)}`);
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/overlay/all#token=${"A".repeat(43)}`);
 
     await user.click(screen.getByRole("button", { name: "OBS-Einrichtung öffnen" }));
     expect(await screen.findByRole("heading", { name: "Alle Quellen auf einen Blick" })).toBeInTheDocument();
