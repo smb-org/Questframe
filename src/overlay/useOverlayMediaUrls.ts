@@ -28,18 +28,27 @@ export const useOverlayMediaUrls = (
     if (token === null || state === null) return;
     const needed = new Set(uploadedHashes(state));
     let disposed = false;
+    let changed = false;
     for (const [hash, url] of objectUrlsRef.current) {
       if (!needed.has(hash)) {
         URL.revokeObjectURL(url);
         objectUrlsRef.current.delete(hash);
+        changed = true;
       }
     }
     const missing = [...needed].filter((hash) => !objectUrlsRef.current.has(hash));
     void Promise.all(
       missing.map(async (hash) => {
-        const response = await fetch(`/api/media/${hash}`, {
-          headers: { authorization: `Bearer ${token}` },
-        });
+        let response: Response;
+        try {
+          response = await fetch(`/api/media/${hash}`, {
+            headers: { authorization: `Bearer ${token}` },
+          });
+        } catch {
+          // Netzwerkfehler: Portrait fehlt bis zum naechsten State-Update, die
+          // uebrigen geladenen URLs werden trotzdem veroeffentlicht.
+          return;
+        }
         if (!response.ok) return;
         const url = URL.createObjectURL(await response.blob());
         if (disposed) {
@@ -47,9 +56,11 @@ export const useOverlayMediaUrls = (
           return;
         }
         objectUrlsRef.current.set(hash, url);
+        changed = true;
       }),
     ).then(() => {
-      if (!disposed) setMediaUrls(new Map(objectUrlsRef.current));
+      // Nur bei tatsaechlicher Aenderung neu publizieren, sonst unnoetiger Render.
+      if (changed && !disposed) setMediaUrls(new Map(objectUrlsRef.current));
     });
     return () => {
       disposed = true;
