@@ -773,6 +773,27 @@ Stelle zeigt: HUD-Overlay, Challenge-Log, Live-Bedienseite. Je Zeile die URL mit
 Kopierknopf, die empfohlene Größe, und ein Satz wozu sie dient. Die Live-Seite bekommt
 zusätzlich einen QR-Code für den Handy-Weg und den Menüpfad für den OBS-Weg.
 
+**Geheimnisgrenze der Einrichtungsseite.** Der Dock-Token ist im Unterschied zum
+Overlay-Token schreibberechtigt. Deshalb sind alle Token-URLs zunächst verdeckt und
+werden erst nach einer ausdrücklichen Aktion eingeblendet. Der Kopierknopf arbeitet auch
+im verdeckten Zustand, damit die URL für den normalen Einrichtungsweg nicht auf dem
+Bildschirm erscheinen muss. Die verdeckte URL und der QR-Code dürfen den Dock-Token nicht
+im Klartext in den DOM schreiben. Der QR-Code erscheint erst nach dem Aufdecken und trägt
+den Hinweis, ihn nicht im Stream zu zeigen: Wer die Admin-Oberfläche streamt, darf damit
+nicht versehentlich die Kontrolle über die Challenges verschenken.
+
+Der QR-Code wird über die etablierte Bibliothek `qrcode` erzeugt und als dynamischer Chunk
+geladen, sobald die Live-URL aufgedeckt wird. Dieser Einstiegspunkt bekommt im Build-Gate
+eine eigene JavaScript-Budgetdeklaration; er gehört nicht zum anfänglichen Admin-JavaScript.
+Gemessen sind aktuell `9,05 KiB` gzip für den QR-Code-Einstiegspunkt und `112,32 KiB` gzip
+für das initiale Admin-JavaScript; das Admin-Gate bleibt bei `250 KiB`.
+
+Die beiden Wege zur Live-Seite sind gleichwertig: Der **Handy-Weg** nutzt den QR-Code und
+öffnet die Seite neben der Tastatur. Der **OBS-Weg** nutzt `View → Docks → Custom Browser
+Docks`; Browser-Docks stehen unter Wayland nicht zur Verfügung. Der eingebettete Browser
+hat ein eigenes Cookie-Profil, daher authentifiziert die Seite per Token-URL und nicht per
+Login. Der Dock-Token ist als URL und QR-Code wie ein Passwort zu behandeln.
+
 Durch die Entscheidung für eine eigene Browserquelle hat der Streamer drei
 Einrichtungsschritte statt einem. Jeder davon ist eine Stelle, an der jemand aufgibt. Für
 ein Modul, das fremde Streamer benutzen sollen, ist Einrichtungsreibung der wirksamste

@@ -14,8 +14,9 @@ const liveKey = "src/live/LiveApp.tsx";
 // pnpm verschachtelt den aufgeloesten Pfad unter node_modules/.pnpm/..., deshalb
 // matchen wir weiterhin per Suffix statt gegen ein package-manager-spezifisches Layout.
 const temporalKeySuffix = "@js-temporal/polyfill/dist/index.esm.js";
+const qrCodeKeySuffix = "/qrcode/lib/browser.js";
 
-const createBudgetDeclarations = (temporalKey, challengeThemeKeys) => [
+const createBudgetDeclarations = (temporalKey, challengeThemeKeys, qrCodeKey) => [
   {
     type: "surface",
     key: overlayKey,
@@ -44,6 +45,13 @@ const createBudgetDeclarations = (temporalKey, challengeThemeKeys) => [
     label: "Temporal",
     javascriptLabel: "Lazy Temporal chunk",
     javascriptBudget: 100 * 1024,
+  },
+  {
+    type: "surface",
+    key: qrCodeKey,
+    label: "QR-Code Chunk",
+    javascriptLabel: "Dynamischer QR-Code-Einstiegspunkt",
+    javascriptBudget: 32 * 1024,
   },
   {
     type: "surface",
@@ -102,7 +110,13 @@ const challengeThemeKeys = challengeSourceEntry?.dynamicImports?.filter((key) =>
 if (challengeThemeKeys.length !== 6) {
   throw new Error(`Expected six dynamic Challenge-Theme-Chunks, found ${String(challengeThemeKeys.length)}.`);
 }
-const budgetDeclarations = createBudgetDeclarations(temporalKey, challengeThemeKeys);
+const adminEntry = manifest[adminKey];
+const qrCodeKeyCandidates = adminEntry?.dynamicImports?.filter((key) => key.endsWith(qrCodeKeySuffix)) ?? [];
+if (qrCodeKeyCandidates.length !== 1) {
+  throw new Error(`Expected exactly one dynamic QR-Code entry ending in ${qrCodeKeySuffix}, found ${String(qrCodeKeyCandidates.length)}.`);
+}
+const [qrCodeKey] = qrCodeKeyCandidates;
+const budgetDeclarations = createBudgetDeclarations(temporalKey, challengeThemeKeys, qrCodeKey);
 
 const overlayClosure = collectStaticClosure(manifest, [indexKey, overlayKey]);
 const adminClosure = collectStaticClosure(manifest, [indexKey, adminKey]);
@@ -110,8 +124,8 @@ const adminClosure = collectStaticClosure(manifest, [indexKey, adminKey]);
 if (overlayClosure.has(adminKey) || overlayClosure.has(temporalKey)) {
   throw new Error("Overlay initial code must not import Admin or Temporal modules.");
 }
-if (adminClosure.has(temporalKey)) {
-  throw new Error("Temporal must remain lazy and outside the Admin initial closure.");
+if (adminClosure.has(temporalKey) || adminClosure.has(qrCodeKey)) {
+  throw new Error("Temporal und QR-Code müssen lazy und außerhalb der Admin-Initial-Closure bleiben.");
 }
 
 const distributionEntries = await readdir(path.join(projectRoot, "dist"), { withFileTypes: true });

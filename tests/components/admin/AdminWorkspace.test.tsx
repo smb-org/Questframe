@@ -12,6 +12,10 @@ import type { ChallengeBoardSnapshot } from "../../../src/modules/win-challenges
 import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
 import { AdminWorkspace, type AdminApi } from "../../../src/admin/AdminWorkspace";
 
+vi.mock("qrcode", () => ({
+  toDataURL: vi.fn(() => Promise.resolve("data:image/png;base64,challenge-qr")),
+}));
+
 const actor = { twitchUserId: twitchUserIdSchema.parse("123"), displayName: "Moderator" };
 
 const bootstrap = (): BootstrapResponse => ({
@@ -243,6 +247,81 @@ describe("Admin workspace shell", () => {
       baseSettingsRevision: 4,
       effectsEnabled: false,
     }));
+  });
+});
+
+describe("Admin workspace setup", () => {
+  it("zeigt drei Quellen, kopiert verdeckte URLs und erzeugt den QR-Code erst nach dem Aufdecken", async () => {
+    const user = userEvent.setup();
+    const overlayToken = "O".repeat(43);
+    const dockToken = "D".repeat(43);
+    const initial = bootstrap();
+    initial.capsule.overlayToken = {
+      exists: true,
+      generation: 2,
+      createdAt: "2026-08-29T12:00:00.000Z",
+      lastUsedAt: null,
+      connectedSockets: 0,
+      token: overlayToken,
+    };
+    initial.capsule.dockToken = {
+      exists: true,
+      generation: 3,
+      fingerprint: "ABCDEF12",
+      createdAt: "2026-08-29T12:00:00.000Z",
+      lastUsedAt: null,
+      connectedSockets: 0,
+      token: dockToken,
+    };
+    const writeText = vi.fn<(text: string) => Promise<void>>(() => Promise.resolve());
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const challengeSnapshot: ChallengeBoardSnapshot = {
+      eventSeq: 0,
+      boardRevision: 1,
+      settingsRevision: 1,
+      settings: {
+        styleId: "plain-list",
+        themeMode: "inherit",
+        surfaceMode: "surface",
+        headerTitle: "CHALLENGES",
+        effectsEnabled: true,
+        maxVisible: 5,
+        globalTimer: null,
+      },
+      challenges: [],
+    };
+
+    render(<AdminWorkspace
+      api={{
+        save: vi.fn(),
+        setVisibility: vi.fn(),
+        getChallengeBoard: vi.fn(() => Promise.resolve(challengeSnapshot)),
+        saveChallengeBoard: vi.fn(),
+      }}
+      initialBootstrap={initial}
+      workspace="challenges"
+    />);
+
+    expect(await screen.findByRole("heading", { name: "HUD-Overlay" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Challenge-Log" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Live-Bedienseite" })).toBeInTheDocument();
+    expect(screen.getByText("1920 × 1080 px")).toBeInTheDocument();
+    expect(screen.getByText("340 × 300 px")).toBeInTheDocument();
+    expect(screen.getByText("mindestens 280 px breit; Höhe nach Inhalt")).toBeInTheDocument();
+    expect(screen.getByText(/View → Docks → Custom Browser Docks/)).toBeInTheDocument();
+    expect(screen.getByText("Browser-Docks stehen unter Wayland nicht zur Verfügung.")).toBeInTheDocument();
+    expect(screen.getByText(/eigenes Cookie-Profil/)).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "QR-Code für die Live-Bedienseite" })).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(dockToken);
+
+    await user.click(screen.getByRole("button", { name: "HUD-Overlay-URL kopieren" }));
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/overlay#token=${overlayToken}`);
+    expect(screen.getByRole("button", { name: "HUD-Overlay-URL kopieren" })).toHaveTextContent("Kopiert");
+
+    await user.click(screen.getByRole("button", { name: "URLs anzeigen" }));
+    expect(screen.getByText(`${window.location.origin}/live/challenges#token=${dockToken}`)).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "QR-Code für die Live-Bedienseite" })).toBeInTheDocument();
+    expect(screen.getByText(/QR-Code nicht im Stream zeigen/)).toBeInTheDocument();
   });
 });
 

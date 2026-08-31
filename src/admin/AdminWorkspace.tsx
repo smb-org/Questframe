@@ -38,6 +38,7 @@ import {
 import type {
   AuditEntry,
   BootstrapResponse,
+  DockTokenResponse,
   OverlayTokenResponse,
   SaveRequest,
   SaveResponse,
@@ -113,6 +114,12 @@ export type AdminApi = {
         requestId: string;
         expectedGeneration: number;
       }) => Promise<OverlayTokenResponse>)
+    | undefined;
+  mutateDockToken?:
+    | ((rotate: boolean, request: {
+        requestId: string;
+        expectedGeneration: number;
+      }) => Promise<DockTokenResponse>)
     | undefined;
   uploadPortrait?: ((blob: Blob) => Promise<PortraitRef>) | undefined;
   renewMediaLeases?: ((contentHashes: string[]) => Promise<void>) | undefined;
@@ -766,6 +773,276 @@ const WorkspaceSwitcher = ({ current }: { current: AdminWorkspaceId }) => (
     <a aria-current={current === "challenges" ? "page" : undefined} className={current === "challenges" ? "is-active" : ""} href="/admin/challenges">Challenges</a>
   </nav>
 );
+
+type OverlayTokenStatus = BootstrapResponse["capsule"]["overlayToken"];
+type DockTokenStatus = NonNullable<BootstrapResponse["capsule"]["dockToken"]>;
+type SetupSourceId = "hud" | "log" | "live";
+
+const emptyDockTokenStatus = (): DockTokenStatus => ({
+  exists: false,
+  generation: 0,
+  fingerprint: null,
+  createdAt: null,
+  lastUsedAt: null,
+  connectedSockets: 0,
+  token: null,
+});
+
+const SetupQrCode = ({ value }: { value: string }) => {
+  const [source, setSource] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let disposed = false;
+    void import("qrcode")
+      .then(({ toDataURL }) => toDataURL(value, {
+        errorCorrectionLevel: "M",
+        margin: 2,
+        width: 220,
+      }))
+      .then((nextSource) => {
+        if (!disposed) setSource(nextSource);
+      })
+      .catch(() => {
+        if (!disposed) setError(true);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [value]);
+
+  return (
+    <div aria-label="QR-Code für die Live-Bedienseite" className="challenge-setup__qr">
+      {source !== null ? (
+        <img alt="QR-Code für die Live-Bedienseite" src={source} />
+      ) : error ? (
+        <p role="alert">QR-Code konnte nicht erzeugt werden.</p>
+      ) : (
+        <p>QR-Code wird vorbereitet …</p>
+      )}
+    </div>
+  );
+};
+
+const ChallengeSetupPanel = ({
+  api,
+  dockToken,
+  online,
+  onDockToken,
+  onOverlayToken,
+  overlayToken,
+}: {
+  api: AdminApi;
+  dockToken: DockTokenStatus;
+  online: boolean;
+  onDockToken: (token: DockTokenStatus) => void;
+  onOverlayToken: (token: OverlayTokenStatus) => void;
+  overlayToken: OverlayTokenStatus;
+}) => {
+  const [secretsVisible, setSecretsVisible] = useState(false);
+  const [copiedSource, setCopiedSource] = useState<SetupSourceId | null>(null);
+  const [copyError, setCopyError] = useState("");
+  const [tokenError, setTokenError] = useState("");
+  const [busyToken, setBusyToken] = useState<SetupSourceId | null>(null);
+  const copiedTimer = useRef<number | null>(null);
+  const origin = window.location.origin;
+  const hudUrl = overlayToken.token === null ? "" : `${origin}/overlay#token=${overlayToken.token}`;
+  const logUrl = overlayToken.token === null ? "" : `${origin}/overlay/challenges#token=${overlayToken.token}`;
+  const liveUrl = dockToken.token === null ? "" : `${origin}/live/challenges#token=${dockToken.token}`;
+
+  useEffect(() => () => {
+    if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+  }, []);
+
+  const maskedUrl = (path: string, url: string): string => (
+    url === "" ? `${origin}${path} · Token noch nicht erzeugt` : `${origin}${path}#token=••••••`
+  );
+
+  const copyUrl = async (source: SetupSourceId, url: string) => {
+    if (url === "") return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopyError("");
+      setCopiedSource(source);
+      if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+      copiedTimer.current = window.setTimeout(() => {
+        setCopiedSource(null);
+        copiedTimer.current = null;
+      }, 2_000);
+    } catch {
+      setCopyError("Link konnte nicht kopiert werden.");
+    }
+  };
+
+  const mutateToken = async (source: SetupSourceId) => {
+    if (source === "log") return;
+    const status = source === "hud" ? overlayToken : dockToken;
+    const mutate = source === "hud" ? api.mutateOverlayToken?.bind(api) : api.mutateDockToken?.bind(api);
+    if (mutate === undefined || busyToken !== null || !online) return;
+    const rotate = status.exists;
+    if (rotate && !window.confirm("Alte Token-URL sofort ungültig machen und neuen Token erzeugen?")) return;
+    setBusyToken(source);
+    setTokenError("");
+    try {
+      const result = await mutate(rotate, {
+        requestId: crypto.randomUUID(),
+        expectedGeneration: status.generation,
+      });
+      if (source === "hud") {
+        onOverlayToken({
+          ...overlayToken,
+          exists: true,
+          generation: result.generation,
+          createdAt: result.createdAt,
+          lastUsedAt: null,
+          connectedSockets: 0,
+          token: result.token,
+        });
+      } else {
+        onDockToken({
+          ...dockToken,
+          exists: true,
+          generation: result.generation,
+          fingerprint: result.fingerprint,
+          createdAt: result.createdAt,
+          lastUsedAt: null,
+          connectedSockets: 0,
+          token: result.token,
+        });
+      }
+    } catch (caught) {
+      setTokenError(caught instanceof Error ? caught.message : "Token konnte nicht erzeugt werden.");
+    } finally {
+      setBusyToken(null);
+    }
+  };
+
+  const sources: ReadonlyArray<{
+    id: SetupSourceId;
+    name: string;
+    path: string;
+    url: string;
+    size: string;
+    purpose: string;
+  }> = [
+    {
+      id: "hud",
+      name: "HUD-Overlay",
+      path: "/overlay",
+      url: hudUrl,
+      size: "1920 × 1080 px",
+      purpose: "Zeigt das veröffentlichte HUD in der OBS-Ausgabe.",
+    },
+    {
+      id: "log",
+      name: "Challenge-Log",
+      path: "/overlay/challenges",
+      url: logUrl,
+      size: "340 × 300 px",
+      purpose: "Zeigt offene und kürzlich erledigte Challenges als eigene OBS-Browserquelle.",
+    },
+    {
+      id: "live",
+      name: "Live-Bedienseite",
+      path: "/live/challenges",
+      url: liveUrl,
+      size: "mindestens 280 px breit; Höhe nach Inhalt",
+      purpose: "Steuert Challenges und Timer live, ohne in der Stream-Ausgabe zu erscheinen.",
+    },
+  ];
+
+  return (
+    <section aria-labelledby="challenge-setup-heading" className="challenge-setup-panel">
+      <header className="challenge-setup-heading">
+        <div>
+          <span className="eyebrow">OBS-Einrichtung</span>
+          <h2 id="challenge-setup-heading">Alle Quellen auf einen Blick</h2>
+          <p>Jede URL ist sofort kopierbar. Token bleiben standardmäßig verborgen und werden nur auf ausdrückliche Aktion angezeigt.</p>
+        </div>
+        <button
+          aria-pressed={secretsVisible}
+          className="button button--quiet challenge-setup__reveal"
+          onClick={() => setSecretsVisible((current) => !current)}
+          type="button"
+        >
+          {secretsVisible ? <EyeOff aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}
+          {secretsVisible ? "URLs ausblenden" : "URLs anzeigen"}
+        </button>
+      </header>
+      {copyError !== "" && <p className="challenge-board-error" role="alert">{copyError}</p>}
+      {tokenError !== "" && <p className="challenge-board-error" role="alert">{tokenError}</p>}
+      <div className="challenge-setup__sources">
+        {sources.map((source) => {
+          const canCopy = source.url !== "";
+          const isCopied = copiedSource === source.id;
+          const tokenManagement = source.id === "hud" || source.id === "live";
+          const tokenExists = source.id === "live" ? dockToken.exists : overlayToken.exists;
+          return (
+            <article className={`challenge-setup__source challenge-setup__source--${source.id}`} key={source.id}>
+              <div className="challenge-setup__source-heading">
+                <div>
+                  <h3>{source.name}</h3>
+                  <p>{source.purpose}</p>
+                </div>
+                <span className="challenge-setup__size">
+                  <strong>{source.size}</strong>
+                  {source.id === "hud" && <small>Stage 630 × 259 px innerhalb der OBS-Fläche</small>}
+                </span>
+              </div>
+              <div className="challenge-setup__url-line">
+                <code aria-label={`${source.name} URL`}>{secretsVisible && canCopy ? source.url : maskedUrl(source.path, source.url)}</code>
+                <button
+                  aria-label={`${source.name}-URL kopieren`}
+                  className="button button--quiet challenge-setup__copy"
+                  disabled={!canCopy}
+                  onClick={() => void copyUrl(source.id, source.url)}
+                  type="button"
+                >
+                  {isCopied ? <Check aria-hidden="true" size={15} /> : <Copy aria-hidden="true" size={15} />}
+                  <span>{isCopied ? "Kopiert" : "Kopieren"}</span>
+                </button>
+              </div>
+              {tokenManagement && (
+                <button
+                  className="button button--primary challenge-setup__token-action"
+                  disabled={busyToken !== null || !online || (source.id === "hud" ? api.mutateOverlayToken === undefined : api.mutateDockToken === undefined)}
+                  onClick={() => void mutateToken(source.id)}
+                  type="button"
+                >
+                  {busyToken === source.id && <RotateCw aria-hidden="true" className="spin" size={15} />}
+                  {busyToken === source.id ? "Wird erzeugt …" : tokenExists ? "Token ersetzen" : source.id === "hud" ? "OBS-Link erzeugen" : "Dock-Link erzeugen"}
+                </button>
+              )}
+              {source.id === "live" && (
+                <>
+                  <div className="challenge-setup__live-ways">
+                    <div>
+                      <strong>Handy-Weg</strong>
+                      <p>QR-Code scannen und die Live-Seite neben der Tastatur öffnen.</p>
+                    </div>
+                    <div>
+                      <strong>OBS-Weg</strong>
+                      <p>In OBS: View → Docks → Custom Browser Docks.</p>
+                      <p className="challenge-setup__warning">Browser-Docks stehen unter Wayland nicht zur Verfügung.</p>
+                      <p>Der eingebettete Browser hat ein eigenes Cookie-Profil. Diese Seite authentifiziert per Token-URL, nicht per Login.</p>
+                    </div>
+                  </div>
+                  {secretsVisible && liveUrl !== "" && (
+                    <>
+                      <SetupQrCode key={liveUrl} value={liveUrl} />
+                      <p className="challenge-setup__qr-warning">QR-Code nicht im Stream zeigen – er enthält Schreibzugriff auf deine Challenges.</p>
+                    </>
+                  )}
+                </>
+              )}
+            </article>
+          );
+        })}
+      </div>
+      <p aria-live="polite" className="challenge-setup__privacy">Der Dock-Token darf Challenges verändern. Behandle URL und QR-Code wie ein Geheimnis.</p>
+    </section>
+  );
+};
 
 const ChallengeSettingsPanel = ({
   api,
@@ -1641,6 +1918,9 @@ const ChallengeAdminWorkspace = ({
 }) => {
   const [committed, setCommitted] = useState(initialBootstrap.state);
   const [overlayToken, setOverlayToken] = useState(initialBootstrap.capsule.overlayToken);
+  const [dockToken, setDockToken] = useState<DockTokenStatus>(
+    () => initialBootstrap.capsule.dockToken ?? emptyDockTokenStatus(),
+  );
   const [challengeUpdate, setChallengeUpdate] = useState<ChallengeUpdate | null>(null);
   const [online, setOnline] = useState(true);
   const [visibilityBusy, setVisibilityBusy] = useState(false);
@@ -1738,6 +2018,14 @@ const ChallengeAdminWorkspace = ({
       {!online && <div className="offline-banner">Offline – Board-Speicherung pausiert; bestehende Challenges bleiben sichtbar.</div>}
       {error !== "" && <p className="challenge-board-error challenge-shell-error" role="alert">{error}</p>}
       <main className="admin-challenges-main">
+        <ChallengeSetupPanel
+          api={api}
+          dockToken={dockToken}
+          online={online}
+          onDockToken={setDockToken}
+          onOverlayToken={setOverlayToken}
+          overlayToken={overlayToken}
+        />
         <ChallengeSettingsPanel api={api} challengeUpdate={challengeUpdate} online={online} />
         {boardApi === null ? (
           <section className="challenge-board-shell" role="alert"><div className="challenge-board-empty"><AlertTriangle size={22} /><strong>Challenge-Board ist in dieser Sitzung nicht verfügbar.</strong></div></section>

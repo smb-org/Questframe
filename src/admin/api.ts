@@ -1,6 +1,7 @@
 import {
   apiErrorSchema,
   bootstrapResponseSchema,
+  dockTokenResponseSchema,
   overlayTokenResponseSchema,
   renewMediaLeasesResponseSchema,
   saveResponseSchema,
@@ -130,6 +131,18 @@ export class BrowserAdminApi implements AdminApi {
       input,
     );
     return overlayTokenResponseSchema.parse(await response.json());
+  }
+
+  async mutateDockToken(
+    rotate: boolean,
+    input: { requestId: string; expectedGeneration: number },
+  ) {
+    const response = await this.requestJson(
+      rotate ? "/api/challenges/dock-token/rotate" : "/api/challenges/dock-token",
+      "POST",
+      input,
+    );
+    return dockTokenResponseSchema.parse(await response.json());
   }
 
   async uploadPortrait(blob: Blob) {
