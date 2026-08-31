@@ -36,12 +36,12 @@ import {
   type SettingsSaveRequest,
   type SettingsSaveResponse,
 } from "../modules/win-challenges/contracts/schemas";
-import { ChallengeBoard, type ChallengeBoardApi } from "../modules/win-challenges/ui/ChallengeBoard";
+import { ChallengeBoard, type ChallengeBoardApi, type ChallengeBoardSaveHandle } from "../modules/win-challenges/ui/ChallengeBoard";
 import { ChallengeLog } from "../modules/win-challenges/ui/ChallengeLog";
 import type { AdminWorkspace as AdminWorkspaceId } from "../routing";
 import type { ChannelState, PortraitRef } from "../shared/contracts/state";
 import { ObsSetupPanel } from "./ui/ObsSetupPanel";
-import { HudEditorRail, type HudEditorState, useHudEditorState } from "./ui/HudEditorRail";
+import { HudEditorRail, type HudEditorState, type ModuleSaveOutcome, useHudEditorState } from "./ui/HudEditorRail";
 import { THEME_LABELS } from "./ui/hudConstants";
 import { PreviewPanel } from "./ui/PreviewPanel";
 import { createChallengeObsSources } from "./ui/obsSetup";
@@ -68,6 +68,11 @@ export type AdminApi = {
 
 const sameChallengePlacement = (left: ChallengePlacement | null, right: ChallengePlacement): boolean => left !== null && left.x === right.x && left.y === right.y && left.scale === right.scale;
 
+// Griff, den Challenge-Einstellungen und -Board an die globale Speicherleiste
+// (GlobalSaveBar) melden: Dirty-Zustand plus ein save(), das den Ausgang direkt
+// zurueckgibt statt ueber verzoegerten React-State erkannt zu werden.
+type ModuleSaveHandle = { dirty: boolean; save: () => Promise<ModuleSaveOutcome> };
+
 const callPointerCapture = (element: HTMLElement, method: "setPointerCapture" | "releasePointerCapture", pointerId: number): void => {
   const candidate = (element as unknown as Record<string, unknown>)[method];
   if (typeof candidate !== "function") return;
@@ -88,7 +93,7 @@ const loadCompositionChallengeTheme = async (themeId: ChallengeThemeId): Promise
   await loadChallengeTheme(themeId);
 };
 
-const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, onPlacementDraftChange }: { api: AdminApi; online: boolean; challengeUpdate: ChallengeUpdate | null; placementDraft?: ChallengePlacement | null; onPlacementDraftChange?: (placement: ChallengePlacement) => void }) => {
+const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, onPlacementDraftChange, onHandleChange }: { api: AdminApi; online: boolean; challengeUpdate: ChallengeUpdate | null; placementDraft?: ChallengePlacement | null; onPlacementDraftChange?: (placement: ChallengePlacement) => void; onHandleChange?: (handle: ModuleSaveHandle) => void }) => {
   const [snapshot, setSnapshot] = useState<ChallengeBoardSnapshot | null>(null);
   const [effectsEnabled, setEffectsEnabled] = useState<boolean | null>(null);
   const [placement, setPlacement] = useState<ChallengePlacement | null>(null);
@@ -139,24 +144,46 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
     void _themeId;
     applyRemoteSnapshot({ eventSeq: challengeUpdate.eventSeq, boardRevision: challengeUpdate.boardRevision, settingsRevision: challengeUpdate.settingsRevision, settings, challenges: challengeUpdate.challenges });
   }, [applyRemoteSnapshot, challengeUpdate]);
-  if (api.getChallengeBoard === undefined || api.saveChallengeSettings === undefined) return null;
-  const saveChallengeSettings = api.saveChallengeSettings.bind(api);
+  const saveChallengeSettings = api.saveChallengeSettings?.bind(api);
   const dirty = snapshot !== null && effectsEnabled !== null && effectivePlacement !== null && (effectsEnabled !== snapshot.settings.effectsEnabled || !sameChallengePlacement(effectivePlacement, snapshot.settings.placement));
   const updatePlacement = (next: ChallengePlacement) => { setPlacement(next); placementRef.current = next; onPlacementDraftChange?.(next); setMessage(""); };
-  const save = async () => {
-    if (snapshot === null || effectsEnabled === null || effectivePlacement === null || !dirty || saving || !online) return;
+  const save = async (): Promise<ModuleSaveOutcome> => {
+    if (saveChallengeSettings === undefined || snapshot === null || effectsEnabled === null || effectivePlacement === null || !dirty || saving || !online) return { ok: false, conflict: false, message: "Nicht speicherbar." };
     setSaving(true); setError(""); setMessage("");
     try {
       const settings = snapshot.settings;
       const response = await saveChallengeSettings({ baseSettingsRevision: snapshot.settingsRevision, styleId: settings.styleId, themeMode: settings.themeMode, surfaceMode: settings.surfaceMode, headerTitle: settings.headerTitle, effectsEnabled, maxVisible: settings.maxVisible, globalTimerTotalMs: settings.globalTimer?.totalMs ?? null, placement: effectivePlacement });
-      snapshotRef.current = response.snapshot; effectsEnabledRef.current = response.snapshot.settings.effectsEnabled; placementRef.current = response.snapshot.settings.placement;
-      setSnapshot(response.snapshot); setEffectsEnabled(response.snapshot.settings.effectsEnabled); setPlacement(response.snapshot.settings.placement); onPlacementDraftChange?.(response.snapshot.settings.placement); setMessage("Zeremonie-Einstellung veröffentlicht.");
+      // Derselbe Revisions-Guard wie in applyRemoteSnapshot: waehrend unsere Antwort
+      // unterwegs war, kann per Socket schon eine neuere Revision eingetroffen sein
+      // (zweiter Editor). Eine verspaetete eigene Antwort darf diesen neueren lokalen
+      // Stand nicht zurueckdrehen, sonst laeuft der naechste Save in einen falschen Konflikt.
+      if (snapshotRef.current === null || response.snapshot.settingsRevision > snapshotRef.current.settingsRevision) {
+        snapshotRef.current = response.snapshot; effectsEnabledRef.current = response.snapshot.settings.effectsEnabled; placementRef.current = response.snapshot.settings.placement;
+        setSnapshot(response.snapshot); setEffectsEnabled(response.snapshot.settings.effectsEnabled); setPlacement(response.snapshot.settings.placement); onPlacementDraftChange?.(response.snapshot.settings.placement);
+      }
+      setMessage("Zeremonie-Einstellung veröffentlicht.");
+      return { ok: true, conflict: false };
     } catch (caught) {
       const candidate = typeof caught === "object" && caught !== null ? caught as { code?: unknown; currentSnapshot?: unknown } : {};
       const parsedCurrentSnapshot = candidate.code === "revision_conflict" ? challengeBoardSnapshotSchema.safeParse(candidate.currentSnapshot) : null;
-      if (parsedCurrentSnapshot?.success === true) { snapshotRef.current = parsedCurrentSnapshot.data; setSnapshot(parsedCurrentSnapshot.data); setError("Einstellungen wurden inzwischen geändert. Der aktuelle Serverstand ist übernommen; dein Entwurf bleibt erhalten."); } else setError(caught instanceof Error ? caught.message : "Challenge-Einstellungen konnten nicht gespeichert werden.");
+      if (parsedCurrentSnapshot?.success === true) {
+        snapshotRef.current = parsedCurrentSnapshot.data; setSnapshot(parsedCurrentSnapshot.data);
+        const conflictMessage = "Einstellungen wurden inzwischen geändert. Der aktuelle Serverstand ist übernommen; dein Entwurf bleibt erhalten.";
+        setError(conflictMessage);
+        return { ok: false, conflict: true, message: conflictMessage };
+      }
+      const messageText = caught instanceof Error ? caught.message : "Challenge-Einstellungen konnten nicht gespeichert werden.";
+      setError(messageText);
+      return { ok: false, conflict: false, message: messageText };
     } finally { setSaving(false); }
   };
+  // Griff fuer die globale Speicherleiste, siehe ChallengeBoard.tsx fuer denselben Ref-Kniff.
+  const saveRef = useRef(save);
+  useEffect(() => { saveRef.current = save; });
+  useEffect(() => {
+    onHandleChange?.({ dirty, save: () => saveRef.current() });
+  }, [dirty, onHandleChange]);
+  if (api.getChallengeBoard === undefined || api.saveChallengeSettings === undefined) return null;
   const fallbackPlacement = effectivePlacement ?? { x: 300, y: 8, scale: 1 };
   return (
     <section aria-labelledby="challenge-settings-heading" className="challenge-settings-panel">
@@ -164,7 +191,9 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
       {error !== "" && <p className="challenge-board-error" role="alert">{error}</p>}
       <label className="challenge-effects-toggle"><input aria-label="Zeremonien und Töne aktiv" checked={effectsEnabled ?? false} disabled={loading || saving || !online || snapshot === null} onChange={(event) => { setEffectsEnabled(event.target.checked); setMessage(""); }} type="checkbox" /><span><strong>Zeremonien und Töne aktiv</strong><small>Der Schalter gilt für alle Challenge-Styles und alle OBS-Quellen.</small></span></label>
       <div className="placement-grid"><label><span>X</span><input disabled={loading || saving || !online || effectivePlacement === null} max={384} min={0} type="number" value={fallbackPlacement.x} onChange={(event) => updatePlacement({ ...fallbackPlacement, x: Number(event.target.value) })} /></label><label><span>Y</span><input disabled={loading || saving || !online || effectivePlacement === null} max={216} min={0} type="number" value={fallbackPlacement.y} onChange={(event) => updatePlacement({ ...fallbackPlacement, y: Number(event.target.value) })} /></label><label><span>Skalierung</span><select disabled={loading || saving || !online || effectivePlacement === null} value={fallbackPlacement.scale} onChange={(event) => updatePlacement({ ...fallbackPlacement, scale: Number(event.target.value) })}>{[0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2].map((scale) => <option key={scale} value={scale}>{Math.round(scale * 100)}%</option>)}</select></label></div>
-      <footer className="challenge-settings-save-bar"><span aria-live="polite" className={dirty ? "save-dirty" : ""}>{loading ? "Einstellungen werden geladen …" : message !== "" ? message : dirty ? "Ungespeicherte Einstellung" : "Einstellung veröffentlicht"}</span><button aria-label="Challenge-Einstellungen speichern" className="button button--save" disabled={!dirty || saving || !online} onClick={() => void save()} type="button"><Save size={17} /> {saving ? "Wird gespeichert …" : "Einstellungen speichern"}</button></footer>
+      {/* Kein modul-eigener Speichern-Button mehr: die globale Speicherleiste ist die
+          einzige Speicher-Aktion. Status/Dirty-Anzeige bleibt fuer Sichtbarkeit. */}
+      <footer className="challenge-settings-save-bar"><span aria-live="polite" className={dirty ? "save-dirty" : ""}>{loading ? "Einstellungen werden geladen …" : message !== "" ? message : dirty ? "Ungespeicherte Einstellung" : "Einstellung veröffentlicht"}</span></footer>
     </section>
   );
 };
@@ -280,28 +309,67 @@ const ChallengeLogPreview = (props: Omit<React.ComponentProps<typeof ChallengeLo
   return <ChallengeLog {...props} now={now} />;
 };
 
-/* Konflikt-Dialog, Fehleranzeige und Speicherleiste auf Workspace-Ebene: die Rail
-   (HudEditorRail) zeigt ihre eigene Speicherleiste nur im HUD-Tab, deshalb bräuchte
-   ein Konflikt aus einem parallelen Save sonst keine Auflösung, solange der
-   Challenges-Tab aktiv ist. Wird nur gerendert, während der Challenges-Tab aktiv
-   ist – im HUD-Tab übernimmt die Rail dieselbe Optik, keine Doppel-Anzeige. */
+/* Konflikt-Dialog und Fehleranzeige auf Workspace-Ebene: die Rail (HudEditorRail) zeigt
+   ihre eigene Anzeige nur im HUD-Tab, deshalb bräuchte ein Konflikt aus einem parallelen
+   Save sonst keine Auflösung, solange der Challenges-Tab aktiv ist. Wird nur gerendert,
+   während der Challenges-Tab aktiv ist – im HUD-Tab übernimmt die Rail dieselbe Optik,
+   keine Doppel-Anzeige. Kein Speichern-Button mehr: die globale Speicherleiste ist die
+   einzige Speicher-Aktion, hier bleiben nur Konfliktaufloesung und Status. */
 const CompositionSaveDock = ({ state }: { state: HudEditorState }) => (
   <footer className="save-dock composition-save-dock">
     {state.remoteConflict !== null && <div className="save-conflict" role="alert"><strong>OBS wurde inzwischen geändert</strong><span>Rev. {state.draftBaseRevision} → {state.remoteConflict.revision}. Dein Entwurf ist noch lokal.</span><div><button className="text-button" onClick={state.resolveRemoteConflict} type="button">Serverstand laden</button><button className="text-button text-button--danger" onClick={() => void state.save(true)} type="button">Meinen Entwurf veröffentlichen</button></div></div>}
     <div className="publication-state" aria-live="polite">{state.error !== "" ? <span className="save-error">{state.error}</span> : state.message !== "" ? <span className="save-success">{state.message}</span> : state.dirty ? <span className="save-dirty">Noch nicht an OBS gesendet</span> : <span>Alles veröffentlicht</span>}</div>
-    <button aria-label="Änderungen speichern" className="button button--save" disabled={!state.dirty || state.locked} onClick={() => void state.save()} type="button">{state.saving ? <RotateCw className="spin" size={17} /> : <Save size={17} />}{state.saving ? "Wird gespeichert …" : "Änderungen speichern"}</button>
   </footer>
 );
 
-/* Ein Button an der Buehne fuer beide Placements, unabhaengig von den Save-Bars der
-   Tabs: der committet nur das jeweils bewegte Placement (siehe savePlacementOnly /
-   saveChallengeSettings mit committeten Werten unten), keine anderen Draft-Aenderungen. */
-const PlacementCommitBar = ({ busy, dirty, error, message, online, onCommit }: { busy: boolean; dirty: boolean; error: string; message: string; online: boolean; onCommit: () => void }) => (
-  <div className="placement-commit-bar">
-    <div className="placement-commit-copy"><strong>Positionen auf der Bühne</strong><span aria-live="polite">{error !== "" ? <span className="save-error">{error}</span> : message !== "" ? <span className="save-success">{message}</span> : dirty ? <span className="save-dirty">Verschoben, noch nicht übernommen</span> : <span>Position ist live</span>}</span></div>
-    <button aria-label="Positionen übernehmen" className="button button--save" disabled={!dirty || busy || !online} onClick={onCommit} type="button">{busy ? <RotateCw className="spin" size={17} /> : <Save size={17} />}{busy ? "Wird übernommen …" : "Positionen übernehmen"}</button>
-  </div>
-);
+// Ein Modul fuer die globale Speicherleiste: dirty-Flag und save()-Griff kommen entweder
+// direkt aus useHudEditorState (HUD) oder aus einem registrierten ModuleSaveHandle
+// (Challenge-Einstellungen, Challenge-Board).
+type SaveAllModule = { key: string; label: string; tab: AdminWorkspaceId; dirty: boolean; save: () => Promise<ModuleSaveOutcome> };
+
+/* Die eine schwebende Speicherleiste fuer die ganze Ansicht (statt HUD-Draft,
+   Challenge-Einstellungen, Challenge-Board und vormals dem Positions-Button je einzeln
+   zu suchen). Speichert SEQUENZIELL in der uebergebenen Reihenfolge – kein atomares
+   Speichern moeglich (drei Endpunkte/Revisionen). Bricht bei der ersten fehlgeschlagenen
+   oder blockierten (Konflikt-)Speicherung ab: bereits gespeicherte Module bleiben
+   gespeichert (Teilerfolg), das betroffene Modul bleibt dirty, die Leiste bleibt stehen
+   und der Tab mit der modul-eigenen Konflikt-/Fehler-UI wird aktiviert. */
+const GlobalSaveBar = ({ modules, online, onNavigate }: { modules: SaveAllModule[]; online: boolean; onNavigate: (tab: AdminWorkspaceId) => void }) => {
+  const [saving, setSaving] = useState(false);
+  const [failure, setFailure] = useState<{ key: string; label: string; message: string } | null>(null);
+  const dirtyModules = modules.filter((module) => module.dirty);
+  // Ein alter Fehler verschwindet automatisch, sobald sein Modul nicht mehr dirty ist
+  // (z.B. weil es lokal ueber die eigene Save-Bar aufgeloest wurde) – ohne Extra-Effekt.
+  const displayedFailure = failure !== null && dirtyModules.some((module) => module.key === failure.key) ? failure : null;
+  if (dirtyModules.length === 0) return null;
+  const saveAll = async () => {
+    if (saving || !online) return;
+    setSaving(true); setFailure(null);
+    for (const module of dirtyModules) {
+      const outcome = await module.save();
+      if (!outcome.ok) {
+        onNavigate(module.tab);
+        setFailure({ key: module.key, label: module.label, message: outcome.message ?? "Speichern fehlgeschlagen." });
+        setSaving(false);
+        return;
+      }
+    }
+    setSaving(false);
+  };
+  return (
+    <footer className="global-save-bar" role="status">
+      <div className="global-save-bar-copy">
+        <strong>Ungespeicherte Änderungen</strong>
+        <span aria-live="polite">
+          {!online ? <span className="save-dirty">Offline – Speichern pausiert</span>
+            : displayedFailure !== null ? <span className="save-error">{displayedFailure.label}: {displayedFailure.message}</span>
+            : <span className="save-dirty">{dirtyModules.map((module) => module.label).join(", ")}</span>}
+        </span>
+      </div>
+      <button aria-label="Alle speichern" className="button button--save" disabled={saving || !online} onClick={() => void saveAll()} type="button">{saving ? <RotateCw className="spin" size={17} /> : <Save size={17} />}{saving ? "Wird gespeichert …" : "Alle speichern"}</button>
+    </footer>
+  );
+};
 
 const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBootstrap: BootstrapResponse; api: AdminApi; initialTab: AdminWorkspaceId }) => {
   const [challengeUpdate, setChallengeUpdate] = useState<ChallengeUpdate | null>(null);
@@ -313,9 +381,8 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
   const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
   const [challengeCss, setChallengeCss] = useState<{ style: string | null; theme: string | null }>({ style: null, theme: null });
   const obsSetupTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const [placementCommitBusy, setPlacementCommitBusy] = useState(false);
-  const [placementCommitError, setPlacementCommitError] = useState("");
-  const [placementCommitMessage, setPlacementCommitMessage] = useState("");
+  const [settingsHandle, setSettingsHandle] = useState<ModuleSaveHandle | null>(null);
+  const [boardHandle, setBoardHandle] = useState<ChallengeBoardSaveHandle | null>(null);
   const state = useHudEditorState({ initialBootstrap, api, onChallengeUpdate: setChallengeUpdate });
   const committedThemeId = state.committed.themeId;
   useEffect(() => {
@@ -398,31 +465,14 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
   }, [api]);
   const challengeReady = displayedChallengeUpdate !== null && challengeCss.style === displayedChallengeUpdate.settings.styleId && (displayedChallengeUpdate.settings.themeMode === "own" || challengeCss.theme === displayedChallengeUpdate.settings.themeId);
   const challengePreview = !state.draft.compositeChallengesVisible || displayedChallengeUpdate === null || !challengeReady ? null : <ChallengeLogPreview ariaLabel="Challenge-Log verschieben, Pfeiltasten" className={`composition-draggable-module composition-draggable-module--challenge ${dragging === "challenges" ? "is-dragging" : ""}`} onKeyDown={(event) => movePlacementWithKeyboard("challenges", event)} onLostPointerCapture={(event) => stopDrag("challenges", event)} onPointerCancel={(event) => stopDrag("challenges", event)} onPointerDown={(event) => startDrag("challenges", event)} onPointerMove={(event) => moveDrag("challenges", event)} onPointerUp={(event) => stopDrag("challenges", event)} placement={effectiveChallengePlacement ?? displayedChallengeUpdate.settings.placement} rootTag="section" update={displayedChallengeUpdate} />;
-  // Nur aktiv, wenn eine Position tatsaechlich vom committeten Stand abweicht – unabhaengig
-  // von sonstigen offenen Drafts in den beiden Tabs (Bug 7).
-  const hudPlacementDirty = !sameChallengePlacement(state.draft.placement, state.committed.placement);
-  const challengeCommittedPlacement = displayedChallengeUpdate?.settings.placement ?? null;
-  const challengePlacementDirty = challengePlacementDraft !== null && challengeCommittedPlacement !== null && !sameChallengePlacement(challengePlacementDraft, challengeCommittedPlacement);
-  const placementDirty = hudPlacementDirty || challengePlacementDirty;
-  const commitPlacements = async () => {
-    if (!placementDirty || placementCommitBusy || !state.online) return;
-    setPlacementCommitBusy(true); setPlacementCommitError(""); setPlacementCommitMessage("");
-    try {
-      if (hudPlacementDirty) await state.savePlacementOnly();
-      if (challengePlacementDirty && api.saveChallengeSettings !== undefined && challengeUpdate !== null) {
-        const settings = challengeUpdate.settings;
-        const response = await api.saveChallengeSettings({ baseSettingsRevision: challengeUpdate.settingsRevision, styleId: settings.styleId, themeMode: settings.themeMode, surfaceMode: settings.surfaceMode, headerTitle: settings.headerTitle, effectsEnabled: settings.effectsEnabled, maxVisible: settings.maxVisible, globalTimerTotalMs: settings.globalTimer?.totalMs ?? null, placement: challengePlacementDraft });
-        setChallengeUpdate((current) => current === null ? current : { ...current, settingsRevision: response.snapshot.settingsRevision, boardRevision: response.snapshot.boardRevision, settings: { ...current.settings, ...response.snapshot.settings } });
-      }
-      setPlacementCommitMessage("Positionen übernommen.");
-    } catch (caught) {
-      setPlacementCommitError(caught instanceof Error ? caught.message : "Positionen konnten nicht übernommen werden.");
-    } finally {
-      setPlacementCommitBusy(false);
-    }
-  };
+  // Positionen sind Teil des jeweiligen Moduls (HUD-Draft bzw. Challenge-Einstellungen-Draft)
+  // und werden von der globalen Speicherleiste ganz normal mitgespeichert – kein eigener
+  // Positions-Button/Endpunkt mehr noetig.
+  const saveAllModules: SaveAllModule[] = [{ key: "hud", label: "HUD", tab: "hud", dirty: state.dirty, save: state.save }];
+  if (settingsHandle !== null) saveAllModules.push({ key: "settings", label: "Einstellungen", tab: "challenges", dirty: settingsHandle.dirty, save: settingsHandle.save });
+  if (boardHandle !== null) saveAllModules.push({ key: "board", label: "Board", tab: "challenges", dirty: boardHandle.dirty, save: boardHandle.save });
   return (
-    <div className="admin-app admin-app--composition"><AdminTopbar api={api} initialBootstrap={initialBootstrap} obsSetupTriggerRef={obsSetupTriggerRef} state={state} />{!state.online && <div className="offline-banner">Offline – Speichern pausiert; bestehende Werte bleiben sichtbar.</div>}<AuditRail initialBootstrap={initialBootstrap} state={state} /><ObsSetupDialog api={api} state={state} triggerRef={obsSetupTriggerRef} /><main className="composition-main"><PreviewPanel headingControls={<ModuleVisibilityControls state={state} />} hudInteraction={state.draft.compositeHudVisible ? { ariaLabel: "HUD-Modul verschieben, Pfeiltasten", className: `composition-draggable-module composition-draggable-module--hud ${dragging === "hud" ? "is-dragging" : ""}`, onKeyDown: (event) => movePlacementWithKeyboard("hud", event), onLostPointerCapture: (event) => stopDrag("hud", event), onPointerCancel: (event) => stopDrag("hud", event), onPointerDown: (event) => startDrag("hud", event), onPointerMove: (event) => moveDrag("hud", event), onPointerUp: (event) => stopDrag("hud", event) } : undefined} mediaUrls={state.previewMediaUrls} onZoomChange={setPreviewZoom} previewOverlay={!state.committed.overlayEnabled ? <div className="disabled-veil">Overlay deaktiviert</div> : undefined} showHud={state.draft.compositeHudVisible} state={compositionHud} themeLabel={THEME_LABELS[state.preview.themeId]} zoom={previewZoom}>{challengePreview}</PreviewPanel><PlacementCommitBar busy={placementCommitBusy} dirty={placementDirty} error={placementCommitError} message={placementCommitMessage} online={state.online} onCommit={() => void commitPlacements()} /></main><aside className="composition-rails"><AdminTabs activeTab={activeTab} onChange={setActiveTab} />{/* Beide Tabpanels bleiben dauerhaft gemountet (ChallengeBoard-Refetch/State sonst pro Tab-Wechsel weg); nur das inaktive wird per hidden-Attribut versteckt. */}<div aria-labelledby="admin-tab-hud" className="composition-tabpanel" hidden={activeTab !== "hud"} id="admin-composition-panel-hud" role="tabpanel"><HudEditorRail api={api} initialBootstrap={initialBootstrap} state={state} /></div><div aria-labelledby="admin-tab-challenges" className="composition-tabpanel" hidden={activeTab !== "challenges"} id="admin-composition-panel-challenges" role="tabpanel"><div className="composition-challenge-rail"><ChallengeSettingsPanel api={api} challengeUpdate={displayedChallengeUpdate} online={state.online} onPlacementDraftChange={setChallengePlacementDraft} placementDraft={challengePlacementDraft} />{compositionBoardApi === null ? <section className="challenge-board-shell" role="alert"><div className="challenge-board-empty"><AlertTriangle size={22} /><strong>Challenge-Board ist in dieser Sitzung nicht verfügbar.</strong></div></section> : <ChallengeBoard api={compositionBoardApi} challengeUpdate={displayedChallengeUpdate} online={state.online} />}</div></div>{activeTab === "challenges" && <CompositionSaveDock state={state} />}</aside></div>
+    <div className="admin-app admin-app--composition"><AdminTopbar api={api} initialBootstrap={initialBootstrap} obsSetupTriggerRef={obsSetupTriggerRef} state={state} />{!state.online && <div className="offline-banner">Offline – Speichern pausiert; bestehende Werte bleiben sichtbar.</div>}<AuditRail initialBootstrap={initialBootstrap} state={state} /><ObsSetupDialog api={api} state={state} triggerRef={obsSetupTriggerRef} /><main className="composition-main"><PreviewPanel headingControls={<ModuleVisibilityControls state={state} />} hudInteraction={state.draft.compositeHudVisible ? { ariaLabel: "HUD-Modul verschieben, Pfeiltasten", className: `composition-draggable-module composition-draggable-module--hud ${dragging === "hud" ? "is-dragging" : ""}`, onKeyDown: (event) => movePlacementWithKeyboard("hud", event), onLostPointerCapture: (event) => stopDrag("hud", event), onPointerCancel: (event) => stopDrag("hud", event), onPointerDown: (event) => startDrag("hud", event), onPointerMove: (event) => moveDrag("hud", event), onPointerUp: (event) => stopDrag("hud", event) } : undefined} mediaUrls={state.previewMediaUrls} onZoomChange={setPreviewZoom} previewOverlay={!state.committed.overlayEnabled ? <div className="disabled-veil">Overlay deaktiviert</div> : undefined} showHud={state.draft.compositeHudVisible} state={compositionHud} themeLabel={THEME_LABELS[state.preview.themeId]} zoom={previewZoom}>{challengePreview}</PreviewPanel></main><aside className="composition-rails"><AdminTabs activeTab={activeTab} onChange={setActiveTab} />{/* Beide Tabpanels bleiben dauerhaft gemountet (ChallengeBoard-Refetch/State sonst pro Tab-Wechsel weg); nur das inaktive wird per hidden-Attribut versteckt. */}<div aria-labelledby="admin-tab-hud" className="composition-tabpanel" hidden={activeTab !== "hud"} id="admin-composition-panel-hud" role="tabpanel"><HudEditorRail api={api} initialBootstrap={initialBootstrap} state={state} /></div><div aria-labelledby="admin-tab-challenges" className="composition-tabpanel" hidden={activeTab !== "challenges"} id="admin-composition-panel-challenges" role="tabpanel"><div className="composition-challenge-rail"><ChallengeSettingsPanel api={api} challengeUpdate={displayedChallengeUpdate} online={state.online} onHandleChange={setSettingsHandle} onPlacementDraftChange={setChallengePlacementDraft} placementDraft={challengePlacementDraft} />{compositionBoardApi === null ? <section className="challenge-board-shell" role="alert"><div className="challenge-board-empty"><AlertTriangle size={22} /><strong>Challenge-Board ist in dieser Sitzung nicht verfügbar.</strong></div></section> : <ChallengeBoard api={compositionBoardApi} challengeUpdate={displayedChallengeUpdate} online={state.online} onHandleChange={setBoardHandle} />}</div></div>{activeTab === "challenges" && <CompositionSaveDock state={state} />}</aside><GlobalSaveBar modules={saveAllModules} online={state.online} onNavigate={setActiveTab} /></div>
   );
 };
 

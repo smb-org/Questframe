@@ -5,7 +5,6 @@ import {
   GripVertical,
   Info,
   Plus,
-  Save,
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -30,6 +29,13 @@ export type ChallengeBoardApi = {
   load: () => Promise<ChallengeBoardSnapshot>;
   save: (request: BoardSaveRequest) => Promise<BoardSaveResponse>;
   subscribe?: (callbacks: ChallengeBoardSubscription) => () => void;
+};
+
+// Fuer die globale Speicherleiste (AdminWorkspace): Dirty-Zustand und ein save()-Griff,
+// der Erfolg/Konflikt/Fehler direkt zurueckgibt statt ueber verzoegerten React-State.
+export type ChallengeBoardSaveHandle = {
+  dirty: boolean;
+  save: () => Promise<{ ok: boolean; conflict: boolean; message?: string }>;
 };
 
 type ChallengeDraft = {
@@ -382,11 +388,13 @@ export const ChallengeBoard = ({
   onOnlineChange,
   challengeUpdate,
   online: onlineOverride,
+  onHandleChange,
 }: {
   api: ChallengeBoardApi;
   onOnlineChange?: (online: boolean) => void;
   challengeUpdate?: ChallengeUpdate | null;
   online?: boolean;
+  onHandleChange?: (handle: ChallengeBoardSaveHandle) => void;
 }) => {
   const [snapshot, setSnapshot] = useState<ChallengeBoardSnapshot | null>(null);
   const [drafts, setDrafts] = useState<ChallengeDraft[]>([]);
@@ -492,11 +500,12 @@ export const ChallengeBoard = ({
     setMessage("");
   };
 
-  const save = async (replaceForeignBoard = false) => {
-    if (snapshot === null || !dirty || saving || !effectiveOnline) return;
+  const save = async (replaceForeignBoard = false): Promise<{ ok: boolean; conflict: boolean; message?: string }> => {
+    if (snapshot === null || !dirty || saving || !effectiveOnline) return { ok: false, conflict: false, message: "Nicht speicherbar." };
     if (conflict !== null && !replaceForeignBoard) {
-      setError("Jemand anderes hat das Board gespeichert. Bitte eine Konfliktaktion wählen.");
-      return;
+      const conflictMessage = "Jemand anderes hat das Board gespeichert. Bitte eine Konfliktaktion wählen.";
+      setError(conflictMessage);
+      return { ok: false, conflict: true, message: conflictMessage };
     }
     const baseBoardRevision = replaceForeignBoard && conflict !== null
       ? conflict.boardRevision
@@ -510,11 +519,18 @@ export const ChallengeBoard = ({
         challenges: definitionsFromDrafts(drafts),
       });
       const response = await api.save(request);
-      const resolvedDrafts = applyCreatedIds(drafts, response);
-      setSnapshot(response.snapshot);
-      setDrafts(resolvedDrafts);
-      setConflict(null);
+      // Derselbe Revisions-Guard wie in applyChallengeUpdate: waehrend unsere Antwort
+      // unterwegs war, kann per Socket schon eine neuere boardRevision eingetroffen sein.
+      // Eine verspaetete eigene Antwort darf diesen neueren lokalen Stand nicht
+      // zurueckdrehen, sonst laeuft der naechste Save in einen falschen Konflikt.
+      if (snapshotRef.current === null || response.snapshot.boardRevision > snapshotRef.current.boardRevision) {
+        const resolvedDrafts = applyCreatedIds(drafts, response);
+        setSnapshot(response.snapshot);
+        setDrafts(resolvedDrafts);
+        setConflict(null);
+      }
       setMessage(`Board gespeichert · Revision ${String(response.snapshot.boardRevision)}.`);
+      return { ok: true, conflict: false };
     } catch (caught) {
       const candidate = typeof caught === "object" && caught !== null
         ? caught as { code?: unknown; currentSnapshot?: unknown }
@@ -523,15 +539,27 @@ export const ChallengeBoard = ({
         ? snapshotFromUnknown(candidate.currentSnapshot)
         : null;
       if (currentSnapshot !== null) {
+        const conflictMessage = "Jemand anderes hat gespeichert. Der aktuelle Serverstand ist unten sichtbar; dein Entwurf bleibt erhalten.";
         setConflict(currentSnapshot);
-        setError("Jemand anderes hat gespeichert. Der aktuelle Serverstand ist unten sichtbar; dein Entwurf bleibt erhalten.");
-      } else {
-        setError(caught instanceof Error ? caught.message : "Board konnte nicht gespeichert werden.");
+        setError(conflictMessage);
+        return { ok: false, conflict: true, message: conflictMessage };
       }
+      const messageText = caught instanceof Error ? caught.message : "Board konnte nicht gespeichert werden.";
+      setError(messageText);
+      return { ok: false, conflict: false, message: messageText };
     } finally {
       setSaving(false);
     }
   };
+
+  // Griff fuer die globale Speicherleiste: Dirty-Zustand direkt, save() ueber ein Ref,
+  // damit der registrierte Handle nur bei Dirty-Wechsel neu erzeugt wird (sonst
+  // Endlosschleife, da save() bei jedem Render eine neue Funktionsreferenz waere).
+  const saveRef = useRef(save);
+  useEffect(() => { saveRef.current = save; });
+  useEffect(() => {
+    onHandleChange?.({ dirty, save: () => saveRef.current() });
+  }, [dirty, onHandleChange]);
 
   if (loading) {
     return <section aria-busy="true" className="challenge-board-shell"><p className="challenge-board-loading">Challenge-Board wird geladen …</p></section>;
@@ -640,19 +668,12 @@ export const ChallengeBoard = ({
         </aside>
       )}
 
+      {/* Kein modul-eigener Speichern-Button mehr: die globale Speicherleiste (AdminWorkspace)
+          ist die einzige Speicher-Aktion. Status/Dirty-Anzeige bleibt fuer Sichtbarkeit. */}
       <footer className="challenge-board-save-bar">
         <span className={dirty ? "save-dirty" : ""} aria-live="polite">
           {dirty ? "Ungespeicherte Board-Änderungen" : "Board ist veröffentlicht"}
         </span>
-        <button
-          aria-label="Challenge-Board speichern"
-          className="button button--save"
-          disabled={!dirty || saving || !effectiveOnline || conflict !== null}
-          onClick={() => void save()}
-          type="button"
-        >
-          <Save size={17} /> {saving ? "Board wird gespeichert …" : "Board speichern"}
-        </button>
       </footer>
     </section>
   );

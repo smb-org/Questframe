@@ -1,10 +1,11 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ChallengeBoard,
   type ChallengeBoardApi,
+  type ChallengeBoardSaveHandle,
 } from "../../../src/modules/win-challenges/ui/ChallengeBoard";
 import type {
   BoardSaveResponse,
@@ -60,13 +61,21 @@ const responseFor = (next: ChallengeBoardSnapshot, createdIds: Record<string, st
   createdIds,
 });
 
+// Kein modul-eigener Speichern-Button mehr (die globale Speicherleiste ruft save() ueber
+// diesen Griff auf) – Tests loesen das Speichern daher genauso aus: ueber den per
+// onHandleChange registrierten Handle statt einen Button anzuklicken.
 const renderBoard = (initial: ChallengeBoardSnapshot, save = vi.fn<ChallengeBoardApi["save"]>()) => {
   const api: ChallengeBoardApi = {
     load: vi.fn(() => Promise.resolve(initial)),
     save,
   };
-  render(<ChallengeBoard api={api} />);
-  return { api, save };
+  let handle: ChallengeBoardSaveHandle | null = null;
+  render(<ChallengeBoard api={api} onHandleChange={(next) => { handle = next; }} />);
+  const triggerSave = () => act(async () => {
+    if (handle === null) throw new Error("Speicher-Griff noch nicht registriert.");
+    await handle.save();
+  });
+  return { api, save, triggerSave };
 };
 
 const firstRow = (): HTMLElement => {
@@ -88,14 +97,14 @@ describe("ChallengeBoard", () => {
     const save = vi.fn<ChallengeBoardApi["save"]>()
       .mockResolvedValueOnce(responseFor(snapshot([saved], 2), { "client-id": "server-id" }))
       .mockResolvedValueOnce(responseFor(snapshot([challenge("server-id", "Umbenannt")], 3)));
-    renderBoard(initial, save);
+    const { triggerSave } = renderBoard(initial, save);
 
     await user.click(await screen.findByRole("button", { name: "Challenge anlegen" }));
     const row = firstRow();
     const title = within(row).getByLabelText("Titel");
     await user.clear(title);
     await user.type(title, "Neue Challenge");
-    await user.click(screen.getByRole("button", { name: "Challenge-Board speichern" }));
+    await triggerSave();
 
     const firstRequest = save.mock.calls[0]?.[0];
     if (firstRequest === undefined) throw new Error("Save-Request fehlt.");
@@ -108,7 +117,7 @@ describe("ChallengeBoard", () => {
 
     await user.clear(screen.getByDisplayValue("Neue Challenge"));
     await user.type(screen.getByLabelText("Titel"), "Umbenannt");
-    await user.click(screen.getByRole("button", { name: "Challenge-Board speichern" }));
+    await triggerSave();
     expect(save.mock.calls[1]?.[0].challenges[0]).toMatchObject({ id: "server-id" });
     expect(save.mock.calls[1]?.[0].challenges[0]).not.toHaveProperty("clientId");
   });
@@ -144,11 +153,11 @@ describe("ChallengeBoard", () => {
     ]);
     const serverSnapshot = snapshot([challenge("second", "Zweite", { sortOrder: 0 })], 2);
     const save = vi.fn<ChallengeBoardApi["save"]>().mockResolvedValue(responseFor(serverSnapshot));
-    renderBoard(initial, save);
+    const { triggerSave } = renderBoard(initial, save);
 
     await screen.findByDisplayValue("Erste");
     await user.click(screen.getByRole("button", { name: "Erste löschen" }));
-    await user.click(screen.getByRole("button", { name: "Challenge-Board speichern" }));
+    await triggerSave();
 
     expect(save.mock.calls[0]?.[0].challenges).toEqual([expect.objectContaining({ id: "second", sortOrder: 0 })]);
     expect(screen.getByDisplayValue("Zweite")).toBeInTheDocument();
@@ -197,18 +206,22 @@ describe("ChallengeBoard", () => {
       code: "revision_conflict",
       currentSnapshot: foreign,
     });
-    renderBoard(initial, save);
+    const { triggerSave } = renderBoard(initial, save);
 
     const title = await screen.findByDisplayValue("Lokaler Entwurf");
     await user.clear(title);
     await user.type(title, "Mein Entwurf");
-    await user.click(screen.getByRole("button", { name: "Challenge-Board speichern" }));
+    await triggerSave();
 
     expect(await screen.findByText("Jemand anderes hat das Board gespeichert.")).toBeInTheDocument();
     expect(screen.getByText("Fremde Änderung")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Mein Entwurf")).toBeInTheDocument();
     expect(save).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: "Challenge-Board speichern" })).toBeDisabled();
+    // Kein modul-eigener Button mehr: der interne Konflikt-Schutz in save() selbst
+    // muss ein blindes Ueberschreiben weiter verhindern (die Leiste wuerde denselben
+    // save() erneut aufrufen, ohne replaceForeignBoard).
+    await triggerSave();
+    expect(save).toHaveBeenCalledTimes(1);
   });
 
   it("übernimmt Challenge-Updates über den bestehenden Editor-Socket ohne lokalen Entwurf zu verlieren", async () => {
@@ -259,5 +272,49 @@ describe("ChallengeBoard", () => {
     resolveLoad?.(initial);
     expect(await screen.findByDisplayValue("Aus Socket")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("Aus Load")).not.toBeInTheDocument();
+  });
+
+  // Review-Befund: eine verspätete (aber erfolgreiche) Save-Antwort für eine ältere
+  // Revision darf einen inzwischen per Socket eingetroffenen neueren Stand nicht
+  // zurückdrehen – auch keinen dabei erkannten echten Konflikt stillschweigend löschen.
+  it("verwirft eine verspätete Save-Antwort gegenüber einer inzwischen per Socket eingetroffenen neueren boardRevision", async () => {
+    const user = userEvent.setup();
+    let onUpdate: ((update: ChallengeUpdate) => void) | undefined;
+    const initial = snapshot([challenge("one", "Lokaler Entwurf")], 1);
+    let resolveSave: ((value: BoardSaveResponse) => void) | undefined;
+    const save = vi.fn<ChallengeBoardApi["save"]>(() => new Promise<BoardSaveResponse>((resolve) => { resolveSave = resolve; }));
+    const api: ChallengeBoardApi = {
+      load: vi.fn(() => Promise.resolve(initial)),
+      save,
+      subscribe: (callbacks) => { onUpdate = callbacks.onChallengeUpdate; return () => undefined; },
+    };
+    let handle: ChallengeBoardSaveHandle | null = null;
+    render(<ChallengeBoard api={api} onHandleChange={(next) => { handle = next; }} />);
+
+    const title = await screen.findByDisplayValue("Lokaler Entwurf");
+    await user.clear(title);
+    await user.type(title, "Mein Entwurf");
+    // Kein modul-eigener Button mehr: ueber den Handle ausloesen, wie es die globale
+    // Speicherleiste tut. Nicht awaiten (die Antwort kommt erst spaeter per resolveSave).
+    act(() => {
+      if (handle === null) throw new Error("Speicher-Griff noch nicht registriert.");
+      void handle.save();
+    });
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+
+    // Während unsere eigene Antwort noch unterwegs ist, trifft per Socket eine neuere,
+    // per se noch unversöhnte Revision ein (z.B. von einem zweiten Editor) – das Board
+    // erkennt zurecht einen echten Konflikt, weil unser lokaler Entwurf davon abweicht.
+    const incoming = snapshot([challenge("one", "Fremde Änderung")], 3);
+    onUpdate?.({ ...incoming, settings: { ...incoming.settings, themeId: "trail-wood" }, event: null });
+    expect(await screen.findByText("Jemand anderes hat das Board gespeichert.")).toBeInTheDocument();
+
+    // Jetzt kommt die verspätete Antwort für unseren (jetzt veralteten) Request rein –
+    // mit einer niedrigeren boardRevision als der bereits bekannte Socket-Stand.
+    resolveSave?.(responseFor(snapshot([challenge("one", "Mein Entwurf")], 2)));
+    await waitFor(() => expect(screen.getByText("Board gespeichert · Revision 2.")).toBeInTheDocument());
+
+    // Der echte, neuere Konflikt (Revision 3) darf dadurch nicht verschwinden.
+    expect(screen.getByText("Jemand anderes hat das Board gespeichert.")).toBeInTheDocument();
   });
 });

@@ -188,7 +188,7 @@ describe("Admin workspace shell", () => {
     fireEvent.change(challengesPanel.getByLabelText("X"), { target: { value: "250" } });
     fireEvent.change(challengesPanel.getByLabelText("Y"), { target: { value: "12" } });
     fireEvent.change(challengesPanel.getByLabelText("Skalierung"), { target: { value: "1.25" } });
-    await user.click(screen.getByRole("button", { name: "Challenge-Einstellungen speichern" }));
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
 
     expect(saveChallengeSettings).toHaveBeenCalledWith(expect.objectContaining({
       baseSettingsRevision: 3,
@@ -282,14 +282,180 @@ describe("Admin workspace shell", () => {
 
     const toggle = await screen.findByRole("checkbox", { name: "Zeremonien und Töne aktiv" });
     await user.click(toggle);
-    await user.click(screen.getByRole("button", { name: "Challenge-Einstellungen speichern" }));
-    expect(await screen.findByText(/Serverstand ist übernommen/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
+    // Die Meldung erscheint sowohl im Modul selbst als auch (mit Modulnamen versehen) in
+    // der globalen Speicherleiste – gezielt im Modul selbst suchen.
+    const settingsPanel = document.querySelector(".challenge-settings-panel") as HTMLElement;
+    expect(await within(settingsPanel).findByText(/Serverstand ist übernommen/)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Challenge-Einstellungen speichern" }));
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
     expect(saveChallengeSettings).toHaveBeenLastCalledWith(expect.objectContaining({
       baseSettingsRevision: 4,
       effectsEnabled: false,
     }));
+  });
+
+  // Regressionsschutz zu einem Review-Befund: die globale Speicherleiste ruft dasselbe
+  // save() wie der modul-eigene Button auf (per Ref-Griff), darum wird der mitgelieferte
+  // Serverstand aus einem revision_conflict bereits dort übernommen – die Leiste muss
+  // nichts Eigenes damit tun, nur zum Tab mit der Konfliktanzeige wechseln.
+  it("übernimmt bei einem Settings-Konflikt über die globale Speicherleiste den aktuellen Serverstand", async () => {
+    const user = userEvent.setup();
+    const challengeSnapshot: ChallengeBoardSnapshot = {
+      eventSeq: 0,
+      boardRevision: 1,
+      settingsRevision: 3,
+      settings: {
+        styleId: "plain-list",
+        themeMode: "inherit",
+        surfaceMode: "surface",
+        headerTitle: "CHALLENGES",
+        effectsEnabled: true,
+        maxVisible: 5,
+        globalTimer: null,
+        placement: { x: 300, y: 8, scale: 1 },
+      },
+      challenges: [],
+    };
+    const currentSnapshot = {
+      ...challengeSnapshot,
+      settingsRevision: 7,
+      settings: { ...challengeSnapshot.settings, effectsEnabled: true },
+    };
+    const saveChallengeSettings = vi.fn()
+      .mockRejectedValueOnce({ code: "revision_conflict", currentSnapshot })
+      .mockResolvedValueOnce({ snapshot: { ...currentSnapshot, settingsRevision: 8, settings: { ...currentSnapshot.settings, effectsEnabled: false } } });
+    const api: AdminApi = {
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      getChallengeBoard: vi.fn(() => Promise.resolve(challengeSnapshot)),
+      saveChallengeBoard: vi.fn(),
+      saveChallengeSettings,
+    };
+
+    render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} />);
+    await user.click(screen.getByRole("tab", { name: "Challenges" }));
+    const toggle = await screen.findByRole("checkbox", { name: "Zeremonien und Töne aktiv" });
+    await user.click(toggle);
+    await user.click(screen.getByRole("tab", { name: "HUD" }));
+
+    await user.click(await screen.findByRole("button", { name: "Alle speichern" }));
+    await waitFor(() => expect(saveChallengeSettings).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("tab", { name: "Challenges" })).toHaveAttribute("aria-selected", "true");
+
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
+    expect(saveChallengeSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      baseSettingsRevision: 7,
+    }));
+  });
+
+  it("zeigt bei einem Board-Konflikt über die globale Speicherleiste die modul-eigene Konflikt-UI mit Serverstand", async () => {
+    const user = userEvent.setup();
+    const localChallenge: ChallengeBoardSnapshot["challenges"][number] = { id: "one", title: "Lokaler Entwurf", description: null, targetCount: null, timerTotalMs: null, sortOrder: 0, hidden: false, currentCount: 0, state: "pending", timerEndsAt: null, completedAt: null, createdAt: "2026-08-31T10:00:00.000Z", updatedAt: "2026-08-31T10:00:00.000Z" };
+    const challengeSnapshot: ChallengeBoardSnapshot = {
+      eventSeq: 0,
+      boardRevision: 1,
+      settingsRevision: 1,
+      settings: {
+        styleId: "plain-list",
+        themeMode: "inherit",
+        surfaceMode: "surface",
+        headerTitle: "CHALLENGES",
+        effectsEnabled: true,
+        maxVisible: 5,
+        globalTimer: null,
+        placement: { x: 300, y: 8, scale: 1 },
+      },
+      challenges: [localChallenge],
+    };
+    const foreignSnapshot: ChallengeBoardSnapshot = { ...challengeSnapshot, boardRevision: 2, challenges: [{ ...localChallenge, title: "Fremde Änderung" }] };
+    const saveChallengeBoard = vi.fn().mockRejectedValueOnce({ code: "revision_conflict", currentSnapshot: foreignSnapshot });
+    const api: AdminApi = {
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      getChallengeBoard: vi.fn(() => Promise.resolve(challengeSnapshot)),
+      saveChallengeBoard,
+      saveChallengeSettings: vi.fn(),
+    };
+
+    render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} />);
+    await user.click(screen.getByRole("tab", { name: "Challenges" }));
+    const title = await screen.findByDisplayValue("Lokaler Entwurf");
+    await user.clear(title);
+    await user.type(title, "Mein Entwurf");
+    await user.click(screen.getByRole("tab", { name: "HUD" }));
+
+    await user.click(await screen.findByRole("button", { name: "Alle speichern" }));
+    await waitFor(() => expect(saveChallengeBoard).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("tab", { name: "Challenges" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByText("Jemand anderes hat das Board gespeichert.")).toBeInTheDocument();
+    expect(screen.getByText("Fremde Änderung")).toBeInTheDocument();
+  });
+
+  // Review-Befund: eine verspätete (aber erfolgreiche) Save-Antwort für eine ältere
+  // Revision darf einen inzwischen per Socket eingetroffenen neueren Stand nicht
+  // zurückdrehen. applyRemoteSnapshot schützt Socket-Snapshots bereits mit einem
+  // Revisions-Guard; save() muss dieselbe Regel auf die eigene Antwort anwenden.
+  it("verwirft eine verspätete Save-Antwort gegenüber einer inzwischen per Socket eingetroffenen neueren Revision", async () => {
+    const user = userEvent.setup();
+    let onChallengeUpdate: ((update: ChallengeUpdate) => void) | undefined;
+    const challengeSnapshot: ChallengeBoardSnapshot = {
+      eventSeq: 0,
+      boardRevision: 1,
+      settingsRevision: 3,
+      settings: {
+        styleId: "plain-list",
+        themeMode: "inherit",
+        surfaceMode: "surface",
+        headerTitle: "CHALLENGES",
+        effectsEnabled: true,
+        maxVisible: 5,
+        globalTimer: null,
+        placement: { x: 300, y: 8, scale: 1 },
+      },
+      challenges: [],
+    };
+    let resolveSave: ((value: { snapshot: ChallengeBoardSnapshot }) => void) | undefined;
+    const saveChallengeSettings = vi.fn(() => new Promise<{ snapshot: ChallengeBoardSnapshot }>((resolve) => { resolveSave = resolve; }));
+    const api: AdminApi = {
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      getChallengeBoard: vi.fn(() => Promise.resolve(challengeSnapshot)),
+      saveChallengeBoard: vi.fn(),
+      saveChallengeSettings,
+      subscribe: (callbacks) => { onChallengeUpdate = callbacks.onChallengeUpdate; return () => undefined; },
+    };
+
+    render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="challenges" />);
+    const toggle = await screen.findByRole("checkbox", { name: "Zeremonien und Töne aktiv" });
+    await user.click(toggle);
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
+    await waitFor(() => expect(saveChallengeSettings).toHaveBeenCalledTimes(1));
+
+    // Während unsere eigene Antwort noch unterwegs ist, trifft per Socket eine neuere
+    // Revision ein (z.B. von einem zweiten Editor) – settingsRevision 4 statt unserer 3.
+    act(() => {
+      onChallengeUpdate?.({
+        eventSeq: 1,
+        boardRevision: 1,
+        settingsRevision: 4,
+        settings: { ...challengeSnapshot.settings, themeId: "trail-wood", effectsEnabled: false },
+        challenges: [],
+        event: null,
+      });
+    });
+
+    // Jetzt kommt die verspätete Antwort für unseren (jetzt veralteten) Request rein –
+    // mit einer niedrigeren Revision als der bereits bekannte Socket-Stand.
+    resolveSave?.({ snapshot: { ...challengeSnapshot, settingsRevision: 2, settings: { ...challengeSnapshot.settings, effectsEnabled: false } } });
+    expect(await screen.findByText("Zeremonie-Einstellung veröffentlicht.")).toBeInTheDocument();
+
+    // Der nächste Save muss auf der neueren (per Socket erhaltenen) Revision 4 aufsetzen,
+    // nicht auf der veralteten Revision 2 aus der verspäteten Antwort.
+    await user.click(toggle);
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
+    await waitFor(() => expect(saveChallengeSettings).toHaveBeenCalledTimes(2));
+    expect(saveChallengeSettings).toHaveBeenLastCalledWith(expect.objectContaining({ baseSettingsRevision: 4 }));
   });
 });
 
@@ -454,7 +620,9 @@ describe("Admin workspace publication boundary", () => {
 
     expect(screen.getByText("200%", { selector: "output" })).toBeInTheDocument();
     expect(previewStage).toHaveStyle({ width: "200%" });
-    expect(screen.getByRole("button", { name: "Änderungen speichern" })).toBeDisabled();
+    // Kein modul-eigener Button mehr: die globale Speicherleiste existiert erst gar
+    // nicht, solange nichts dirty ist (Zoom ist keine Draft-Änderung).
+    expect(screen.queryByRole("button", { name: "Alle speichern" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Vorschau-Zoom auf 100 % zurücksetzen" }));
     expect(zoom).toHaveValue("100");
@@ -499,7 +667,9 @@ describe("Admin workspace publication boundary", () => {
     await user.click(screen.getByText("Einrichten").closest("summary") as HTMLElement);
     expect(screen.getByRole("combobox", { name: "Ressource" })).toHaveValue("Custom");
     expect(screen.getByLabelText("Eigene Farbe")).toHaveValue("#123456");
-    expect(screen.getByRole("button", { name: "Änderungen speichern" })).toBeDisabled();
+    // Kein modul-eigener Button mehr: die globale Speicherleiste erscheint gar nicht,
+    // solange nichts wirklich dirty ist.
+    expect(screen.queryByRole("button", { name: "Alle speichern" })).not.toBeInTheDocument();
   });
 
   it("toggles pet and group visibility in the draft without collapsing their sections", async () => {
@@ -570,8 +740,8 @@ describe("Admin workspace publication boundary", () => {
     expect(petSection.open).toBe(true);
 
     expect(save).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Änderungen speichern" })).toBeEnabled();
-    await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    expect(screen.getByRole("button", { name: "Alle speichern" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
     expect(save.mock.calls[0]?.[0].state).toMatchObject({
       pet: { name: "Begleiter" },
       group: [guest],
@@ -619,7 +789,7 @@ describe("Admin workspace publication boundary", () => {
     expect(screen.queryByRole("button", { name: "Pet ausblenden" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Pet löschen" }));
     expect(screen.queryByRole("switch", { name: "Pet im Overlay anzeigen" })).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
     expect(save.mock.calls[0]?.[0].state.pet).toBeNull();
   });
 
@@ -676,9 +846,9 @@ describe("Admin workspace publication boundary", () => {
 
     expect(save).not.toHaveBeenCalled();
     expect(screen.getByText("Noch nicht an OBS gesendet")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Änderungen speichern" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Alle speichern" })).toBeEnabled();
 
-    await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
     expect(save).toHaveBeenCalledTimes(1);
     expect(save.mock.calls[0]?.[0].state.player.hpPercent).toBe(42);
     expect(save.mock.calls[0]?.[0].state).not.toHaveProperty("overlayEnabled");
@@ -792,7 +962,7 @@ describe("Admin workspace publication boundary", () => {
         updatedAt: "2026-08-29T12:01:00.000Z",
       });
     });
-    await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
 
     expect(save).not.toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent("inzwischen geändert");
@@ -900,7 +1070,7 @@ describe("Admin workspace publication boundary", () => {
     if (onAudit === undefined) throw new Error("expected onAudit subscription callback");
     act(() => onAudit?.(auditEntry, undoTargets));
     fireEvent.change(screen.getByRole("slider", { name: "Gesundheit" }), { target: { value: "42" } });
-    await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
     // Danach kann er erneut eintreffen, obwohl die Antwort den Rail schon befüllt hat.
     act(() => onAudit?.(auditEntry, undoTargets));
 
@@ -934,7 +1104,7 @@ describe("Admin workspace publication boundary", () => {
     expect(screen.getByRole("slider", { name: "Gesundheit" })).toHaveValue("42");
     await user.click(auditToggle());
     expect(screen.getByRole("button", { name: /Rev\. 1/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Änderungen speichern" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Alle speichern" })).toBeEnabled();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -982,7 +1152,7 @@ describe("Admin workspace publication boundary", () => {
     }} />);
 
     fireEvent.change(screen.getByRole("slider", { name: "Gesundheit" }), { target: { value: "42" } });
-    await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
     if (onAudit === undefined || resolveSave === undefined) throw new Error("expected live callbacks");
     act(() => onAudit?.(newAuditEntry, newUndoTargets));
     await act(async () => {
@@ -1175,7 +1345,7 @@ describe("Admin workspace publication boundary", () => {
     await user.click(screen.getByRole("button", { name: /Neuen Token erzeugen/ }));
     expect(mutateOverlayToken).toHaveBeenLastCalledWith(true, expect.objectContaining({ expectedGeneration: 1 }));
 
-    await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
     expect(save.mock.calls[0]?.[0].state).toMatchObject({
       themeId: "modern-compact",
       placement: { x: 20, y: 30, scale: 2 },
@@ -1423,10 +1593,12 @@ describe("Admin workspace publication boundary", () => {
 
     act(() => onOnlineChange?.(false));
     expect(screen.getByText(/Speichern pausiert/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Änderungen speichern" })).toBeDisabled();
+    // Kein modul-eigener Button mehr, und ohnehin nichts dirty: die globale
+    // Speicherleiste existiert noch gar nicht.
+    expect(screen.queryByRole("button", { name: "Alle speichern" })).not.toBeInTheDocument();
     act(() => onOnlineChange?.(true));
     fireEvent.change(screen.getByRole("slider", { name: "Gesundheit" }), { target: { value: "40" } });
-    await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
     expect(await screen.findByText("Save fehlgeschlagen")).toBeInTheDocument();
     vi.spyOn(window, "confirm").mockReturnValue(true);
     await user.click(screen.getByRole("switch", { name: "Overlay aktiv" }));

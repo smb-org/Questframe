@@ -199,12 +199,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .preview-module-toggle:hover:not(:disabled) { border-color: var(--line); background: var(--surface-3); }
 .preview-module-toggle:disabled { cursor: not-allowed; opacity: 0.58; }
 
-/* Ein-Button-Positionsleiste an der Buehne statt zweier getrennter Save-Bars (Bug 7). */
-.placement-commit-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
-.placement-commit-copy { display: grid; gap: 4px; min-width: 0; }
-.placement-commit-copy strong { font-size: 13px; }
-.placement-commit-copy span { font-size: 11px; }
-.placement-commit-bar .button--save { width: auto; min-width: 210px; }
+/* Die eine schwebende Speicherleiste fuer die ganze Ansicht: fixiert unter der Topbar,
+   unabhaengig vom aktiven Tab, damit klar ist, wo gespeichert wird. Bewusst oben rechts
+   statt unten (wie die modul-eigenen Save-Bars) verankert, sonst ueberlappt sie deren
+   Buttons und blockiert Klicks (das Audit-Rail liegt oben links, keine Kollision). */
+.global-save-bar { position: fixed; z-index: 30; top: 76px; right: max(16px, env(safe-area-inset-right)); bottom: auto; left: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; width: min(420px, calc(100vw - 32px)); padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: rgba(18, 22, 25, 0.97); box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35); }
+.global-save-bar-copy { display: grid; gap: 4px; min-width: 0; }
+.global-save-bar-copy strong { font-size: 13px; }
+.global-save-bar-copy span { font-size: 11px; }
+.global-save-bar .button--save { width: auto; min-width: 190px; }
 
 /* Natives <dialog> statt Eigenbau-Overlay fuer die OBS-Einrichtung (Bug 1): schwebt per
    Top-Layer ueber dem Inhalt, verschiebt die Buehne nie. */
@@ -501,7 +504,7 @@ input[type="color"] { padding: 4px; }
   .effect-flyover { width: 100%; max-height: 94vh; border-radius: 14px 14px 0 0; grid-template-rows: auto auto auto minmax(120px, 1fr) auto auto; }
   .effect-catalog { grid-template-columns: repeat(2, 1fr); }
   .effect-form { grid-template-columns: 1fr; max-height: 38vh; overflow-y: auto; }
-  .button, .icon-button, input, select { min-height: 44px; }
+  .button, .icon-button, input, select, .admin-tabs button { min-height: 44px; }
   .admin-app--composition { display: block; padding-top: 64px; }
   .composition-main { padding: 15px 12px 4px; padding-top: max(15px, 64px); overflow: visible; }
   .composition-rails { overflow: visible; border-left: 0; }
@@ -530,8 +533,8 @@ input[type="color"] { padding: 4px; }
   .challenge-conflict-actions .button { width: 100%; }
   .challenge-shell-error { top: 68px; right: 12px; left: 12px; }
   .preview-module-toggles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
-  .placement-commit-bar { flex-direction: column; align-items: stretch; }
-  .placement-commit-bar .button--save { width: 100%; }
+  .global-save-bar { top: 76px; left: 12px; right: 12px; width: auto; flex-direction: column; align-items: stretch; }
+  .global-save-bar .button--save { width: 100%; }
   .obs-setup-dialog { width: calc(100vw - 24px); max-height: calc(100vh - 32px); }
 }
 

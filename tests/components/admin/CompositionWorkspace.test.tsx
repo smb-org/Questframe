@@ -79,6 +79,36 @@ describe("Kompositions-Workspace", () => {
     expect(challengesTab).toHaveAttribute("aria-selected", "false");
   });
 
+  it("unterstützt Home, End und den Umlauf mit ArrowRight vom letzten Tab", async () => {
+    const user = userEvent.setup();
+    render(<AdminWorkspace api={createCompositionApi(challengeSnapshot())} initialBootstrap={bootstrap()} />);
+    const hudTab = screen.getByRole("tab", { name: "HUD" });
+    const challengesTab = screen.getByRole("tab", { name: "Challenges" });
+
+    hudTab.focus();
+    await user.keyboard("{End}");
+    expect(challengesTab).toHaveAttribute("aria-selected", "true");
+    expect(hudTab).toHaveAttribute("aria-selected", "false");
+    expect(challengesTab).toHaveFocus();
+
+    await user.keyboard("{Home}");
+    expect(hudTab).toHaveAttribute("aria-selected", "true");
+    expect(challengesTab).toHaveAttribute("aria-selected", "false");
+    expect(hudTab).toHaveFocus();
+
+    // Umlauf: ArrowRight vom letzten Tab springt zurück zum ersten, statt am Ende
+    // stehen zu bleiben (bei zwei Tabs ist das schon der zweite Tastendruck).
+    await user.keyboard("{ArrowRight}");
+    await waitFor(() => expect(challengesTab).toHaveFocus());
+    expect(challengesTab).toHaveAttribute("aria-selected", "true");
+    expect(hudTab).toHaveAttribute("aria-selected", "false");
+
+    await user.keyboard("{ArrowRight}");
+    await waitFor(() => expect(hudTab).toHaveFocus());
+    expect(hudTab).toHaveAttribute("aria-selected", "true");
+    expect(challengesTab).toHaveAttribute("aria-selected", "false");
+  });
+
   it("bietet die Modul-Schalter in der Vorschau-Kopfzeile an, blendet HUD und Challenges aus und macht den Save aktiv", async () => {
     const user = userEvent.setup();
     const { container } = render(<AdminWorkspace api={createCompositionApi(challengeSnapshot())} initialBootstrap={bootstrap()} />);
@@ -97,7 +127,7 @@ describe("Kompositions-Workspace", () => {
     await user.click(challengesToggle);
     expect(challengesToggle).toHaveAttribute("aria-checked", "false");
     expect(screen.queryByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Änderungen speichern" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Alle speichern" })).toBeEnabled();
   });
 
   it("speichert die Modul-Mitgliedschaft, zeigt sie im Audit und stellt sie mit Undo wieder her", async () => {
@@ -148,7 +178,7 @@ describe("Kompositions-Workspace", () => {
     await screen.findByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" });
     await user.click(screen.getByRole("switch", { name: "HUD im Sammel-Overlay anzeigen" }));
     await user.click(screen.getByRole("switch", { name: "Challenges im Sammel-Overlay anzeigen" }));
-    await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
 
     expect(save.mock.calls[0]?.[0].baseRevision).toBe(1);
     expect(save.mock.calls[0]?.[0].state).toMatchObject({
@@ -275,6 +305,8 @@ describe("Kompositions-Workspace", () => {
     expect(challengesPanel().getByLabelText("Y")).toHaveValue(18);
   });
 
+  // Nur ein gemeinsamer Speichern-Auslöser (die globale Leiste), aber sequenziell und
+  // nur fuer tatsaechlich dirty Module: ein unveraendertes HUD bleibt unangetastet.
   it("hält HUD- und Challenge-Save getrennt", async () => {
     const user = userEvent.setup();
     const snapshot = challengeSnapshot();
@@ -285,7 +317,7 @@ describe("Kompositions-Workspace", () => {
     await userEvent.setup().click(screen.getByRole("tab", { name: "Challenges" }));
     await screen.findByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" });
     fireEvent.change(challengesPanel().getByLabelText("X"), { target: { value: "200" } });
-    await user.click(screen.getByRole("button", { name: "Challenge-Einstellungen speichern" }));
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
     expect(saveChallengeSettings).toHaveBeenCalledWith(expect.objectContaining({ placement: { x: 200, y: 8, scale: 1 } }));
     expect(save).not.toHaveBeenCalled();
   });
@@ -322,9 +354,9 @@ describe("Kompositions-Workspace", () => {
     await waitFor(() => expect(dialog).not.toHaveAttribute("open"));
   });
 
-  // Bug 7: ein Button an der Buehne fuer beide Placements, nur aktiv bei Abweichung
-  // vom committeten Stand, offline gesperrt.
-  it("aktiviert Positionen übernehmen erst bei Verschiebung und sperrt es offline", async () => {
+  // Globale Speicherleiste: erscheint erst bei einer Aenderung, nennt das betroffene
+  // Modul und wird offline (state.online === false) gesperrt.
+  it("zeigt die globale Speicherleiste erst bei Änderungen, nennt das Modul und sperrt sie offline", async () => {
     let onOnlineChange: ((online: boolean) => void) | undefined;
     const { container } = render(<AdminWorkspace api={{
       save: vi.fn(),
@@ -335,8 +367,7 @@ describe("Kompositions-Workspace", () => {
       subscribe: (callbacks) => { onOnlineChange = callbacks.onOnlineChange; return () => undefined; },
     }} initialBootstrap={bootstrap()} />);
     await screen.findByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" });
-    const commitButton = screen.getByRole("button", { name: "Positionen übernehmen" });
-    expect(commitButton).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Alle speichern" })).not.toBeInTheDocument();
 
     const hud = screen.getByLabelText("HUD-Modul verschieben, Pfeiltasten");
     const canvas = container.querySelector(".preview-canvas");
@@ -345,20 +376,23 @@ describe("Kompositions-Workspace", () => {
     fireEvent.pointerDown(hud, { button: 0, clientX: 100, clientY: 100, pointerId: 1 });
     fireEvent.pointerMove(hud, { clientX: 200, clientY: 200, pointerId: 1 });
     fireEvent.pointerUp(hud, { clientX: 200, clientY: 200, pointerId: 1 });
-    await waitFor(() => expect(commitButton).toBeEnabled());
+    const saveAllButton = await screen.findByRole("button", { name: "Alle speichern" });
+    await waitFor(() => expect(saveAllButton).toBeEnabled());
+    const bar = within(document.querySelector(".global-save-bar") as HTMLElement);
+    expect(bar.getByText("HUD")).toBeInTheDocument();
 
     act(() => onOnlineChange?.(false));
-    expect(commitButton).toBeDisabled();
+    expect(saveAllButton).toBeDisabled();
   });
 
-  // Bug 7 – wichtigster Test: der Positions-Button darf nur das Placement committen,
-  // keine anderen offenen Draft-Änderungen (hier: der geänderte Spielername).
-  it("übernimmt per Positions-Button nur die HUD-Position, ohne andere Draft-Änderungen zu veröffentlichen", async () => {
+  // Die globale Speicherleiste speichert das ganze Modul, Positionen sind Teil des
+  // HUD-Drafts (kein isolierter Positions-Endpunkt mehr) und verschwindet nach Erfolg.
+  it("speichert per globaler Speicherleiste den gesamten HUD-Entwurf inklusive Position", async () => {
     const user = userEvent.setup();
     const initial = bootstrap();
     const save = vi.fn<AdminApi["save"]>((request) => Promise.resolve({
       state: { ...initial.state, ...request.state, revision: 2, updatedAt: "2026-08-29T12:01:00.000Z", updatedBy: actor },
-      auditEntry: { id: "audit-placement", revision: 2, action: "save", actor, summary: "Position übernommen", createdAt: "2026-08-29T12:01:00.000Z" },
+      auditEntry: { id: "audit-placement", revision: 2, action: "save", actor, summary: "HUD gespeichert", createdAt: "2026-08-29T12:01:00.000Z" },
       undoTargets: [],
       serverTime: "2026-08-29T12:01:00.000Z",
     }));
@@ -383,16 +417,61 @@ describe("Kompositions-Workspace", () => {
     fireEvent.pointerMove(hud, { clientX: 200, clientY: 200, pointerId: 1 });
     fireEvent.pointerUp(hud, { clientX: 200, clientY: 200, pointerId: 1 });
 
-    const commitButton = await screen.findByRole("button", { name: "Positionen übernehmen" });
-    await waitFor(() => expect(commitButton).toBeEnabled());
-    await user.click(commitButton);
+    const saveAllButton = await screen.findByRole("button", { name: "Alle speichern" });
+    await waitFor(() => expect(saveAllButton).toBeEnabled());
+    await user.click(saveAllButton);
 
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     const request = save.mock.calls[0]?.[0];
     expect(request?.baseRevision).toBe(1);
     expect(request?.state.placement).toEqual({ x: 112, y: 112, scale: 1 });
-    expect(request?.state.player.name).toBe("Streamer");
-    expect(screen.getByDisplayValue("Draft Streamer")).toBeInTheDocument();
-    expect(await screen.findByText("Positionen übernommen.")).toBeInTheDocument();
+    expect(request?.state.player.name).toBe("Draft Streamer");
+    expect(screen.queryByRole("button", { name: "Alle speichern" })).not.toBeInTheDocument();
+  });
+
+  // Teilerfolg: sequenzielles Speichern haelt beim ersten Fehler an. Bereits erfolgreiche
+  // Module gelten als gespeichert, das fehlgeschlagene bleibt dirty, die Leiste bleibt
+  // stehen und benennt es samt Fehlermeldung, und der Tab mit der modul-eigenen
+  // Fehleranzeige wird aktiviert.
+  it("speichert bei einem Fehler nur die vorherigen Module und wechselt zum betroffenen Tab", async () => {
+    const user = userEvent.setup();
+    const initial = bootstrap();
+    const snapshot = challengeSnapshot();
+    const save = vi.fn<AdminApi["save"]>((request) => Promise.resolve({
+      state: { ...initial.state, ...request.state, revision: 2, updatedAt: "2026-08-29T12:01:00.000Z", updatedBy: actor },
+      auditEntry: { id: "audit-hud", revision: 2, action: "save", actor, summary: "HUD gespeichert", createdAt: "2026-08-29T12:01:00.000Z" },
+      undoTargets: [],
+      serverTime: "2026-08-29T12:01:00.000Z",
+    }));
+    const saveChallengeSettings = vi.fn(() => Promise.reject(new Error("Einstellungen kaputt")));
+    render(<AdminWorkspace api={{
+      save,
+      setVisibility: vi.fn(),
+      getChallengeBoard: vi.fn(() => Promise.resolve(snapshot)),
+      saveChallengeBoard: vi.fn(),
+      saveChallengeSettings,
+      subscribe: () => () => undefined,
+    }} initialBootstrap={initial} />);
+
+    const name = screen.getByDisplayValue("Streamer");
+    await user.clear(name);
+    await user.type(name, "Draft Streamer");
+
+    await user.click(screen.getByRole("tab", { name: "Challenges" }));
+    await screen.findByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" });
+    fireEvent.change(challengesPanel().getByLabelText("X"), { target: { value: "200" } });
+    await user.click(screen.getByRole("tab", { name: "HUD" }));
+
+    const saveAllButton = await screen.findByRole("button", { name: "Alle speichern" });
+    await user.click(saveAllButton);
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(saveChallengeSettings).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("tab", { name: "Challenges" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByText("Einstellungen: Einstellungen kaputt")).toBeInTheDocument();
+    // HUD ist bereits erfolgreich gespeichert (Teilerfolg) und darum nicht mehr dirty –
+    // kein modul-eigener Button mehr, darum ueber die eigene Statusanzeige der Rail pruefen.
+    expect(hudPanel().getByText(/ist jetzt in OBS/)).toBeInTheDocument();
+    expect(hudPanel().queryByText("Noch nicht an OBS gesendet")).not.toBeInTheDocument();
   });
 });

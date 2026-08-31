@@ -121,7 +121,8 @@ const createChallenge = async (page: Page, title: string, targetCount?: number):
     await row.getByRole("checkbox", { name: `${title} mit Zielwert` }).check();
     await row.getByRole("spinbutton", { name: `${title} Zielwert` }).fill(String(targetCount));
   }
-  await page.getByRole("button", { name: "Challenge-Board speichern" }).click();
+  // Kein modul-eigener Save-Button mehr: die globale Speicherleiste ist der einzige Trigger.
+  await page.getByRole("button", { name: "Alle speichern" }).click();
   await expect(page.getByText(/Board gespeichert · Revision \d+\./)).toBeVisible();
 };
 
@@ -236,7 +237,8 @@ test("die Komposition verschiebt und veröffentlicht die Challenge-Quelle", asyn
   const currentX = Number(await challengeRail.getByLabel("X").inputValue());
   const nextX = currentX >= 384 ? currentX - 1 : currentX + 1;
   await challengeRail.getByLabel("X").fill(String(nextX));
-  await page.getByRole("button", { name: "Challenge-Einstellungen speichern" }).click();
+  // Kein modul-eigener Save-Button mehr: die globale Speicherleiste ist der einzige Trigger.
+  await page.getByRole("button", { name: "Alle speichern" }).click();
   await expect(page.getByText("Zeremonie-Einstellung veröffentlicht.")).toBeVisible();
   await expect.poll(async () => source.locator(".challenge-source").evaluate((element) => getComputedStyle(element).getPropertyValue("--wc-x").trim())).toBe(`${String(nextX * 5)}px`);
 

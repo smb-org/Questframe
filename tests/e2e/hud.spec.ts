@@ -43,7 +43,8 @@ test("a draft reaches a connected OBS overlay only after Save", async ({ page, c
   await expect(overlayHealth).toHaveAttribute("aria-valuenow", String(current));
   await expect(page.getByText("Noch nicht an OBS gesendet")).toBeVisible();
 
-  await page.getByRole("button", { name: "Änderungen speichern" }).click();
+  // Kein modul-eigener Save-Button mehr: die globale Speicherleiste ist der einzige Trigger.
+  await page.getByRole("button", { name: "Alle speichern" }).click();
   await expect(page.getByText(/Revision \d+ ist jetzt in OBS/)).toBeVisible();
   await expect(overlayHealth).toHaveAttribute("aria-valuenow", String(next));
 });

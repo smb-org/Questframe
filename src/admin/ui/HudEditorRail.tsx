@@ -11,7 +11,6 @@ import {
   Plus,
   Radio,
   RotateCw,
-  Save,
   Search,
   Sparkles,
   Trash2,
@@ -403,6 +402,10 @@ const GuestAdder = ({ disabled, existingTwitchUserIds, lookup, onAddManual, onAd
   );
 };
 
+// Rueckgabewert von save(): erlaubt der globalen Speicherleiste (CompositionWorkspace),
+// Erfolg/Konflikt/Fehler ohne Umweg ueber verzoegerten React-State zu erkennen.
+export type ModuleSaveOutcome = { ok: boolean; conflict: boolean; message?: string };
+
 export type HudEditorState = {
   committed: ChannelState;
   draft: ChannelStateDraft;
@@ -439,8 +442,7 @@ export type HudEditorState = {
   toggleAudit: () => void;
   updatePlayer: (patch: Partial<ChannelStateDraft["player"]>) => void;
   selectResource: (selection: string) => void;
-  save: (replace?: boolean) => Promise<void>;
-  savePlacementOnly: () => Promise<void>;
+  save: (replace?: boolean) => Promise<ModuleSaveOutcome>;
   toggleVisibility: () => Promise<void>;
   undo: (targetRevision: number) => Promise<void>;
   commitEffect: (effect: ActiveEffect, featured: boolean) => void;
@@ -559,26 +561,23 @@ export const useHudEditorState = ({
     const preset = RESOURCE_PRESETS.find(({ name }) => name === selection);
     updatePlayer({ resource: preset === undefined ? { ...draft.player.resource, name: "Eigene Ressource" } : { ...draft.player.resource, ...preset } });
   };
-  const save = async (replace = false) => {
-    if (!dirty || locked) return;
-    if (remoteConflict !== null && !replace) { setError("Der OBS-Stand wurde inzwischen geändert. Bitte eine Konfliktaktion wählen."); return; }
+  const save = async (replace = false): Promise<ModuleSaveOutcome> => {
+    if (!dirty || locked) return { ok: false, conflict: false, message: "Nicht speicherbar." };
+    if (remoteConflict !== null && !replace) {
+      const conflictMessage = "Der OBS-Stand wurde inzwischen geändert. Bitte eine Konfliktaktion wählen.";
+      setError(conflictMessage);
+      return { ok: false, conflict: true, message: conflictMessage };
+    }
     setSaving(true); setError(""); setMessage("");
     try {
       const response = await api.save({ baseRevision: draftBaseRevision, ...(replace && remoteConflict !== null ? { replaceRevision: remoteConflict.revision } : {}), state: structuredClone(draft) });
       setCommitted(response.state); setDraft(toDraft(response.state)); setDraftBaseRevision(response.state.revision); addAuditEntry(response.auditEntry); applyUndoTargets(response.undoTargets, response.state.revision); setRemoteConflict(null); setMessage(`Revision ${String(response.state.revision)} ist jetzt in OBS.`);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Speichern fehlgeschlagen."); } finally { setSaving(false); }
-  };
-  // Nur das Placement aus dem committeten Stand veroeffentlichen, keine sonstigen
-  // Draft-Aenderungen: state = committed in Draft-Form + neues placement, nicht `draft`.
-  // Fehler/Status verwaltet der Aufrufer selbst (Positionen-Button an der Buehne).
-  const savePlacementOnly = async (): Promise<void> => {
-    if (locked) return;
-    const response = await api.save({ baseRevision: committed.revision, state: structuredClone({ ...toDraft(committed), placement: draft.placement }) });
-    setCommitted(response.state);
-    setDraft((current) => ({ ...current, placement: response.state.placement }));
-    setDraftBaseRevision(response.state.revision);
-    addAuditEntry(response.auditEntry);
-    applyUndoTargets(response.undoTargets, response.state.revision);
+      return { ok: true, conflict: false };
+    } catch (caught) {
+      const messageText = caught instanceof Error ? caught.message : "Speichern fehlgeschlagen.";
+      setError(messageText);
+      return { ok: false, conflict: false, message: messageText };
+    } finally { setSaving(false); }
   };
   const toggleVisibility = async () => {
     if (visibilityBusy || !online) return;
@@ -613,7 +612,7 @@ export const useHudEditorState = ({
     setError("");
   };
 
-  return { committed, draft, setDraft, draftBaseRevision, audit, auditOpen, newAuditCount, undoTargets, online, saving, visibilityBusy, message, error, remoteConflict, overlayToken, dockToken, obsSetupOpen, obsLinkCopied, obsUrl, obsConnectionLabel, obsConnectionDescription, obsChipState, obsTokenUnavailable, dirty, locked, preview, previewMediaUrls, effectEditor, setEffectEditor, setObsSetupOpen, setOverlayToken, setDockToken, toggleAudit, updatePlayer, selectResource, save, savePlacementOnly, toggleVisibility, undo, commitEffect, removeEffect, addManualGuest, addTwitchGuest, mutateToken, copyHeaderObsUrl, resolveRemoteConflict, uploadPortrait };
+  return { committed, draft, setDraft, draftBaseRevision, audit, auditOpen, newAuditCount, undoTargets, online, saving, visibilityBusy, message, error, remoteConflict, overlayToken, dockToken, obsSetupOpen, obsLinkCopied, obsUrl, obsConnectionLabel, obsConnectionDescription, obsChipState, obsTokenUnavailable, dirty, locked, preview, previewMediaUrls, effectEditor, setEffectEditor, setObsSetupOpen, setOverlayToken, setDockToken, toggleAudit, updatePlayer, selectResource, save, toggleVisibility, undo, commitEffect, removeEffect, addManualGuest, addTwitchGuest, mutateToken, copyHeaderObsUrl, resolveRemoteConflict, uploadPortrait };
 };
 
 export const HudEditorRail = ({
@@ -642,10 +641,11 @@ export const HudEditorRail = ({
         {initialBootstrap.capabilities.groupEditor && <div className="desktop-only"><Section headerAction={draft.group.length === 0 ? undefined : <button aria-checked={draft.groupVisible} aria-label="Gruppe im Overlay anzeigen" className={`section-switch ${draft.groupVisible ? "is-on" : "is-off"}`} disabled={locked} onClick={() => state.setDraft((current) => ({ ...current, groupVisible: !current.groupVisible }))} role="switch" type="button"><span>{draft.groupVisible ? "An" : "Aus"}</span><i aria-hidden="true" /></button>} icon={<Users size={16} />} isHidden={draft.group.length > 0 && !draft.groupVisible} title="Gruppe">{draft.group.length === 0 && <p className="empty-copy">Keine Gäste im Stream.</p>}{draft.group.map((member, index) => <div className="guest-control" key={member.id}><div className="guest-heading"><span>{member.source === "twitch" && <MessageSquare size={13} />}{member.name}</span><button aria-label={`${member.name} entfernen`} className="icon-button" onClick={() => state.setDraft((current) => ({ ...current, group: current.group.filter((item) => item.id !== member.id) }))} type="button"><Trash2 size={14} /></button></div><RangeField disabled={locked} label={`${member.name} Gesundheit`} value={member.hpPercent} onChange={(hpPercent) => state.setDraft((current) => ({ ...current, group: current.group.map((item, itemIndex) => itemIndex === index ? { ...item, hpPercent } : item) }))} /></div>)}{draft.group.length < 5 && <GuestAdder disabled={locked} existingTwitchUserIds={draft.group.flatMap((member) => member.twitchUserId === null ? [] : [member.twitchUserId])} lookup={api.lookupTwitchUser?.bind(api)} onAddManual={state.addManualGuest} onAddTwitch={state.addTwitchGuest} />}</Section></div>}
         <div className="desktop-only"><Section defaultOpen={false} icon={<ChevronDown size={16} />} title="Einrichten"><div className="field-grid"><label><span>Name</span><input disabled={locked} maxLength={32} value={draft.player.name} onChange={(event) => state.updatePlayer({ name: event.target.value })} /></label><label><span>Titel</span><input disabled={locked} maxLength={40} value={draft.player.title ?? ""} onChange={(event) => state.updatePlayer({ title: event.target.value === "" ? null : event.target.value })} /></label><label><span>Level</span><input disabled={locked} max={999} min={1} type="number" value={draft.player.level} onChange={(event) => state.updatePlayer({ level: Number(event.target.value) })} /></label><label><span>Ressource</span><select disabled={locked} value={getResourceSelection(draft.player.resource)} onChange={(event) => state.selectResource(event.target.value)}>{RESOURCE_PRESETS.map((preset) => <option key={preset.name} value={preset.name}>{preset.name}</option>)}<option value={CUSTOM_RESOURCE}>{CUSTOM_RESOURCE}</option></select></label>{getResourceSelection(draft.player.resource) === CUSTOM_RESOURCE && <label><span>Eigene Farbe</span><input disabled={locked} type="color" value={draft.player.resource.color} onChange={(event) => state.updatePlayer({ resource: { ...draft.player.resource, color: event.target.value.toUpperCase() } })} /></label>}</div><PortraitInput disabled={locked} upload={state.uploadPortrait} onPortrait={(portrait) => state.updatePlayer({ portrait })} /><div className="theme-picker" aria-label="Theme">{initialBootstrap.capabilities.enabledThemes.map((theme) => <button aria-pressed={draft.themeId === theme} className={draft.themeId === theme ? "theme-card is-selected" : "theme-card"} disabled={locked} key={theme} onClick={() => state.setDraft((current) => ({ ...current, themeId: theme }))} type="button"><ThemePreviewCard preview={state.preview} previewMediaUrls={state.previewMediaUrls} theme={theme} /><strong>{THEME_LABELS[theme]}</strong>{draft.themeId === theme && <span aria-hidden="true" className="theme-card-check"><Check size={12} /></span>}</button>)}</div><div className="placement-grid"><label><span>X</span><input disabled={locked} max={384} min={0} type="number" value={draft.placement.x} onChange={(event) => state.setDraft((current) => ({ ...current, placement: { ...current.placement, x: Number(event.target.value) } }))} /></label><label><span>Y</span><input disabled={locked} max={216} min={0} type="number" value={draft.placement.y} onChange={(event) => state.setDraft((current) => ({ ...current, placement: { ...current.placement, y: Number(event.target.value) } }))} /></label><label><span>Skalierung</span><select disabled={locked} value={draft.placement.scale} onChange={(event) => state.setDraft((current) => ({ ...current, placement: { ...current.placement, scale: Number(event.target.value) } }))}>{HUD_SCALE_OPTIONS.map((scale) => <option key={scale} value={scale}>{Math.round(scale * 100)}%</option>)}</select></label></div></Section></div>
       </div>
+      {/* Kein modul-eigener Speichern-Button mehr: die globale Speicherleiste (AdminWorkspace)
+          ist die einzige Speicher-Aktion. Konfliktaufloesung und Status/Dirty-Anzeige bleiben. */}
       <footer className="save-dock">
         {state.remoteConflict !== null && <div className="save-conflict" role="alert"><strong>OBS wurde inzwischen geändert</strong><span>Rev. {state.draftBaseRevision} → {state.remoteConflict.revision}. Dein Entwurf ist noch lokal.</span><div><button className="text-button" onClick={state.resolveRemoteConflict} type="button">Serverstand laden</button><button className="text-button text-button--danger" onClick={() => void state.save(true)} type="button">Meinen Entwurf veröffentlichen</button></div></div>}
         <div className="publication-state" aria-live="polite">{state.error !== "" ? <span className="save-error">{state.error}</span> : state.message !== "" ? <span className="save-success">{state.message}</span> : state.dirty ? <span className="save-dirty">Noch nicht an OBS gesendet</span> : <span>Alles veröffentlicht</span>}</div>
-        <button className="button button--save" disabled={!state.dirty || locked} onClick={() => void state.save()} type="button" aria-label="Änderungen speichern">{state.saving ? <RotateCw className="spin" size={17} /> : <Save size={17} />}{state.saving ? "Wird gespeichert …" : "Änderungen speichern"}</button>
       </footer>
       {state.effectEditor !== null && <EffectFlyover effect={state.effectEditor === "new" ? undefined : state.effectEditor} initialFeatured={state.effectEditor !== "new" && state.effectEditor.id === draft.featuredEffectId} timezone={initialBootstrap.capsule.timezone} onClose={() => state.setEffectEditor(null)} onCommit={state.commitEffect} />}
     </aside>
