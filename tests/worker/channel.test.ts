@@ -1045,11 +1045,15 @@ describe("channel worker", () => {
   it("keeps ten overlay slots available through a full reload burst", async () => {
     let overlayToken = "";
     const sockets: WebSocket[] = [];
+    // Eigene cf-connecting-ip: dieser Test öffnet allein schon 30 Verbindungen
+    // und würde sich sonst den "unknown"-Fallback-Eimer des neuen
+    // OVERLAY_IP_LIMITER (30/10s) mit anderen Overlay-Tests dieser Datei teilen.
     const connect = () =>
       fetchWorker("http://localhost/ws/overlay", {
         headers: {
           upgrade: "websocket",
           "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, ${overlayToken}`,
+          "cf-connecting-ip": "198.51.100.81",
         },
       });
     const stub = env.CHANNEL.get(env.CHANNEL.idFromName(`channel:${env.BROADCASTER_ID}`));

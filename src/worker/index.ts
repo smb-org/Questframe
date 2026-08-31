@@ -133,6 +133,24 @@ const enforceDockIpLimit = async (request: Request, env: AppEnv): Promise<Respon
   return limit.success ? null : errorResponse(429, "rate_limited", "Zu viele Dock-Anfragen von dieser IP.");
 };
 
+// Die Formprüfung des Overlay-Tokens (43-Zeichen-Muster) lässt jedes zufällige
+// Token durch die Tür — die eigentliche Gültigkeitsprüfung passiert erst im
+// Durable Object. Ohne eigenen IP-Eimer würde eine Token-Rate-Flut von EINER
+// Quelle direkt den kapselweiten OVERLAY_CAPSULE_LIMITER leerräumen, bevor
+// überhaupt ein gültiges Token im Spiel war — legitime OBS-Reconnects bekämen
+// dann 429. Dieser Eimer wird DESHALB vor dem Kapsel-Eimer geprüft: Eine
+// Flut aus einer Quelle leert ihren eigenen Eimer, nicht den der Kapsel.
+// Bleibt bewusst: Eine verteilte Flut aus vielen IPs kann den Kapsel-Eimer
+// weiterhin leeren — das ist die verbleibende Grenze, kein Versehen.
+const enforceOverlayIpLimit = async (request: Request, env: AppEnv): Promise<Response | null> => {
+  const limit = await env.OVERLAY_IP_LIMITER.limit({
+    key: request.headers.get("cf-connecting-ip") ?? "unknown",
+  });
+  return limit.success
+    ? null
+    : errorResponse(429, "rate_limited", "Zu viele Overlay-Verbindungen von dieser IP.");
+};
+
 const handleDevAuth = async (env: AppEnv): Promise<Response> => {
   if (env.APP_ENV !== "local") return errorResponse(404, "not_found", "Route nicht gefunden.");
   const sessionId = randomToken(32);
@@ -621,6 +639,8 @@ const worker = {
       ) {
         return errorResponse(403, "token_invalid", "OBS-Token ungültig.");
       }
+      const ipLimitError = await enforceOverlayIpLimit(request, env);
+      if (ipLimitError !== null) return ipLimitError;
       const capsuleLimit = await env.OVERLAY_CAPSULE_LIMITER.limit({ key: env.CAPSULE_ID });
       const tokenLimit = await env.OVERLAY_TOKEN_LIMITER.limit({
         key: (await sha256Hex(token)).slice(0, 32),

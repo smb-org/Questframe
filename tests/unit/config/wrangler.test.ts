@@ -41,6 +41,10 @@ describe("Wrangler Token- und IP-Rate-Limits", () => {
           name: "DOCK_IP_LIMITER",
           simple: { limit: 60, period: 10 },
         }),
+        expect.objectContaining({
+          name: "OVERLAY_IP_LIMITER",
+          simple: { limit: 30, period: 10 },
+        }),
       ]),
     );
   });

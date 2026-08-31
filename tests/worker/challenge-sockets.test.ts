@@ -31,7 +31,10 @@ const authenticatedHeaders = (): HeadersInit => ({
 
 const commandId = (): string => crypto.randomUUID();
 
-const formalToken = (index: number): string => `${String(index).padStart(2, "0")}${"A".repeat(41)}`;
+// Modulo hält den Präfix immer bei zwei Ziffern (43 Zeichen gesamt), auch wenn
+// eine Rate-Limit-Schleife weit über 99 Versuche hinaus zählt.
+const formalToken = (index: number): string =>
+  `${String(index % 100).padStart(2, "0")}${"A".repeat(41)}`;
 
 type SocketInbox = {
   messages: Record<string, unknown>[];
@@ -810,8 +813,12 @@ describe("Win-Challenges-Sockets", () => {
   });
 
   it("liefert rate_limited auf der Dock-Kommando-Route anhand der Client-IP", async () => {
+    // Das Limit ist 60/10s ohne Reserve: exakt 61 Versuche können bei einem
+    // Fenster-Rollover mitten in der Schleife knapp verfehlen (Zähler setzt
+    // zurück, siehe Flakiness-Report). Ein Vielfaches des Limits gibt genug
+    // Puffer, dass auch ein einzelner Rollover die Prüfabsicht nicht verwässert.
     let limited: Response | null = null;
-    for (let index = 0; index < 61; index += 1) {
+    for (let index = 0; index < 240; index += 1) {
       const response = await fetchWorker("/api/challenges/commands", {
         method: "POST",
         headers: {
@@ -833,8 +840,9 @@ describe("Win-Challenges-Sockets", () => {
   });
 
   it("liefert rate_limited beim Dock-Socket-Upgrade anhand der Client-IP", async () => {
+    // Siehe Kommentar im vorigen Test: großzügiger Puffer statt exakt limit+1.
     let limited: Response | null = null;
-    for (let index = 0; index < 61; index += 1) {
+    for (let index = 0; index < 240; index += 1) {
       const response = await fetchWorker("/ws/dock", {
         headers: {
           upgrade: "websocket",
@@ -850,5 +858,51 @@ describe("Win-Challenges-Sockets", () => {
     expect(limited).not.toBeNull();
     if (limited === null) throw new Error("Dock-Socket-Upgrade wurde nicht rate-limited.");
     expect((await limited.json<{ error: { code: string } }>()).error.code).toBe("rate_limited");
+  });
+
+  it("liefert rate_limited beim Overlay-Socket-Upgrade anhand der Client-IP, bevor der Kapsel-Eimer greift", async () => {
+    // Die Formprüfung lässt jedes zufällige 43-Zeichen-Token durch die Tür; die
+    // eigentliche Gültigkeitsprüfung passiert erst im Durable Object. Ohne
+    // eigenen IP-Eimer würde eine Flut falsch geformter-aber-gültig-aussehender
+    // Token den kapselweiten OVERLAY_CAPSULE_LIMITER (60/10s) leerräumen, bevor
+    // je ein gültiges Token im Spiel war. Der IP-Eimer (30/10s) muss deshalb
+    // zuerst greifen — und deutlich unter 60 Versuchen.
+    let limited: Response | null = null;
+    let attempts = 0;
+    for (let index = 0; index < 120; index += 1) {
+      attempts = index + 1;
+      const response = await fetchWorker("/ws/overlay", {
+        headers: {
+          upgrade: "websocket",
+          "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, ${formalToken(index)}`,
+          "cf-connecting-ip": "198.51.100.71",
+        },
+      });
+      if (response.status === 429) {
+        limited = response;
+        break;
+      }
+    }
+    expect(limited).not.toBeNull();
+    if (limited === null) throw new Error("Overlay-Socket-Upgrade wurde nicht rate-limited.");
+    expect((await limited.json<{ error: { code: string } }>()).error.code).toBe("rate_limited");
+    // Muss am eigenen Eimer (30/10s, plus etwas Toleranz für einen möglichen
+    // Fenster-Rollover) greifen, klar unterhalb des kapselweiten Eimers
+    // (60/10s) -- sonst hätte die Flut bereits den globalen Eimer verbraucht.
+    expect(attempts).toBeLessThanOrEqual(45);
+
+    // Der eigentliche Prüfzweck: die Flut von EINER IP darf eine legitime
+    // Verbindung von einer ANDEREN IP nicht aussperren.
+    const overlayToken = await createOverlayToken();
+    const legit = await fetchWorker("/ws/overlay", {
+      headers: {
+        upgrade: "websocket",
+        "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, ${overlayToken}`,
+        "cf-connecting-ip": "198.51.100.72",
+      },
+    });
+    expect(legit.status).toBe(101);
+    legit.webSocket?.accept();
+    legit.webSocket?.close();
   });
 });

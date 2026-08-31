@@ -36,6 +36,11 @@
       "name": "DOCK_IP_LIMITER",
       "namespace_id": "11004",
       "simple": { "limit": 60, "period": 10 }
+    },
+    {
+      "name": "OVERLAY_IP_LIMITER",
+      "namespace_id": "11005",
+      "simple": { "limit": 30, "period": 10 }
     }
   ],
   "vars": {
@@ -95,6 +100,11 @@
           "name": "DOCK_IP_LIMITER",
           "namespace_id": "12004",
           "simple": { "limit": 60, "period": 10 }
+        },
+        {
+          "name": "OVERLAY_IP_LIMITER",
+          "namespace_id": "12005",
+          "simple": { "limit": 30, "period": 10 }
         }
       ],
       "vars": {
@@ -149,6 +159,11 @@
           "name": "DOCK_IP_LIMITER",
           "namespace_id": "13004",
           "simple": { "limit": 60, "period": 10 }
+        },
+        {
+          "name": "OVERLAY_IP_LIMITER",
+          "namespace_id": "13005",
+          "simple": { "limit": 30, "period": 10 }
         }
       ],
       "vars": {
