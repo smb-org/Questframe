@@ -508,11 +508,11 @@ describe("Win-Challenges-API", () => {
     expect(completed.state).toBe("done");
   });
 
-  it("liefert eine gültige GET-Nutzlast mit event null", async () => {
+  it("liefert eine reine GET-Nutzlast ohne event", async () => {
     const response = await fetchWorker("/api/challenges", { headers: { cookie, origin } });
-    const body = await response.json<{ event: null; challenges: Challenge[] }>();
+    const body = await response.json<{ challenges: Challenge[] }>();
     expect(response.status).toBe(200);
-    expect(body.event).toBeNull();
+    expectExactKeys(body, ["eventSeq", "boardRevision", "settingsRevision", "settings", "challenges"]);
     expect(body.challenges).toEqual([]);
   });
 });

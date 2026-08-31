@@ -21,6 +21,7 @@ import {
   type BoardSaveResult,
   type ChallengeRepository,
   type ChallengeRepositorySettings,
+  type ChallengeSnapshot,
   type ChallengeRuntime,
   type ChallengeRepositoryTransaction,
   type SettingsSaveResult,
@@ -192,8 +193,12 @@ export class WinChallengesService {
     this.clock = options.clock;
   }
 
-  public readSnapshot(): ChallengeUpdatePayload {
-    return { ...this.repository.readSnapshot(), event: null };
+  public readSnapshot(): ChallengeSnapshot {
+    return this.repository.readSnapshot();
+  }
+
+  public readChallengeUpdate(): ChallengeUpdatePayload {
+    return { ...this.readSnapshot(), event: null };
   }
 
   public selectVisible(now: DomainNow = this.clock()): VisibleSelection {

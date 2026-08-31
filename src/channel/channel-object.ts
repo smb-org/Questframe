@@ -1280,7 +1280,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       tokenGeneration: row.generation,
       connectedAt: nowIso(),
     } satisfies SocketAttachment);
-    server.send(JSON.stringify(this.toChallengeUpdate(this.challengeService().readSnapshot())));
+    server.send(JSON.stringify(this.toChallengeUpdate(this.challengeService().readChallengeUpdate())));
     return new Response(null, {
       status: 101,
       webSocket: client,
@@ -1310,7 +1310,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       tokenGeneration: row.generation,
       connectedAt: nowIso(),
     } satisfies SocketAttachment);
-    server.send(JSON.stringify(this.toChallengeUpdate(this.challengeService().readSnapshot())));
+    server.send(JSON.stringify(this.toChallengeUpdate(this.challengeService().readChallengeUpdate())));
     return new Response(null, {
       status: 101,
       webSocket: client,
