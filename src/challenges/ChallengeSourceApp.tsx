@@ -15,6 +15,29 @@ import { loadChallengeTheme, type ChallengeThemeLoader } from "./theme-loader";
 
 const RETRY_BASE_MS = 750;
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+const PARSE_RELOAD_STORAGE_KEY = "wc-parse-reload-at";
+const PARSE_RELOAD_COOLDOWN_MS = 5 * 60 * 1_000;
+
+const reloadWindow = (): void => {
+  window.location.reload();
+};
+
+const reloadAfterWireParseFailure = (reload: () => void): void => {
+  try {
+    const storage = window.sessionStorage;
+    const now = Date.now();
+    const storedAt = storage.getItem(PARSE_RELOAD_STORAGE_KEY);
+    const lastReloadAt = storedAt === null ? null : Number(storedAt);
+    if (lastReloadAt !== null && Number.isFinite(lastReloadAt) && now - lastReloadAt <= PARSE_RELOAD_COOLDOWN_MS) {
+      return;
+    }
+    storage.setItem(PARSE_RELOAD_STORAGE_KEY, String(now));
+    reload();
+  } catch {
+    // Im OBS-Kontext kann sessionStorage fehlen. Dann bleibt die Quelle schwarz,
+    // statt ohne Sperre eine Reload-Schleife zu riskieren.
+  }
+};
 
 const readPrefersReducedMotion = (): boolean =>
   typeof window !== "undefined" && typeof window.matchMedia === "function"
@@ -42,11 +65,13 @@ type ChallengeSourceAppProps = {
   loadStyle?: ChallengeStyleLoader;
   // Der Loader bleibt injizierbar, damit das Render-Gate auch Fehler und Rennen testet.
   loadTheme?: ChallengeThemeLoader;
+  reloadPage?: () => void;
 };
 
 export const ChallengeSourceApp = ({
   loadStyle = loadChallengeStyle,
   loadTheme = loadChallengeTheme,
+  reloadPage = reloadWindow,
 }: ChallengeSourceAppProps = {}) => {
   const [update, setUpdate] = useState<ChallengeUpdate | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -152,12 +177,14 @@ export const ChallengeSourceApp = ({
           input = JSON.parse(message.data) as unknown;
         } catch {
           setUpdate(null);
+          reloadAfterWireParseFailure(reloadPage);
           return;
         }
         const parsed = parseChallengeMessage(input);
         if (parsed === null) {
-          // Ein Parse-Fehler darf das HUD vor Zuschauern niemals neu laden.
+          // Ein Deploy kann das Wire-Format ändern, während OBS noch das alte Bundle hält.
           setUpdate(null);
+          reloadAfterWireParseFailure(reloadPage);
           return;
         }
         if (!("eventSeq" in parsed)) {
@@ -171,6 +198,11 @@ export const ChallengeSourceApp = ({
         // Schritt 13 hängt die Zeremonie an `ceremony.shouldFire` ein. Die
         // lastSeen-Buchführung läuft schon jetzt, damit dort nur noch der
         // Effekt fehlt und nicht die Regel, wann er feuern darf.
+        const event = parsed.event;
+        const hiddenChallengeEvent = event !== null
+          && event.scope === "challenge"
+          && event.type !== "completed"
+          && parsed.challenges.some((challenge) => challenge.id === event.challengeId && challenge.hidden);
         if (!parsed.settings.effectsEnabled) {
           setActiveCeremony(null);
           if (ceremonyTimerRef.current !== null) {
@@ -178,8 +210,12 @@ export const ChallengeSourceApp = ({
             ceremonyTimerRef.current = null;
           }
           audioPolicyRef.current?.stop();
-        } else if (ceremony.shouldFire && parsed.event !== null) {
-          const nextCeremony = ceremonyFor(parsed.settings.styleId, parsed.event);
+        } else if (
+          ceremony.shouldFire
+          && event !== null
+          && !hiddenChallengeEvent
+        ) {
+          const nextCeremony = ceremonyFor(parsed.settings.styleId, event);
           if (nextCeremony !== null) {
             const eventSeq = parsed.eventSeq;
             setActiveCeremony({ ...nextCeremony, eventSeq });
@@ -215,7 +251,7 @@ export const ChallengeSourceApp = ({
       if (ceremonyTimerRef.current !== null) window.clearTimeout(ceremonyTimerRef.current);
       socket?.close();
     };
-  }, []);
+  }, [reloadPage]);
 
   const styleReady = update !== null
     && styleLoadState.key === styleId

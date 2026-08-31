@@ -5,7 +5,7 @@ import type {
   ChallengeUpdate,
   GlobalTimer,
 } from "../../../shared/contracts/win-challenges";
-import { selectVisible } from "../domain/visibility";
+import { formatChallengeStand, selectVisible } from "../domain/visibility";
 import { deriveTimerState, type TimerState } from "../domain/timers";
 import {
   formatRemaining,
@@ -76,7 +76,9 @@ const ChallengeRow = ({
   const targetCount = challenge.targetCount;
   const progress = targetCount === null
     ? null
-    : Math.min(100, Math.max(0, challenge.currentCount / targetCount * 100));
+    : done
+      ? 100
+      : Math.min(100, Math.max(0, challenge.currentCount / targetCount * 100));
   const progressStyle = progress === null
     ? undefined
     : { "--wc-progress": `${String(progress)}%` } as CSSProperties;
@@ -109,7 +111,7 @@ const ChallengeRow = ({
           {challenge.targetCount !== null && (
             <span className="challenge-source__count">{challenge.currentCount} / {challenge.targetCount}</span>
           )}
-          {challenge.timerEndsAt !== null && (
+          {challenge.timerEndsAt !== null && !done && (
             <span className="challenge-source__time">{formatRemaining(remainingMs)}</span>
           )}
         </span>
@@ -130,38 +132,30 @@ export const ChallengeLog = ({
   const selection = selectVisible(update.challenges, update.settings.maxVisible, now);
   const globalTimer = update.settings.globalTimer;
   const maxRowsWithoutOverflow = globalTimer === null ? 8 : 7;
-  const hasOverflow =
-    selection.remaining > 0 || selection.challenges.length > maxRowsWithoutOverflow;
+  const totalSelectable = selection.challenges.length + selection.remaining;
+  const hasOverflow = totalSelectable > maxRowsWithoutOverflow;
   const maxRows = hasOverflow ? maxRowsWithoutOverflow - 1 : maxRowsWithoutOverflow;
   const selectedChallenges = selection.challenges.slice(0, maxRows);
   const ceremonyChallenge = ceremonyTarget?.kind === "challenge"
     ? update.challenges.find((challenge) => challenge.id === ceremonyTarget.id) ?? null
     : null;
-  const ceremonyTargetIsVisible = ceremonyChallenge !== null
-    && selectedChallenges.some((challenge) => challenge.id === ceremonyChallenge.id);
+  const eligibleCeremonyChallenge = ceremonyChallenge !== null && !ceremonyChallenge.hidden
+    ? ceremonyChallenge
+    : null;
+  const ceremonyTargetIsVisible = eligibleCeremonyChallenge !== null
+    && selectedChallenges.some((challenge) => challenge.id === eligibleCeremonyChallenge.id);
   // Ein gerade gemeldetes Ziel bleibt sichtbar, auch wenn die normale Auswahl
   // wegen maxVisible oder der festen Zeilenobergrenze einen anderen Ausschnitt zeigt.
-  const challenges = ceremonyChallenge !== null && !ceremonyTargetIsVisible
-    ? [...selectedChallenges.slice(0, Math.max(0, selectedChallenges.length - 1)), ceremonyChallenge]
+  const challenges = eligibleCeremonyChallenge !== null && !ceremonyTargetIsVisible
+    ? [...selectedChallenges.slice(0, Math.max(0, selectedChallenges.length - 1)), eligibleCeremonyChallenge]
     : selectedChallenges;
-  const omittedOpen = selection.challenges
-    .slice(maxRows)
-    .filter((challenge) => challenge.state !== "done").length;
-  const ceremonyTargetWasCountedAsRemaining = ceremonyChallenge !== null
-    && !ceremonyTargetIsVisible
-    && ceremonyChallenge.state !== "done";
-  const remaining = Math.max(
-    0,
-    selection.remaining + omittedOpen - (ceremonyTargetWasCountedAsRemaining ? 1 : 0),
-  );
+  const remaining = Math.max(0, totalSelectable - challenges.length);
   const globalState = globalTimer === null
     ? "idle"
     : deriveTimerState(globalTimer.endsAt, globalTimer.pausedRemainMs, now);
 
-  // Ein langer fertiger Nachhall gilt ohne aktiven globalen Zustand als leer.
   if (challenges.length === 0 && (globalTimer === null || globalState === "idle")) return null;
 
-  const completed = update.challenges.filter((challenge) => challenge.state === "done").length;
   return (
     <main
       aria-label="Challenge-Quelle"
@@ -173,7 +167,7 @@ export const ChallengeLog = ({
     >
       <header className="challenge-source__header">
         <span className="challenge-source__title">{update.settings.headerTitle}</span>
-        <span className="challenge-source__stand">{completed} / {update.challenges.length}</span>
+        <span className="challenge-source__stand">{formatChallengeStand(update.challenges)}</span>
       </header>
       {globalTimer !== null && (
         <GlobalTimerRow

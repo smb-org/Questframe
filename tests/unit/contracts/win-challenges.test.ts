@@ -35,6 +35,7 @@ const challenge = {
   targetCount: 10,
   timerTotalMs: 10_000,
   sortOrder: 0,
+  hidden: false,
   currentCount: 0,
   state: "pending" as const,
   timerEndsAt: null,
@@ -213,5 +214,11 @@ describe("Win-Challenges-Verträge", () => {
       type: "resetGlobalTimer",
       challengeId: "challenge-1",
     })).toThrow();
+  });
+
+  it("setzt hidden bei alten Board-Definitionen auf false und validiert den Boolean", () => {
+    expect(challengeDefinitionSchema.parse(definition)).toMatchObject({ hidden: false });
+    expect(challengeDefinitionSchema.safeParse({ ...definition, hidden: true }).success).toBe(true);
+    expect(challengeDefinitionSchema.safeParse({ ...definition, hidden: "yes" }).success).toBe(false);
   });
 });

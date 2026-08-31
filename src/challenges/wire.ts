@@ -16,6 +16,7 @@ import {
   isDelta,
   isEventSeq,
   isHeaderTitle,
+  isHidden,
   isInstant,
   isMaxVisible,
   isPausedRemainMs,
@@ -95,6 +96,7 @@ const parseChallenge = (input: unknown): Challenge | null => {
       "targetCount",
       "timerTotalMs",
       "sortOrder",
+      "hidden",
       "currentCount",
       "state",
       "timerEndsAt",
@@ -108,6 +110,7 @@ const parseChallenge = (input: unknown): Challenge | null => {
     !isTargetCount(input.targetCount) ||
     !isTimerTotalMs(input.timerTotalMs) ||
     !isSortOrder(input.sortOrder) ||
+    !isHidden(input.hidden) ||
     !isCurrentCount(input.currentCount) ||
     !isChallengeState(input.state) ||
     !(input.timerEndsAt === null || isInstant(input.timerEndsAt)) ||

@@ -55,6 +55,7 @@ const challenge = (id: string, title: string, state: "pending" | "done", sortOrd
   targetCount: state === "done" ? 1 : 10,
   timerTotalMs: null,
   sortOrder,
+  hidden: false,
   currentCount: state === "done" ? 1 : 3,
   state,
   timerEndsAt: null,
@@ -130,6 +131,7 @@ beforeEach(() => {
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
   }));
+  window.sessionStorage.clear();
   window.history.replaceState({}, "", `/overlay/challenges#token=${token}`);
 });
 
@@ -308,18 +310,93 @@ describe("ChallengeSourceApp", () => {
 
     expect(document.querySelector('[data-challenge-id="target"]')).toHaveAttribute("data-ceremony-target", "true");
     expect(document.querySelectorAll('.challenge-source__row[data-state="pending"]')).toHaveLength(3);
-    expect(screen.queryByText("+1 weitere")).not.toBeInTheDocument();
+    expect(screen.getByText("+1 weitere")).toBeInTheDocument();
   });
 
   it("blendet das Log bei Parse-Fehlern aus und zeigt es bei der nächsten gültigen Nachricht wieder", async () => {
-    render(<ChallengeSourceApp />);
+    const reloadPage = vi.fn();
+    render(<ChallengeSourceApp reloadPage={reloadPage} />);
     const socket = FakeWebSocket.instances[0];
     await deliver(socket, message());
     expect(screen.getByText("Offene Challenge")).toBeInTheDocument();
     act(() => socket?.emit("message", JSON.stringify({ ...message(), settings: { ...message().settings, maxVisible: 11 } })));
     expect(document.body).not.toHaveTextContent("Offene Challenge");
+    expect(reloadPage).toHaveBeenCalledTimes(1);
     await deliver(socket, message());
     expect(screen.getByText("Offene Challenge")).toBeInTheDocument();
+  });
+
+  it("lädt bei zwei Parse-Fehlern innerhalb der Sperrfrist nur einmal neu", () => {
+    const reloadPage = vi.fn();
+    render(<ChallengeSourceApp reloadPage={reloadPage} />);
+    const socket = FakeWebSocket.instances[0];
+
+    act(() => socket?.emit("message", "kein JSON"));
+    act(() => socket?.emit("message", JSON.stringify({ type: "challenge_update" })));
+
+    expect(reloadPage).toHaveBeenCalledTimes(1);
+    expect(window.sessionStorage.getItem("wc-parse-reload-at")).not.toBeNull();
+  });
+
+  it("lädt bei nicht verfügbarem sessionStorage nicht neu", () => {
+    const reloadPage = vi.fn();
+    const descriptor = Object.getOwnPropertyDescriptor(window, "sessionStorage");
+    Object.defineProperty(window, "sessionStorage", {
+      configurable: true,
+      get: () => {
+        throw new Error("sessionStorage unavailable");
+      },
+    });
+
+    try {
+      render(<ChallengeSourceApp reloadPage={reloadPage} />);
+      act(() => FakeWebSocket.instances[0]?.emit("message", "kein JSON"));
+      expect(reloadPage).not.toHaveBeenCalled();
+    } finally {
+      if (descriptor !== undefined) Object.defineProperty(window, "sessionStorage", descriptor);
+    }
+  });
+
+  it("lädt bei token_revoked nicht neu", () => {
+    const reloadPage = vi.fn();
+    render(<ChallengeSourceApp reloadPage={reloadPage} />);
+    act(() => FakeWebSocket.instances[0]?.emit("message", JSON.stringify({ type: "token_revoked" })));
+    expect(reloadPage).not.toHaveBeenCalled();
+  });
+
+  it("spielt für versteckte Challenge-Events keine Zeremonie und keinen Ton, sichtbare aber schon", async () => {
+    const reloadPage = vi.fn();
+    render(<ChallengeSourceApp reloadPage={reloadPage} />);
+    const socket = FakeWebSocket.instances[0];
+    const settings = { ...message().settings, themeMode: "own" as const };
+    const hiddenChallenge = { ...challenge("open", "Bonus", "pending", 1), hidden: true };
+    const hiddenEvent = {
+      scope: "challenge" as const,
+      type: "progressed" as const,
+      challengeId: "open",
+      delta: 1,
+      previousCount: 3,
+      currentCount: 4,
+    };
+
+    await deliver(socket, sourceUpdate({
+      eventSeq: 1,
+      challenges: [challenge("done", "Erledigt unten", "done", 0), hiddenChallenge],
+      settings,
+      event: hiddenEvent,
+    }));
+    expect(document.querySelector(".challenge-source-ceremony")?.getAttribute("data-ceremony-type") ?? null).toBeNull();
+    const tick = FakeAudio.instances.find((audio) => audio.src.endsWith("/tick.mp3"));
+    expect(tick?.play).not.toHaveBeenCalled();
+
+    await deliver(socket, sourceUpdate({
+      eventSeq: 2,
+      challenges: [challenge("done", "Erledigt unten", "done", 0), { ...hiddenChallenge, hidden: false }],
+      settings,
+      event: hiddenEvent,
+    }));
+    expect(document.querySelector(".challenge-source-ceremony")).toHaveAttribute("data-ceremony-type", "progressed");
+    expect(tick?.play).toHaveBeenCalledTimes(1);
   });
 
   it("hält die Quelle bis zum Theme-Chunk transparent", async () => {
@@ -569,13 +646,14 @@ describe("ChallengeSourceApp", () => {
     },
   );
 
-  it("behandelt nur alte fertige Challenges ohne aktiven Timer als leer", () => {
+  it("zeigt erledigte Challenges dauerhaft auch ohne aktiven Timer", () => {
     const old = { ...challenge("old", "Alte Challenge", "done", 0), completedAt: "2026-08-31T11:59:00.000Z" };
-    const view = render(<ChallengeLog now={fixedNow} update={sourceUpdate({ challenges: [old] })} />);
-    expect(view.container.firstChild).toBeNull();
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({ challenges: [old] })} />);
+    expect(screen.getByText("Alte Challenge")).toBeInTheDocument();
+    expect(screen.getByText("✓")).toBeInTheDocument();
   });
 
-  it("zeigt Kopf und Timer für nur alte fertige Challenges mit aktivem Timer", () => {
+  it("zeigt erledigte Challenges auch bei laufendem globalem Timer", () => {
     const old = { ...challenge("old", "Alte Challenge", "done", 0), completedAt: "2026-08-31T11:59:00.000Z" };
     render(<ChallengeLog now={fixedNow} update={sourceUpdate({
       challenges: [old],
@@ -583,7 +661,7 @@ describe("ChallengeSourceApp", () => {
     })} />);
     expect(screen.getByText("CHALLENGES")).toBeInTheDocument();
     expect(screen.getByLabelText(/Globaler Timer/)).toBeInTheDocument();
-    expect(screen.queryByText("Alte Challenge")).not.toBeInTheDocument();
+    expect(screen.getByText("Alte Challenge")).toBeInTheDocument();
   });
 
   it("zeigt bei mindestens einer offenen Challenge den vollständigen Zustand", () => {
@@ -592,6 +670,30 @@ describe("ChallengeSourceApp", () => {
     })} />);
     expect(screen.getByText("Offene Challenge")).toBeInTheDocument();
     expect(screen.getByText("3 / 10")).toBeInTheDocument();
+  });
+
+  it("filtert versteckte Challenges, zeigt den Stand aber inklusive Versteckter", () => {
+    const hidden = { ...challenge("hidden", "Versteckter Bonus", "pending", 0), hidden: true };
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      challenges: [hidden, challenge("open", "Offene Challenge", "pending", 1)],
+    })} />);
+
+    expect(screen.queryByText("Versteckter Bonus")).not.toBeInTheDocument();
+    expect(screen.getByText("0 / 1(+1)")).toBeInTheDocument();
+  });
+
+  it("markiert fertige Zeilen eindeutig und blendet einen alten Challenge-Timer aus", () => {
+    const done = {
+      ...challenge("done", "Erledigt", "done", 0),
+      currentCount: 0,
+      timerEndsAt: "2026-08-31T12:00:10.000Z",
+    };
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({ challenges: [done] })} />);
+
+    const row = document.querySelector('[data-challenge-id="done"]');
+    expect(row?.querySelector(".challenge-source__mark")).toHaveTextContent("✓");
+    expect(row?.querySelector(".challenge-source__progress")).toHaveAttribute("style", "--wc-progress: 100%;");
+    expect(row?.querySelector(".challenge-source__time")).toBeNull();
   });
 
   it("markiert kritische Restzeit auch ohne Farbe und pulsiert nicht bei reduziertem Motion-Wunsch", () => {
@@ -616,7 +718,7 @@ describe("ChallengeSourceApp", () => {
       settings: { ...message().settings, maxVisible: 10 },
     });
     render(<ChallengeLog now={fixedNow} update={update} />);
-    expect(screen.getByText("+3 weitere")).toBeInTheDocument();
+    expect(screen.getByText("+33 weitere")).toBeInTheDocument();
     expect(document.querySelectorAll(".challenge-source__row").length).toBeLessThanOrEqual(MAX_TOTAL_ROWS);
   });
 });

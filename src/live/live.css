@@ -62,6 +62,23 @@ html[data-surface="live"] #root {
   font-weight: 650;
 }
 
+.live-page__header-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.live-page__stand {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid var(--live-line);
+  color: var(--live-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .live-page__global {
   box-sizing: border-box;
   display: grid;
@@ -176,6 +193,18 @@ html[data-surface="live"] #root {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-page__challenge-hidden-badge {
+  flex: 0 0 auto;
+  padding: 3px 6px;
+  border: 1px solid rgba(213, 170, 87, 0.65);
+  color: var(--live-accent);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
   white-space: nowrap;
 }
 

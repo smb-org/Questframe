@@ -66,6 +66,7 @@ const definition = (title: string, sortOrder: number): ChallengeDefinition => ({
   targetCount: 10,
   timerTotalMs: 60_000,
   sortOrder,
+  hidden: false,
 });
 
 const definitionFor = (challenge: Challenge, title: string): ChallengeDefinition => ({
@@ -75,6 +76,7 @@ const definitionFor = (challenge: Challenge, title: string): ChallengeDefinition
   targetCount: challenge.targetCount,
   timerTotalMs: challenge.timerTotalMs,
   sortOrder: challenge.sortOrder,
+  hidden: challenge.hidden,
 });
 
 const onlyChallenge = (challenges: readonly Challenge[]): Challenge => {
@@ -93,7 +95,7 @@ describe("win-challenges repository and migration", () => {
 
   beforeEach(resetModuleTables);
 
-  it("runs MIGRATION_3 idempotently and seeds the complete meta row", async () => {
+  it("runs the win-challenges migrations idempotently and seeds the complete rows", async () => {
     const result = await runInDurableObject(stub, (_instance, state) => ({
       versions: state.storage.sql
         .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
@@ -125,9 +127,14 @@ describe("win-challenges repository and migration", () => {
         .exec<{ name: string }>("PRAGMA table_info(wc_meta)")
         .toArray()
         .map(({ name }) => name),
+      challengeColumns: state.storage.sql
+        .exec<{ name: string }>("PRAGMA table_info(wc_challenges)")
+        .toArray()
+        .map(({ name }) => name),
     }));
 
     expect(result.versions).toContain(3);
+    expect(result.versions).toContain(4);
     expect(result.tables).toEqual([
       "wc_challenges",
       "wc_commands",
@@ -148,6 +155,21 @@ describe("win-challenges repository and migration", () => {
       "global_timer_total_ms",
       "global_timer_ends_at",
       "global_timer_paused_remain_ms",
+    ]);
+    expect(result.challengeColumns).toEqual([
+      "id",
+      "title",
+      "description",
+      "target_count",
+      "timer_total_ms",
+      "sort_order",
+      "current_count",
+      "state",
+      "timer_ends_at",
+      "completed_at",
+      "created_at",
+      "updated_at",
+      "hidden",
     ]);
     expect(result.meta).toMatchObject({
       event_seq: 0,
@@ -199,6 +221,46 @@ describe("win-challenges repository and migration", () => {
     expect(result).toEqual(["running-and-paused", "runtime-without-definition"]);
   });
 
+  it("enforces the hidden Boolean CHECK constraint", async () => {
+    await inRepository((repository) =>
+      repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Hidden", 0)], now }),
+    );
+    const rejected = await runInDurableObject(stub, (_instance, state) => {
+      try {
+        state.storage.sql.exec("UPDATE wc_challenges SET hidden = 2");
+      } catch {
+        return true;
+      }
+      return false;
+    });
+
+    expect(rejected).toBe(true);
+  });
+
+  it("normalisiert beim Nachholen von Migration 4 Alt-Timer erledigter Challenges", async () => {
+    const created = await inRepository((repository) =>
+      repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Alt erledigt", 0)], now }),
+    );
+    const seeded = onlyChallenge(created.snapshot.challenges);
+    const timer = await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE wc_challenges SET state = 'done', timer_ends_at = ? WHERE id = ?",
+        future,
+        seeded.id,
+      );
+      state.storage.sql.exec("DELETE FROM _sql_schema_migrations WHERE version = 4");
+      runMigrations(state.storage.sql, "worker-test-migration-4");
+      return state.storage.sql
+        .exec<{ timer_ends_at: string | null }>(
+          "SELECT timer_ends_at FROM wc_challenges WHERE id = ?",
+          seeded.id,
+        )
+        .toArray()[0]?.timer_ends_at;
+    });
+
+    expect(timer).toBeNull();
+  });
+
   it("merges board definitions without overwriting runtime fields", async () => {
     const created = await inRepository((repository) =>
       repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Original", 0)], now: now }),
@@ -213,6 +275,7 @@ describe("win-challenges repository and migration", () => {
             state: "active",
             timerEndsAt: future,
             completedAt: null,
+            hidden: false,
           },
           now,
         ),
@@ -422,7 +485,7 @@ describe("win-challenges repository and migration", () => {
     const created = await inRepository((repository) =>
       repository.saveBoard({
         baseBoardRevision: 1,
-        definitions: [{ ...definition("Complete", 0), targetCount: 1 }],
+        definitions: [{ ...definition("Complete", 0), targetCount: 1, hidden: true }],
         now,
       }),
     );
@@ -455,6 +518,8 @@ describe("win-challenges repository and migration", () => {
         challenges: [{ currentCount: 1, state: "done" }],
       },
     });
+    expect(measured.result.response.challenge?.hidden).toBe(false);
+    expect(measured.result.response.challenge?.timerEndsAt).toBeNull();
   });
 
   it("misst alle drei globalen Timer-Kommandos mit einem Meta-Update", async () => {

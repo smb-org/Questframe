@@ -35,6 +35,7 @@ const definition = (title = "Eine Challenge"): ChallengeDefinition => ({
   targetCount: 3,
   timerTotalMs: 10_000,
   sortOrder: 0,
+  hidden: false,
 });
 
 type CommandResponseBody = {

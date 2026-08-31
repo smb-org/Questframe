@@ -46,7 +46,7 @@ export type CommandRecord = CommandIdentity;
 
 export type ChallengeRuntime = Pick<
   Challenge,
-  "currentCount" | "state" | "timerEndsAt" | "completedAt"
+  "currentCount" | "state" | "timerEndsAt" | "completedAt" | "hidden"
 >;
 
 export type CommandMutation<T> = {
@@ -129,7 +129,7 @@ export interface ChallengeRepositoryTransaction {
     delta: number,
     maximum: number,
     updatedAt: string,
-    runtime?: Pick<ChallengeRuntime, "state" | "timerEndsAt" | "completedAt">,
+    runtime?: Pick<ChallengeRuntime, "state" | "timerEndsAt" | "completedAt" | "hidden">,
   ): Challenge | null;
   updateChallengeRuntime(
     challengeId: string,

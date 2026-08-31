@@ -40,6 +40,7 @@ type ChallengeDraft = {
   targetCount: number | null;
   timerTotalMs: number | null;
   sortOrder: number;
+  hidden: boolean;
   currentCount: number;
   state: Challenge["state"];
   timerEndsAt: string | null;
@@ -71,6 +72,7 @@ const draftFromChallenge = (challenge: Challenge): ChallengeDraft => ({
   targetCount: challenge.targetCount,
   timerTotalMs: challenge.timerTotalMs,
   sortOrder: challenge.sortOrder,
+  hidden: challenge.hidden,
   currentCount: challenge.currentCount,
   state: challenge.state,
   timerEndsAt: challenge.timerEndsAt,
@@ -88,6 +90,7 @@ const definitionFromDraft = (draft: ChallengeDraft): ChallengeDefinition => {
     targetCount: draft.targetCount,
     timerTotalMs: draft.timerTotalMs,
     sortOrder: draft.sortOrder,
+    hidden: draft.hidden,
   } as const;
   return "id" in draft.identity
     ? { id: draft.identity.id, ...fields }
@@ -201,6 +204,7 @@ const defaultDraft = (sortOrder: number): ChallengeDraft => ({
   targetCount: null,
   timerTotalMs: null,
   sortOrder,
+  hidden: false,
   currentCount: 0,
   state: "pending",
   timerEndsAt: null,
@@ -337,11 +341,25 @@ const ChallengeRow = ({
         <span className={`challenge-state challenge-state--${draft.state}`}>
           <i aria-hidden="true" /> {draft.state === "active" ? "läuft" : draft.state === "done" ? "erledigt" : "offen"}
         </span>
+        <button
+          aria-checked={draft.hidden}
+          aria-label={`${draft.title} ${draft.hidden ? "einblenden" : "ausblenden"}`}
+          className={`challenge-hidden-toggle ${draft.hidden ? "is-on" : "is-off"}`}
+          disabled={disabled || draft.state === "done"}
+          onClick={() => onChange({ hidden: !draft.hidden })}
+          role="switch"
+          title={draft.state === "done" ? "Erledigte Challenges können nicht ausgeblendet werden." : "Challenge im OBS-Overlay ein- oder ausblenden."}
+          type="button"
+        >
+          <span>{draft.hidden ? "Ausgeblendet" : "Sichtbar"}</span>
+          <i aria-hidden="true" />
+        </button>
         <strong>
           {draft.targetCount === null
             ? `Stand ${String(draft.currentCount)}`
             : `${String(draft.currentCount)} / ${String(draft.targetCount)}`}
         </strong>
+        {draft.state === "done" && <small>Erledigte Challenges bleiben sichtbar.</small>}
         {draft.targetCount === null && draft.currentCount > 0 && (
           <small>Stand bleibt erhalten</small>
         )}

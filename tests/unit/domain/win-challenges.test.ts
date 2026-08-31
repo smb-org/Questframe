@@ -17,7 +17,10 @@ import {
   mergeDefinition,
   normalizeSortOrder,
 } from "../../../src/modules/win-challenges/domain/definitions";
-import { selectVisible } from "../../../src/modules/win-challenges/domain/visibility";
+import {
+  formatChallengeStand,
+  selectVisible,
+} from "../../../src/modules/win-challenges/domain/visibility";
 
 const now = "2026-08-30T12:00:00.000Z" as const;
 const nowMilliseconds = Date.parse(now);
@@ -29,6 +32,7 @@ const makeChallenge = (overrides: Partial<Challenge> = {}): Challenge => ({
   targetCount: 10,
   timerTotalMs: 10_000,
   sortOrder: 0,
+  hidden: false,
   currentCount: 0,
   state: "pending",
   timerEndsAt: null,
@@ -52,6 +56,7 @@ const definition = {
   targetCount: 10,
   timerTotalMs: 10_000,
   sortOrder: 0,
+  hidden: false,
 } as const;
 
 describe("Win-Challenges-Domain", () => {
@@ -90,9 +95,16 @@ describe("Win-Challenges-Domain", () => {
   });
 
   it("schließt beim Ziel automatisch ab, ohne zusätzlich progressed zu feuern", () => {
-    const result = applyIncrement(makeChallenge({ currentCount: 9 }), 1, now);
+    const result = applyIncrement(makeChallenge({
+      currentCount: 9,
+      state: "active",
+      timerEndsAt: "2026-08-30T12:00:01.000Z",
+      hidden: true,
+    }), 1, now);
     expect(result.challenge.state).toBe("done");
+    expect(result.challenge.timerEndsAt).toBeNull();
     expect(result.challenge.completedAt).toBe(now);
+    expect(result.challenge.hidden).toBe(false);
     expect(result.event).toEqual({
       scope: "challenge",
       type: "completed",
@@ -101,14 +113,17 @@ describe("Win-Challenges-Domain", () => {
   });
 
   it("bildet die Challenge-Übergangstabelle ab und behandelt wirkungslose Kommandos", () => {
-    expect(applyComplete(makeChallenge(), now).challenge.state).toBe("done");
+    const completed = applyComplete(makeChallenge({
+      state: "active",
+      timerEndsAt: "2026-08-30T12:00:01.000Z",
+      hidden: true,
+    }), now);
+    expect(completed.challenge).toMatchObject({ state: "done", timerEndsAt: null, hidden: false });
     expect(applyComplete(makeChallenge({ state: "done", completedAt: now }), now).event).toBeNull();
 
-    const reopened = applyReopen(
-      makeChallenge({ state: "done", completedAt: now, timerEndsAt: "2026-08-30T12:00:01.000Z" }),
-      now,
-    );
-    expect(reopened.challenge.state).toBe("active");
+    const reopened = applyReopen(makeChallenge({ state: "done", completedAt: now }), now);
+    expect(reopened.challenge.state).toBe("pending");
+    expect(reopened.challenge.timerEndsAt).toBeNull();
     expect(reopened.event?.type).toBe("reopened");
     expect(applyReopen(makeChallenge(), now).event).toBeNull();
 
@@ -139,19 +154,6 @@ describe("Win-Challenges-Domain", () => {
     expect(reopened.challenge).toMatchObject({
       state: "pending",
       timerEndsAt: null,
-    });
-  });
-
-  it("behält beim Wiederöffnen eines laufenden Timers den Endzeitpunkt", () => {
-    const timerEndsAt = "2026-08-30T12:00:01.000Z";
-    const reopened = applyReopen(
-      makeChallenge({ state: "done", completedAt: now, timerEndsAt }),
-      now,
-    );
-
-    expect(reopened.challenge).toMatchObject({
-      state: "active",
-      timerEndsAt,
     });
   });
 
@@ -261,6 +263,18 @@ describe("Win-Challenges-Domain", () => {
       now,
     );
     expect(targetLowered.currentCount).toBe(4);
+
+    expect(mergeDefinition(
+      makeChallenge({ state: "active" }),
+      { ...definition, hidden: true },
+      now,
+    ).hidden).toBe(true);
+
+    expect(mergeDefinition(
+      makeChallenge({ state: "done", hidden: true, completedAt: now }),
+      { ...definition, hidden: true },
+      now,
+    ).hidden).toBe(false);
   });
 
   it("entfernt beim Mergen den Timer einer abgehakten Challenge, ohne sie zurückzusetzen", () => {
@@ -315,10 +329,31 @@ describe("Win-Challenges-Domain", () => {
     const result = selectVisible([...open, ...finished], 10, now);
     expect(result.challenges).toHaveLength(12);
     expect(result.challenges.slice(0, 10).every((challenge) => challenge.state !== "done")).toBe(true);
-    expect(result.remaining).toBe(5);
+    expect(result.remaining).toBe(8);
     expect(selectVisible([
       makeChallenge({ state: "done", completedAt: "2026-08-30T11:59:51.999Z" }),
-    ], 3, now).challenges).toHaveLength(0);
+    ], 3, now).challenges).toHaveLength(1);
+  });
+
+  it("filtert versteckte Challenges und lässt sie für das Dock optional zu", () => {
+    const hidden = makeChallenge({ id: "hidden", hidden: true, sortOrder: 0 });
+    const open = makeChallenge({ id: "open", sortOrder: 1 });
+
+    expect(selectVisible([hidden, open], 3, now).challenges.map(({ id }) => id)).toEqual(["open"]);
+    expect(selectVisible([hidden, open], 3, now, { includeHidden: true }).challenges.map(({ id }) => id))
+      .toEqual(["hidden", "open"]);
+  });
+
+  it("formatiert den Stand mit optionalem Zähler für versteckte Challenges", () => {
+    expect(formatChallengeStand([
+      makeChallenge({ state: "done" }),
+      makeChallenge({ id: "open", sortOrder: 1 }),
+    ])).toBe("1 / 2");
+    expect(formatChallengeStand([
+      makeChallenge({ state: "done" }),
+      makeChallenge({ id: "hidden", hidden: true, sortOrder: 1 }),
+      makeChallenge({ id: "open", sortOrder: 2 }),
+    ])).toBe("1 / 2(+1)");
   });
 
   it("renormalisiert nach dem Löschen lückenlos auf 0..N-1", () => {
@@ -342,6 +377,7 @@ describe("Win-Challenges-Domain", () => {
       targetCount: definition.targetCount,
       timerTotalMs: definition.timerTotalMs,
       sortOrder: definition.sortOrder,
+      hidden: false,
     } as const;
     expect(mergeDefinition(null, newDefinition, now, "generated-id")).toMatchObject({
       id: "generated-id",

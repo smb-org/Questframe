@@ -76,7 +76,9 @@ export function applyIncrement(
         ...challenge,
         currentCount: nextCount,
         state: "done",
+        timerEndsAt: null,
         completedAt: timestamp,
+        hidden: false,
         ...withChallengeTimestamp(now),
       },
       event: {
@@ -114,7 +116,9 @@ export function applyComplete(
     challenge: {
       ...challenge,
       state: "done",
+      timerEndsAt: null,
       completedAt: timestamp,
+      hidden: false,
       ...withChallengeTimestamp(now),
     },
     event: {
@@ -130,15 +134,11 @@ export function applyReopen(
   now: DomainNow,
 ): ChallengeTransition {
   if (challenge.state !== "done") return { challenge, event: null };
-  const nextState =
-    deriveTimerState(challenge.timerEndsAt, null, now) === "running"
-      ? "active"
-      : "pending";
   return {
     challenge: {
       ...challenge,
-      state: nextState,
-      timerEndsAt: nextState === "active" ? challenge.timerEndsAt : null,
+      state: "pending",
+      timerEndsAt: null,
       completedAt: null,
       ...withChallengeTimestamp(now),
     },

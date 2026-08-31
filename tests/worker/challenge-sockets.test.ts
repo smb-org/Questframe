@@ -231,6 +231,7 @@ const challengeDefinition = {
   targetCount: 3,
   timerTotalMs: 10_000,
   sortOrder: 0,
+  hidden: false,
 } as const;
 
 const saveBoard = () =>

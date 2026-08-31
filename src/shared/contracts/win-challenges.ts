@@ -21,6 +21,7 @@ export type Challenge = {
   targetCount: number | null;
   timerTotalMs: number | null;
   sortOrder: number;
+  hidden: boolean;
   currentCount: number;
   state: ChallengeState;
   timerEndsAt: string | null;

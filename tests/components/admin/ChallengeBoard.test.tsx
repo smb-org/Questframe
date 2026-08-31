@@ -25,6 +25,7 @@ const challenge = (
   targetCount: 10,
   timerTotalMs: null,
   sortOrder: 0,
+  hidden: false,
   currentCount: 0,
   state: "pending",
   timerEndsAt: null,
@@ -109,6 +110,29 @@ describe("ChallengeBoard", () => {
     await user.click(screen.getByRole("button", { name: "Challenge-Board speichern" }));
     expect(save.mock.calls[1]?.[0].challenges[0]).toMatchObject({ id: "server-id" });
     expect(save.mock.calls[1]?.[0].challenges[0]).not.toHaveProperty("clientId");
+  });
+
+  it("schaltet einzelne Challenges optimistisch aus und sperrt den Schalter für erledigte", async () => {
+    const user = userEvent.setup();
+    const initial = snapshot([
+      challenge("open", "Offene Challenge"),
+      challenge("done", "Erledigte Challenge", { state: "done", completedAt: instant }),
+    ]);
+    const save = vi.fn<ChallengeBoardApi["save"]>().mockResolvedValue(responseFor(initial));
+    renderBoard(initial, save);
+
+    const openRow = await screen.findByDisplayValue("Offene Challenge").then((input) => input.closest("article"));
+    if (!(openRow instanceof HTMLElement)) throw new Error("Offene Challenge-Zeile fehlt.");
+    const openToggle = within(openRow).getByRole("switch", { name: "Offene Challenge ausblenden" });
+    await user.click(openToggle);
+    expect(openToggle).toHaveAttribute("aria-checked", "true");
+
+    const doneRow = screen.getByDisplayValue("Erledigte Challenge").closest("article");
+    if (!(doneRow instanceof HTMLElement)) throw new Error("Erledigte Challenge-Zeile fehlt.");
+    const doneToggle = within(doneRow).getByRole("switch", { name: "Erledigte Challenge ausblenden" });
+    expect(doneToggle).toBeDisabled();
+    expect(doneToggle).toHaveAttribute("title", "Erledigte Challenges können nicht ausgeblendet werden.");
+    expect(within(doneRow).getByText("Erledigte Challenges bleiben sichtbar.")).toBeInTheDocument();
   });
 
   it("löscht durch Weglassen und übernimmt die serverseitig renormalisierte Reihenfolge", async () => {

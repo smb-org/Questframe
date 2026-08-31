@@ -27,6 +27,7 @@ const update = (): ChallengeUpdate => ({
     targetCount: 10,
     timerTotalMs: 10_000,
     sortOrder: 0,
+    hidden: false,
     currentCount: 2,
     state: "pending",
     timerEndsAt: null,
@@ -40,6 +41,19 @@ const update = (): ChallengeUpdate => ({
 describe("Challenge-Quelle-Wire", () => {
   it("nimmt eine gültige challenge_update-Nachricht an", () => {
     expect(parseChallengeUpdate(update())).toEqual(update());
+  });
+
+  it("verlangt im Challenge-Key-Set das neue hidden-Feld", () => {
+    const current = update();
+    const challenge = current.challenges[0];
+    if (challenge === undefined) throw new Error("Test-Challenge fehlt.");
+    const oldChallenge = Object.fromEntries(
+      Object.entries(challenge).filter(([key]) => key !== "hidden"),
+    );
+    const oldWire = { ...current, challenges: [oldChallenge] };
+
+    expect(parseChallengeUpdate(current)).toEqual(current);
+    expect(parseChallengeUpdate(oldWire)).toBeNull();
   });
 
   it.each([

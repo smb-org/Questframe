@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { Challenge, ChallengeUpdate, GlobalTimer } from "../shared/contracts/win-challenges";
 import { DOCK_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
-import { selectVisible } from "../modules/win-challenges/domain/visibility";
+import { formatChallengeStand, selectVisible } from "../modules/win-challenges/domain/visibility";
 import { deriveTimerState } from "../modules/win-challenges/domain/timers";
 import type { Command } from "../modules/win-challenges/contracts/schemas";
 import {
@@ -17,7 +17,7 @@ const RETRY_BASE_MS = 750;
 const ERROR_VISIBLE_MS = 3_000;
 const DELETED_NOTICE_MS = 1_500;
 
-type OptimisticPatch = Partial<Pick<Challenge, "currentCount" | "state" | "timerEndsAt" | "completedAt">>;
+type OptimisticPatch = Partial<Pick<Challenge, "currentCount" | "state" | "timerEndsAt" | "completedAt" | "hidden">>;
 
 type CommandFailure = {
   code: string;
@@ -113,19 +113,18 @@ const optimisticPatchFor = (
     const currentCount = Math.max(0, Math.min(maximum, challenge.currentCount + command.delta));
     if (currentCount === challenge.currentCount) return null;
     return challenge.targetCount !== null && currentCount === challenge.targetCount
-      ? { currentCount, state: "done", completedAt: new Date().toISOString() }
+      ? { currentCount, state: "done", timerEndsAt: null, completedAt: new Date().toISOString(), hidden: false }
       : { currentCount };
   }
   if (command.type === "complete") {
     if (challenge.state === "done") return null;
-    return { state: "done", completedAt: new Date().toISOString() };
+    return { state: "done", timerEndsAt: null, completedAt: new Date().toISOString(), hidden: false };
   }
   if (command.type === "reopen") {
     if (challenge.state !== "done") return null;
-    const active = challenge.timerEndsAt !== null && Date.parse(challenge.timerEndsAt) > Date.now();
     return {
-      state: active ? "active" : "pending",
-      timerEndsAt: active ? challenge.timerEndsAt : null,
+      state: "pending",
+      timerEndsAt: null,
       completedAt: null,
     };
   }
@@ -187,6 +186,7 @@ const ChallengeRow = ({
       <div className="live-page__challenge-main">
         <span aria-hidden="true" className="live-page__challenge-mark">{done ? "✓" : "▸"}</span>
         <span className="live-page__challenge-title">{challenge.title}</span>
+        {challenge.hidden && <span className="live-page__challenge-hidden-badge">ausgeblendet</span>}
         <span className="live-page__challenge-count">
           {challenge.targetCount === null
             ? String(challenge.currentCount)
@@ -441,8 +441,9 @@ export const LiveApp = () => {
     );
   }
 
-  const selection = selectVisible(update.challenges, update.settings.maxVisible, now);
-  const rows = selection.challenges.map((challenge) => mergeChallenge(challenge, optimistic[challenge.id]));
+  const patchedChallenges = update.challenges.map((challenge) => mergeChallenge(challenge, optimistic[challenge.id]));
+  const selection = selectVisible(patchedChallenges, update.settings.maxVisible, now, { includeHidden: true });
+  const rows = selection.challenges;
   if (deletedNotice !== null && !rows.some((challenge) => challenge.id === deletedNotice.challenge.id)) {
     rows.push(deletedNotice.challenge);
   }
@@ -451,7 +452,7 @@ export const LiveApp = () => {
     ? pinnedId === null ? [] : rows.filter((challenge) => challenge.id === pinnedId)
     : rows;
   const hasRows = visibleRows.length > 0;
-  const hasOpen = update.challenges.some((challenge) => challenge.state !== "done");
+  const hasOpen = patchedChallenges.some((challenge) => challenge.state !== "done");
 
   return (
     <main aria-label="Live-Bedienseite" className="live-page" data-status={connection}>
@@ -460,7 +461,10 @@ export const LiveApp = () => {
           <p className="live-page__eyebrow">Live / Challenges</p>
           <h1>Live-Steuerung</h1>
         </div>
-        <span className="live-page__connection">{connection === "connected" ? "verbunden" : "offline"}</span>
+        <div className="live-page__header-meta">
+          <span aria-label="Challenge-Stand" className="live-page__stand">{formatChallengeStand(patchedChallenges)}</span>
+          <span className="live-page__connection">{connection === "connected" ? "verbunden" : "offline"}</span>
+        </div>
       </header>}
       {!compact && <GlobalTimerControl
           error={globalError}

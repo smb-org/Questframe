@@ -161,6 +161,16 @@ const hasOverlayTokenEnvelope = (sql: SqlStorage): boolean =>
     .toArray()
     .some((column) => column.name === "token_envelope");
 
+const MIGRATION_4 = `
+ALTER TABLE wc_challenges ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0 CHECK (hidden IN (0, 1));
+`;
+
+const hasChallengeHidden = (sql: SqlStorage): boolean =>
+  sql
+    .exec<{ name: string }>("PRAGMA table_info(wc_challenges)")
+    .toArray()
+    .some((column) => column.name === "hidden");
+
 export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
   sql.exec(MIGRATION_1);
   const versionOneWasApplied = sql
@@ -198,6 +208,19 @@ export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
     sql.exec(
       "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
       3,
+      buildId,
+      new Date().toISOString(),
+    );
+  }
+  const versionFourWasApplied = sql
+    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 4")
+    .toArray().length > 0;
+  if (!versionFourWasApplied) {
+    if (!hasChallengeHidden(sql)) sql.exec(MIGRATION_4);
+    sql.exec("UPDATE wc_challenges SET timer_ends_at = NULL WHERE state = 'done' AND timer_ends_at IS NOT NULL");
+    sql.exec(
+      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
+      4,
       buildId,
       new Date().toISOString(),
     );

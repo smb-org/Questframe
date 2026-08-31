@@ -104,6 +104,7 @@ const runtimeOf = (challenge: Challenge): ChallengeRuntime => ({
   state: challenge.state,
   timerEndsAt: challenge.timerEndsAt,
   completedAt: challenge.completedAt,
+  hidden: challenge.hidden,
 });
 
 const challengeMutation = (
@@ -131,6 +132,7 @@ const challengeMutation = (
             state: transition.challenge.state,
             timerEndsAt: transition.challenge.timerEndsAt,
             completedAt: transition.challenge.completedAt,
+            hidden: transition.challenge.hidden,
           }
         : undefined,
     );

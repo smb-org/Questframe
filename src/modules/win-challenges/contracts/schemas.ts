@@ -17,6 +17,7 @@ import {
   isDelta,
   isEventSeq,
   isHeaderTitle,
+  isHidden,
   isInstant,
   isMaxVisible,
   isPausedRemainMs,
@@ -98,6 +99,7 @@ const challengeDefinitionFields = {
   targetCount: targetCountSchema,
   timerTotalMs: timerTotalMsSchema,
   sortOrder: sortOrderSchema,
+  hidden: z.boolean().default(false),
 } as const;
 
 export const challengeDefinitionSchema = z.union([
@@ -112,6 +114,7 @@ export const challengeSchema = z.strictObject({
   targetCount: targetCountSchema,
   timerTotalMs: timerTotalMsSchema,
   sortOrder: sortOrderSchema,
+  hidden: custom(isHidden, "Ausgeblendet muss ein Boolean sein."),
   currentCount: currentCountSchema,
   state: challengeStateSchema,
   timerEndsAt: z.union([instantSchema, z.null()]),

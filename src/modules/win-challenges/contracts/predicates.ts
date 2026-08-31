@@ -5,7 +5,6 @@ const challengeGraphemeSegmenter = new Intl.Segmenter("de", {
 export const MAX_CHALLENGES = 30 as const;
 export const MAX_COUNT = 999 as const;
 export const MAX_TOTAL_ROWS = 12 as const;
-export const COMPLETED_VISIBILITY_MS = 8_000 as const;
 
 export const CHALLENGE_STYLE_IDS = [
   "plain-list",
@@ -50,6 +49,9 @@ export const isChallengeDescription = (
   value: unknown,
 ): value is string | null =>
   value === null || isNormalizedText(value, 0, 160);
+
+export const isHidden = (value: unknown): value is boolean =>
+  typeof value === "boolean";
 
 export const isTargetCount = (value: unknown): value is number | null =>
   value === null ||

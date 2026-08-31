@@ -41,6 +41,7 @@ const challenge = (currentCount = 3): ChallengeUpdate["challenges"][number] => (
   targetCount: 10,
   timerTotalMs: 60_000,
   sortOrder: 0,
+  hidden: false,
   currentCount,
   state: "pending",
   timerEndsAt: null,
@@ -93,6 +94,21 @@ describe("Live-Bedienseite", () => {
     expect(socket?.protocols).toEqual([DOCK_SOCKET_PROTOCOL, token]);
   });
 
+  it("zeigt versteckte Challenges mit Badge und zählt sie separat", () => {
+    const hidden = { ...challenge(), id: "hidden", title: "Bonus", hidden: true };
+    const done = { ...challenge(), id: "done", title: "Erledigt", state: "done" as const, currentCount: 10, hidden: false };
+    const visible = { ...challenge(), id: "visible", title: "Sichtbar", hidden: false };
+    render(<LiveApp />);
+    emitUpdate({
+      ...message(),
+      challenges: [done, visible, hidden],
+    });
+
+    expect(screen.getByLabelText("Challenge-Stand")).toHaveTextContent("1 / 2(+1)");
+    expect(screen.getByText("Bonus")).toBeInTheDocument();
+    expect(screen.getByText("ausgeblendet")).toBeInTheDocument();
+  });
+
   it("springt beim Zählen optimistisch und übernimmt danach challenge_update als Wahrheit", async () => {
     const user = userEvent.setup();
     render(<LiveApp />);
@@ -114,6 +130,52 @@ describe("Live-Bedienseite", () => {
     expect(screen.getByText("3 / 10")).toBeInTheDocument();
     expect(document.querySelector("[data-challenge-id='challenge-1']"))
       .not.toHaveClass("live-page__challenge-row--pending");
+  });
+
+  it("wendet optimistisches Abhaken vor Stand und Auswahl an", async () => {
+    const user = userEvent.setup();
+    const challenges = [0, 1, 2, 3].map((sortOrder) => ({
+      ...challenge(),
+      id: `challenge-${String(sortOrder)}`,
+      title: `Challenge ${String(sortOrder)}`,
+      sortOrder,
+    }));
+    render(<LiveApp />);
+    emitUpdate({
+      ...message(),
+      settings: { ...message().settings, maxVisible: 3 },
+      challenges,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Challenge 0 abhaken" }));
+
+    expect(screen.getByLabelText("Challenge-Stand")).toHaveTextContent("1 / 4");
+    expect(screen.getByText("Challenge 3")).toBeInTheDocument();
+    expect(document.querySelector("[data-challenge-id='challenge-0']"))
+      .toHaveAttribute("data-state", "done");
+  });
+
+  it("hält beim optimistischen Rückgängigmachen die Zahl offener Zeilen unter maxVisible", async () => {
+    const user = userEvent.setup();
+    const done = { ...challenge(), id: "done", title: "Erledigt", state: "done" as const, currentCount: 10, sortOrder: 0 };
+    const open = [1, 2, 3].map((sortOrder) => ({
+      ...challenge(),
+      id: `open-${String(sortOrder)}`,
+      title: `Offen ${String(sortOrder)}`,
+      sortOrder,
+    }));
+    render(<LiveApp />);
+    emitUpdate({
+      ...message(),
+      settings: { ...message().settings, maxVisible: 3 },
+      challenges: [done, ...open],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Erledigt Rückgängig" }));
+
+    const rows = [...document.querySelectorAll(".live-page__challenge-row")];
+    expect(rows).toHaveLength(3);
+    expect(rows.every((row) => row.getAttribute("data-state") !== "done")).toBe(true);
   });
 
   it("rollt bei einem konkreten Fehler zurück und zeigt ihn kurz in der Zeile", async () => {
