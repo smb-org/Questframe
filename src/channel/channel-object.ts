@@ -176,6 +176,13 @@ const summarizeChange = (before: ChannelState, after: ChannelState): string => {
   if (before.player.resource.percent !== after.player.resource.percent) {
     changes.push(`${after.player.resource.name}: ${String(after.player.resource.percent)}%`);
   }
+  if (
+    before.placement.x !== after.placement.x ||
+    before.placement.y !== after.placement.y ||
+    before.placement.scale !== after.placement.scale
+  ) {
+    changes.push(`Position: ${String(after.placement.x)}/${String(after.placement.y)} bei ${String(Math.round(after.placement.scale * 100))}%`);
+  }
   if (before.effects.length !== after.effects.length) {
     changes.push(`Effekte: ${String(after.effects.length)}`);
   }
@@ -861,7 +868,13 @@ export class ChannelObject extends DurableObject<AppEnv> {
       updatedAt: createdAt,
       updatedBy: actorFromSession(session),
     });
-    const summary = `Revision ${String(input.targetRevision)} wiederhergestellt`;
+    const carriedForward = [
+      Object.hasOwn(rawTarget, "compositeHudVisible") ? null : "HUD im Sammel-Overlay",
+      Object.hasOwn(rawTarget, "compositeChallengesVisible") ? null : "Challenges im Sammel-Overlay",
+    ].filter((label): label is string => label !== null);
+    const summary = carriedForward.length === 0
+      ? `Revision ${String(input.targetRevision)} wiederhergestellt`
+      : `Revision ${String(input.targetRevision)} wiederhergestellt (${carriedForward.join(" und ")} beibehalten)`;
     const audit = this.makeAudit(next.revision, "undo", session, summary, createdAt);
     this.ctx.storage.transactionSync(() => {
       this.insertHistory(current, summary);
