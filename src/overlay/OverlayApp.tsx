@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { OVERLAY_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
 import type { ChannelState } from "../shared/contracts/state";
@@ -10,6 +10,7 @@ import {
 } from "./cache";
 import { HudRenderer } from "./HudRenderer";
 import { isStateBearingMessage } from "./message-policy";
+import { useOverlayMediaUrls } from "./useOverlayMediaUrls";
 import { parseOverlayMessage } from "./wire";
 
 const OVERLAY_WATCHDOG_MARKER = "irl-stream-hud:overlay-watchdog-reload-at";
@@ -50,32 +51,16 @@ const clearWatchdogReloadMarker = (): void => {
   }
 };
 
-const uploadedHashes = (state: ChannelState): string[] => {
-  const portraits = [
-    state.player.portrait,
-    state.pet?.portrait,
-    ...state.group.map((member) => member.portrait),
-  ];
-  return [
-    ...new Set(
-      portraits.flatMap((portrait) =>
-        portrait?.kind === "uploaded" ? [portrait.contentHash] : [],
-      ),
-    ),
-  ];
-};
-
 export const OverlayApp = ({ reloadPage = reloadOverlayPage }: { reloadPage?: () => void } = {}) => {
   const [state, setState] = useState<ChannelState | null>(null);
   const [nowMilliseconds, setNowMilliseconds] = useState(() => Date.now());
-  const [mediaUrls, setMediaUrls] = useState<ReadonlyMap<string, string>>(new Map());
-  const objectUrlsRef = useRef(new Map<string, string>());
   const params = useMemo(
     () => new URLSearchParams(window.location.hash.replace(/^#/, "")),
     [],
   );
   const token = params.get("token");
   const capsuleScope = window.location.host;
+  const mediaUrls = useOverlayMediaUrls(state, token);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -179,46 +164,6 @@ export const OverlayApp = ({ reloadPage = reloadOverlayPage }: { reloadPage?: ()
       socket?.close();
     };
   }, [capsuleScope, reloadPage, token]);
-
-  useEffect(() => {
-    if (token === null || state === null) return;
-    const needed = new Set(uploadedHashes(state));
-    let disposed = false;
-    for (const [hash, url] of objectUrlsRef.current) {
-      if (!needed.has(hash)) {
-        URL.revokeObjectURL(url);
-        objectUrlsRef.current.delete(hash);
-      }
-    }
-    const missing = [...needed].filter((hash) => !objectUrlsRef.current.has(hash));
-    void Promise.all(
-      missing.map(async (hash) => {
-        const response = await fetch(`/api/media/${hash}`, {
-          headers: { authorization: `Bearer ${token}` },
-        });
-        if (!response.ok) return;
-        const url = URL.createObjectURL(await response.blob());
-        if (disposed) {
-          URL.revokeObjectURL(url);
-          return;
-        }
-        objectUrlsRef.current.set(hash, url);
-      }),
-    ).then(() => {
-      if (!disposed) setMediaUrls(new Map(objectUrlsRef.current));
-    });
-    return () => {
-      disposed = true;
-    };
-  }, [state, token]);
-
-  useEffect(
-    () => () => {
-      for (const url of objectUrlsRef.current.values()) URL.revokeObjectURL(url);
-      objectUrlsRef.current.clear();
-    },
-    [],
-  );
 
   return state === null ? null : (
     <HudRenderer state={state} nowMilliseconds={nowMilliseconds} mediaUrls={mediaUrls} />

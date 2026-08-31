@@ -10,6 +10,7 @@ const indexKey = "index.html";
 const overlayKey = "src/overlay/OverlayApp.tsx";
 const adminKey = "src/admin/AdminApp.tsx";
 const challengeSourceKey = "src/challenges/ChallengeSourceApp.tsx";
+const compositeKey = "src/composite/CompositeApp.tsx";
 const liveKey = "src/live/LiveApp.tsx";
 // pnpm verschachtelt den aufgeloesten Pfad unter node_modules/.pnpm/..., deshalb
 // matchen wir weiterhin per Suffix statt gegen ein package-manager-spezifisches Layout.
@@ -62,6 +63,17 @@ const createBudgetDeclarations = (temporalKey, challengeThemeKeys, challengeStyl
     javascriptBudget: 80 * 1024,
     transferLabel: "Challenge-Quelle initial static transfer",
     transferBudget: 512 * 1024,
+    transferAssets: ["shell", "font", "hudMedia", "effects", "audio"],
+  },
+  {
+    type: "surface",
+    key: compositeKey,
+    label: "Composite-Quelle",
+    staticRoots: [indexKey],
+    javascriptLabel: "Composite-Quelle initial JavaScript",
+    javascriptBudget: 100 * 1024,
+    transferLabel: "Composite-Quelle initial static transfer",
+    transferBudget: 350 * 1024,
     transferAssets: ["shell", "font", "hudMedia", "effects", "audio"],
   },
   {
@@ -161,9 +173,13 @@ const budgetDeclarations = [
 
 const overlayClosure = collectStaticClosure(manifest, [indexKey, overlayKey]);
 const adminClosure = collectStaticClosure(manifest, [indexKey, adminKey]);
+const compositeClosure = collectStaticClosure(manifest, [indexKey, compositeKey]);
 
 if (overlayClosure.has(adminKey) || overlayClosure.has(temporalKey)) {
   throw new Error("Overlay initial code must not import Admin or Temporal modules.");
+}
+if (compositeClosure.has(adminKey) || compositeClosure.has(temporalKey)) {
+  throw new Error("Composite initial code must not import Admin or Temporal modules.");
 }
 if (adminClosure.has(temporalKey) || adminClosure.has(qrCodeKey)) {
   throw new Error("Temporal und QR-Code müssen lazy und außerhalb der Admin-Initial-Closure bleiben.");

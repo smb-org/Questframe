@@ -4,6 +4,8 @@ import { resolveRoute } from "../../src/routing";
 
 describe("Routenauflösung", () => {
   it.each([
+    ["/overlay/all", { surface: "composite", app: "composite", workspace: "hud" }],
+    ["/overlay/all/", { surface: "composite", app: "composite", workspace: "hud" }],
     ["/overlay/challenges", { surface: "challenges", app: "challenges", workspace: "hud" }],
     ["/overlay/challenges/", { surface: "challenges", app: "challenges", workspace: "hud" }],
     ["/overlay", { surface: "overlay", app: "overlay", workspace: "hud" }],

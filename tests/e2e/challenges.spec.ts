@@ -10,6 +10,7 @@ type EditorBootstrap = {
 
 type ChallengeSnapshot = {
   boardRevision: number;
+  settings: { placement: { x: number; y: number } };
 };
 
 type ChallengeSourceWindow = Window & {
@@ -187,6 +188,25 @@ test("eine neue Board-Challenge erscheint in der Challenge-Quelle", async ({ pag
   await createChallenge(page, title);
   await expect(challengeRow(source, title)).toHaveCount(1);
   await expect(challengeRow(source, title).getByText(title, { exact: true })).toBeVisible();
+  await disposePage(source);
+  await disposePage(page);
+});
+
+test("die gemeinsame OBS-Quelle zeigt HUD und Challenge-Log zusammen", async ({ page, context }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "Desktop-Composite-Quelle");
+  await openChallengeAdmin(page);
+  const overlayToken = await ensureOverlayToken(page);
+  const title = "E2E Composite Quelle";
+  await createChallenge(page, title);
+  const persistedChallenge = await readChallengeSnapshot(page, await editorTabId(page));
+
+  const source = await context.newPage();
+  await source.setViewportSize({ width: 1920, height: 1080 });
+  await source.goto(`/overlay/all#token=${overlayToken}`);
+  await expect(source.locator(".hud-stage")).toBeVisible();
+  await expect(challengeRow(source, title)).toHaveCount(1);
+  await expect(challengeRow(source, title).getByText(title, { exact: true })).toBeVisible();
+  await expect(source.locator(".challenge-source")).toHaveCSS("--wc-x", `${String(persistedChallenge.settings.placement.x * 5)}px`);
   await disposePage(source);
   await disposePage(page);
 });

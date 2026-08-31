@@ -1,20 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { ChallengeUpdate } from "../shared/contracts/win-challenges";
 import { OVERLAY_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
 import { ChallengeLog, type ChallengeLogCeremonyTarget } from "../modules/win-challenges/ui/ChallengeLog";
-import { createCeremonyAudioPolicy, type CeremonyAudioPolicy } from "./audio";
-import { ceremonyFor, type ChallengeCeremony } from "./ceremonies";
 import {
-  accountForChallengeUpdate,
   parseChallengeMessage,
   tokenFromLocation,
 } from "./wire";
 import { loadChallengeStyle, type ChallengeStyleLoader } from "./style-loader";
 import { loadChallengeTheme, type ChallengeThemeLoader } from "./theme-loader";
+import { useChallengePresentation } from "./useChallengePresentation";
 
 const RETRY_BASE_MS = 750;
-const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 const PARSE_RELOAD_STORAGE_KEY = "wc-parse-reload-at";
 const PARSE_RELOAD_COOLDOWN_MS = 5 * 60 * 1_000;
 
@@ -39,27 +36,6 @@ const reloadAfterWireParseFailure = (reload: () => void): void => {
   }
 };
 
-const readPrefersReducedMotion = (): boolean =>
-  typeof window !== "undefined" && typeof window.matchMedia === "function"
-    ? window.matchMedia(REDUCED_MOTION_QUERY).matches
-    : false;
-
-const usePrefersReducedMotion = (): boolean => {
-  const [reducedMotion, setReducedMotion] = useState(readPrefersReducedMotion);
-
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
-    const query = window.matchMedia(REDUCED_MOTION_QUERY);
-    const onChange = (event: MediaQueryListEvent) => setReducedMotion(event.matches);
-    query.addEventListener("change", onChange);
-    return () => query.removeEventListener("change", onChange);
-  }, []);
-
-  return reducedMotion;
-};
-
-type ChunkLoadState = "idle" | "ready" | "failed";
-
 type ChallengeSourceAppProps = {
   // Beide Loader bleiben injizierbar, damit die Quelle Rennen und Fehler testet.
   loadStyle?: ChallengeStyleLoader;
@@ -74,81 +50,8 @@ export const ChallengeSourceApp = ({
   reloadPage = reloadWindow,
 }: ChallengeSourceAppProps = {}) => {
   const [update, setUpdate] = useState<ChallengeUpdate | null>(null);
-  const [now, setNow] = useState(() => Date.now());
-  const [themeLoadState, setThemeLoadState] = useState<{ key: string | null; state: ChunkLoadState }>({
-    key: null,
-    state: "idle",
-  });
-  const [styleLoadState, setStyleLoadState] = useState<{ key: string | null; state: ChunkLoadState }>({
-    key: null,
-    state: "idle",
-  });
-  const lastSeenRef = useRef(-1);
-  const themeRequestRef = useRef(0);
-  const styleRequestRef = useRef(0);
-  const ceremonyTimerRef = useRef<number | null>(null);
-  const audioPolicyRef = useRef<CeremonyAudioPolicy | null>(null);
-  const [activeCeremony, setActiveCeremony] = useState<(ChallengeCeremony & { eventSeq: number }) | null>(null);
-  const reducedMotion = usePrefersReducedMotion();
-
-  const themeMode = update?.settings.themeMode ?? null;
-  const themeId = update?.settings.themeId ?? null;
-  const themeKey = themeMode === null || themeId === null ? null : `${themeMode}:${themeId}`;
-  const styleId = update?.settings.styleId ?? null;
-
-  useEffect(() => {
-    const request = styleRequestRef.current + 1;
-    styleRequestRef.current = request;
-
-    if (styleId === null) return;
-
-    void loadStyle(styleId).then(() => {
-      if (styleRequestRef.current !== request) return;
-      setStyleLoadState({ key: styleId, state: "ready" });
-    }).catch(() => {
-      if (styleRequestRef.current !== request) return;
-      // Ein fehlerhafter Style-Chunk darf niemals ungestylten Inhalt zeigen.
-      setStyleLoadState({ key: styleId, state: "failed" });
-    });
-  }, [loadStyle, styleId]);
-
-  useEffect(() => {
-    const request = themeRequestRef.current + 1;
-    themeRequestRef.current = request;
-
-    if (themeKey === null || themeId === null || themeMode === null) {
-      return;
-    }
-
-    if (themeMode === "own") {
-      // `own` benoetigt keinen HUD-Chunk. Die eigenen Tokens liegen im Basis-CSS.
-      return;
-    }
-
-    void loadTheme(themeId).then(() => {
-      if (themeRequestRef.current !== request) return;
-      setThemeLoadState({ key: themeKey, state: "ready" });
-    }).catch(() => {
-      if (themeRequestRef.current !== request) return;
-      // Ein fehlerhafter Chunk darf niemals ungestylten Inhalt ins Streambild lassen.
-      setThemeLoadState({ key: themeKey, state: "failed" });
-    });
-  }, [loadTheme, themeId, themeKey, themeMode]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    const policy = createCeremonyAudioPolicy();
-    audioPolicyRef.current = policy;
-    policy.preload();
-    return () => {
-      policy.stop();
-      if (audioPolicyRef.current === policy) audioPolicyRef.current = null;
-    };
-  }, []);
+  const presentation = useChallengePresentation({ update, loadStyle, loadTheme });
+  const { acceptUpdate } = presentation;
 
   useEffect(() => {
     const token = tokenFromLocation();
@@ -193,46 +96,7 @@ export const ChallengeSourceApp = ({
           socket?.close();
           return;
         }
-        const ceremony = accountForChallengeUpdate(parsed, lastSeenRef.current);
-        lastSeenRef.current = ceremony.lastSeen;
-        // Schritt 13 hängt die Zeremonie an `ceremony.shouldFire` ein. Die
-        // lastSeen-Buchführung läuft schon jetzt, damit dort nur noch der
-        // Effekt fehlt und nicht die Regel, wann er feuern darf.
-        const event = parsed.event;
-        const hiddenChallengeEvent = event !== null
-          && event.scope === "challenge"
-          && event.type !== "completed"
-          && parsed.challenges.some((challenge) => challenge.id === event.challengeId && challenge.hidden);
-        if (!parsed.settings.effectsEnabled) {
-          setActiveCeremony(null);
-          if (ceremonyTimerRef.current !== null) {
-            window.clearTimeout(ceremonyTimerRef.current);
-            ceremonyTimerRef.current = null;
-          }
-          audioPolicyRef.current?.stop();
-        } else if (
-          ceremony.shouldFire
-          && event !== null
-          && !hiddenChallengeEvent
-        ) {
-          const nextCeremony = ceremonyFor(parsed.settings.styleId, event);
-          if (nextCeremony !== null) {
-            const eventSeq = parsed.eventSeq;
-            setActiveCeremony({ ...nextCeremony, eventSeq });
-            audioPolicyRef.current?.play(nextCeremony.sound);
-            if (ceremonyTimerRef.current !== null) window.clearTimeout(ceremonyTimerRef.current);
-            ceremonyTimerRef.current = window.setTimeout(() => {
-              setActiveCeremony((current) => current?.eventSeq === eventSeq ? null : current);
-              ceremonyTimerRef.current = null;
-            }, nextCeremony.durationMs);
-          } else {
-            setActiveCeremony(null);
-            if (ceremonyTimerRef.current !== null) {
-              window.clearTimeout(ceremonyTimerRef.current);
-              ceremonyTimerRef.current = null;
-            }
-          }
-        }
+        acceptUpdate(parsed);
         setUpdate(parsed);
       });
       socket.addEventListener("close", () => {
@@ -248,30 +112,22 @@ export const ChallengeSourceApp = ({
     return () => {
       disposed = true;
       if (retryTimer !== null) window.clearTimeout(retryTimer);
-      if (ceremonyTimerRef.current !== null) window.clearTimeout(ceremonyTimerRef.current);
       socket?.close();
     };
-  }, [reloadPage]);
+  }, [acceptUpdate, reloadPage]);
 
-  const styleReady = update !== null
-    && styleLoadState.key === styleId
-    && styleLoadState.state === "ready";
-  const themeReady = update !== null && (
-    update.settings.themeMode === "own" ||
-    (themeLoadState.key === themeKey && themeLoadState.state === "ready")
-  );
-  if (!styleReady || !themeReady) return null;
-  const ceremonyTarget: ChallengeLogCeremonyTarget | null = activeCeremony?.target ?? null;
+  if (!presentation.ready || update === null) return null;
+  const ceremonyTarget: ChallengeLogCeremonyTarget | null = presentation.ceremonyTarget;
   return (
     <div
-      key={activeCeremony?.eventSeq ?? "idle"}
+      key={presentation.activeCeremony?.eventSeq ?? "idle"}
       className="challenge-source-ceremony"
-      data-ceremony-event={activeCeremony?.eventType}
-      data-ceremony-motion={activeCeremony === null ? undefined : reducedMotion ? "static" : "animated"}
-      data-ceremony-type={activeCeremony?.visual}
+      data-ceremony-event={presentation.activeCeremony?.eventType}
+      data-ceremony-motion={presentation.activeCeremony === null ? undefined : presentation.reducedMotion ? "static" : "animated"}
+      data-ceremony-type={presentation.activeCeremony?.visual}
       data-style={update.settings.styleId}
     >
-      <ChallengeLog ceremonyTarget={ceremonyTarget} now={now} update={update} />
+      <ChallengeLog ceremonyTarget={ceremonyTarget} now={presentation.now} update={update} />
     </div>
   );
 };

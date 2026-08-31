@@ -66,7 +66,7 @@ const refreshCsrf = async (): Promise<BootstrapResponse> => {
 
 const resetTables = async (): Promise<void> => {
   await runInDurableObject(stub, (_instance, state) => {
-    for (const tag of ["editor", "overlay", "challenge", "dock"] as const) {
+    for (const tag of ["editor", "overlay", "composite", "challenge", "dock"] as const) {
       for (const socket of state.getWebSockets(tag)) socket.close();
     }
     state.storage.sql.exec("DELETE FROM wc_challenges");
@@ -261,7 +261,7 @@ describe("Win-Challenges-Sockets", () => {
     await refreshCsrf();
   });
 
-  it("trennt HUD-State, liefert vier Attachments und broadcastet Challenge-Updates gezielt", async () => {
+  it("trennt HUD-State, liefert fünf Attachments und broadcastet Updates gezielt", async () => {
     const bootstrap = await refreshCsrf();
     const overlayToken = await createOverlayToken();
     const dockToken = await createDockToken();
@@ -269,6 +269,7 @@ describe("Win-Challenges-Sockets", () => {
     const overlay = await openSocket("/ws/overlay", OVERLAY_SOCKET_PROTOCOL, overlayToken);
     const challenge = await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken);
     const dock = await openSocket("/ws/dock", DOCK_SOCKET_PROTOCOL, dockToken);
+    const composite = await openSocket("/ws/composite", OVERLAY_SOCKET_PROTOCOL, overlayToken);
 
     try {
       const editorSnapshot = await requireMessage(
@@ -301,8 +302,20 @@ describe("Win-Challenges-Sockets", () => {
       );
       expectChallengeUpdateShape(dockSnapshot);
       expect(dockSnapshot.event).toBeNull();
+      const compositeSnapshot = await requireMessage(
+        composite,
+        (data) => data.type === "snapshot",
+        "Composite-HUD-Snapshot",
+      );
+      expect(compositeSnapshot.state).toBeDefined();
+      const compositeChallengeSnapshot = await requireMessage(
+        composite,
+        (data) => data.event === null,
+        "Composite-Challenge-Snapshot",
+      );
+      expectChallengeUpdateShape(compositeChallengeSnapshot);
 
-      const socketReplies = [editor, overlay, challenge, dock].map((socket, index) => {
+      const socketReplies = [editor, overlay, challenge, dock, composite].map((socket, index) => {
         const reply = requireMessage(
           socket,
           (data) => data.type === "time_sync",
@@ -334,6 +347,7 @@ describe("Win-Challenges-Sockets", () => {
       );
       const challengeState = waitForMessage(challenge, (data) => data.type === "state_committed", 250);
       const dockState = waitForMessage(dock, (data) => data.type === "state_committed", 250);
+      const compositeState = requireMessage(composite, (data) => data.type === "state_committed", "Composite-State-Broadcast");
       const { revision, overlayEnabled: _overlayEnabled, updatedAt: _updatedAt, updatedBy: _updatedBy, ...draft } = bootstrap.state;
       void [_overlayEnabled, _updatedAt, _updatedBy];
       const save = await fetchWorker("/api/state", {
@@ -346,11 +360,14 @@ describe("Win-Challenges-Sockets", () => {
       });
       expect(save.status).toBe(200);
       const saved = saveResponseSchema.parse(await save.json());
-      const [editorStateMessage, overlayStateMessage] = await Promise.all([editorState, overlayState]);
+      const [editorStateMessage, overlayStateMessage, compositeStateMessage] = await Promise.all([editorState, overlayState, compositeState]);
       expect(editorStateMessage).toEqual(
         expect.objectContaining({ type: "state_committed", state: saved.state }),
       );
       expect(overlayStateMessage).toEqual(
+        expect.objectContaining({ type: "state_committed", state: saved.state }),
+      );
+      expect(compositeStateMessage).toEqual(
         expect.objectContaining({ type: "state_committed", state: saved.state }),
       );
       expect(await challengeState).toBeNull();
@@ -360,16 +377,17 @@ describe("Win-Challenges-Sockets", () => {
         requireMessage(editor, (data) => data.event === null, "Editor-Challenge-Update-Board"),
         requireMessage(challenge, (data) => data.event === null, "Challenge-Update-Board"),
         requireMessage(dock, (data) => data.event === null, "Dock-Update-Board"),
+        requireMessage(composite, (data) => data.event === null, "Composite-Update-Board"),
       ] as const;
       const overlayBoardUpdate = waitForMessage(overlay, (data) => data.event === null, 250);
       const board = await saveBoard();
       expect(board.status).toBe(200);
-      const [editorBoardUpdate, challengeBoardUpdate, dockBoardUpdate] = await Promise.all(updateAfterBoard);
+      const [editorBoardUpdate, challengeBoardUpdate, dockBoardUpdate, compositeBoardUpdate] = await Promise.all(updateAfterBoard);
 
       const boardBody = await board.json<{
         snapshot: { boardRevision: number; challenges: Array<{ id: string }> };
       }>();
-      for (const message of [editorBoardUpdate, challengeBoardUpdate, dockBoardUpdate]) {
+      for (const message of [editorBoardUpdate, challengeBoardUpdate, dockBoardUpdate, compositeBoardUpdate]) {
         expectChallengeUpdateShape(message);
         expect(message.boardRevision).toBe(boardBody.snapshot.boardRevision);
         expect(message.event).toBeNull();
@@ -390,6 +408,10 @@ describe("Win-Challenges-Sockets", () => {
           const event = data.event as { type?: string } | null;
           return event?.type === "progressed";
         }, "Dock-Update-Command"),
+        requireMessage(composite, (data) => {
+          const event = data.event as { type?: string } | null;
+          return event?.type === "progressed";
+        }, "Composite-Update-Command"),
       ] as const;
       const overlayCommandUpdate = waitForMessage(overlay, (data) => {
         const event = data.event as { type?: string } | null;
@@ -401,8 +423,8 @@ describe("Win-Challenges-Sockets", () => {
         body: JSON.stringify({ commandId: commandId(), scope: "challenge", type: "increment", challengeId, delta: 1 }),
       });
       expect(command.status).toBe(200);
-      const [editorCommandUpdate, challengeCommandUpdate, dockCommandUpdate] = await Promise.all(updateAfterCommand);
-      for (const message of [editorCommandUpdate, challengeCommandUpdate, dockCommandUpdate]) {
+      const [editorCommandUpdate, challengeCommandUpdate, dockCommandUpdate, compositeCommandUpdate] = await Promise.all(updateAfterCommand);
+      for (const message of [editorCommandUpdate, challengeCommandUpdate, dockCommandUpdate, compositeCommandUpdate]) {
         expectChallengeUpdateShape(message);
         const event = message.event;
         expect(event).not.toBeNull();
@@ -418,6 +440,27 @@ describe("Win-Challenges-Sockets", () => {
       overlay.close();
       challenge.close();
       dock.close();
+      composite.close();
+    }
+  });
+
+  it("begrenzt Composite-Sockets auf zehn Verbindungen", async () => {
+    const overlayToken = await createOverlayToken();
+    const sockets: WebSocket[] = [];
+    try {
+      for (let index = 0; index < 10; index += 1) {
+        sockets.push(await openSocket("/ws/composite", OVERLAY_SOCKET_PROTOCOL, overlayToken));
+      }
+      const rejected = await fetchWorker("/ws/composite", {
+        headers: {
+          upgrade: "websocket",
+          "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, ${overlayToken}`,
+        },
+      });
+      expect(rejected.status).toBe(429);
+      expect((await rejected.json<{ error: { code: string } }>()).error.code).toBe("socket_limit");
+    } finally {
+      for (const socket of sockets) socket.close();
     }
   });
 
@@ -425,13 +468,21 @@ describe("Win-Challenges-Sockets", () => {
     const overlayToken = await createOverlayToken();
     const challenge = await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken);
     const overlay = await openSocket("/ws/overlay", OVERLAY_SOCKET_PROTOCOL, overlayToken);
+    const composite = await openSocket("/ws/composite", OVERLAY_SOCKET_PROTOCOL, overlayToken);
     try {
       await requireMessage(challenge, (data) => data.event === null, "Challenge-Snapshot");
       await requireMessage(overlay, (data) => data.type === "snapshot", "Overlay-Snapshot");
+      await requireMessage(composite, (data) => data.type === "snapshot", "Composite-HUD-Snapshot");
+      await requireMessage(composite, (data) => data.event === null, "Composite-Challenge-Snapshot");
       const overlayRevoked = requireMessage(
         overlay,
         (data) => data.type === "token_revoked",
         "Overlay-Token-Widerruf",
+      );
+      const compositeRevoked = requireMessage(
+        composite,
+        (data) => data.type === "token_revoked",
+        "Composite-Token-Widerruf",
       );
       const challengeRevokedMessage = requireMessage(
         challenge,
@@ -441,6 +492,7 @@ describe("Win-Challenges-Sockets", () => {
       const closed = Promise.all([
         expectClose(challenge, 4003, "token_revoked"),
         expectClose(overlay, 4003, "token_revoked"),
+        expectClose(composite, 4003, "token_revoked"),
       ]);
       const bootstrap = await refreshCsrf();
       const rotation = await fetchWorker("/api/overlay-token/rotate", {
@@ -449,16 +501,43 @@ describe("Win-Challenges-Sockets", () => {
         body: JSON.stringify({ requestId: commandId(), expectedGeneration: bootstrap.capsule.overlayToken.generation }),
       });
       expect(rotation.status).toBe(200);
-      const [challengeRevokedResult, overlayRevokedMessage] = await Promise.all([
+      const [challengeRevokedResult, overlayRevokedMessage, compositeRevokedMessage] = await Promise.all([
         challengeRevokedMessage,
         overlayRevoked,
+        compositeRevoked,
       ]);
       expect(challengeRevokedResult).toEqual({ type: "token_revoked" });
       expect(overlayRevokedMessage).toEqual({ type: "token_revoked" });
-      expect(await closed).toEqual([undefined, undefined]);
+      expect(compositeRevokedMessage).toEqual({ type: "token_revoked" });
+      expect(await closed).toEqual([undefined, undefined, undefined]);
     } finally {
       challenge.close();
       overlay.close();
+      composite.close();
+    }
+  });
+
+  it("antwortet nach einer Token-Generation-Rotation nicht mehr per time_sync", async () => {
+    const overlayToken = await createOverlayToken();
+    const composite = await openSocket("/ws/composite", OVERLAY_SOCKET_PROTOCOL, overlayToken);
+    try {
+      await requireMessage(composite, (data) => data.type === "snapshot", "Composite-HUD-Snapshot");
+      await requireMessage(composite, (data) => data.event === null, "Composite-Challenge-Snapshot");
+
+      await runInDurableObject(stub, (_instance, state) => {
+        if (state.getWebSockets("composite")[0] === undefined) {
+          throw new Error("Composite-Socket fehlt.");
+        }
+        // Der Rotations-Commit ist sichtbar, während der alte Socket noch im
+        // DO-Socket-Set liegt. Genau dieses Send-time-Fenster wird hier geprüft.
+        state.storage.sql.exec("UPDATE overlay_tokens SET generation = generation + 1 WHERE singleton = 1");
+      });
+
+      const reply = waitForMessage(composite, (data) => data.type === "time_sync", 250);
+      composite.send(JSON.stringify({ type: "time_sync_request", clientTimestamp: 42 }));
+      expect(await reply).toBeNull();
+    } finally {
+      composite.close();
     }
   });
 

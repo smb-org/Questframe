@@ -164,4 +164,13 @@ export const createChallengeObsSources = (
       warning: "QR-Code nicht im Stream zeigen – er enthält Schreibzugriff auf deine Challenges.",
     },
   },
+  {
+    id: "composite",
+    name: "HUD + Challenge-Log",
+    path: "/overlay/all",
+    url: buildTokenUrl(origin, "/overlay/all", overlayToken.token),
+    size: "1920 × 1080 px",
+    purpose: "Liefert HUD und Challenge-Log gemeinsam in einer vollflächigen OBS-Quelle; beide Positionen stellst du im Admin ein.",
+    tokenKind: "overlay",
+  },
 ];

@@ -6,6 +6,7 @@ import {
   bootstrapResponseSchema,
   clientMessageSchema,
   dockTokenResponseSchema,
+  MAX_COMPOSITE_SOCKETS,
   MAX_CHALLENGE_SOCKETS,
   MAX_DOCK_SOCKETS,
   MAX_OVERLAY_SOCKETS,
@@ -105,6 +106,13 @@ type SocketAttachment =
     }
   | {
       version: 1;
+      kind: "composite";
+      connectionId: string;
+      tokenGeneration: number;
+      connectedAt: string;
+    }
+  | {
+      version: 1;
       kind: "challenge";
       connectionId: string;
       tokenGeneration: number;
@@ -123,6 +131,7 @@ const limits = {
   maxActiveEffects: 8,
   maxEditorSockets: 10,
   maxOverlaySockets: MAX_OVERLAY_SOCKETS,
+  maxCompositeSockets: MAX_COMPOSITE_SOCKETS,
   maxChallengeSockets: MAX_CHALLENGE_SOCKETS,
   maxDockSockets: MAX_DOCK_SOCKETS,
   maxMediaBytes: 8_388_608,
@@ -278,6 +287,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
       }
       if (request.method === "GET" && url.pathname === "/ws/overlay") {
         return await this.connectOverlay(request);
+      }
+      if (request.method === "GET" && url.pathname === "/ws/composite") {
+        return await this.connectComposite(request);
       }
       if (request.method === "GET" && url.pathname === "/ws/challenge") {
         return await this.connectChallenge(request);
@@ -599,7 +611,10 @@ export class ChannelObject extends DurableObject<AppEnv> {
           generation: overlayToken?.generation ?? 0,
           createdAt: overlayToken?.created_at ?? null,
           lastUsedAt: overlayToken?.last_used_at ?? null,
-          connectedSockets: Math.min(MAX_OVERLAY_SOCKETS, this.ctx.getWebSockets("overlay").length),
+          connectedSockets: Math.min(
+            MAX_OVERLAY_SOCKETS,
+            this.ctx.getWebSockets("overlay").length + this.ctx.getWebSockets("composite").length,
+          ),
           token: await this.readOverlayToken(overlayToken),
         },
         dockToken: {
@@ -882,6 +897,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       }
       if (rotate) {
         this.revokeTokenSockets("overlay", input.expectedGeneration);
+        this.revokeTokenSockets("composite", input.expectedGeneration);
         this.revokeTokenSockets("challenge", input.expectedGeneration);
       }
       return jsonResponse(
@@ -934,6 +950,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     );
     if (rotate) {
       this.revokeTokenSockets("overlay", currentGeneration);
+      this.revokeTokenSockets("composite", currentGeneration);
       this.revokeTokenSockets("challenge", currentGeneration);
     }
     return jsonResponse(
@@ -1254,6 +1271,48 @@ export class ChannelObject extends DurableObject<AppEnv> {
     });
   }
 
+  private async connectComposite(request: Request): Promise<Response> {
+    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+      throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
+    }
+    if (this.ctx.getWebSockets("composite").length >= limits.maxCompositeSockets) {
+      throw new RequestError(429, "socket_limit", "Zu viele Composite-Verbindungen.");
+    }
+    const token = request.headers.get("x-overlay-token");
+    if (token === null) throw new RequestError(403, "token_invalid", "OBS-Token ungültig.");
+    const hash = await hmacHex(this.getOverlayTokenPepper(), token);
+    const row = this.getOverlayToken();
+    if (row === null || !timingSafeEqual(row.token_hash, hash)) {
+      throw new RequestError(403, "token_invalid", "OBS-Token ungültig.");
+    }
+    this.ctx.storage.sql.exec(
+      "UPDATE overlay_tokens SET last_used_at = ? WHERE singleton = 1",
+      nowIso(),
+    );
+    const pair = new WebSocketPair();
+    const client = pair[0];
+    const server = pair[1];
+    if (this.ctx.getWebSockets("composite").length >= limits.maxCompositeSockets) {
+      throw new RequestError(429, "socket_limit", "Zu viele Composite-Verbindungen.");
+    }
+    this.ctx.acceptWebSocket(server, ["composite"]);
+    server.serializeAttachment({
+      version: 1,
+      kind: "composite",
+      connectionId: crypto.randomUUID(),
+      tokenGeneration: row.generation,
+      connectedAt: nowIso(),
+    } satisfies SocketAttachment);
+    server.send(JSON.stringify({ type: "snapshot", state: normalizeStateForRead(this.getRequiredState()) }));
+    server.send(JSON.stringify(this.toChallengeUpdate(this.challengeService().readChallengeUpdate())));
+    this.broadcastOverlayPresence();
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+      headers: { "sec-websocket-protocol": OVERLAY_SOCKET_PROTOCOL },
+    });
+  }
+
   private async connectChallenge(request: Request): Promise<Response> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
@@ -1330,6 +1389,11 @@ export class ChannelObject extends DurableObject<AppEnv> {
       socket.close(1011, "invalid_attachment");
       return;
     }
+    if (attachment.kind === "editor") {
+      if (this.closeEditorSocketIfSessionRevoked(socket, attachment)) return;
+    } else if (this.closeTokenSocketIfRevoked(socket, attachment)) {
+      return;
+    }
     const byteLength =
       typeof message === "string"
         ? new TextEncoder().encode(message).byteLength
@@ -1363,14 +1427,14 @@ export class ChannelObject extends DurableObject<AppEnv> {
       socket.close();
     }
     void wasClean;
-    if (this.readAttachment(socket)?.kind === "overlay") {
+    if (this.readAttachment(socket)?.kind === "overlay" || this.readAttachment(socket)?.kind === "composite") {
       this.broadcastOverlayPresence(socket);
     }
   }
 
   override webSocketError(socket: WebSocket): void {
     socket.close(1011, "socket_error");
-    if (this.readAttachment(socket)?.kind === "overlay") {
+    if (this.readAttachment(socket)?.kind === "overlay" || this.readAttachment(socket)?.kind === "composite") {
       this.broadcastOverlayPresence(socket);
     }
   }
@@ -1826,6 +1890,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
         if (this.closeEditorSocketIfSessionRevoked(socket, attachment)) continue;
       } else if (
         attachment?.kind === "overlay" ||
+        attachment?.kind === "composite" ||
         attachment?.kind === "challenge" ||
         attachment?.kind === "dock"
       ) {
@@ -1842,7 +1907,11 @@ export class ChannelObject extends DurableObject<AppEnv> {
   private broadcastState(state: ChannelState): void {
     const message = JSON.stringify({ type: "state_committed", state });
     this.sendToSockets(
-      [...this.ctx.getWebSockets("editor"), ...this.ctx.getWebSockets("overlay")],
+      [
+        ...this.ctx.getWebSockets("editor"),
+        ...this.ctx.getWebSockets("overlay"),
+        ...this.ctx.getWebSockets("composite"),
+      ],
       message,
     );
   }
@@ -1856,13 +1925,14 @@ export class ChannelObject extends DurableObject<AppEnv> {
         ...this.ctx.getWebSockets("editor"),
         ...this.ctx.getWebSockets("challenge"),
         ...this.ctx.getWebSockets("dock"),
+        ...this.ctx.getWebSockets("composite"),
       ],
       message,
     );
   }
 
   private revokeTokenSockets(
-    tag: "overlay" | "challenge" | "dock",
+    tag: "overlay" | "composite" | "challenge" | "dock",
     tokenGeneration?: number,
   ): void {
     const message = JSON.stringify({ type: "token_revoked" });
@@ -1899,13 +1969,15 @@ export class ChannelObject extends DurableObject<AppEnv> {
     this.sendToSockets(this.ctx.getWebSockets("editor"), message);
   }
 
-  // Wird sowohl nach einer neuen Overlay-Verbindung als auch beim Schliessen/Fehler
-  // eines Overlay-Sockets aufgerufen. `excludeSocket` blendet den Socket aus, der sich
-  // gerade schliesst, weil getWebSockets("overlay") ihn zu diesem Zeitpunkt noch enthalten kann.
+  // Wird sowohl nach einer neuen Overlay-/Composite-Verbindung als auch beim
+  // Schliessen/Fehler eines solchen Sockets aufgerufen. `excludeSocket` blendet
+  // den Socket aus, der sich gerade schliesst, weil getWebSockets ihn noch
+  // enthalten kann.
   private broadcastOverlayPresence(excludeSocket?: WebSocket): void {
     const connectedSockets = Math.min(
       MAX_OVERLAY_SOCKETS,
-      this.ctx.getWebSockets("overlay").filter((socket) => socket !== excludeSocket).length,
+      this.ctx.getWebSockets("overlay").filter((socket) => socket !== excludeSocket).length
+        + this.ctx.getWebSockets("composite").filter((socket) => socket !== excludeSocket).length,
     );
     const message = JSON.stringify({ type: "overlay_presence", connectedSockets });
     this.sendToSockets(this.ctx.getWebSockets("editor"), message);
@@ -1937,7 +2009,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
 
   private closeTokenSocketIfRevoked(
     socket: WebSocket,
-    attachment: Extract<SocketAttachment, { kind: "overlay" | "challenge" | "dock" }>,
+    attachment: Extract<SocketAttachment, { kind: "overlay" | "composite" | "challenge" | "dock" }>,
   ): boolean {
     let currentGeneration: number | null = null;
     try {
@@ -1964,6 +2036,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       attachment?.version !== 1 ||
       (attachment.kind !== "editor" &&
         attachment.kind !== "overlay" &&
+        attachment.kind !== "composite" &&
         attachment.kind !== "challenge" &&
         attachment.kind !== "dock") ||
       typeof attachment.connectionId !== "string"

@@ -11,7 +11,10 @@ html[data-surface="overlay"] body,
 html[data-surface="overlay"] #root,
 html[data-surface="challenges"],
 html[data-surface="challenges"] body,
-html[data-surface="challenges"] #root {
+html[data-surface="challenges"] #root,
+html[data-surface="composite"],
+html[data-surface="composite"] body,
+html[data-surface="composite"] #root {
   width: 100%;
   height: 100%;
   overflow: hidden;

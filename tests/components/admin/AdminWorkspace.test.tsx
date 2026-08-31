@@ -347,8 +347,9 @@ describe("Admin workspace setup", () => {
     expect(setupToggle).toHaveAttribute("aria-expanded", "true");
     expect(await screen.findByRole("heading", { name: "HUD-Overlay" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Challenge-Log" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "HUD + Challenge-Log" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Live-Bedienseite" })).toBeInTheDocument();
-    expect(screen.getAllByText("1920 × 1080 px")).toHaveLength(2);
+    expect(screen.getAllByText("1920 × 1080 px")).toHaveLength(3);
     expect(screen.getByText("mindestens 280 px breit; Höhe nach Inhalt")).toBeInTheDocument();
     expect(screen.getByText(/View → Docks → Custom Browser Docks/)).toBeInTheDocument();
     expect(screen.getByText("Browser-Docks stehen unter Wayland nicht zur Verfügung.")).toBeInTheDocument();

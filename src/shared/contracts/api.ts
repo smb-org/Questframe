@@ -61,6 +61,7 @@ export const createApiError = (
 ): ApiError => apiErrorSchema.parse({ error: { code, message, ...details } });
 
 export const MAX_OVERLAY_SOCKETS = 10 as const;
+export const MAX_COMPOSITE_SOCKETS = 10 as const;
 export const MAX_CHALLENGE_SOCKETS = 2 as const;
 export const MAX_DOCK_SOCKETS = 2 as const;
 
@@ -71,6 +72,7 @@ export const limitsSchema = z.strictObject({
   // Ein bereits laufender DO-Isolate kann während eines Deployments kurz noch
   // den bisherigen Wert liefern. Neue Server erzeugen ausschließlich 10.
   maxOverlaySockets: z.union([z.literal(2), z.literal(MAX_OVERLAY_SOCKETS)]),
+  maxCompositeSockets: z.literal(MAX_COMPOSITE_SOCKETS).optional(),
   maxChallengeSockets: z.literal(MAX_CHALLENGE_SOCKETS).optional(),
   maxDockSockets: z.literal(MAX_DOCK_SOCKETS).optional(),
   maxMediaBytes: z.literal(8_388_608),

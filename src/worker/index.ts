@@ -609,7 +609,7 @@ const worker = {
       );
     }
 
-    if (request.method === "GET" && (url.pathname === "/ws/overlay" || url.pathname === "/ws/challenge")) {
+    if (request.method === "GET" && (url.pathname === "/ws/overlay" || url.pathname === "/ws/composite" || url.pathname === "/ws/challenge")) {
       const protocolHeader = request.headers.get("sec-websocket-protocol");
       const protocolEntries = protocolHeader?.split(",").map((entry) => entry.trim()) ?? [];
       const [protocolName, token] = protocolEntries;

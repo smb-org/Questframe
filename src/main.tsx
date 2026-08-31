@@ -24,6 +24,10 @@ if (route.app === "overlay") {
   void import("./challenges/ChallengeSourceApp").then(({ ChallengeSourceApp }) => {
     reactRoot.render(<StrictMode><ChallengeSourceApp /></StrictMode>);
   });
+} else if (route.app === "composite") {
+  void import("./composite/CompositeApp").then(({ CompositeApp }) => {
+    reactRoot.render(<StrictMode><CompositeApp /></StrictMode>);
+  });
 } else if (route.app === "live") {
   void import("./live/LiveApp").then(({ LiveApp }) => {
     reactRoot.render(<StrictMode><LiveApp /></StrictMode>);
