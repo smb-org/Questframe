@@ -2,6 +2,7 @@ import type { CeremonySound } from "./ceremonies";
 
 const SOUND_SOURCES: Record<Exclude<CeremonySound, null>, string> = {
   complete: "/assets/sounds/complete.mp3",
+  "quest-complete": "/assets/sounds/quest-complete.mp3",
   tick: "/assets/sounds/tick.mp3",
 };
 
@@ -10,6 +11,7 @@ const SOUND_SOURCES: Record<Exclude<CeremonySound, null>, string> = {
 // Glocken uebereinanderlegen. 900 ms laesst hoechstens zwei Ausklaenge ueberlappen.
 const MINIMUM_GAP_MS: Record<Exclude<CeremonySound, null>, number> = {
   complete: 900,
+  "quest-complete": 900,
   tick: 140,
 };
 

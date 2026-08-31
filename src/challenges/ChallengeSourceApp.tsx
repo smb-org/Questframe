@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import type { ChallengeUpdate } from "../shared/contracts/win-challenges";
 import { OVERLAY_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
 import { ChallengeLog, type ChallengeLogCeremonyTarget } from "../modules/win-challenges/ui/ChallengeLog";
-import "./challenge-source.css";
 import { createCeremonyAudioPolicy, type CeremonyAudioPolicy } from "./audio";
 import { ceremonyFor, type ChallengeCeremony } from "./ceremonies";
 import {
@@ -11,6 +10,7 @@ import {
   parseChallengeMessage,
   tokenFromLocation,
 } from "./wire";
+import { loadChallengeStyle, type ChallengeStyleLoader } from "./style-loader";
 import { loadChallengeTheme, type ChallengeThemeLoader } from "./theme-loader";
 
 const RETRY_BASE_MS = 750;
@@ -35,22 +35,32 @@ const usePrefersReducedMotion = (): boolean => {
   return reducedMotion;
 };
 
-type ThemeLoadState = "idle" | "ready" | "failed";
+type ChunkLoadState = "idle" | "ready" | "failed";
 
 type ChallengeSourceAppProps = {
+  // Beide Loader bleiben injizierbar, damit die Quelle Rennen und Fehler testet.
+  loadStyle?: ChallengeStyleLoader;
   // Der Loader bleibt injizierbar, damit das Render-Gate auch Fehler und Rennen testet.
   loadTheme?: ChallengeThemeLoader;
 };
 
-export const ChallengeSourceApp = ({ loadTheme = loadChallengeTheme }: ChallengeSourceAppProps = {}) => {
+export const ChallengeSourceApp = ({
+  loadStyle = loadChallengeStyle,
+  loadTheme = loadChallengeTheme,
+}: ChallengeSourceAppProps = {}) => {
   const [update, setUpdate] = useState<ChallengeUpdate | null>(null);
   const [now, setNow] = useState(() => Date.now());
-  const [themeLoadState, setThemeLoadState] = useState<{ key: string | null; state: ThemeLoadState }>({
+  const [themeLoadState, setThemeLoadState] = useState<{ key: string | null; state: ChunkLoadState }>({
+    key: null,
+    state: "idle",
+  });
+  const [styleLoadState, setStyleLoadState] = useState<{ key: string | null; state: ChunkLoadState }>({
     key: null,
     state: "idle",
   });
   const lastSeenRef = useRef(-1);
   const themeRequestRef = useRef(0);
+  const styleRequestRef = useRef(0);
   const ceremonyTimerRef = useRef<number | null>(null);
   const audioPolicyRef = useRef<CeremonyAudioPolicy | null>(null);
   const [activeCeremony, setActiveCeremony] = useState<(ChallengeCeremony & { eventSeq: number }) | null>(null);
@@ -59,6 +69,23 @@ export const ChallengeSourceApp = ({ loadTheme = loadChallengeTheme }: Challenge
   const themeMode = update?.settings.themeMode ?? null;
   const themeId = update?.settings.themeId ?? null;
   const themeKey = themeMode === null || themeId === null ? null : `${themeMode}:${themeId}`;
+  const styleId = update?.settings.styleId ?? null;
+
+  useEffect(() => {
+    const request = styleRequestRef.current + 1;
+    styleRequestRef.current = request;
+
+    if (styleId === null) return;
+
+    void loadStyle(styleId).then(() => {
+      if (styleRequestRef.current !== request) return;
+      setStyleLoadState({ key: styleId, state: "ready" });
+    }).catch(() => {
+      if (styleRequestRef.current !== request) return;
+      // Ein fehlerhafter Style-Chunk darf niemals ungestylten Inhalt zeigen.
+      setStyleLoadState({ key: styleId, state: "failed" });
+    });
+  }, [loadStyle, styleId]);
 
   useEffect(() => {
     const request = themeRequestRef.current + 1;
@@ -190,13 +217,14 @@ export const ChallengeSourceApp = ({ loadTheme = loadChallengeTheme }: Challenge
     };
   }, []);
 
-  // Der statische Import von challenge-source.css ist Teil dieses Moduls und ist
-  // abgeschlossen, bevor Vite den Modul-Promise der Quelle aufloest.
+  const styleReady = update !== null
+    && styleLoadState.key === styleId
+    && styleLoadState.state === "ready";
   const themeReady = update !== null && (
     update.settings.themeMode === "own" ||
     (themeLoadState.key === themeKey && themeLoadState.state === "ready")
   );
-  if (!themeReady) return null;
+  if (!styleReady || !themeReady) return null;
   const ceremonyTarget: ChallengeLogCeremonyTarget | null = activeCeremony?.target ?? null;
   return (
     <div
@@ -205,6 +233,7 @@ export const ChallengeSourceApp = ({ loadTheme = loadChallengeTheme }: Challenge
       data-ceremony-event={activeCeremony?.eventType}
       data-ceremony-motion={activeCeremony === null ? undefined : reducedMotion ? "static" : "animated"}
       data-ceremony-type={activeCeremony?.visual}
+      data-style={update.settings.styleId}
     >
       <ChallengeLog ceremonyTarget={ceremonyTarget} now={now} update={update} />
     </div>

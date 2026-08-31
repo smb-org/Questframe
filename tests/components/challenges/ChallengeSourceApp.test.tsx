@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChallengeSourceApp } from "../../../src/challenges/ChallengeSourceApp";
 import { ChallengeLog } from "../../../src/modules/win-challenges/ui/ChallengeLog";
 import { MAX_TOTAL_ROWS } from "../../../src/modules/win-challenges/contracts/predicates";
-import type { ChallengeThemeId, ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
+import type { ChallengeStyleId, ChallengeThemeId, ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
 import { OVERLAY_SOCKET_PROTOCOL } from "../../../src/shared/contracts/protocol";
 
 const token = "A".repeat(43);
@@ -85,6 +85,7 @@ const message = (): ChallengeUpdate => ({
 });
 
 const fixedNow = Date.parse("2026-08-31T12:00:00.000Z");
+const styleNames = ["plain-list", "plain-bullets", "plain-numbered", "quest-log"] as const;
 
 const globalTimer = (state: "running" | "paused" | "expired"): NonNullable<ChallengeUpdate["settings"]["globalTimer"]> => ({
   totalMs: 60_000,
@@ -108,12 +109,12 @@ const deliver = async (socket: FakeWebSocket | undefined, update: ChallengeUpdat
   });
 };
 
-const deferred = (): { promise: Promise<void>; resolve: () => void; reject: () => void } => {
+const deferred = (): { promise: Promise<void>; resolve: () => void; reject: (reason?: Error) => void } => {
   let resolvePromise: () => void = () => undefined;
-  let rejectPromise: () => void = () => undefined;
+  let rejectPromise: (reason?: Error) => void = () => undefined;
   const promise = new Promise<void>((resolve, reject) => {
     resolvePromise = resolve;
-    rejectPromise = () => reject(new Error("Theme-Chunk fehlgeschlagen"));
+    rejectPromise = (reason = new Error("Theme-Chunk fehlgeschlagen")) => reject(reason);
   });
   return { promise, resolve: resolvePromise, reject: rejectPromise };
 };
@@ -150,7 +151,7 @@ describe("ChallengeSourceApp", () => {
     expect(screen.getByText("CHALLENGES")).toBeInTheDocument();
     expect(screen.getByText("3 / 10")).toBeInTheDocument();
     const rows = [...document.querySelectorAll(".challenge-source__row")];
-    expect(rows.map((row) => row.textContent)).toEqual(["▸Offene Challenge3 / 10", "✓Erledigt unten1 / 1"]);
+    expect(rows.map((row) => row.textContent)).toEqual(["Offene Challenge3 / 10", "✓Erledigt unten1 / 1"]);
   });
 
   it("feuert eine Zeremonie nur für ein neues Ereignis nach dem letzten Stand", async () => {
@@ -231,17 +232,37 @@ describe("ChallengeSourceApp", () => {
     expect(document.querySelector(".challenge-source-ceremony")).toHaveAttribute("data-ceremony-type", "progressed");
   });
 
-  it("macht bei einem Style ohne Registry-Eintrag nichts", async () => {
+  it.each(["plain-list", "plain-bullets", "plain-numbered"] as const)(
+    "ordnet %s die gemeinsame Abschlusszeremonie zu",
+    async (styleId) => {
+      render(<ChallengeSourceApp />);
+      const socket = FakeWebSocket.instances[0];
+      await deliver(socket, sourceUpdate({
+        eventSeq: 1,
+        settings: { ...message().settings, styleId, themeMode: "own" },
+        event: { scope: "challenge", type: "completed", challengeId: "open" },
+      }));
+
+      await waitFor(() => expect(document.querySelector(".challenge-source-ceremony")).toHaveAttribute("data-ceremony-type", "completed"));
+      const complete = FakeAudio.instances.find((audio) => audio.src.endsWith("/complete.mp3"));
+      expect(complete?.play).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("ordnet quest-log den eigenen Abschlussklang zu", async () => {
     render(<ChallengeSourceApp />);
     const socket = FakeWebSocket.instances[0];
     await deliver(socket, sourceUpdate({
       eventSeq: 1,
-      settings: { ...message().settings, styleId: "plain-bullets", themeMode: "own" },
+      settings: { ...message().settings, styleId: "quest-log", themeMode: "own" },
       event: { scope: "challenge", type: "completed", challengeId: "open" },
     }));
 
-    expect(document.querySelector(".challenge-source-ceremony")?.getAttribute("data-ceremony-type") ?? null).toBeNull();
-    expect(FakeAudio.instances.every((audio) => audio.play.mock.calls.length === 0)).toBe(true);
+    await waitFor(() => expect(document.querySelector(".challenge-source-ceremony")).toHaveAttribute("data-ceremony-type", "completed"));
+    const questComplete = FakeAudio.instances.find((audio) => audio.src.endsWith("/quest-complete.mp3"));
+    expect(questComplete?.play).toHaveBeenCalledTimes(1);
+    const complete = FakeAudio.instances.find((audio) => audio.src.endsWith("/complete.mp3"));
+    expect(complete?.play).not.toHaveBeenCalled();
   });
 
   it("bremst zwei schnelle gleiche Töne auf eine Wiedergabe aus", async () => {
@@ -317,6 +338,65 @@ describe("ChallengeSourceApp", () => {
     });
     expect(screen.getByText("Offene Challenge")).toBeInTheDocument();
     expect(document.querySelector(".challenge-source")).toHaveClass("hud-theme--trail-wood");
+  });
+
+  it("hält die Quelle bis zum Style-Chunk transparent", async () => {
+    const style = deferred();
+    const loadStyle = vi.fn(() => style.promise);
+    render(<ChallengeSourceApp loadStyle={loadStyle} />);
+    const socket = FakeWebSocket.instances[0];
+
+    await deliver(socket, sourceUpdate({ settings: { ...message().settings, themeMode: "own" } }));
+    expect(document.body).not.toHaveTextContent("Offene Challenge");
+    expect(loadStyle).toHaveBeenCalledWith("plain-list");
+
+    await act(async () => {
+      style.resolve();
+      await style.promise;
+    });
+    expect(screen.getByText("Offene Challenge")).toBeInTheDocument();
+  });
+
+  it("bleibt bei einem fehlgeschlagenen Style-Chunk transparent", async () => {
+    const style = deferred();
+    const loadStyle = vi.fn(() => style.promise);
+    render(<ChallengeSourceApp loadStyle={loadStyle} />);
+    const socket = FakeWebSocket.instances[0];
+
+    await deliver(socket, sourceUpdate({ settings: { ...message().settings, themeMode: "own" } }));
+    await act(async () => {
+      style.reject(new Error("Style-Chunk fehlgeschlagen"));
+      await expect(style.promise).rejects.toThrow("Style-Chunk fehlgeschlagen");
+    });
+    expect(document.body).not.toHaveTextContent("Offene Challenge");
+  });
+
+  it("verwirft einen überholten Style-Import", async () => {
+    const styles = new Map<ChallengeStyleId, ReturnType<typeof deferred>>();
+    const loadStyle = vi.fn((styleId: ChallengeStyleId) => {
+      const request = deferred();
+      styles.set(styleId, request);
+      return request.promise;
+    });
+    render(<ChallengeSourceApp loadStyle={loadStyle} />);
+    const socket = FakeWebSocket.instances[0];
+
+    await deliver(socket, sourceUpdate({ settings: { ...message().settings, themeMode: "own" } }));
+    await deliver(socket, sourceUpdate({
+      settings: { ...message().settings, styleId: "quest-log", themeMode: "own" },
+    }));
+
+    await act(async () => {
+      styles.get("quest-log")?.resolve();
+      await styles.get("quest-log")?.promise;
+    });
+    expect(document.querySelector(".challenge-source")).toHaveAttribute("data-style", "quest-log");
+
+    await act(async () => {
+      styles.get("plain-list")?.resolve();
+      await styles.get("plain-list")?.promise;
+    });
+    expect(document.querySelector(".challenge-source")).toHaveAttribute("data-style", "quest-log");
   });
 
   it("bleibt bei einem fehlgeschlagenen Theme-Chunk transparent", async () => {
@@ -422,6 +502,30 @@ describe("ChallengeSourceApp", () => {
     expect(source).toHaveAttribute("data-theme-mode", "own");
     expect(source).not.toHaveClass("hud-theme--trail-wood");
     expect(source).toHaveAttribute("data-style", "plain-list");
+  });
+
+  it.each(styleNames)("rendert dieselben Daten lesbar im %s-Style für surface und bare", (styleId) => {
+    const visibleDone = { ...challenge("done", "Erledigt unten", "done", 0), completedAt: new Date(fixedNow).toISOString() };
+    const visibleUpdate = sourceUpdate({
+      challenges: [visibleDone, challenge("open", "Offene Challenge", "pending", 1)],
+    });
+    for (const surfaceMode of ["surface", "bare"] as const) {
+      const view = render(<ChallengeLog now={fixedNow} update={{
+        ...visibleUpdate,
+        settings: { ...visibleUpdate.settings, styleId, surfaceMode, themeMode: "own" },
+      }} />);
+
+      const source = document.querySelector(".challenge-source");
+      expect(source).toHaveAttribute("data-style", styleId);
+      expect(source).toHaveAttribute("data-surface-mode", surfaceMode);
+      expect(screen.getByText("Offene Challenge")).toBeInTheDocument();
+      expect(screen.getByText("Erledigt unten")).toBeInTheDocument();
+      const rows = [...document.querySelectorAll(".challenge-source__row")];
+      expect(rows.at(-1)).toHaveAttribute("data-state", "done");
+      expect(rows.at(-1)?.querySelector(".challenge-source__mark")).toHaveTextContent("✓");
+
+      view.unmount();
+    }
   });
 
   it("blendet das Log bei einem Verbindungsabbruch aus", () => {

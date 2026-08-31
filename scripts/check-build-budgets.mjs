@@ -16,7 +16,7 @@ const liveKey = "src/live/LiveApp.tsx";
 const temporalKeySuffix = "@js-temporal/polyfill/dist/index.esm.js";
 const qrCodeKeySuffix = "/qrcode/lib/browser.js";
 
-const createBudgetDeclarations = (temporalKey, challengeThemeKeys, qrCodeKey) => [
+const createBudgetDeclarations = (temporalKey, challengeThemeKeys, challengeStyleKeys, qrCodeKey) => [
   {
     type: "surface",
     key: overlayKey,
@@ -84,6 +84,14 @@ const createBudgetDeclarations = (temporalKey, challengeThemeKeys, qrCodeKey) =>
     budget: 64 * 1024,
   },
   {
+    // Im laufenden Stream wird genau ein Aufbau geladen. Deshalb zaehlt hier
+    // das groesste vollstaendige Style-Chunk, nicht die Summe.
+    type: "variantMax",
+    label: "Challenge-Style-Chunk (variantMax)",
+    keys: challengeStyleKeys,
+    budget: 64 * 1024,
+  },
+  {
     type: "exempt",
     key: indexKey,
     reason: "Die Shell fließt über staticRoots in jede Surface-Closure ein und steckt zusätzlich als Asset-Gruppe shell im Transfer.",
@@ -110,13 +118,19 @@ const challengeThemeKeys = challengeSourceEntry?.dynamicImports?.filter((key) =>
 if (challengeThemeKeys.length !== 6) {
   throw new Error(`Expected six dynamic Challenge-Theme-Chunks, found ${String(challengeThemeKeys.length)}.`);
 }
+const challengeStyleKeys = challengeSourceEntry?.dynamicImports?.filter((key) => (
+  manifest[key]?.src?.startsWith("src/modules/win-challenges/styles/") && manifest[key]?.isDynamicEntry === true
+)) ?? [];
+if (challengeStyleKeys.length !== 4) {
+  throw new Error(`Expected four dynamic Challenge-Style-Chunks, found ${String(challengeStyleKeys.length)}.`);
+}
 const adminEntry = manifest[adminKey];
 const qrCodeKeyCandidates = adminEntry?.dynamicImports?.filter((key) => key.endsWith(qrCodeKeySuffix)) ?? [];
 if (qrCodeKeyCandidates.length !== 1) {
   throw new Error(`Expected exactly one dynamic QR-Code entry ending in ${qrCodeKeySuffix}, found ${String(qrCodeKeyCandidates.length)}.`);
 }
 const [qrCodeKey] = qrCodeKeyCandidates;
-const budgetDeclarations = createBudgetDeclarations(temporalKey, challengeThemeKeys, qrCodeKey);
+const budgetDeclarations = createBudgetDeclarations(temporalKey, challengeThemeKeys, challengeStyleKeys, qrCodeKey);
 
 const overlayClosure = collectStaticClosure(manifest, [indexKey, overlayKey]);
 const adminClosure = collectStaticClosure(manifest, [indexKey, adminKey]);

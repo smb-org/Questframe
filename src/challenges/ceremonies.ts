@@ -6,7 +6,7 @@ import type {
   GlobalTimerEventType,
 } from "../shared/contracts/win-challenges";
 
-export type CeremonySound = "tick" | "complete" | null;
+export type CeremonySound = "tick" | "complete" | "quest-complete" | null;
 export type CeremonyVisual = "progressed" | "completed" | "quiet";
 export type CeremonyTarget =
   | { kind: "challenge"; id: string }
@@ -21,9 +21,16 @@ type CeremonyEntry = {
   targetKind: "challenge" | "global";
 };
 
-const PLAIN_LIST_CEREMONIES: Partial<Record<CeremonyEventType, CeremonyEntry>> = {
+const PLAIN_COMPLETED: CeremonyEntry = {
+  visual: "completed",
+  sound: "complete",
+  durationMs: 520,
+  targetKind: "challenge",
+};
+
+const PLAIN_CEREMONIES: Partial<Record<CeremonyEventType, CeremonyEntry>> = {
   progressed: { visual: "progressed", sound: "tick", durationMs: 360, targetKind: "challenge" },
-  completed: { visual: "completed", sound: "complete", durationMs: 520, targetKind: "challenge" },
+  completed: PLAIN_COMPLETED,
   reopened: { visual: "quiet", sound: null, durationMs: 260, targetKind: "challenge" },
   timer_started: { visual: "quiet", sound: null, durationMs: 260, targetKind: "challenge" },
   timer_stopped: { visual: "quiet", sound: null, durationMs: 260, targetKind: "challenge" },
@@ -32,10 +39,18 @@ const PLAIN_LIST_CEREMONIES: Partial<Record<CeremonyEventType, CeremonyEntry>> =
   global_reset: { visual: "quiet", sound: null, durationMs: 260, targetKind: "global" },
 };
 
+const QUEST_LOG_CEREMONIES: Partial<Record<CeremonyEventType, CeremonyEntry>> = {
+  ...PLAIN_CEREMONIES,
+  completed: { ...PLAIN_COMPLETED, sound: "quest-complete" },
+};
+
 // Die Registry bleibt beim Host: Ein späterer Style kann hier ergänzt werden,
 // ohne das herauslösbare Win-Challenges-Modul mit Zeremonien zu belasten.
 const CEREMONY_REGISTRY: Partial<Record<ChallengeStyleId, Partial<Record<CeremonyEventType, CeremonyEntry>>>> = {
-  "plain-list": PLAIN_LIST_CEREMONIES,
+  "plain-list": PLAIN_CEREMONIES,
+  "plain-bullets": PLAIN_CEREMONIES,
+  "plain-numbered": PLAIN_CEREMONIES,
+  "quest-log": QUEST_LOG_CEREMONIES,
 };
 
 export type ChallengeCeremony = Omit<CeremonyEntry, "targetKind"> & {

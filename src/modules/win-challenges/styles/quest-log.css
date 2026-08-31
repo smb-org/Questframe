@@ -1,0 +1,90 @@
+@import "../../../challenges/challenge-source.css";
+
+/* Der Quest-Aufbau bleibt klein, damit er die Zuschauerfläche nicht belastet. */
+.challenge-source[data-style="quest-log"] {
+  --wc-surface: rgba(13, 16, 19, 0.96);
+  --wc-line: rgba(213, 170, 87, 0.9);
+  --wc-text: #f2ead8;
+  --wc-muted: #b9aa87;
+  --wc-accent: #e0b75f;
+  --wc-ok: #a9c78c;
+  --wc-critical: #ee7777;
+
+  position: relative;
+  background: var(--wc-surface);
+  border: 1px solid var(--wc-line);
+  box-shadow: inset 0 0 0 2px rgba(213, 170, 87, 0.22);
+}
+
+/* Zwei feine Winkel-Lagen schneiden die Ecken sichtbar ein, ohne ein Asset. */
+.challenge-source[data-style="quest-log"]::before,
+.challenge-source[data-style="quest-log"]::after {
+  position: absolute;
+  content: "";
+  pointer-events: none;
+  z-index: 2;
+  border: 1px solid var(--wc-line);
+  clip-path: polygon(
+    0 0, 14px 0, 14px 1px, 1px 1px, 1px 14px, 0 14px,
+    0 0, 100% 0, 100% 14px, calc(100% - 1px) 14px,
+    calc(100% - 1px) 1px, calc(100% - 14px) 1px, calc(100% - 14px) 0,
+    100% 0, 100% 100%, calc(100% - 14px) 100%, calc(100% - 14px) calc(100% - 1px),
+    calc(100% - 1px) calc(100% - 1px), calc(100% - 1px) calc(100% - 14px), 100% calc(100% - 14px),
+    100% 100%, 0 100%, 0 calc(100% - 14px), 1px calc(100% - 14px),
+    1px calc(100% - 1px), 14px calc(100% - 1px), 14px 100%, 0 100%
+  );
+}
+
+.challenge-source[data-style="quest-log"]::before {
+  inset: 3px;
+}
+
+.challenge-source[data-style="quest-log"]::after {
+  inset: 6px;
+  border-color: rgba(213, 170, 87, 0.58);
+}
+
+.challenge-source[data-style="quest-log"] .challenge-source__header {
+  font-family: var(--wc-font-display);
+  letter-spacing: 0.16em;
+}
+
+.challenge-source[data-style="quest-log"] .challenge-source__title {
+  font-weight: 700;
+}
+
+.challenge-source[data-style="quest-log"] .challenge-source__row {
+  background: transparent;
+}
+
+.challenge-source[data-style="quest-log"] .challenge-source__row:not(.challenge-source__row--done) .challenge-source__mark {
+  color: var(--wc-accent);
+  font-size: 0;
+}
+
+.challenge-source[data-style="quest-log"] .challenge-source__row:not(.challenge-source__row--done) .challenge-source__mark::before {
+  content: "◆";
+  font-size: 9px;
+}
+
+.challenge-source[data-style="quest-log"] .challenge-source__row--done .challenge-source__mark {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.challenge-source[data-style="quest-log"] .challenge-source__row--done .challenge-source__name {
+  text-decoration-thickness: 1px;
+  text-decoration-color: rgba(242, 234, 216, 0.62);
+}
+
+.challenge-source[data-style="quest-log"] .challenge-source__count,
+.challenge-source[data-style="quest-log"] .challenge-source__time {
+  font-family: var(--wc-font-display);
+  font-weight: 700;
+}
+
+.challenge-source[data-style="quest-log"] .challenge-source__more {
+  background: transparent;
+  color: var(--wc-muted);
+  font-family: var(--wc-font-display);
+}

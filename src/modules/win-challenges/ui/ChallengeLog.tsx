@@ -12,7 +12,6 @@ import {
   remainingFor,
   timerIsCritical,
 } from "./timer";
-import "../../../challenges/challenge-source.css";
 
 const timerClass = (state: TimerState, remainingMs: number): string => {
   if (state === "paused") return "challenge-source__timer--paused";
@@ -82,38 +81,40 @@ const ChallengeRow = ({
     ? undefined
     : { "--wc-progress": `${String(progress)}%` } as CSSProperties;
   return (
-    <div
+    <li
       className={`challenge-source__row${done ? " challenge-source__row--done" : ""}`}
       data-challenge-id={challenge.id}
       data-ceremony-target={ceremonyTargetId === challenge.id ? "true" : undefined}
       data-state={challenge.state}
     >
-      <span aria-hidden="true" className="challenge-source__mark">{done ? "✓" : "▸"}</span>
-      <span className="challenge-source__content">
-        <span className="challenge-source__name">{challenge.title}</span>
-        {progress !== null && (
-          <span
-            aria-label={`Fortschritt: ${String(challenge.currentCount)} von ${String(targetCount)}`}
-            aria-valuemax={targetCount ?? undefined}
-            aria-valuemin={0}
-            aria-valuenow={challenge.currentCount}
-            className="challenge-source__progress"
-            role="progressbar"
-            style={progressStyle}
-          >
-            <span className="challenge-source__progress-fill" />
-          </span>
-        )}
+      <span className="challenge-source__row-inner">
+        <span aria-hidden="true" className="challenge-source__mark">{done ? "✓" : ""}</span>
+        <span className="challenge-source__content">
+          <span className="challenge-source__name">{challenge.title}</span>
+          {progress !== null && (
+            <span
+              aria-label={`Fortschritt: ${String(challenge.currentCount)} von ${String(targetCount)}`}
+              aria-valuemax={targetCount ?? undefined}
+              aria-valuemin={0}
+              aria-valuenow={challenge.currentCount}
+              className="challenge-source__progress"
+              role="progressbar"
+              style={progressStyle}
+            >
+              <span className="challenge-source__progress-fill" />
+            </span>
+          )}
+        </span>
+        <span className="challenge-source__meta">
+          {challenge.targetCount !== null && (
+            <span className="challenge-source__count">{challenge.currentCount} / {challenge.targetCount}</span>
+          )}
+          {challenge.timerEndsAt !== null && (
+            <span className="challenge-source__time">{formatRemaining(remainingMs)}</span>
+          )}
+        </span>
       </span>
-      <span className="challenge-source__meta">
-        {challenge.targetCount !== null && (
-          <span className="challenge-source__count">{challenge.currentCount} / {challenge.targetCount}</span>
-        )}
-        {challenge.timerEndsAt !== null && (
-          <span className="challenge-source__time">{formatRemaining(remainingMs)}</span>
-        )}
-      </span>
-    </div>
+    </li>
   );
 };
 
@@ -182,7 +183,7 @@ export const ChallengeLog = ({
         />
       )}
       {challenges.length > 0 && (
-        <section aria-label="Challenges" className="challenge-source__rows">
+        <ul aria-label="Challenges" className="challenge-source__rows">
           {challenges.map((challenge) => (
             <ChallengeRow
               ceremonyTargetId={ceremonyTarget?.kind === "challenge" ? ceremonyTarget.id : null}
@@ -191,8 +192,8 @@ export const ChallengeLog = ({
               now={now}
             />
           ))}
-          {remaining > 0 && <p className="challenge-source__more">+{remaining} weitere</p>}
-        </section>
+          {remaining > 0 && <li className="challenge-source__more">+{remaining} weitere</li>}
+        </ul>
       )}
     </main>
   );

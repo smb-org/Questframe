@@ -1,0 +1,5 @@
+@import "../../../challenges/challenge-source.css";
+
+.challenge-source[data-style="plain-bullets"] .challenge-source__rows {
+  list-style-type: disc;
+}
