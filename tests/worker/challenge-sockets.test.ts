@@ -541,6 +541,29 @@ describe("Win-Challenges-Sockets", () => {
     }
   });
 
+  it("antwortet nach einer Token-Generation-Rotation auf dem Overlay-Socket nicht mehr per time_sync", async () => {
+    const overlayToken = await createOverlayToken();
+    const overlay = await openSocket("/ws/overlay", OVERLAY_SOCKET_PROTOCOL, overlayToken);
+    try {
+      await requireMessage(overlay, (data) => data.type === "snapshot", "Overlay-Snapshot");
+
+      await runInDurableObject(stub, (_instance, state) => {
+        if (state.getWebSockets("overlay")[0] === undefined) {
+          throw new Error("Overlay-Socket fehlt.");
+        }
+        // Der Rotations-Commit ist sichtbar, während der alte Socket noch im
+        // DO-Socket-Set liegt. Genau dieses Send-time-Fenster wird hier geprüft.
+        state.storage.sql.exec("UPDATE overlay_tokens SET generation = generation + 1 WHERE singleton = 1");
+      });
+
+      const reply = waitForMessage(overlay, (data) => data.type === "time_sync", 250);
+      overlay.send(JSON.stringify({ type: "time_sync_request", clientTimestamp: 42 }));
+      expect(await reply).toBeNull();
+    } finally {
+      overlay.close();
+    }
+  });
+
   it("schließt alle Dock-Sockets bei erfolgreicher Token-Rotation", async () => {
     const dockToken = await createDockToken();
     const first = await openSocket("/ws/dock", DOCK_SOCKET_PROTOCOL, dockToken);

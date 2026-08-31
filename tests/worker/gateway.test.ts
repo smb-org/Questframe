@@ -91,7 +91,7 @@ describe("Worker gateway failure boundaries", () => {
     }
   });
 
-  it("validates editor and overlay socket gateway parameters", async () => {
+  it("validates editor, overlay and composite socket gateway parameters", async () => {
     const editor = await fetchWorker("/ws/editor", { headers: { cookie } });
     expect(editor.status).toBe(400);
     expect(await errorCode(editor)).toBe("bad_request");
@@ -107,6 +107,19 @@ describe("Worker gateway failure boundaries", () => {
     });
     expect(invalidOverlay.status).toBe(403);
     expect(await errorCode(invalidOverlay)).toBe("token_invalid");
+    const invalidComposite = await fetchWorker("/ws/composite", {
+      headers: {
+        upgrade: "websocket",
+        "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, ${"B".repeat(43)}`,
+      },
+    });
+    expect(invalidComposite.status).toBe(403);
+    expect(await errorCode(invalidComposite)).toBe("token_invalid");
+    const compositeWithoutToken = await fetchWorker("/ws/composite", {
+      headers: { upgrade: "websocket" },
+    });
+    expect(compositeWithoutToken.status).toBe(403);
+    expect(await errorCode(compositeWithoutToken)).toBe("token_invalid");
     const overlayMissingUpgrade = await fetchWorker("/ws/overlay", {
       headers: { "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, ${"Z".repeat(43)}` },
     });

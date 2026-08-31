@@ -380,6 +380,80 @@ describe("channel worker", () => {
     expect(body.state.overlayEnabled).toBe(false);
   });
 
+  it("bewahrt beim Undo eines Legacy-Snapshots die aktuellen Sammel-Flags", async () => {
+    const stub = env.CHANNEL.get(env.CHANNEL.idFromName(`channel:${env.BROADCASTER_ID}`));
+    const bootstrap = bootstrapResponseSchema.parse(
+      await (
+        await fetchWorker("http://localhost/api/editor/bootstrap", {
+          headers: { cookie, "x-editor-tab": "test-tab-a" },
+        })
+      ).json(),
+    );
+    csrfToken = bootstrap.csrfToken;
+    const { revision, overlayEnabled: _overlayEnabled, updatedAt: _updatedAt, updatedBy: _updatedBy, ...draft } =
+      bootstrap.state;
+    void [_overlayEnabled, _updatedAt, _updatedBy];
+    const save = await fetchWorker("http://localhost/api/state", {
+      method: "PUT",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({
+        baseRevision: revision,
+        state: {
+          ...draft,
+          compositeHudVisible: false,
+          compositeChallengesVisible: false,
+        },
+      }),
+    });
+    const committed = saveResponseSchema.parse(await save.json());
+    expect(save.status).toBe(200);
+    expect(committed.state).toMatchObject({
+      compositeHudVisible: false,
+      compositeChallengesVisible: false,
+    });
+
+    const history = await runInDurableObject(stub, (_instance, state) =>
+      state.storage.sql
+        .exec<{ snapshot_json: string }>("SELECT snapshot_json FROM state_history WHERE revision = ?", revision)
+        .toArray()[0],
+    );
+    expect(history).toBeDefined();
+    if (history === undefined) throw new Error("expected a retained state history snapshot");
+    const legacy = JSON.parse(history.snapshot_json) as Record<string, unknown>;
+    delete legacy.compositeHudVisible;
+    delete legacy.compositeChallengesVisible;
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE state_history SET snapshot_json = ? WHERE revision = ?",
+        JSON.stringify(legacy),
+        revision,
+      );
+    });
+
+    try {
+      const undo = await fetchWorker("http://localhost/api/state/undo", {
+        method: "POST",
+        headers: authenticatedHeaders(),
+        body: JSON.stringify({ baseRevision: committed.state.revision, targetRevision: revision }),
+      });
+      const restored = saveResponseSchema.parse(await undo.json());
+      expect(undo.status).toBe(200);
+      expect(restored.state).toMatchObject({
+        compositeHudVisible: false,
+        compositeChallengesVisible: false,
+      });
+      bootstrapRevision = restored.state.revision;
+    } finally {
+      await runInDurableObject(stub, (_instance, state) => {
+        state.storage.sql.exec(
+          "UPDATE state_history SET snapshot_json = ? WHERE revision = ?",
+          history.snapshot_json,
+          revision,
+        );
+      });
+    }
+  });
+
   it("leases bounded WebP portraits and authorizes their bytes", async () => {
     const bootstrap = bootstrapResponseSchema.parse(
       await (
@@ -741,7 +815,7 @@ describe("channel worker", () => {
     expect(body.error.code).toBe("token_invalid");
   });
 
-  it("pushes the live OBS connection count to editor sockets as overlays connect and disconnect", async () => {
+  it("pushes the live OBS connection count as overlays and composites connect and disconnect", async () => {
     const bootstrap = bootstrapResponseSchema.parse(
       await (
         await fetchWorker("http://localhost/api/editor/bootstrap", {
@@ -805,6 +879,32 @@ describe("channel worker", () => {
       try {
         const connected = await connectedPromise;
         expect(connected).toMatchObject({ type: "overlay_presence", connectedSockets: 1 });
+
+        // Auch ein Composite-Socket gehoert zur gemeinsamen OBS-Presence-Zaehlung.
+        const compositeConnectedPromise = waitForMessage(editorSocket, (data) => data.type === "overlay_presence");
+        const compositeUpgrade = await fetchWorker("http://localhost/ws/composite", {
+          headers: {
+            upgrade: "websocket",
+            "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, ${overlayToken ?? ""}`,
+          },
+        });
+        expect(compositeUpgrade.status).toBe(101);
+        const compositeSocket = compositeUpgrade.webSocket;
+        expect(compositeSocket).not.toBeNull();
+        if (compositeSocket === null) throw new Error("expected a WebSocket upgrade");
+        compositeSocket.accept();
+
+        try {
+          const compositeConnected = await compositeConnectedPromise;
+          expect(compositeConnected).toMatchObject({ type: "overlay_presence", connectedSockets: 2 });
+
+          const compositeDisconnectedPromise = waitForMessage(editorSocket, (data) => data.type === "overlay_presence");
+          compositeSocket.close();
+          const compositeDisconnected = await compositeDisconnectedPromise;
+          expect(compositeDisconnected).toMatchObject({ type: "overlay_presence", connectedSockets: 1 });
+        } finally {
+          compositeSocket.close();
+        }
       } finally {
         const disconnectedPromise = waitForMessage(editorSocket, (data) => data.type === "overlay_presence");
         overlaySocket.close();
