@@ -96,6 +96,10 @@ auf `/admin`.
 1920 × 1080-Dokument. Es ist über den Overlay-Token authentifiziert (`x-overlay-token`
 bzw. dasselbe Token im Socket-Protokoll) und verbindet sich über `/ws/composite`.
 
+Der Kopier-Link im OBS-Chip der Admin-Topbar zeigt auf diese Sammelquelle, nicht auf
+`/overlay`. Die einzelnen HUD- und Challenge-Log-Quellen bleiben trotzdem gültig und
+sind über die OBS-Einrichtung weiterhin einzeln erreichbar.
+
 Die spezifischeren Pfade stehen vor den Präfixpfaden. `/login` und unbekannte Pfade fallen
 auf die Admin-Auflösung zurück; der Pfad entscheidet damit vor dem Lazy-Import, welches
 Bundle überhaupt geladen wird.
@@ -107,6 +111,28 @@ Die Admin-Konsole hält `draft` und `committed` getrennt. Texteingaben, Slider, 
 Nur der globale Sichtbarkeitsschalter ist eine unmittelbare Mutation. Er bewahrt einen vorhandenen lokalen Draft und veröffentlicht eine neue Revision mit unverändertem HUD-Inhalt.
 
 `compositeHudVisible` und `compositeChallengesVisible` sind zwei weitere State-Felder (Default `true`) und laufen über denselben HUD-Speicherweg wie Pet, Gruppe, Themes und Effekte, inklusive Undo und Audit. Sie steuern nicht die Sichtbarkeit im HUD- bzw. Challenges-Overlay selbst, sondern die Mitgliedschaft von HUD und Challenge-Log in der Sammelquelle `/overlay/all`.
+
+HUD-State, Challenge-Settings und Challenge-Board bleiben drei unabhängige Revisionen
+(siehe „Zwei Nebenläufigkeitsmodelle“), aber die Oberfläche hat dafür nur noch eine
+Speicher-Stelle: `GlobalSaveBar` in `src/admin/AdminWorkspace.tsx`. Die Leiste erscheint,
+sobald mindestens ein Modul ungespeicherte Änderungen hat, benennt die betroffenen Module
+und speichert sie der Reihe nach. Die Module melden dafür Dirty-Zustand und ihr `save()`
+nach oben; das HUD über `useHudEditorState`, die beiden Challenge-Module über
+`onHandleChange`.
+
+Ein atomares Speichern über alle drei gibt es nicht — es sind drei Endpunkte mit drei
+Revisionen. Die Leiste hält das aus, statt es zu verstecken: Sie speichert sequenziell,
+hält beim ersten Fehler an, wechselt in den Tab des betroffenen Moduls und lässt es
+dirty; bereits gespeicherte Module bleiben gespeichert. Die Konfliktauflösung liegt
+weiterhin im jeweiligen Modul, weil nur dort der Serverstand gegen den eigenen Entwurf
+gestellt werden kann.
+
+Positionen haben keinen Sonderweg: Die HUD-Position liegt im HUD-Draft, die Position des
+Challenge-Logs im Settings-Draft, beide werden vom jeweiligen Modul mitgespeichert.
+
+Die OBS-Einrichtung öffnet als natives `<dialog>` statt inline in der Vorschau; dessen
+`showModal()` übernimmt Fokusfalle und Top-Layer-Darstellung, sodass die Bühne dahinter
+unverändert stehen bleibt.
 
 ## Authentifizierung
 

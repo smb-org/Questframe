@@ -9,11 +9,29 @@
 5. Twitch-Login als Broadcaster und als echter aktueller Moderator testen.
 6. Release-Report aus [RELEASE_REPORT.md](RELEASE_REPORT.md) kopieren und Commit, Wrangler-Ausgabe, Chromium-Version und visuelle Artefakte eintragen.
 
-Nach einem Deploy heilt sich eine bereits geöffnete OBS-Browserquelle bei einem
-verworfenen Zustands-Snapshot einmalig selbst durch einen Reload. Erst ein danach
-wieder akzeptierter Snapshot entsperrt einen weiteren automatischen Heilversuch;
-bleibt die Quelle dauerhaft unparsbar, reloadet sie sich nicht erneut von selbst.
-Falls die Quelle danach weiter eingefroren wirkt, die OBS-Browserquelle einmal
+Nach einem Deploy kann eine bereits geöffnete OBS-Browserquelle vorübergehend
+unparsbare Nachrichten empfangen, solange OBS noch das alte Bundle hält. Die drei
+Quellen heilen sich dabei bewusst unterschiedlich; `src/shared/reconnect.ts` trägt
+nur die gemeinsamen Marker- und Backoff-Bausteine, die eigentliche
+Watchdog-Ablaufsteuerung bleibt in jeder App:
+
+- `/overlay` (`src/overlay/OverlayApp.tsx`): Ein Parse-Fehler bei einer
+  zustandstragenden Nachricht löst nach 1 Sekunde Verzögerung höchstens einen
+  Reload-Versuch pro Störung aus; ein Parse-Fehler bei `challenge_update`
+  reloadet das HUD nicht. Der Marker wird erst gelöscht, sobald danach wieder
+  ein sauberer `snapshot`/`state_committed` ankommt. Bleibt die Quelle dauerhaft
+  unparsbar, reloadet sie sich kein zweites Mal von selbst.
+- `/overlay/challenges` (`src/challenges/ChallengeSourceApp.tsx`): Reloadet bei
+  jedem Parse-Fehler sofort, aber über eine zeitstempelbasierte Sperre höchstens
+  einmal alle 5 Minuten.
+- `/overlay/all` (`src/composite/CompositeApp.tsx`): Reloadet nur, wenn HUD- und
+  Challenge-Modul gleichzeitig unparsbar sind, ebenfalls mit 1 Sekunde
+  Verzögerung und einer 5-Minuten-Sperre. Der Marker wird erst gelöscht, wenn
+  beide Module wieder sauber sind; ein neu geöffneter Socket setzt beide
+  Fehler-Flags aber sofort zurück, ohne dass zuvor ein sauberer Zustand angekommen
+  sein muss.
+
+Falls eine Quelle danach weiter eingefroren wirkt, die OBS-Browserquelle einmal
 manuell aktualisieren.
 
 ## Deployment-Bindings
