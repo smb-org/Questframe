@@ -5,8 +5,11 @@ const SOUND_SOURCES: Record<Exclude<CeremonySound, null>, string> = {
   tick: "/assets/sounds/tick.mp3",
 };
 
+// Der Mindestabstand haengt an der Laenge der Datei, nicht am Gefuehl: complete.mp3
+// klingt rund 1,9 s aus. Bei 320 ms wuerden sich in einer schnellen Serie fuenf
+// Glocken uebereinanderlegen. 900 ms laesst hoechstens zwei Ausklaenge ueberlappen.
 const MINIMUM_GAP_MS: Record<Exclude<CeremonySound, null>, number> = {
-  complete: 320,
+  complete: 900,
   tick: 140,
 };
 
