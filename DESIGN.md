@@ -80,8 +80,17 @@ geclippten Portraits sein, sonst wird die Zahl beschnitten.
 
 Das Challenges-Log ist eine eigene Browserquelle unter `/overlay/challenges`. Es berührt den
 `630 × 259 px`-Geometrievertrag des HUDs nicht und verwendet seinen eigenen `--wc-*`-Tokenvertrag.
-`themeMode: inherit` mappt diese Tokens im eigenen Dokument auf die geladenen `--hud-*`-Werte;
-`surface` garantiert Lesbarkeit, `bare` ist der kontrastreiche Fallback ohne Flächengarantie.
+Der Vertrag umfasst `--wc-surface`, `--wc-line`, `--wc-text`, `--wc-muted`, `--wc-accent`,
+`--wc-ok`, `--wc-font-ui`, `--wc-font-display` und `--wc-row-height`; diese Werte gelten
+auch ohne HUD und ohne geladene Theme-CSS. `themeMode: inherit` lädt die ausgewählte
+HUD-Variante als dynamischen Chunk in dieses eigene Dokument, setzt die passende
+`.hud-theme--…`-Klasse und mappt die Modul-Tokens dort auf die geladenen `--hud-*`-Werte.
+Bereits geladene Chunks bleiben aktiv, deshalb steuert der Root mit `data-theme-mode` und
+`data-style`, welche Brücken- und Stilregeln gelten. `surface` verwendet die eigene Fläche
+mit 88 % und Haarlinie sowie Gewicht 500/600 ohne Schatten und garantiert Lesbarkeit; `bare`
+entfernt die Fläche, erhöht die Mindestschrift um zwei Stufen und nutzt Gewicht 700 sowie
+den Konturschatten für Text, Haarlinien, Fortschrittsbalken und den kritischen Timer-Puls.
+`bare` maximiert die Lesbarkeit ohne Garantie.
 Die Live-Bedienseite unter `/live/challenges` ist keine Ausgabequelle, sondern eine per
 Dock-Token authentifizierte Bedienfläche. Beide Interaktionsflächen übernehmen dieselben
 Touch-Ziele: `44 px` für `+` und `−`, `38 px` für alle übrigen Steuerelemente.

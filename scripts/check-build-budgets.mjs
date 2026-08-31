@@ -15,7 +15,7 @@ const liveKey = "src/live/LiveApp.tsx";
 // matchen wir weiterhin per Suffix statt gegen ein package-manager-spezifisches Layout.
 const temporalKeySuffix = "@js-temporal/polyfill/dist/index.esm.js";
 
-const createBudgetDeclarations = (temporalKey) => [
+const createBudgetDeclarations = (temporalKey, challengeThemeKeys) => [
   {
     type: "surface",
     key: overlayKey,
@@ -68,6 +68,14 @@ const createBudgetDeclarations = (temporalKey) => [
     transferAssets: ["shell", "font"],
   },
   {
+    // Im laufenden Stream wird genau eine Theme-Variante geladen. Deshalb
+    // zaehlt hier das groesste vollstaendige Theme-Chunk, nicht die Summe.
+    type: "variantMax",
+    label: "Challenge-Theme-Chunk (variantMax)",
+    keys: challengeThemeKeys,
+    budget: 64 * 1024,
+  },
+  {
     type: "exempt",
     key: indexKey,
     reason: "Die Shell fließt über staticRoots in jede Surface-Closure ein und steckt zusätzlich als Asset-Gruppe shell im Transfer.",
@@ -87,7 +95,14 @@ if (temporalKeyCandidates.length !== 1) {
   throw new Error(`Expected exactly one manifest entry ending in ${temporalKeySuffix}, found ${String(temporalKeyCandidates.length)}.`);
 }
 const [temporalKey] = temporalKeyCandidates;
-const budgetDeclarations = createBudgetDeclarations(temporalKey);
+const challengeSourceEntry = manifest[challengeSourceKey];
+const challengeThemeKeys = challengeSourceEntry?.dynamicImports?.filter((key) => (
+  manifest[key]?.name === "theme"
+)) ?? [];
+if (challengeThemeKeys.length !== 6) {
+  throw new Error(`Expected six dynamic Challenge-Theme-Chunks, found ${String(challengeThemeKeys.length)}.`);
+}
+const budgetDeclarations = createBudgetDeclarations(temporalKey, challengeThemeKeys);
 
 const overlayClosure = collectStaticClosure(manifest, [indexKey, overlayKey]);
 const adminClosure = collectStaticClosure(manifest, [indexKey, adminKey]);

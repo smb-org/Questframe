@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 import type {
   Challenge,
   ChallengeUpdate,
@@ -51,6 +53,13 @@ const ChallengeRow = ({ challenge, now }: { challenge: Challenge; now: number })
     ? "idle"
     : deriveTimerState(challenge.timerEndsAt, null, now);
   const remainingMs = remainingFor(challenge.timerEndsAt, null, timerState, now);
+  const targetCount = challenge.targetCount;
+  const progress = targetCount === null
+    ? null
+    : Math.min(100, Math.max(0, challenge.currentCount / targetCount * 100));
+  const progressStyle = progress === null
+    ? undefined
+    : { "--wc-progress": `${String(progress)}%` } as CSSProperties;
   return (
     <div
       className={`challenge-source__row${done ? " challenge-source__row--done" : ""}`}
@@ -58,7 +67,22 @@ const ChallengeRow = ({ challenge, now }: { challenge: Challenge; now: number })
       data-state={challenge.state}
     >
       <span aria-hidden="true" className="challenge-source__mark">{done ? "✓" : "▸"}</span>
-      <span className="challenge-source__name">{challenge.title}</span>
+      <span className="challenge-source__content">
+        <span className="challenge-source__name">{challenge.title}</span>
+        {progress !== null && (
+          <span
+            aria-label={`Fortschritt: ${String(challenge.currentCount)} von ${String(targetCount)}`}
+            aria-valuemax={targetCount ?? undefined}
+            aria-valuemin={0}
+            aria-valuenow={challenge.currentCount}
+            className="challenge-source__progress"
+            role="progressbar"
+            style={progressStyle}
+          >
+            <span className="challenge-source__progress-fill" />
+          </span>
+        )}
+      </span>
       <span className="challenge-source__meta">
         {challenge.targetCount !== null && (
           <span className="challenge-source__count">{challenge.currentCount} / {challenge.targetCount}</span>
@@ -94,10 +118,11 @@ export const ChallengeLog = ({ update, now }: { update: ChallengeUpdate; now: nu
   return (
     <main
       aria-label="Challenge-Quelle"
-      className="challenge-source"
+      className={`challenge-source${update.settings.themeMode === "inherit" ? ` hud-theme--${update.settings.themeId}` : ""}`}
       data-style={update.settings.styleId}
       data-surface-mode={update.settings.surfaceMode}
       data-theme-mode={update.settings.themeMode}
+      data-theme-id={update.settings.themeId}
     >
       <header className="challenge-source__header">
         <span className="challenge-source__title">{update.settings.headerTitle}</span>

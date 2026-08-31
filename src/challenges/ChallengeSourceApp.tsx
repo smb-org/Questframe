@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import type { ChallengeUpdate } from "../shared/contracts/win-challenges";
 import { OVERLAY_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
 import { ChallengeLog } from "../modules/win-challenges/ui/ChallengeLog";
 import "./challenge-source.css";
@@ -8,15 +9,53 @@ import {
   parseChallengeMessage,
   tokenFromLocation,
 } from "./wire";
+import { loadChallengeTheme, type ChallengeThemeLoader } from "./theme-loader";
 
 const RETRY_BASE_MS = 750;
 
-import type { ChallengeUpdate } from "../shared/contracts/win-challenges";
+type ThemeLoadState = "idle" | "ready" | "failed";
 
-export const ChallengeSourceApp = () => {
+type ChallengeSourceAppProps = {
+  // Der Loader bleibt injizierbar, damit das Render-Gate auch Fehler und Rennen testet.
+  loadTheme?: ChallengeThemeLoader;
+};
+
+export const ChallengeSourceApp = ({ loadTheme = loadChallengeTheme }: ChallengeSourceAppProps = {}) => {
   const [update, setUpdate] = useState<ChallengeUpdate | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [themeLoadState, setThemeLoadState] = useState<{ key: string | null; state: ThemeLoadState }>({
+    key: null,
+    state: "idle",
+  });
   const lastSeenRef = useRef(-1);
+  const themeRequestRef = useRef(0);
+
+  const themeMode = update?.settings.themeMode ?? null;
+  const themeId = update?.settings.themeId ?? null;
+  const themeKey = themeMode === null || themeId === null ? null : `${themeMode}:${themeId}`;
+
+  useEffect(() => {
+    const request = themeRequestRef.current + 1;
+    themeRequestRef.current = request;
+
+    if (themeKey === null || themeId === null || themeMode === null) {
+      return;
+    }
+
+    if (themeMode === "own") {
+      // `own` benoetigt keinen HUD-Chunk. Die eigenen Tokens liegen im Basis-CSS.
+      return;
+    }
+
+    void loadTheme(themeId).then(() => {
+      if (themeRequestRef.current !== request) return;
+      setThemeLoadState({ key: themeKey, state: "ready" });
+    }).catch(() => {
+      if (themeRequestRef.current !== request) return;
+      // Ein fehlerhafter Chunk darf niemals ungestylten Inhalt ins Streambild lassen.
+      setThemeLoadState({ key: themeKey, state: "failed" });
+    });
+  }, [loadTheme, themeId, themeKey, themeMode]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
@@ -88,5 +127,12 @@ export const ChallengeSourceApp = () => {
     };
   }, []);
 
-  return update === null ? null : <ChallengeLog now={now} update={update} />;
+  // Der statische Import von challenge-source.css ist Teil dieses Moduls und ist
+  // abgeschlossen, bevor Vite den Modul-Promise der Quelle aufloest.
+  const themeReady = update !== null && (
+    update.settings.themeMode === "own" ||
+    (themeLoadState.key === themeKey && themeLoadState.state === "ready")
+  );
+  if (!themeReady) return null;
+  return <ChallengeLog now={now} update={update} />;
 };

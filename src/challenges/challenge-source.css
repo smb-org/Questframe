@@ -1,4 +1,14 @@
-.challenge-source {
+/*
+ * Eigenstaendiges CSS der Challenge-Quelle. Der Root traegt data-style und
+ * data-theme-mode, damit spaeter geladene Chunks keine alten Regeln durch
+ * blosse Abwesenheit wieder aktivieren koennen.
+ */
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) {
   --wc-source-width: 340px;
   --wc-source-height: 300px;
   --wc-header-height: 26px;
@@ -9,18 +19,30 @@
   --wc-font-size: 12px;
   --wc-bare-font-size: 14px;
   --wc-title-size: 13px;
+  --wc-bare-title-size: 15px;
   --wc-timer-size: 22px;
+  --wc-bare-timer-size: 24px;
   --wc-meta-size: 11px;
+  --wc-bare-meta-size: 13px;
+
+  /* Der eigene Vertrag: ohne HUD sind diese Werte vollstaendig. */
   --wc-surface: rgba(13, 16, 19, 0.88);
   --wc-line: rgba(213, 170, 87, 0.42);
   --wc-text: #eef1ef;
   --wc-muted: #929da3;
   --wc-accent: #d5aa57;
   --wc-ok: #5ed08a;
-  --wc-critical: #f36d74;
   --wc-font-ui: "Atkinson Hyperlegible Next", sans-serif;
   --wc-font-display: Georgia, serif;
   --wc-row-height: 33px;
+
+  /* Interne Darstellungswerte, nicht Teil des externen Tokenvertrags. */
+  --wc-critical: #f36d74;
+  --wc-progress-track: rgba(146, 157, 163, 0.24);
+  --wc-progress: 0%;
+  --wc-bare-shadow: none;
+  --wc-title-weight: 600;
+  --wc-label-weight: 600;
 
   box-sizing: border-box;
   width: min(var(--wc-source-width), 100%);
@@ -30,147 +52,432 @@
   font-family: var(--wc-font-ui);
   font-size: var(--wc-font-size);
   font-weight: 500;
+  text-shadow: none;
 }
 
-.challenge-source[data-surface-mode="bare"] {
+/*
+ * Theme-CSS wird in das eigene Challenge-Dokument importiert. Diese Regeln
+ * greifen nur mit inherit und nur am Challenge-Root. Der Import wird nie
+ * entladen; ein Wechsel auf own wird deshalb ausschliesslich ueber Attribute
+ * wirksam, nicht ueber das Weglassen einer Datei.
+ */
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+)[data-theme-mode="inherit"].hud-theme--trail-wood,
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+)[data-theme-mode="inherit"].hud-theme--field-journal,
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+)[data-theme-mode="inherit"].hud-theme--forged-compass,
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+)[data-theme-mode="inherit"].hud-theme--classic-simple,
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+)[data-theme-mode="inherit"].hud-theme--modern-compact,
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+)[data-theme-mode="inherit"].hud-theme--modern-minimal {
+  --wc-surface: var(--hud-panel, rgba(13, 16, 19, 0.88));
+  --wc-line: var(--hud-line, rgba(213, 170, 87, 0.42));
+  --wc-text: var(--hud-text, #eef1ef);
+  --wc-muted: var(--hud-title-color, #929da3);
+  --wc-accent: var(--hud-name-color, #d5aa57);
+  --wc-ok: var(--hud-health-healthy, #5ed08a);
+  --wc-font-ui: var(--hud-font-ui, "Atkinson Hyperlegible Next", sans-serif);
+  --wc-font-display: var(--hud-name-font, Georgia, serif);
+  --wc-row-height: var(--hud-row-height, 33px);
+  --wc-progress-track: var(--hud-trough-bg, rgba(146, 157, 163, 0.24));
+}
+
+/*
+ * Zwei gekoppelte Presets: bare schaltet nicht nur die Flaeche ab, sondern
+ * erhoeht zugleich Schriftgroessen und Kontrast. Die hoehere Spezifitaet ist
+ * noetig, damit dieses Attribut auch nach einem geladenen Theme-Chunk gewinnt.
+ */
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+)[data-theme-mode][data-surface-mode="bare"] {
   --wc-surface: transparent;
-  font-size: var(--wc-bare-font-size);
+  --wc-font-size: 14px;
+  --wc-title-size: var(--wc-bare-title-size);
+  --wc-timer-size: var(--wc-bare-timer-size);
+  --wc-meta-size: var(--wc-bare-meta-size);
+  --wc-progress-track: rgba(255, 255, 255, 0.28);
+  --wc-bare-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 6px rgba(0, 0, 0, 0.7);
+  --wc-title-weight: 700;
+  --wc-label-weight: 700;
   font-weight: 700;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 6px rgba(0, 0, 0, 0.7);
+  text-shadow: var(--wc-bare-shadow);
 }
 
-.challenge-source__header,
-.challenge-source__timer,
-.challenge-source__row {
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__header,
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__timer,
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__row {
+  position: relative;
   box-sizing: border-box;
-  border-bottom: 1px solid var(--wc-line);
+  background: var(--wc-surface);
 }
 
-.challenge-source__header {
+/* Die Haarlinie ist ein eigenes Element, damit sie im bare-Preset denselben
+   Halo wie Text und Balken bekommt und nicht von der Flaeche abhaengt. */
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__header::after,
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__timer::after,
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__row::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  background: var(--wc-line);
+  box-shadow: var(--wc-bare-shadow);
+  content: "";
+  pointer-events: none;
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__header {
   height: var(--wc-header-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 0 var(--wc-inline-padding);
-  background: var(--wc-surface);
-  font-weight: 600;
+  font-weight: 500;
 }
 
-.challenge-source__title {
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__title {
   min-width: 0;
   overflow: hidden;
   color: var(--wc-accent);
   font-family: var(--wc-font-display);
   font-size: var(--wc-title-size);
+  font-weight: var(--wc-title-weight);
   letter-spacing: 0.08em;
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
 }
 
-.challenge-source__stand,
-.challenge-source__count,
-.challenge-source__time {
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__stand,
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__count,
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__time {
   flex: 0 0 auto;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.challenge-source__stand {
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__stand {
   color: var(--wc-muted);
 }
 
-.challenge-source__timer {
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__timer {
   height: var(--wc-timer-height);
   display: flex;
   align-items: center;
   gap: var(--wc-gap);
   padding: 0 var(--wc-inline-padding);
-  background: var(--wc-surface);
   color: var(--wc-accent);
   font-family: var(--wc-font-display);
   font-size: var(--wc-timer-size);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
-.challenge-source__timer--paused {
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__timer--paused {
   color: var(--wc-muted);
 }
 
-.challenge-source__timer--expired {
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__timer--expired,
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__timer--critical {
   color: var(--wc-critical);
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__timer--expired {
   animation: none;
 }
 
-.challenge-source__timer--critical {
-  color: var(--wc-critical);
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__timer--critical {
   animation: challenge-source-pulse 1.35s ease-in-out infinite;
+  /* Der globale Timer behaelt im bare-Preset denselben Text-Halo. */
+  text-shadow: var(--wc-bare-shadow);
 }
 
-.challenge-source__timer-label {
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__timer-label {
   margin-left: auto;
   color: var(--wc-muted);
   font-family: var(--wc-font-ui);
   font-size: var(--wc-meta-size);
-  font-weight: 600;
+  font-weight: var(--wc-label-weight);
 }
 
-.challenge-source__rows {
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__rows {
   margin: 0;
   padding: 0;
 }
 
-.challenge-source__row {
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__row {
   height: var(--wc-row-height);
   display: flex;
   align-items: center;
   gap: var(--wc-gap);
   padding: 0 var(--wc-inline-padding);
-  background: var(--wc-surface);
 }
 
-.challenge-source__row--done {
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__row--done {
   color: var(--wc-ok);
   opacity: 0.58;
 }
 
-.challenge-source__mark {
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__mark {
   flex: 0 0 12px;
   color: var(--wc-accent);
   text-align: center;
 }
 
-.challenge-source__row--done .challenge-source__mark {
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__row--done .challenge-source__mark {
   color: var(--wc-ok);
 }
 
-.challenge-source__row--done .challenge-source__name {
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__row--done .challenge-source__name {
   text-decoration: line-through;
 }
 
-.challenge-source__name {
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__content {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.challenge-source__meta {
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__meta {
   display: flex;
   align-items: baseline;
   gap: var(--wc-gap);
   margin-left: auto;
 }
 
-.challenge-source__count {
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__count {
   color: var(--wc-text);
 }
 
-.challenge-source__time {
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__time {
   color: var(--wc-accent);
 }
 
-.challenge-source__more {
+/* Fortschritt und Fuellkante bekommen im bare-Preset denselben Halo wie Text. */
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__progress {
+  height: 3px;
+  overflow: hidden;
+  background: var(--wc-progress-track);
+  box-shadow: var(--wc-bare-shadow);
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__progress-fill {
+  display: block;
+  width: var(--wc-progress);
+  height: 100%;
+  background: var(--wc-accent);
+  box-shadow: var(--wc-bare-shadow);
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__more {
   height: var(--wc-overflow-height);
   box-sizing: border-box;
   margin: 0;
@@ -185,5 +492,12 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .challenge-source__timer--critical { animation: none; }
+  :is(
+    .challenge-source[data-style="plain-list"],
+    .challenge-source[data-style="plain-bullets"],
+    .challenge-source[data-style="plain-numbered"],
+    .challenge-source[data-style="quest-log"]
+  ) .challenge-source__timer--critical {
+    animation: none;
+  }
 }

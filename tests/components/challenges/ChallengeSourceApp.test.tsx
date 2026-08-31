@@ -1,10 +1,10 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChallengeSourceApp } from "../../../src/challenges/ChallengeSourceApp";
 import { ChallengeLog } from "../../../src/modules/win-challenges/ui/ChallengeLog";
 import { MAX_TOTAL_ROWS } from "../../../src/modules/win-challenges/contracts/predicates";
-import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
+import type { ChallengeThemeId, ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
 import { OVERLAY_SOCKET_PROTOCOL } from "../../../src/shared/contracts/protocol";
 
 const token = "A".repeat(43);
@@ -87,6 +87,23 @@ const sourceUpdate = (overrides: Partial<ChallengeUpdate> = {}): ChallengeUpdate
   },
 });
 
+const deliver = async (socket: FakeWebSocket | undefined, update: ChallengeUpdate): Promise<void> => {
+  await act(async () => {
+    socket?.emit("message", JSON.stringify(update));
+    await Promise.resolve();
+  });
+};
+
+const deferred = (): { promise: Promise<void>; resolve: () => void; reject: () => void } => {
+  let resolvePromise: () => void = () => undefined;
+  let rejectPromise: () => void = () => undefined;
+  const promise = new Promise<void>((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = () => reject(new Error("Theme-Chunk fehlgeschlagen"));
+  });
+  return { promise, resolve: resolvePromise, reject: rejectPromise };
+};
+
 beforeEach(() => {
   FakeWebSocket.instances = [];
   vi.stubGlobal("WebSocket", FakeWebSocket);
@@ -99,29 +116,153 @@ afterEach(() => {
 });
 
 describe("ChallengeSourceApp", () => {
-  it("rendert plain-list erst nach einer gültigen Nachricht und ordnet erledigte unten ein", () => {
+  it("rendert plain-list erst nach einer gültigen Nachricht und ordnet erledigte unten ein", async () => {
     render(<ChallengeSourceApp />);
     expect(document.body).not.toHaveTextContent("Offene Challenge");
     const socket = FakeWebSocket.instances[0];
     expect(socket?.url).toMatch(/\/ws\/challenge$/);
     expect(socket?.protocols).toEqual([OVERLAY_SOCKET_PROTOCOL, token]);
 
-    act(() => socket?.emit("message", JSON.stringify(message())));
+    await deliver(socket, message());
+    await waitFor(() => expect(screen.getByText("CHALLENGES")).toBeInTheDocument());
     expect(screen.getByText("CHALLENGES")).toBeInTheDocument();
     expect(screen.getByText("3 / 10")).toBeInTheDocument();
     const rows = [...document.querySelectorAll(".challenge-source__row")];
     expect(rows.map((row) => row.textContent)).toEqual(["▸Offene Challenge3 / 10", "✓Erledigt unten1 / 1"]);
   });
 
-  it("blendet das Log bei Parse-Fehlern aus und zeigt es bei der nächsten gültigen Nachricht wieder", () => {
+  it("blendet das Log bei Parse-Fehlern aus und zeigt es bei der nächsten gültigen Nachricht wieder", async () => {
     render(<ChallengeSourceApp />);
     const socket = FakeWebSocket.instances[0];
-    act(() => socket?.emit("message", JSON.stringify(message())));
+    await deliver(socket, message());
     expect(screen.getByText("Offene Challenge")).toBeInTheDocument();
     act(() => socket?.emit("message", JSON.stringify({ ...message(), settings: { ...message().settings, maxVisible: 11 } })));
     expect(document.body).not.toHaveTextContent("Offene Challenge");
-    act(() => socket?.emit("message", JSON.stringify(message())));
+    await deliver(socket, message());
     expect(screen.getByText("Offene Challenge")).toBeInTheDocument();
+  });
+
+  it("hält die Quelle bis zum Theme-Chunk transparent", async () => {
+    const theme = deferred();
+    const loadTheme = vi.fn(() => theme.promise);
+    render(<ChallengeSourceApp loadTheme={loadTheme} />);
+    const socket = FakeWebSocket.instances[0];
+
+    await deliver(socket, message());
+    expect(document.body).not.toHaveTextContent("Offene Challenge");
+    expect(loadTheme).toHaveBeenCalledWith("trail-wood");
+
+    await act(async () => {
+      theme.resolve();
+      await theme.promise;
+    });
+    expect(screen.getByText("Offene Challenge")).toBeInTheDocument();
+    expect(document.querySelector(".challenge-source")).toHaveClass("hud-theme--trail-wood");
+  });
+
+  it("bleibt bei einem fehlgeschlagenen Theme-Chunk transparent", async () => {
+    const theme = deferred();
+    const loadTheme = vi.fn(() => theme.promise);
+    render(<ChallengeSourceApp loadTheme={loadTheme} />);
+    const socket = FakeWebSocket.instances[0];
+
+    await deliver(socket, message());
+    await act(async () => {
+      theme.reject();
+      await expect(theme.promise).rejects.toThrow("Theme-Chunk fehlgeschlagen");
+    });
+    expect(document.body).not.toHaveTextContent("Offene Challenge");
+  });
+
+  it("verwirft einen überholten Theme-Import", async () => {
+    const themes = new Map<ChallengeThemeId, ReturnType<typeof deferred>>();
+    const loadTheme = vi.fn((themeId: ChallengeThemeId) => {
+      const request = deferred();
+      themes.set(themeId, request);
+      return request.promise;
+    });
+    render(<ChallengeSourceApp loadTheme={loadTheme} />);
+    const socket = FakeWebSocket.instances[0];
+
+    await deliver(socket, message());
+    await deliver(socket, sourceUpdate({
+      settings: { ...message().settings, themeId: "modern-compact" },
+    }));
+
+    await act(async () => {
+      themes.get("modern-compact")?.resolve();
+      await themes.get("modern-compact")?.promise;
+    });
+    expect(document.querySelector(".challenge-source")).toHaveClass("hud-theme--modern-compact");
+
+    await act(async () => {
+      themes.get("trail-wood")?.resolve();
+      await themes.get("trail-wood")?.promise;
+    });
+    expect(document.querySelector(".challenge-source")).toHaveClass("hud-theme--modern-compact");
+    expect(document.querySelector(".challenge-source")).not.toHaveClass("hud-theme--trail-wood");
+  });
+
+  it("schaltet von inherit auf own um, obwohl der geladene Theme-Chunk bleibt", async () => {
+    const theme = deferred();
+    const loadTheme = vi.fn(() => theme.promise);
+    render(<ChallengeSourceApp loadTheme={loadTheme} />);
+    const socket = FakeWebSocket.instances[0];
+
+    await deliver(socket, message());
+    await act(async () => {
+      theme.resolve();
+      await theme.promise;
+    });
+    expect(document.querySelector(".challenge-source")).toHaveClass("hud-theme--trail-wood");
+
+    await deliver(socket, sourceUpdate({
+      settings: { ...message().settings, themeMode: "own" },
+    }));
+    expect(screen.getByText("Offene Challenge")).toBeInTheDocument();
+    expect(document.querySelector(".challenge-source")).not.toHaveClass("hud-theme--trail-wood");
+  });
+
+  it("lädt einen Theme-Wechsel allein über das nächste challenge_update", async () => {
+    const themes = new Map<ChallengeThemeId, ReturnType<typeof deferred>>();
+    const loadTheme = vi.fn((themeId: ChallengeThemeId) => {
+      const request = deferred();
+      themes.set(themeId, request);
+      return request.promise;
+    });
+    render(<ChallengeSourceApp loadTheme={loadTheme} />);
+    const socket = FakeWebSocket.instances[0];
+
+    await deliver(socket, message());
+    await act(async () => {
+      themes.get("trail-wood")?.resolve();
+      await themes.get("trail-wood")?.promise;
+    });
+
+    await deliver(socket, sourceUpdate({
+      eventSeq: 1,
+      settings: { ...message().settings, themeId: "field-journal" },
+    }));
+    expect(loadTheme).toHaveBeenLastCalledWith("field-journal");
+    expect(document.body).not.toHaveTextContent("Offene Challenge");
+
+    await act(async () => {
+      themes.get("field-journal")?.resolve();
+      await themes.get("field-journal")?.promise;
+    });
+    await waitFor(() => expect(document.querySelector(".challenge-source")).toHaveClass("hud-theme--field-journal"));
+  });
+
+  it("rendert im eigenen Theme ohne HUD-Theme-Import mit den Modul-Tokens", () => {
+    const current = message();
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      settings: { ...current.settings, themeMode: "own" },
+    })} />);
+
+    const source = document.querySelector(".challenge-source");
+    expect(source).toHaveAttribute("data-theme-mode", "own");
+    expect(source).not.toHaveClass("hud-theme--trail-wood");
+    expect(source).toHaveAttribute("data-style", "plain-list");
   });
 
   it("blendet das Log bei einem Verbindungsabbruch aus", () => {
