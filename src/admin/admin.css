@@ -197,9 +197,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .preview-module-toggle:hover:not(:disabled) { border-color: var(--line); background: var(--surface-3); }
 .preview-module-toggle:disabled { cursor: not-allowed; opacity: 0.58; }
 
-/* Die Speicherleiste reserviert Platz direkt ueber der Vorschau und kann dadurch
-   weder Vorschau-Steuerung noch Editor-Rail ueberdecken. */
-.global-save-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; width: var(--composition-preview-frame); margin-bottom: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: rgba(18, 22, 25, 0.97); }
+/* Schwebt wie das Audit-Rail, statt im Fluss zu stehen: eine Leiste, die je
+   nach Dirty-Zustand erscheint und verschwindet, wuerde die Buehne sonst bei
+   jeder Aenderung um ihre eigene Hoehe verschieben. Unten links, damit sie
+   weder die Zoom-Regler in der Vorschau-Kopfzeile noch die rechte Rail
+   verdeckt. */
+.global-save-bar { position: fixed; z-index: 16; bottom: 24px; left: clamp(16px, 3vw, 42px); width: min(420px, calc(100vw - 32px)); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: rgba(18, 22, 25, 0.97); box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4); }
 .global-save-bar-copy { display: grid; gap: 4px; min-width: 0; }
 .global-save-bar-copy strong { font-size: 13px; }
 .global-save-bar-copy span { font-size: 11px; }
@@ -463,6 +466,7 @@ input[type="color"] { padding: 4px; }
   .brand-block { border-right: 0; }
   .editor-identity { display: none; }
   .admin-app--composition { grid-template-columns: minmax(0, 1fr) 420px; }
+  .global-save-bar { width: min(420px, calc(100vw - 436px - clamp(16px, 3vw, 42px))); }
   .challenge-row-fields { grid-template-columns: minmax(220px, 1fr) minmax(300px, 1fr); }
 }
 
@@ -529,8 +533,11 @@ input[type="color"] { padding: 4px; }
   .challenge-conflict-actions .button { width: 100%; }
   .challenge-shell-error { top: 68px; right: 12px; left: 12px; }
   .preview-module-toggles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
-  .global-save-bar { width: 100%; flex-direction: column; align-items: stretch; }
+  .global-save-bar { right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); left: 12px; width: auto; flex-direction: column; align-items: stretch; }
   .global-save-bar .button--save { width: 100%; }
+  /* Bei einem Konflikt sind diese beiden Aktionen der einzige Weg zur Aufloesung.
+     Der Konflikt-Dock darf deshalb vor der globalen Save-Leiste liegen. */
+  .save-dock:has(.save-conflict) { z-index: 17; }
   .obs-setup-dialog { width: calc(100vw - 24px); max-height: calc(100vh - 32px); }
 }
 

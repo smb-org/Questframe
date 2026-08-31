@@ -41,7 +41,7 @@ test("a draft reaches a connected OBS overlay only after Save", async ({ page, c
 
   await playerHealth.fill(String(next));
   await expect(overlayHealth).toHaveAttribute("aria-valuenow", String(current));
-  await expect(page.getByText("Noch nicht an OBS gesendet")).toBeVisible();
+  await expect(page.getByText("Ungespeicherte Änderungen")).toBeVisible();
 
   // Kein modul-eigener Save-Button mehr: die globale Speicherleiste ist der einzige Trigger.
   await page.getByRole("button", { name: "Alle speichern" }).click();
@@ -142,6 +142,57 @@ test("preview zoom controls stay inside the narrow tablet main column", async ({
   );
 });
 
+test("the global save overlay never shifts the preview or covers its controls", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "Desktop save overlay geometry");
+  await page.setViewportSize({ width: 2560, height: 1440 });
+  await loginAsLocalEditor(page);
+
+  const preview = page.locator(".preview-panel");
+  const saveOverlay = page.locator(".global-save-bar");
+  await expect(saveOverlay).toHaveCount(0);
+  const previewBefore = await preview.boundingBox();
+  const previewOffsetBefore = await preview.evaluate((element) => (element as HTMLElement).offsetTop);
+  expect(previewBefore).not.toBeNull();
+
+  const health = page.getByRole("slider", { name: "Gesundheit", exact: true });
+  // Bis der Editor-Socket steht, ist die Rail gesperrt; ohne dieses Warten
+  // haengt der Test vom Tempo des vorigen Tests ab.
+  await expect(health).toBeEnabled();
+  const current = Number(await health.inputValue());
+  await health.fill(String(current === 37 ? 63 : 37));
+
+  await expect(saveOverlay).toBeVisible();
+  await expect(saveOverlay).toHaveCSS("position", "fixed");
+  const previewAfter = await preview.boundingBox();
+  const previewOffsetAfter = await preview.evaluate((element) => (element as HTMLElement).offsetTop);
+  const overlayBox = await saveOverlay.boundingBox();
+  const controlsBox = await page.locator(".preview-controls").boundingBox();
+  expect(previewAfter).not.toBeNull();
+  expect(overlayBox).not.toBeNull();
+  expect(controlsBox).not.toBeNull();
+  expect(previewAfter?.x).toBeCloseTo(previewBefore?.x ?? 0, 1);
+  expect(previewAfter?.y).toBeCloseTo(previewBefore?.y ?? 0, 1);
+  expect(previewOffsetAfter).toBe(previewOffsetBefore);
+  expect(overlayBox?.x).toBeCloseTo(42, 0);
+  expect(overlayBox?.width ?? 0).toBeLessThanOrEqual(420);
+  expect(1_440 - ((overlayBox?.y ?? 0) + (overlayBox?.height ?? 0))).toBeCloseTo(24, 0);
+
+  const overlapsControls = !(
+    (overlayBox?.x ?? 0) + (overlayBox?.width ?? 0) <= (controlsBox?.x ?? 0)
+    || (controlsBox?.x ?? 0) + (controlsBox?.width ?? 0) <= (overlayBox?.x ?? 0)
+    || (overlayBox?.y ?? 0) + (overlayBox?.height ?? 0) <= (controlsBox?.y ?? 0)
+    || (controlsBox?.y ?? 0) + (controlsBox?.height ?? 0) <= (overlayBox?.y ?? 0)
+  );
+  expect(overlapsControls).toBe(false);
+
+  await page.setViewportSize({ width: 780, height: 1_000 });
+  const narrowOverlayBox = await saveOverlay.boundingBox();
+  const editorRailBox = await page.locator(".composition-rails").boundingBox();
+  expect(narrowOverlayBox).not.toBeNull();
+  expect(editorRailBox).not.toBeNull();
+  expect((narrowOverlayBox?.x ?? 0) + (narrowOverlayBox?.width ?? 0)).toBeLessThanOrEqual(editorRailBox?.x ?? 0);
+});
+
 test("mobile keeps emergency controls and removes setup surfaces", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-mobile", "Mobile emergency shell");
   await loginAsLocalEditor(page);
@@ -153,4 +204,33 @@ test("mobile keeps emergency controls and removes setup surfaces", async ({ page
   const controls = page.locator(".editor-rail");
   await expect(controls.getByText("Pet", { exact: true })).toBeHidden();
   await expect(controls.getByText("Gruppe", { exact: true })).toBeHidden();
+});
+
+test("mobile keeps conflict resolution above the global save overlay", async ({ page, context }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-mobile", "Mobile conflict layering");
+  await loginAsLocalEditor(page);
+
+  const health = page.getByRole("slider", { name: "Gesundheit", exact: true });
+  await expect(health).toBeEnabled();
+  const current = Number(await health.inputValue());
+  await health.fill(String(current === 29 ? 71 : 29));
+  const saveOverlay = page.locator(".global-save-bar");
+  await expect(saveOverlay).toBeVisible();
+
+  const otherEditor = await context.newPage();
+  await loginAsLocalEditor(otherEditor);
+  const otherHealth = otherEditor.getByRole("slider", { name: "Gesundheit", exact: true });
+  await expect(otherHealth).toBeEnabled();
+  await otherHealth.fill(String(current === 43 ? 57 : 43));
+  await otherEditor.getByRole("button", { name: "Alle speichern" }).click();
+  await expect(otherEditor.locator(".global-save-bar")).toHaveCount(0);
+
+  const conflictDock = page.locator(".save-dock:has(.save-conflict)");
+  await expect(conflictDock.getByRole("button", { name: "Serverstand laden" })).toBeVisible();
+  const overlayZIndex = Number(await saveOverlay.evaluate((element) => getComputedStyle(element).zIndex));
+  const conflictZIndex = Number(await conflictDock.evaluate((element) => getComputedStyle(element).zIndex));
+  expect(conflictZIndex).toBeGreaterThan(overlayZIndex);
+
+  await conflictDock.getByRole("button", { name: "Serverstand laden" }).click();
+  await expect(saveOverlay).toHaveCount(0);
 });
