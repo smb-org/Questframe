@@ -154,6 +154,8 @@ export const settingsSchema = z.strictObject({
   globalTimer: z.union([globalTimerSchema, z.null()]),
 });
 
+const challengeRepositorySettingsSchema = settingsSchema.omit({ themeId: true });
+
 const challengeCommandBase = {
   commandId: commandIdSchema,
   scope: z.literal("challenge"),
@@ -189,6 +191,19 @@ export const commandSchema = z.union([
 export const boardSaveRequestSchema = z.strictObject({
   baseBoardRevision: revisionSchema,
   challenges: z.array(challengeDefinitionSchema).max(MAX_CHALLENGES),
+});
+
+export const challengeBoardSnapshotSchema = z.strictObject({
+  eventSeq: eventSeqSchema,
+  boardRevision: revisionSchema,
+  settingsRevision: revisionSchema,
+  settings: challengeRepositorySettingsSchema,
+  challenges: z.array(challengeSchema).max(MAX_CHALLENGES),
+});
+
+export const boardSaveResponseSchema = z.strictObject({
+  snapshot: challengeBoardSnapshotSchema,
+  createdIds: z.record(z.string().min(1), challengeIdSchema),
 });
 
 export const settingsSaveRequestSchema = z.strictObject({
@@ -247,6 +262,8 @@ export type GlobalTimer = z.infer<typeof globalTimerSchema>;
 export type Settings = z.infer<typeof settingsSchema>;
 export type Command = z.infer<typeof commandSchema>;
 export type BoardSaveRequest = z.infer<typeof boardSaveRequestSchema>;
+export type ChallengeBoardSnapshot = z.infer<typeof challengeBoardSnapshotSchema>;
+export type BoardSaveResponse = z.infer<typeof boardSaveResponseSchema>;
 export type SettingsSaveRequest = z.infer<typeof settingsSaveRequestSchema>;
 export type ChallengeUpdate = z.infer<typeof challengeUpdateSchema>;
 

@@ -1,5 +1,6 @@
 import {
   Activity,
+  AlertTriangle,
   Check,
   ChevronDown,
   Clock3,
@@ -41,6 +42,14 @@ import type {
   SaveResponse,
   UndoTarget,
 } from "../shared/contracts/api";
+import type { ChallengeUpdate } from "../shared/contracts/win-challenges";
+import type {
+  BoardSaveRequest,
+  BoardSaveResponse,
+  ChallengeBoardSnapshot,
+} from "../modules/win-challenges/contracts/schemas";
+import { ChallengeBoard, type ChallengeBoardApi, type ChallengeBoardSubscription } from "../modules/win-challenges/ui/ChallengeBoard";
+import type { AdminWorkspace as AdminWorkspaceId } from "../routing";
 import type {
   ActiveEffect,
   ChannelState,
@@ -106,6 +115,8 @@ export type AdminApi = {
   lookupTwitchUser?:
     | ((login: string) => Promise<TwitchUser>)
     | undefined;
+  getChallengeBoard?: (() => Promise<ChallengeBoardSnapshot>) | undefined;
+  saveChallengeBoard?: ((request: BoardSaveRequest) => Promise<BoardSaveResponse>) | undefined;
   subscribe?:
     | ((callbacks: {
         onState: (state: ChannelState) => void;
@@ -113,6 +124,7 @@ export type AdminApi = {
         onOverlayPresence: (connectedSockets: number) => void;
         onAudit: (entry: AuditEntry, undoTargets: UndoTarget[]) => void;
         onUndoTargets: (undoTargets: UndoTarget[]) => void;
+        onChallengeUpdate?: (update: ChallengeUpdate) => void;
       }) => () => void)
     | undefined;
   logout?: (() => Promise<void>) | undefined;
@@ -743,7 +755,14 @@ const GuestAdder = ({
   );
 };
 
-export const AdminWorkspace = ({
+const WorkspaceSwitcher = ({ current }: { current: AdminWorkspaceId }) => (
+  <nav aria-label="Workspace" className="workspace-switcher">
+    <a aria-current={current === "hud" ? "page" : undefined} className={current === "hud" ? "is-active" : ""} href="/admin">HUD</a>
+    <a aria-current={current === "challenges" ? "page" : undefined} className={current === "challenges" ? "is-active" : ""} href="/admin/challenges">Challenges</a>
+  </nav>
+);
+
+const HudAdminWorkspace = ({
   initialBootstrap,
   api,
 }: {
@@ -1078,6 +1097,7 @@ export const AdminWorkspace = ({
           <div><strong>{initialBootstrap.capsule.name}</strong><span>Live-Regie</span></div>
         </div>
         <div className="topbar-status">
+          <WorkspaceSwitcher current="hud" />
           {/* Der Chip meldet ausschliesslich die OBS-Verbindung. Ueber eine
               gestoerte Editor-Verbindung informiert der Offline-Banner. */}
           <div
@@ -1434,3 +1454,127 @@ export const AdminWorkspace = ({
     </div>
   );
 };
+
+const ChallengeAdminWorkspace = ({
+  initialBootstrap,
+  api,
+}: {
+  initialBootstrap: BootstrapResponse;
+  api: AdminApi;
+}) => {
+  const [committed, setCommitted] = useState(initialBootstrap.state);
+  const [overlayToken, setOverlayToken] = useState(initialBootstrap.capsule.overlayToken);
+  const [online, setOnline] = useState(true);
+  const [visibilityBusy, setVisibilityBusy] = useState(false);
+  const [error, setError] = useState("");
+  const channel = initialBootstrap.capsule.channel ?? null;
+  const boardApi = useMemo<ChallengeBoardApi | null>(() => {
+    if (api.getChallengeBoard === undefined || api.saveChallengeBoard === undefined) return null;
+    const next: ChallengeBoardApi = {
+      load: api.getChallengeBoard.bind(api),
+      save: api.saveChallengeBoard.bind(api),
+    };
+    if (api.subscribe !== undefined) {
+      next.subscribe = (callbacks: ChallengeBoardSubscription) => api.subscribe?.({
+        onState: () => undefined,
+        onOnlineChange: callbacks.onOnlineChange ?? (() => undefined),
+        onOverlayPresence: (connectedSockets) => {
+          setOverlayToken((current) => ({ ...current, connectedSockets }));
+        },
+        onAudit: () => undefined,
+        onUndoTargets: () => undefined,
+        onChallengeUpdate: callbacks.onChallengeUpdate,
+      }) ?? (() => undefined);
+    }
+    return next;
+  }, [api]);
+  const obsConnectionLabel = overlayToken.connectedSockets > 0
+    ? `${String(overlayToken.connectedSockets)} verbunden`
+    : overlayToken.exists
+      ? "nicht verbunden"
+      : "kein Link";
+  const toggleVisibility = async () => {
+    if (visibilityBusy || !online) return;
+    if (committed.overlayEnabled && !window.confirm("Overlay in OBS sofort ausblenden? Zuschauer sehen das HUD dann nicht mehr.")) return;
+    setVisibilityBusy(true);
+    setError("");
+    try {
+      const response = await api.setVisibility(!committed.overlayEnabled);
+      setCommitted(response.state);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Overlay-Schalter fehlgeschlagen.");
+    } finally {
+      setVisibilityBusy(false);
+    }
+  };
+
+  return (
+    <div className="admin-app admin-app--challenges">
+      <header className="admin-topbar">
+        <div className="brand-block">
+          <span className="brand-mark"><Activity size={19} /></span>
+          <div><strong>{initialBootstrap.capsule.name}</strong><span>Live-Regie</span></div>
+        </div>
+        <div className="topbar-status">
+          <WorkspaceSwitcher current="challenges" />
+          <div aria-label={`OBS-Verbindung: ${obsConnectionLabel}`} className={`obs-chip ${overlayToken.connectedSockets > 0 ? "is-live" : overlayToken.exists ? "is-idle" : "is-empty"}`} role="group">
+            <i aria-hidden="true" />
+            <Radio aria-hidden="true" size={14} />
+            <span className="obs-chip-label">OBS</span>
+            <span className="obs-chip-connection">{obsConnectionLabel}</span>
+          </div>
+          <span className="revision-pill">Board</span>
+        </div>
+        {channel === null ? (
+          <div aria-hidden="true" className="channel-identity" />
+        ) : (
+          <div className="channel-identity">
+            <span className="eyebrow">Twitch-Kanal</span>
+            <div><strong title={channel.displayName}>{channel.displayName}</strong></div>
+          </div>
+        )}
+        <button
+          aria-checked={committed.overlayEnabled}
+          aria-label="Overlay aktiv"
+          className={`overlay-switch ${committed.overlayEnabled ? "is-on" : "is-off"}`}
+          disabled={visibilityBusy || !online}
+          onClick={() => void toggleVisibility()}
+          role="switch"
+          type="button"
+        >
+          {committed.overlayEnabled ? <Eye size={17} /> : <EyeOff size={17} />}
+          <span>{committed.overlayEnabled ? "Overlay aktiv" : "Overlay aus"}</span>
+          <i aria-hidden="true" />
+        </button>
+        <div className="editor-identity"><span>{initialBootstrap.editor.displayName}</span><small>Editor</small></div>
+        {api.logout !== undefined && (
+          <button aria-label="Abmelden" className="icon-button logout-button" onClick={() => { void api.logout?.().then(() => window.location.assign("/login")); }} title="Abmelden" type="button">
+            <LogOut size={16} />
+          </button>
+        )}
+      </header>
+
+      {!online && <div className="offline-banner">Offline – Board-Speicherung pausiert; bestehende Challenges bleiben sichtbar.</div>}
+      {error !== "" && <p className="challenge-board-error challenge-shell-error" role="alert">{error}</p>}
+      <main className="admin-challenges-main">
+        {boardApi === null ? (
+          <section className="challenge-board-shell" role="alert"><div className="challenge-board-empty"><AlertTriangle size={22} /><strong>Challenge-Board ist in dieser Sitzung nicht verfügbar.</strong></div></section>
+        ) : (
+          <ChallengeBoard api={boardApi} onOnlineChange={setOnline} />
+        )}
+      </main>
+    </div>
+  );
+};
+
+export const AdminWorkspace = ({
+  initialBootstrap,
+  api,
+  workspace = "hud",
+}: {
+  initialBootstrap: BootstrapResponse;
+  api: AdminApi;
+  workspace?: AdminWorkspaceId;
+}) => workspace === "challenges"
+  ? <ChallengeAdminWorkspace api={api} initialBootstrap={initialBootstrap} />
+  : <HudAdminWorkspace api={api} initialBootstrap={initialBootstrap} />;

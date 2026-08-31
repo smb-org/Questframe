@@ -26,7 +26,10 @@ if (route.app === "overlay") {
   });
 } else {
   void import("./admin/AdminApp").then(({ AdminApp, LoginApp }) => {
-    const App = route.app === "login" ? LoginApp : AdminApp;
-    reactRoot.render(<StrictMode><App /></StrictMode>);
+    if (route.app === "login") {
+      reactRoot.render(<StrictMode><LoginApp /></StrictMode>);
+    } else {
+      reactRoot.render(<StrictMode><AdminApp workspace={route.workspace} /></StrictMode>);
+    }
   });
 }

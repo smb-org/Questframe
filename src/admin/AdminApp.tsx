@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { BootstrapResponse } from "../shared/contracts/api";
+import type { AdminWorkspace as AdminWorkspaceId } from "../routing";
 import { AdminWorkspace } from "./AdminWorkspace";
 import { AdminApiError, BrowserAdminApi } from "./api";
 
@@ -23,7 +24,7 @@ const LoginCard = ({ denied = false }: { denied?: boolean }) => (
   </main>
 );
 
-export const AdminApp = () => {
+export const AdminApp = ({ workspace = "hud" }: { workspace?: AdminWorkspaceId } = {}) => {
   const api = useMemo(() => new BrowserAdminApi(), []);
   const [bootstrap, setBootstrap] = useState<BootstrapResponse | null>(null);
   const [status, setStatus] = useState<"loading" | "login" | "denied" | "error">("loading");
@@ -64,7 +65,7 @@ export const AdminApp = () => {
     };
   }, [api, bootstrap]);
 
-  if (bootstrap !== null) return <AdminWorkspace initialBootstrap={bootstrap} api={api} />;
+  if (bootstrap !== null) return <AdminWorkspace initialBootstrap={bootstrap} api={api} workspace={workspace} />;
   if (status === "login") return <LoginCard />;
   if (status === "denied") return <LoginCard denied />;
   if (status === "error") {

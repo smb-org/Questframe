@@ -61,6 +61,18 @@ ihren linken oberen Ursprung skaliert; Aperturpositionen, Portraitgrößen, Balk
 Medaillons bleiben dadurch proportional. Der Browservertrag prüft den vollständigen API-Pfad
 für `75 / 100 / 125 / 150 / 175 / 200 %` und normalisiert die Trail-Aperturen auf ihre Basiswerte.
 
+### Challenge-Board-Admin
+
+Das Challenge-Board ist ein eigener Vollbreiten-Workspace unter `/admin/challenges`; es wird
+nicht in die HUD-`editor-rail` eingehängt. Der Inhaltsbereich ist bis `1200 px` breit und
+zentriert. Eine Challenge-Zeile besteht aus Sortiergriffen, Definitionsfeldern und einer
+separaten Laufzeitstatusfläche. Sortiergriffe und Feldsteuerungen sind mindestens `38 px`
+hoch, die Board-Aktion `Board speichern` mindestens `44 px`. Das Board nutzt ausschließlich
+die bestehenden Admin-Tokens für Flächen, Linien, Text, Messing, Erfolg und Fehler; neue
+Farben sind nicht vorgesehen. Status werden zusätzlich zur Farbe immer durch Text oder ein
+Symbol codiert. Konflikte und Merge-Folgen stehen oberhalb der Save-Aktion und bleiben bei
+`prefers-reduced-motion: reduce` ohne notwendige Bewegung oder Übergang.
+
 Das Levelmedaillon ist ein Geschwisterelement von Portrait und Body. Es darf niemals Kind des
 geclippten Portraits sein, sonst wird die Zahl beschnitten.
 

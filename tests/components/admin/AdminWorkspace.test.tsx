@@ -8,6 +8,7 @@ import {
   getReleaseCapabilities,
   twitchUserIdSchema,
 } from "../../../src/shared/contracts/state";
+import type { ChallengeBoardSnapshot } from "../../../src/modules/win-challenges/contracts/schemas";
 import { AdminWorkspace, type AdminApi } from "../../../src/admin/AdminWorkspace";
 
 const actor = { twitchUserId: twitchUserIdSchema.parse("123"), displayName: "Moderator" };
@@ -76,6 +77,39 @@ describe("Admin workspace channel identity", () => {
     expect(placeholder).toBeInTheDocument();
     expect(placeholder).toHaveAttribute("aria-hidden", "true");
     expect(placeholder).toBeEmptyDOMElement();
+  });
+});
+
+describe("Admin workspace shell", () => {
+  it("hält Challenges außerhalb der HUD-editor-rail und markiert beide Workspaces", async () => {
+    const challengeSnapshot: ChallengeBoardSnapshot = {
+      eventSeq: 0,
+      boardRevision: 1,
+      settingsRevision: 1,
+      settings: {
+        styleId: "plain-list",
+        themeMode: "inherit",
+        surfaceMode: "surface",
+        headerTitle: "CHALLENGES",
+        effectsEnabled: true,
+        maxVisible: 5,
+        globalTimer: null,
+      },
+      challenges: [],
+    };
+    const api: AdminApi = {
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      getChallengeBoard: vi.fn(() => Promise.resolve(challengeSnapshot)),
+      saveChallengeBoard: vi.fn(),
+    };
+
+    render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="challenges" />);
+
+    expect(await screen.findByRole("heading", { name: "Board" })).toBeInTheDocument();
+    expect(document.querySelector(".editor-rail")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "HUD" })).toHaveAttribute("href", "/admin");
+    expect(screen.getByRole("link", { name: "Challenges" })).toHaveAttribute("aria-current", "page");
   });
 });
 

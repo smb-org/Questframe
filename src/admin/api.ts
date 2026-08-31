@@ -11,19 +11,36 @@ import {
   type BootstrapResponse,
   type SaveRequest,
 } from "../shared/contracts/api";
+import {
+  boardSaveRequestSchema,
+  boardSaveResponseSchema,
+  challengeBoardSnapshotSchema,
+  type BoardSaveRequest,
+  type BoardSaveResponse,
+  type ChallengeBoardSnapshot,
+} from "../modules/win-challenges/contracts/schemas";
+import { parseChallengeUpdate } from "../challenges/wire";
 import type { AdminApi } from "./AdminWorkspace";
 
 export class AdminApiError extends Error {
   readonly status: number;
   readonly code: string;
   readonly currentRevision?: number;
+  readonly currentSnapshot?: unknown;
 
-  constructor(status: number, code: string, message: string, currentRevision?: number) {
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    currentRevision?: number,
+    currentSnapshot?: unknown,
+  ) {
     super(message);
     this.name = "AdminApiError";
     this.status = status;
     this.code = code;
     if (currentRevision !== undefined) this.currentRevision = currentRevision;
+    if (currentSnapshot !== undefined) this.currentSnapshot = currentSnapshot;
   }
 }
 
@@ -72,6 +89,17 @@ export class BrowserAdminApi implements AdminApi {
   async setVisibility(enabled: boolean) {
     const response = await this.requestJson("/api/overlay-visibility", "POST", { enabled });
     return visibilityResponseSchema.parse(await response.json());
+  }
+
+  async getChallengeBoard(): Promise<ChallengeBoardSnapshot> {
+    const response = await this.request("/api/challenges", { method: "GET" }, false);
+    return challengeBoardSnapshotSchema.parse(await response.json());
+  }
+
+  async saveChallengeBoard(input: BoardSaveRequest): Promise<BoardSaveResponse> {
+    const request = boardSaveRequestSchema.parse(input);
+    const response = await this.requestJson("/api/challenges/board", "PUT", request);
+    return boardSaveResponseSchema.parse(await response.json());
   }
 
   async undo(baseRevision: number, targetRevision: number) {
@@ -129,6 +157,7 @@ export class BrowserAdminApi implements AdminApi {
     onOverlayPresence: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onOverlayPresence"];
     onAudit: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onAudit"];
     onUndoTargets: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onUndoTargets"];
+    onChallengeUpdate?: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onChallengeUpdate"];
   }): () => void {
     let disposed = false;
     let socket: WebSocket | null = null;
@@ -150,6 +179,11 @@ export class BrowserAdminApi implements AdminApi {
         try {
           input = JSON.parse(event.data) as unknown;
         } catch {
+          return;
+        }
+        const challengeUpdate = parseChallengeUpdate(input);
+        if (challengeUpdate !== null) {
+          callbacks.onChallengeUpdate?.(challengeUpdate);
           return;
         }
         const message = serverMessageSchema.safeParse(input);
@@ -201,11 +235,13 @@ export class BrowserAdminApi implements AdminApi {
     let code = "request_failed";
     let message = `Anfrage fehlgeschlagen (${String(response.status)}).`;
     let currentRevision: number | undefined;
+    let currentSnapshot: unknown;
     try {
       const parsed = apiErrorSchema.parse(await response.clone().json());
       code = parsed.error.code;
       message = parsed.error.message;
       currentRevision = parsed.error.currentRevision;
+      currentSnapshot = parsed.error.currentSnapshot;
     } catch {
       // The public fallback above intentionally excludes raw response details.
     }
@@ -222,6 +258,6 @@ export class BrowserAdminApi implements AdminApi {
       });
       if (retry.ok) return retry;
     }
-    throw new AdminApiError(response.status, code, message, currentRevision);
+    throw new AdminApiError(response.status, code, message, currentRevision, currentSnapshot);
   }
 }
