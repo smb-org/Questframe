@@ -20,6 +20,7 @@ import {
   Trash2,
   Undo2,
   Users,
+  Volume2,
   X,
   ZoomIn,
 } from "lucide-react";
@@ -43,10 +44,13 @@ import type {
   UndoTarget,
 } from "../shared/contracts/api";
 import type { ChallengeUpdate } from "../shared/contracts/win-challenges";
-import type {
-  BoardSaveRequest,
-  BoardSaveResponse,
-  ChallengeBoardSnapshot,
+import {
+  challengeBoardSnapshotSchema,
+  type BoardSaveRequest,
+  type BoardSaveResponse,
+  type ChallengeBoardSnapshot,
+  type SettingsSaveRequest,
+  type SettingsSaveResponse,
 } from "../modules/win-challenges/contracts/schemas";
 import { ChallengeBoard, type ChallengeBoardApi, type ChallengeBoardSubscription } from "../modules/win-challenges/ui/ChallengeBoard";
 import type { AdminWorkspace as AdminWorkspaceId } from "../routing";
@@ -117,6 +121,7 @@ export type AdminApi = {
     | undefined;
   getChallengeBoard?: (() => Promise<ChallengeBoardSnapshot>) | undefined;
   saveChallengeBoard?: ((request: BoardSaveRequest) => Promise<BoardSaveResponse>) | undefined;
+  saveChallengeSettings?: ((request: SettingsSaveRequest) => Promise<SettingsSaveResponse>) | undefined;
   subscribe?:
     | ((callbacks: {
         onState: (state: ChannelState) => void;
@@ -761,6 +766,178 @@ const WorkspaceSwitcher = ({ current }: { current: AdminWorkspaceId }) => (
     <a aria-current={current === "challenges" ? "page" : undefined} className={current === "challenges" ? "is-active" : ""} href="/admin/challenges">Challenges</a>
   </nav>
 );
+
+const ChallengeSettingsPanel = ({
+  api,
+  online,
+  challengeUpdate,
+}: {
+  api: AdminApi;
+  online: boolean;
+  challengeUpdate: ChallengeUpdate | null;
+}) => {
+  const [snapshot, setSnapshot] = useState<ChallengeBoardSnapshot | null>(null);
+  const [effectsEnabled, setEffectsEnabled] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const snapshotRef = useRef<ChallengeBoardSnapshot | null>(null);
+  const effectsEnabledRef = useRef<boolean | null>(null);
+
+  useEffect(() => {
+    snapshotRef.current = snapshot;
+  }, [snapshot]);
+
+  useEffect(() => {
+    effectsEnabledRef.current = effectsEnabled;
+  }, [effectsEnabled]);
+
+  const applyRemoteSnapshot = useCallback((next: ChallengeBoardSnapshot) => {
+    const current = snapshotRef.current;
+    if (current !== null && next.settingsRevision <= current.settingsRevision) return;
+    const localValue = effectsEnabledRef.current;
+    const localDraftChanged = current !== null
+      && localValue !== null
+      && localValue !== current.settings.effectsEnabled;
+    const localDraftStillDiffers = localValue !== null && localValue !== next.settings.effectsEnabled;
+
+    snapshotRef.current = next;
+    setSnapshot(next);
+    if (localDraftChanged && localDraftStillDiffers) {
+      setError("Einstellungen wurden inzwischen geändert. Der aktuelle Serverstand ist übernommen; dein Entwurf bleibt erhalten.");
+      setMessage("");
+      return;
+    }
+    effectsEnabledRef.current = next.settings.effectsEnabled;
+    setEffectsEnabled(next.settings.effectsEnabled);
+    setError("");
+    setMessage("");
+  }, []);
+
+  useEffect(() => {
+    if (api.getChallengeBoard === undefined) {
+      return;
+    }
+    let disposed = false;
+    void api.getChallengeBoard().then((next) => {
+      if (disposed) return;
+      applyRemoteSnapshot(next);
+    }).catch((caught: unknown) => {
+      if (disposed) return;
+      setError(caught instanceof Error ? caught.message : "Challenge-Einstellungen konnten nicht geladen werden.");
+    }).finally(() => {
+      if (!disposed) setLoading(false);
+    });
+    return () => {
+      disposed = true;
+    };
+  }, [api, applyRemoteSnapshot]);
+
+  useEffect(() => {
+    if (challengeUpdate === null) return;
+    const { themeId: _themeId, ...settings } = challengeUpdate.settings;
+    void _themeId;
+    applyRemoteSnapshot({
+      eventSeq: challengeUpdate.eventSeq,
+      boardRevision: challengeUpdate.boardRevision,
+      settingsRevision: challengeUpdate.settingsRevision,
+      settings,
+      challenges: challengeUpdate.challenges,
+    });
+  }, [applyRemoteSnapshot, challengeUpdate]);
+
+  if (api.getChallengeBoard === undefined || api.saveChallengeSettings === undefined) return null;
+  const saveChallengeSettings = api.saveChallengeSettings;
+
+  const dirty = snapshot !== null && effectsEnabled !== null && effectsEnabled !== snapshot.settings.effectsEnabled;
+  const save = async () => {
+    if (snapshot === null || effectsEnabled === null || !dirty || saving || !online) return;
+    setSaving(true);
+    setError("");
+    setMessage("");
+    const settings = snapshot.settings;
+    try {
+      const request: SettingsSaveRequest = {
+        baseSettingsRevision: snapshot.settingsRevision,
+        styleId: settings.styleId,
+        themeMode: settings.themeMode,
+        surfaceMode: settings.surfaceMode,
+        headerTitle: settings.headerTitle,
+        effectsEnabled,
+        maxVisible: settings.maxVisible,
+        globalTimerTotalMs: settings.globalTimer?.totalMs ?? null,
+      };
+      const response = await saveChallengeSettings(request);
+      snapshotRef.current = response.snapshot;
+      effectsEnabledRef.current = response.snapshot.settings.effectsEnabled;
+      setSnapshot(response.snapshot);
+      setEffectsEnabled(response.snapshot.settings.effectsEnabled);
+      setMessage("Zeremonie-Einstellung veröffentlicht.");
+    } catch (caught) {
+      const candidate = typeof caught === "object" && caught !== null
+        ? caught as { code?: unknown; currentSnapshot?: unknown }
+        : {};
+      const parsedCurrentSnapshot = candidate.code === "revision_conflict"
+        ? challengeBoardSnapshotSchema.safeParse(candidate.currentSnapshot)
+        : null;
+      if (parsedCurrentSnapshot?.success === true) {
+        const currentSnapshot = parsedCurrentSnapshot.data;
+        snapshotRef.current = currentSnapshot;
+        setSnapshot(currentSnapshot);
+        setError("Einstellungen wurden inzwischen geändert. Der aktuelle Serverstand ist übernommen; dein Entwurf bleibt erhalten.");
+      } else {
+        setError(caught instanceof Error ? caught.message : "Challenge-Einstellungen konnten nicht gespeichert werden.");
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section aria-labelledby="challenge-settings-heading" className="challenge-settings-panel">
+      <header className="challenge-settings-heading">
+        <div>
+          <span className="eyebrow">Publikumssignal</span>
+          <h2 id="challenge-settings-heading">Zeremonien</h2>
+          <p>Nicht jedes Setup ist ein Quest-Log. Bewegung, Aufblitzen und Ton lassen sich gemeinsam abschalten.</p>
+        </div>
+        <Volume2 aria-hidden="true" size={20} />
+      </header>
+      {error !== "" && <p className="challenge-board-error" role="alert">{error}</p>}
+      <label className="challenge-effects-toggle">
+        <input
+          aria-label="Zeremonien und Töne aktiv"
+          checked={effectsEnabled ?? false}
+          disabled={loading || saving || !online || snapshot === null}
+          onChange={(event) => {
+            setEffectsEnabled(event.target.checked);
+            setMessage("");
+          }}
+          type="checkbox"
+        />
+        <span>
+          <strong>Zeremonien und Töne aktiv</strong>
+          <small>Der Schalter gilt für alle Challenge-Styles und alle OBS-Quellen.</small>
+        </span>
+      </label>
+      <footer className="challenge-settings-save-bar">
+        <span aria-live="polite" className={dirty ? "save-dirty" : ""}>
+          {loading ? "Einstellungen werden geladen …" : message !== "" ? message : dirty ? "Ungespeicherte Einstellung" : "Einstellung veröffentlicht"}
+        </span>
+        <button
+          aria-label="Challenge-Einstellungen speichern"
+          className="button button--save"
+          disabled={!dirty || saving || !online}
+          onClick={() => void save()}
+          type="button"
+        >
+          <Save size={17} /> {saving ? "Wird gespeichert …" : "Einstellungen speichern"}
+        </button>
+      </footer>
+    </section>
+  );
+};
 
 const HudAdminWorkspace = ({
   initialBootstrap,
@@ -1464,6 +1641,7 @@ const ChallengeAdminWorkspace = ({
 }) => {
   const [committed, setCommitted] = useState(initialBootstrap.state);
   const [overlayToken, setOverlayToken] = useState(initialBootstrap.capsule.overlayToken);
+  const [challengeUpdate, setChallengeUpdate] = useState<ChallengeUpdate | null>(null);
   const [online, setOnline] = useState(true);
   const [visibilityBusy, setVisibilityBusy] = useState(false);
   const [error, setError] = useState("");
@@ -1483,7 +1661,10 @@ const ChallengeAdminWorkspace = ({
         },
         onAudit: () => undefined,
         onUndoTargets: () => undefined,
-        onChallengeUpdate: callbacks.onChallengeUpdate,
+        onChallengeUpdate: (update) => {
+          setChallengeUpdate(update);
+          callbacks.onChallengeUpdate(update);
+        },
       }) ?? (() => undefined);
     }
     return next;
@@ -1557,6 +1738,7 @@ const ChallengeAdminWorkspace = ({
       {!online && <div className="offline-banner">Offline – Board-Speicherung pausiert; bestehende Challenges bleiben sichtbar.</div>}
       {error !== "" && <p className="challenge-board-error challenge-shell-error" role="alert">{error}</p>}
       <main className="admin-challenges-main">
+        <ChallengeSettingsPanel api={api} challengeUpdate={challengeUpdate} online={online} />
         {boardApi === null ? (
           <section className="challenge-board-shell" role="alert"><div className="challenge-board-empty"><AlertTriangle size={22} /><strong>Challenge-Board ist in dieser Sitzung nicht verfügbar.</strong></div></section>
         ) : (

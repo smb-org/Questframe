@@ -22,7 +22,19 @@ const timerClass = (state: TimerState, remainingMs: number): string => {
     : "";
 };
 
-export const GlobalTimerRow = ({ timer, now }: { timer: GlobalTimer; now: number }) => {
+export type ChallengeLogCeremonyTarget =
+  | { kind: "challenge"; id: string }
+  | { kind: "global" };
+
+export const GlobalTimerRow = ({
+  timer,
+  now,
+  ceremonyTarget = false,
+}: {
+  timer: GlobalTimer;
+  now: number;
+  ceremonyTarget?: boolean;
+}) => {
   const state = deriveTimerState(timer.endsAt, timer.pausedRemainMs, now);
   const remainingMs = remainingFor(timer.endsAt, timer.pausedRemainMs, state, now);
   const critical = timerIsCritical(state, remainingMs);
@@ -39,6 +51,7 @@ export const GlobalTimerRow = ({ timer, now }: { timer: GlobalTimer; now: number
       className={`challenge-source__timer ${timerClass(state, remainingMs)}`}
       data-critical={critical ? "true" : "false"}
       data-state={state}
+      data-ceremony-target={ceremonyTarget ? "true" : undefined}
     >
       <span aria-hidden="true">{state === "paused" ? "Ⅱ" : critical ? "!" : "▸"}</span>
       <span>{formatRemaining(remainingMs)}</span>
@@ -47,7 +60,15 @@ export const GlobalTimerRow = ({ timer, now }: { timer: GlobalTimer; now: number
   );
 };
 
-const ChallengeRow = ({ challenge, now }: { challenge: Challenge; now: number }) => {
+const ChallengeRow = ({
+  challenge,
+  now,
+  ceremonyTargetId,
+}: {
+  challenge: Challenge;
+  now: number;
+  ceremonyTargetId?: string | null;
+}) => {
   const done = challenge.state === "done";
   const timerState = challenge.timerEndsAt === null
     ? "idle"
@@ -64,6 +85,7 @@ const ChallengeRow = ({ challenge, now }: { challenge: Challenge; now: number })
     <div
       className={`challenge-source__row${done ? " challenge-source__row--done" : ""}`}
       data-challenge-id={challenge.id}
+      data-ceremony-target={ceremonyTargetId === challenge.id ? "true" : undefined}
       data-state={challenge.state}
     >
       <span aria-hidden="true" className="challenge-source__mark">{done ? "✓" : "▸"}</span>
@@ -95,18 +117,42 @@ const ChallengeRow = ({ challenge, now }: { challenge: Challenge; now: number })
   );
 };
 
-export const ChallengeLog = ({ update, now }: { update: ChallengeUpdate; now: number }) => {
+export const ChallengeLog = ({
+  update,
+  now,
+  ceremonyTarget = null,
+}: {
+  update: ChallengeUpdate;
+  now: number;
+  ceremonyTarget?: ChallengeLogCeremonyTarget | null;
+}) => {
   const selection = selectVisible(update.challenges, update.settings.maxVisible, now);
   const globalTimer = update.settings.globalTimer;
   const maxRowsWithoutOverflow = globalTimer === null ? 8 : 7;
   const hasOverflow =
     selection.remaining > 0 || selection.challenges.length > maxRowsWithoutOverflow;
   const maxRows = hasOverflow ? maxRowsWithoutOverflow - 1 : maxRowsWithoutOverflow;
-  const challenges = selection.challenges.slice(0, maxRows);
+  const selectedChallenges = selection.challenges.slice(0, maxRows);
+  const ceremonyChallenge = ceremonyTarget?.kind === "challenge"
+    ? update.challenges.find((challenge) => challenge.id === ceremonyTarget.id) ?? null
+    : null;
+  const ceremonyTargetIsVisible = ceremonyChallenge !== null
+    && selectedChallenges.some((challenge) => challenge.id === ceremonyChallenge.id);
+  // Ein gerade gemeldetes Ziel bleibt sichtbar, auch wenn die normale Auswahl
+  // wegen maxVisible oder der festen Zeilenobergrenze einen anderen Ausschnitt zeigt.
+  const challenges = ceremonyChallenge !== null && !ceremonyTargetIsVisible
+    ? [...selectedChallenges.slice(0, Math.max(0, selectedChallenges.length - 1)), ceremonyChallenge]
+    : selectedChallenges;
   const omittedOpen = selection.challenges
     .slice(maxRows)
     .filter((challenge) => challenge.state !== "done").length;
-  const remaining = selection.remaining + omittedOpen;
+  const ceremonyTargetWasCountedAsRemaining = ceremonyChallenge !== null
+    && !ceremonyTargetIsVisible
+    && ceremonyChallenge.state !== "done";
+  const remaining = Math.max(
+    0,
+    selection.remaining + omittedOpen - (ceremonyTargetWasCountedAsRemaining ? 1 : 0),
+  );
   const globalState = globalTimer === null
     ? "idle"
     : deriveTimerState(globalTimer.endsAt, globalTimer.pausedRemainMs, now);
@@ -128,10 +174,23 @@ export const ChallengeLog = ({ update, now }: { update: ChallengeUpdate; now: nu
         <span className="challenge-source__title">{update.settings.headerTitle}</span>
         <span className="challenge-source__stand">{completed} / {update.challenges.length}</span>
       </header>
-      {globalTimer !== null && <GlobalTimerRow now={now} timer={globalTimer} />}
+      {globalTimer !== null && (
+        <GlobalTimerRow
+          ceremonyTarget={ceremonyTarget?.kind === "global"}
+          now={now}
+          timer={globalTimer}
+        />
+      )}
       {challenges.length > 0 && (
         <section aria-label="Challenges" className="challenge-source__rows">
-          {challenges.map((challenge) => <ChallengeRow key={challenge.id} challenge={challenge} now={now} />)}
+          {challenges.map((challenge) => (
+            <ChallengeRow
+              ceremonyTargetId={ceremonyTarget?.kind === "challenge" ? ceremonyTarget.id : null}
+              key={challenge.id}
+              challenge={challenge}
+              now={now}
+            />
+          ))}
           {remaining > 0 && <p className="challenge-source__more">+{remaining} weitere</p>}
         </section>
       )}

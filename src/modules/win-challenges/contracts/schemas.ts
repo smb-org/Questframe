@@ -206,6 +206,10 @@ export const boardSaveResponseSchema = z.strictObject({
   createdIds: z.record(z.string().min(1), challengeIdSchema),
 });
 
+export const settingsSaveResponseSchema = z.strictObject({
+  snapshot: challengeBoardSnapshotSchema,
+});
+
 export const settingsSaveRequestSchema = z.strictObject({
   baseSettingsRevision: revisionSchema,
   styleId: styleIdSchema,
@@ -264,6 +268,7 @@ export type Command = z.infer<typeof commandSchema>;
 export type BoardSaveRequest = z.infer<typeof boardSaveRequestSchema>;
 export type ChallengeBoardSnapshot = z.infer<typeof challengeBoardSnapshotSchema>;
 export type BoardSaveResponse = z.infer<typeof boardSaveResponseSchema>;
+export type SettingsSaveResponse = z.infer<typeof settingsSaveResponseSchema>;
 export type SettingsSaveRequest = z.infer<typeof settingsSaveRequestSchema>;
 export type ChallengeUpdate = z.infer<typeof challengeUpdateSchema>;
 

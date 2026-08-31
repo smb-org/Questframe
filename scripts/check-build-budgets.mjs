@@ -150,6 +150,7 @@ const fontBytes = (await stat(
 
 const soundDirectory = path.join(clientRoot, "assets/sounds");
 const audioBytes = await sumDirectoryBytes(soundDirectory);
+const audioBudget = 128 * 1024;
 
 const assetSizes = new Map([
   [assetSizeKey("shell"), await compressedSize("index.html")],
@@ -182,6 +183,7 @@ const report = await evaluateBuildBudgets(manifest, sizeLookup, budgetDeclaratio
 
 console.log("Build budget report (gzip for text, encoded bytes for WebP)");
 const workerWithinBudget = assertBudget("Worker bundle", workerBytes, 750 * 1024);
+const audioWithinBudget = assertBudget("Audio total", audioBytes, audioBudget);
 for (const check of report.checks) {
   if (check.status === "PEND") {
     console.log(`PEND ${check.label.padEnd(34)}`);
@@ -194,6 +196,7 @@ const budgetErrors = report.checks
   .map((check) => `${check.label} exceeds its build budget.`);
 const errors = [
   ...(workerWithinBudget ? [] : ["Worker bundle exceeds its build budget."]),
+  ...(audioWithinBudget ? [] : ["Audio total exceeds its build budget."]),
   ...report.errors,
   ...budgetErrors,
 ];

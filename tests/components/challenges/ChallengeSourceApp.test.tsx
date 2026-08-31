@@ -34,6 +34,20 @@ class FakeWebSocket {
   close(): void {}
 }
 
+class FakeAudio {
+  static instances: FakeAudio[] = [];
+  readonly src: string;
+  preload = "";
+  currentTime = 0;
+  readonly play = vi.fn(() => Promise.resolve());
+  readonly load = vi.fn();
+
+  constructor(src: string) {
+    this.src = src;
+    FakeAudio.instances.push(this);
+  }
+}
+
 const challenge = (id: string, title: string, state: "pending" | "done", sortOrder: number): ChallengeUpdate["challenges"][number] => ({
   id,
   title,
@@ -106,7 +120,15 @@ const deferred = (): { promise: Promise<void>; resolve: () => void; reject: () =
 
 beforeEach(() => {
   FakeWebSocket.instances = [];
+  FakeAudio.instances = [];
   vi.stubGlobal("WebSocket", FakeWebSocket);
+  vi.stubGlobal("Audio", FakeAudio);
+  vi.stubGlobal("matchMedia", () => ({
+    matches: false,
+    media: "(prefers-reduced-motion: reduce)",
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
   window.history.replaceState({}, "", `/overlay/challenges#token=${token}`);
 });
 
@@ -129,6 +151,143 @@ describe("ChallengeSourceApp", () => {
     expect(screen.getByText("3 / 10")).toBeInTheDocument();
     const rows = [...document.querySelectorAll(".challenge-source__row")];
     expect(rows.map((row) => row.textContent)).toEqual(["▸Offene Challenge3 / 10", "✓Erledigt unten1 / 1"]);
+  });
+
+  it("feuert eine Zeremonie nur für ein neues Ereignis nach dem letzten Stand", async () => {
+    render(<ChallengeSourceApp />);
+    const socket = FakeWebSocket.instances[0];
+    const ownSettings = { ...message().settings, themeMode: "own" as const };
+
+    await deliver(socket, sourceUpdate({ eventSeq: 7, event: null, settings: ownSettings }));
+    expect(document.querySelector(".challenge-source-ceremony")?.getAttribute("data-ceremony-type") ?? null).toBeNull();
+
+    await deliver(socket, sourceUpdate({
+      eventSeq: 8,
+      event: { scope: "challenge", type: "progressed", challengeId: "open", delta: 1, previousCount: 3, currentCount: 4 },
+      settings: ownSettings,
+    }));
+    expect(document.querySelector(".challenge-source-ceremony")).toHaveAttribute("data-ceremony-type", "progressed");
+
+    await deliver(socket, sourceUpdate({
+      eventSeq: 8,
+      event: { scope: "challenge", type: "progressed", challengeId: "open", delta: 1, previousCount: 3, currentCount: 4 },
+      settings: ownSettings,
+    }));
+    expect(document.querySelector(".challenge-source-ceremony")).toHaveAttribute("data-ceremony-type", "progressed");
+    const tick = FakeAudio.instances.find((audio) => audio.src.endsWith("/tick.mp3"));
+    expect(tick?.play).toHaveBeenCalledTimes(1);
+  });
+
+  it("lässt die ganze Zeremonie bei deaktivierten Effekten aus", async () => {
+    render(<ChallengeSourceApp />);
+    const socket = FakeWebSocket.instances[0];
+    await deliver(socket, sourceUpdate({
+      eventSeq: 1,
+      settings: { ...message().settings, themeMode: "own", effectsEnabled: false },
+      event: { scope: "challenge", type: "completed", challengeId: "open" },
+    }));
+
+    expect(document.querySelector(".challenge-source-ceremony")?.getAttribute("data-ceremony-type") ?? null).toBeNull();
+    expect(FakeAudio.instances.every((audio) => audio.play.mock.calls.length === 0)).toBe(true);
+  });
+
+  it("behält bei reduziertem Motion-Wunsch die Zustandsänderung ohne Bewegung", async () => {
+    vi.stubGlobal("matchMedia", () => ({
+      matches: true,
+      media: "(prefers-reduced-motion: reduce)",
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    const completed = challenge("open", "Offene Challenge", "done", 0);
+    render(<ChallengeSourceApp />);
+    const socket = FakeWebSocket.instances[0];
+    await deliver(socket, sourceUpdate({
+      eventSeq: 1,
+      challenges: [completed],
+      settings: { ...message().settings, themeMode: "own" },
+      event: { scope: "challenge", type: "completed", challengeId: "open" },
+    }));
+
+    const ceremony = document.querySelector(".challenge-source-ceremony");
+    expect(ceremony).toHaveAttribute("data-ceremony-motion", "static");
+    expect(ceremony?.querySelector('[data-challenge-id="open"]')).toHaveAttribute("data-state", "done");
+    expect(ceremony?.querySelector('[data-challenge-id="open"] .challenge-source__mark')).toHaveTextContent("✓");
+  });
+
+  it("ignoriert verweigerte Tonwiedergabe ohne die visuelle Zeremonie zu verlieren", async () => {
+    render(<ChallengeSourceApp />);
+    const socket = FakeWebSocket.instances[0];
+    const tick = FakeAudio.instances.find((audio) => audio.src.endsWith("/tick.mp3"));
+    tick?.play.mockRejectedValueOnce(new Error("Autoplay verweigert"));
+
+    await expect(deliver(socket, sourceUpdate({
+      eventSeq: 1,
+      settings: { ...message().settings, themeMode: "own" },
+      event: { scope: "challenge", type: "progressed", challengeId: "open", delta: 1, previousCount: 3, currentCount: 4 },
+    }))).resolves.toBeUndefined();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(document.querySelector(".challenge-source-ceremony")).toHaveAttribute("data-ceremony-type", "progressed");
+  });
+
+  it("macht bei einem Style ohne Registry-Eintrag nichts", async () => {
+    render(<ChallengeSourceApp />);
+    const socket = FakeWebSocket.instances[0];
+    await deliver(socket, sourceUpdate({
+      eventSeq: 1,
+      settings: { ...message().settings, styleId: "plain-bullets", themeMode: "own" },
+      event: { scope: "challenge", type: "completed", challengeId: "open" },
+    }));
+
+    expect(document.querySelector(".challenge-source-ceremony")?.getAttribute("data-ceremony-type") ?? null).toBeNull();
+    expect(FakeAudio.instances.every((audio) => audio.play.mock.calls.length === 0)).toBe(true);
+  });
+
+  it("bremst zwei schnelle gleiche Töne auf eine Wiedergabe aus", async () => {
+    render(<ChallengeSourceApp />);
+    const socket = FakeWebSocket.instances[0];
+    const settings = { ...message().settings, themeMode: "own" as const };
+    const progressed = { scope: "challenge" as const, type: "progressed" as const, challengeId: "open", delta: 1, previousCount: 3, currentCount: 4 };
+    await deliver(socket, sourceUpdate({ eventSeq: 1, settings, event: progressed }));
+    await deliver(socket, sourceUpdate({ eventSeq: 2, settings, event: { ...progressed, previousCount: 4, currentCount: 5 } }));
+
+    const tick = FakeAudio.instances.find((audio) => audio.src.endsWith("/tick.mp3"));
+    expect(tick?.play.mock.calls.length ?? 0).toBe(1);
+  });
+
+  it("startet die sichtbare Zeremonie für jede neue Ereignisfolge neu", async () => {
+    render(<ChallengeSourceApp />);
+    const socket = FakeWebSocket.instances[0];
+    const settings = { ...message().settings, themeMode: "own" as const };
+    const progressed = { scope: "challenge" as const, type: "progressed" as const, challengeId: "open", delta: 1, previousCount: 3, currentCount: 4 };
+
+    await deliver(socket, sourceUpdate({ eventSeq: 1, settings, event: progressed }));
+    const firstCeremony = document.querySelector(".challenge-source-ceremony");
+    await deliver(socket, sourceUpdate({ eventSeq: 2, settings, event: { ...progressed, previousCount: 4, currentCount: 5 } }));
+
+    expect(document.querySelector(".challenge-source-ceremony")).not.toBe(firstCeremony);
+  });
+
+  it("zeigt das Ziel auch dann, wenn es sonst außerhalb der sichtbaren Zeilen läge", async () => {
+    render(<ChallengeSourceApp />);
+    const socket = FakeWebSocket.instances[0];
+    const challenges = [
+      challenge("first", "Erste Challenge", "pending", 0),
+      challenge("second", "Zweite Challenge", "pending", 1),
+      challenge("third", "Dritte Challenge", "pending", 2),
+      challenge("target", "Ziel außerhalb der Auswahl", "pending", 3),
+    ];
+    await deliver(socket, sourceUpdate({
+      eventSeq: 1,
+      challenges,
+      settings: { ...message().settings, themeMode: "own", maxVisible: 3 },
+      event: { scope: "challenge", type: "progressed", challengeId: "target", delta: 1, previousCount: 3, currentCount: 4 },
+    }));
+
+    expect(document.querySelector('[data-challenge-id="target"]')).toHaveAttribute("data-ceremony-target", "true");
+    expect(document.querySelectorAll('.challenge-source__row[data-state="pending"]')).toHaveLength(3);
+    expect(screen.queryByText("+1 weitere")).not.toBeInTheDocument();
   });
 
   it("blendet das Log bei Parse-Fehlern aus und zeigt es bei der nächsten gültigen Nachricht wieder", async () => {

@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from "react";
 
 import type { ChallengeUpdate } from "../shared/contracts/win-challenges";
 import { OVERLAY_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
-import { ChallengeLog } from "../modules/win-challenges/ui/ChallengeLog";
+import { ChallengeLog, type ChallengeLogCeremonyTarget } from "../modules/win-challenges/ui/ChallengeLog";
 import "./challenge-source.css";
+import { createCeremonyAudioPolicy, type CeremonyAudioPolicy } from "./audio";
+import { ceremonyFor, type ChallengeCeremony } from "./ceremonies";
 import {
   accountForChallengeUpdate,
   parseChallengeMessage,
@@ -12,6 +14,26 @@ import {
 import { loadChallengeTheme, type ChallengeThemeLoader } from "./theme-loader";
 
 const RETRY_BASE_MS = 750;
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+
+const readPrefersReducedMotion = (): boolean =>
+  typeof window !== "undefined" && typeof window.matchMedia === "function"
+    ? window.matchMedia(REDUCED_MOTION_QUERY).matches
+    : false;
+
+const usePrefersReducedMotion = (): boolean => {
+  const [reducedMotion, setReducedMotion] = useState(readPrefersReducedMotion);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia(REDUCED_MOTION_QUERY);
+    const onChange = (event: MediaQueryListEvent) => setReducedMotion(event.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+
+  return reducedMotion;
+};
 
 type ThemeLoadState = "idle" | "ready" | "failed";
 
@@ -29,6 +51,10 @@ export const ChallengeSourceApp = ({ loadTheme = loadChallengeTheme }: Challenge
   });
   const lastSeenRef = useRef(-1);
   const themeRequestRef = useRef(0);
+  const ceremonyTimerRef = useRef<number | null>(null);
+  const audioPolicyRef = useRef<CeremonyAudioPolicy | null>(null);
+  const [activeCeremony, setActiveCeremony] = useState<(ChallengeCeremony & { eventSeq: number }) | null>(null);
+  const reducedMotion = usePrefersReducedMotion();
 
   const themeMode = update?.settings.themeMode ?? null;
   const themeId = update?.settings.themeId ?? null;
@@ -60,6 +86,16 @@ export const ChallengeSourceApp = ({ loadTheme = loadChallengeTheme }: Challenge
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const policy = createCeremonyAudioPolicy();
+    audioPolicyRef.current = policy;
+    policy.preload();
+    return () => {
+      policy.stop();
+      if (audioPolicyRef.current === policy) audioPolicyRef.current = null;
+    };
   }, []);
 
   useEffect(() => {
@@ -108,6 +144,32 @@ export const ChallengeSourceApp = ({ loadTheme = loadChallengeTheme }: Challenge
         // Schritt 13 hängt die Zeremonie an `ceremony.shouldFire` ein. Die
         // lastSeen-Buchführung läuft schon jetzt, damit dort nur noch der
         // Effekt fehlt und nicht die Regel, wann er feuern darf.
+        if (!parsed.settings.effectsEnabled) {
+          setActiveCeremony(null);
+          if (ceremonyTimerRef.current !== null) {
+            window.clearTimeout(ceremonyTimerRef.current);
+            ceremonyTimerRef.current = null;
+          }
+          audioPolicyRef.current?.stop();
+        } else if (ceremony.shouldFire && parsed.event !== null) {
+          const nextCeremony = ceremonyFor(parsed.settings.styleId, parsed.event);
+          if (nextCeremony !== null) {
+            const eventSeq = parsed.eventSeq;
+            setActiveCeremony({ ...nextCeremony, eventSeq });
+            audioPolicyRef.current?.play(nextCeremony.sound);
+            if (ceremonyTimerRef.current !== null) window.clearTimeout(ceremonyTimerRef.current);
+            ceremonyTimerRef.current = window.setTimeout(() => {
+              setActiveCeremony((current) => current?.eventSeq === eventSeq ? null : current);
+              ceremonyTimerRef.current = null;
+            }, nextCeremony.durationMs);
+          } else {
+            setActiveCeremony(null);
+            if (ceremonyTimerRef.current !== null) {
+              window.clearTimeout(ceremonyTimerRef.current);
+              ceremonyTimerRef.current = null;
+            }
+          }
+        }
         setUpdate(parsed);
       });
       socket.addEventListener("close", () => {
@@ -123,6 +185,7 @@ export const ChallengeSourceApp = ({ loadTheme = loadChallengeTheme }: Challenge
     return () => {
       disposed = true;
       if (retryTimer !== null) window.clearTimeout(retryTimer);
+      if (ceremonyTimerRef.current !== null) window.clearTimeout(ceremonyTimerRef.current);
       socket?.close();
     };
   }, []);
@@ -134,5 +197,16 @@ export const ChallengeSourceApp = ({ loadTheme = loadChallengeTheme }: Challenge
     (themeLoadState.key === themeKey && themeLoadState.state === "ready")
   );
   if (!themeReady) return null;
-  return <ChallengeLog now={now} update={update} />;
+  const ceremonyTarget: ChallengeLogCeremonyTarget | null = activeCeremony?.target ?? null;
+  return (
+    <div
+      key={activeCeremony?.eventSeq ?? "idle"}
+      className="challenge-source-ceremony"
+      data-ceremony-event={activeCeremony?.eventType}
+      data-ceremony-motion={activeCeremony === null ? undefined : reducedMotion ? "static" : "animated"}
+      data-ceremony-type={activeCeremony?.visual}
+    >
+      <ChallengeLog ceremonyTarget={ceremonyTarget} now={now} update={update} />
+    </div>
+  );
 };

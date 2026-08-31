@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -9,6 +9,7 @@ import {
   twitchUserIdSchema,
 } from "../../../src/shared/contracts/state";
 import type { ChallengeBoardSnapshot } from "../../../src/modules/win-challenges/contracts/schemas";
+import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
 import { AdminWorkspace, type AdminApi } from "../../../src/admin/AdminWorkspace";
 
 const actor = { twitchUserId: twitchUserIdSchema.parse("123"), displayName: "Moderator" };
@@ -110,6 +111,138 @@ describe("Admin workspace shell", () => {
     expect(document.querySelector(".editor-rail")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "HUD" })).toHaveAttribute("href", "/admin");
     expect(screen.getByRole("link", { name: "Challenges" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("macht den globalen Zeremonie-Schalter bedienbar und speichert ihn", async () => {
+    const user = userEvent.setup();
+    const challengeSnapshot: ChallengeBoardSnapshot = {
+      eventSeq: 0,
+      boardRevision: 1,
+      settingsRevision: 3,
+      settings: {
+        styleId: "plain-list",
+        themeMode: "inherit",
+        surfaceMode: "surface",
+        headerTitle: "CHALLENGES",
+        effectsEnabled: true,
+        maxVisible: 5,
+        globalTimer: null,
+      },
+      challenges: [],
+    };
+    const saveChallengeSettings = vi.fn(() => Promise.resolve({ snapshot: challengeSnapshot }));
+    const api = {
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      getChallengeBoard: vi.fn(() => Promise.resolve(challengeSnapshot)),
+      saveChallengeBoard: vi.fn(),
+      saveChallengeSettings,
+    };
+
+    render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="challenges" />);
+
+    const toggle = await screen.findByRole("checkbox", { name: "Zeremonien und Töne aktiv" });
+    expect(toggle).toBeChecked();
+    await user.click(toggle);
+    await user.click(screen.getByRole("button", { name: "Challenge-Einstellungen speichern" }));
+
+    expect(saveChallengeSettings).toHaveBeenCalledWith(expect.objectContaining({
+      baseSettingsRevision: 3,
+      effectsEnabled: false,
+    }));
+  });
+
+  it("übernimmt geänderte Settings aus dem Live-Update des Boards", async () => {
+    let onChallengeUpdate: ((update: ChallengeUpdate) => void) | undefined;
+    const challengeSnapshot: ChallengeBoardSnapshot = {
+      eventSeq: 0,
+      boardRevision: 1,
+      settingsRevision: 3,
+      settings: {
+        styleId: "plain-list",
+        themeMode: "inherit",
+        surfaceMode: "surface",
+        headerTitle: "CHALLENGES",
+        effectsEnabled: true,
+        maxVisible: 5,
+        globalTimer: null,
+      },
+      challenges: [],
+    };
+    const api: AdminApi = {
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      getChallengeBoard: vi.fn(() => Promise.resolve(challengeSnapshot)),
+      saveChallengeBoard: vi.fn(),
+      saveChallengeSettings: vi.fn(),
+      subscribe: (callbacks) => {
+        onChallengeUpdate = callbacks.onChallengeUpdate;
+        return () => undefined;
+      },
+    };
+
+    render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="challenges" />);
+    const toggle = await screen.findByRole("checkbox", { name: "Zeremonien und Töne aktiv" });
+
+    act(() => {
+      onChallengeUpdate?.({
+        eventSeq: 1,
+        boardRevision: 2,
+        settingsRevision: 4,
+        settings: { ...challengeSnapshot.settings, themeId: "trail-wood", effectsEnabled: false },
+        challenges: [],
+        event: null,
+      });
+    });
+
+    await waitFor(() => expect(toggle).not.toBeChecked());
+  });
+
+  it("übernimmt bei einem Settings-Konflikt den aktuellen Serverstand für den nächsten Versuch", async () => {
+    const user = userEvent.setup();
+    const challengeSnapshot: ChallengeBoardSnapshot = {
+      eventSeq: 0,
+      boardRevision: 1,
+      settingsRevision: 3,
+      settings: {
+        styleId: "plain-list",
+        themeMode: "inherit",
+        surfaceMode: "surface",
+        headerTitle: "CHALLENGES",
+        effectsEnabled: true,
+        maxVisible: 5,
+        globalTimer: null,
+      },
+      challenges: [],
+    };
+    const currentSnapshot = {
+      ...challengeSnapshot,
+      settingsRevision: 4,
+      settings: { ...challengeSnapshot.settings, effectsEnabled: true },
+    };
+    const saveChallengeSettings = vi.fn()
+      .mockRejectedValueOnce({ code: "revision_conflict", currentSnapshot })
+      .mockResolvedValueOnce({ snapshot: { ...currentSnapshot, settingsRevision: 5, settings: { ...currentSnapshot.settings, effectsEnabled: false } } });
+    const api = {
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      getChallengeBoard: vi.fn(() => Promise.resolve(challengeSnapshot)),
+      saveChallengeBoard: vi.fn(),
+      saveChallengeSettings,
+    };
+
+    render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="challenges" />);
+
+    const toggle = await screen.findByRole("checkbox", { name: "Zeremonien und Töne aktiv" });
+    await user.click(toggle);
+    await user.click(screen.getByRole("button", { name: "Challenge-Einstellungen speichern" }));
+    expect(await screen.findByText(/Serverstand ist übernommen/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Challenge-Einstellungen speichern" }));
+    expect(saveChallengeSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      baseSettingsRevision: 4,
+      effectsEnabled: false,
+    }));
   });
 });
 

@@ -491,6 +491,45 @@
   50% { opacity: 0.62; }
 }
 
+/* Die Quelle liefert nur neutrale Zielattribute; die Zeremonien bleiben Host-CSS. */
+.challenge-source-ceremony {
+  display: contents;
+}
+
+.challenge-source-ceremony[data-ceremony-motion="animated"][data-ceremony-type="progressed"]
+  [data-ceremony-target="true"] .challenge-source__count {
+  display: inline-block;
+  animation: challenge-ceremony-count-flash 360ms ease-out;
+}
+
+.challenge-source-ceremony[data-ceremony-motion="animated"][data-ceremony-type="completed"]
+  [data-ceremony-target="true"] .challenge-source__mark {
+  display: inline-block;
+  animation: challenge-ceremony-check 520ms cubic-bezier(0.2, 1.5, 0.4, 1);
+}
+
+.challenge-source-ceremony[data-ceremony-motion="animated"][data-ceremony-type="quiet"]
+  [data-ceremony-target="true"] {
+  animation: challenge-ceremony-quiet 260ms ease-out;
+}
+
+@keyframes challenge-ceremony-count-flash {
+  0% { opacity: 0.4; transform: scale(0.92); }
+  45% { opacity: 1; transform: scale(1.12); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes challenge-ceremony-check {
+  0% { opacity: 0.4; transform: scale(0.7) rotate(-12deg); }
+  65% { opacity: 1; transform: scale(1.25) rotate(4deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0); }
+}
+
+@keyframes challenge-ceremony-quiet {
+  0% { opacity: 0.72; transform: translateX(-3px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   :is(
     .challenge-source[data-style="plain-list"],
@@ -498,6 +537,13 @@
     .challenge-source[data-style="plain-numbered"],
     .challenge-source[data-style="quest-log"]
   ) .challenge-source__timer--critical {
+    animation: none;
+  }
+
+  /* Die Zustandsänderung bleibt als Text, Häkchen und Durchstreichung sichtbar. */
+  .challenge-source-ceremony[data-ceremony-motion="animated"] [data-ceremony-target="true"],
+  .challenge-source-ceremony[data-ceremony-motion="animated"] [data-ceremony-target="true"] .challenge-source__count,
+  .challenge-source-ceremony[data-ceremony-motion="animated"] [data-ceremony-target="true"] .challenge-source__mark {
     animation: none;
   }
 }

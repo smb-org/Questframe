@@ -486,7 +486,9 @@ kurzes Nachladen beim Stylewechsel, abgesichert durch das Render-Gate.
    gemeinsame Basis, die Brücke und, bei `themeMode: "inherit"`, die ausgewählte
    HUD-Theme-CSS. Sonst ist es wieder schöngerechnet.
 3. **Audio in den Transfer-Zähler.** Er zählt heute nur JS, CSS und HUD-Medien
-   (`check-build-budgets.mjs:87`).
+   (`check-build-budgets.mjs:87`). Zusätzlich prüft der Budgetbericht alle Tondateien
+   zusammen in einer eigenen Zeile auf höchstens **128 KiB**, damit Audiozuwachs nicht im
+   gemeinsamen Transferwert unsichtbar wird.
 
 **Audio:** Sound-Dateien liegen unter `public/` und landen über den Vite-Build in
 `dist/client`, das als Static-Asset-Verzeichnis gebunden ist (`wrangler.jsonc:9`). Sie
@@ -494,8 +496,9 @@ zählen nicht ins Worker-Skript, und statische Asset-Requests sind kostenlos, so
 nicht über `run_worker_first` laufen (das trifft nur `/api/*`, `/auth/*`, `/ws/*`,
 `/healthz`).
 
-**Das Transfer-Gate muss erweitert werden.** Es zählt heute nur JS, CSS und HUD-Medien
-(`scripts/check-build-budgets.mjs:87`); Audio läuft ungeprüft durch.
+**Das Transfer-Gate zählt Audio mit.** Die Audiozeile im Budgetbericht prüft zusätzlich
+alle Tondateien unter `dist/client/assets/sounds/` zusammen gegen das feste Limit von
+**128 KiB**. Der Challenge-Transfer bleibt zugleich auf **512 KiB** begrenzt.
 
 ### Admin wird zur Shell
 
@@ -759,7 +762,9 @@ leer.
 - **Sortieren im Board** funktioniert zusätzlich per Pfeiltasten mit sichtbarem Fokus,
   nicht nur per Ziehen mit der Maus.
 - **Touch-Ziele** 44 px für `+` und `−`, 38 px für alles Übrige.
-- `prefers-reduced-motion` entfernt Einblenden, Puls und Zeremonie.
+- `prefers-reduced-motion` entfernt die Bewegung der Zeremonie; die Zustandsänderung bleibt
+  über Text, Häkchen, Durchstreichung oder den aktualisierten Zähler erkennbar. Ton bleibt
+  aktiv, solange `effects_enabled` aktiv ist, weil reduzierte Bewegung nichts über Ton aussagt.
 
 ### Einrichtungsseite
 
@@ -962,7 +967,6 @@ Testdateien nach bestehender Konvention: `tests/unit/domain/`, `tests/unit/contr
 
 ## Open Questions
 
-- **Audio-Maximalgröße** für das erweiterte Transfer-Gate.
 - **Zweiter Konsument:** Solange keiner benannt ist, bleibt die Modul-Grenze eine begründete
   Vermutung.
 

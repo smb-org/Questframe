@@ -135,6 +135,10 @@ in der Rahmenöffnung; das Asset braucht daher keinen Alphaausschnitt.
 - Effekt hinzufügen/bearbeiten öffnet ein fokussiertes Flyover; es verschiebt das Arbeitsraster nicht. Escape, Backdrop und Schließen beenden es kontrolliert.
 - Übergänge liegen üblicherweise bei `160–240 ms`. Kritische HP pulsiert langsam (`1.35 s`) und ohne Flackern. Derselbe Puls gilt für einen globalen Challenge-Timer mit weniger als einer Minute Restzeit; dafür gibt es keine zweite Animationsdauer.
 - Bei `prefers-reduced-motion: reduce` entfallen nicht notwendige Animationen und Übergänge.
+  Bei Challenge-Zeremonien entfällt nur die Bewegung; die Zustandsänderung bleibt über den
+  aktualisierten Zähler, Häkchen, Durchstreichung oder ein Symbol erkennbar. Ton bleibt
+  aktiv, solange der globale `effects_enabled`-Schalter aktiv ist, weil reduzierte Bewegung
+  nichts über Ton aussagt.
 
 ## Responsive Regeln
 
