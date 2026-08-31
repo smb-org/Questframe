@@ -31,6 +31,12 @@ import {
 
 export type ChallengeMessage = ChallengeUpdate | { type: "token_revoked" };
 
+export const tokenFromLocation = (): string | null => {
+  const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const token = params.get("token");
+  return token !== null && /^[A-Za-z0-9_-]{43}$/.test(token) ? token : null;
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 

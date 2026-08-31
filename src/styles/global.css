@@ -19,47 +19,6 @@ html[data-surface="challenges"] #root {
   background: transparent !important;
 }
 
-.surface-placeholder {
-  box-sizing: border-box;
-  color: #f7f2e6;
-  font-family: "Atkinson Hyperlegible Next", sans-serif;
-}
-
-.surface-placeholder h1,
-.surface-placeholder p {
-  margin: 0;
-}
-
-.surface-placeholder__eyebrow {
-  color: #f0ca78;
-  font-size: 12px;
-  font-weight: 750;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.live-placeholder h1 {
-  margin-top: 4px;
-  font-family: Georgia, serif;
-  font-size: 22px;
-}
-
-.live-placeholder p:last-child {
-  margin-top: 8px;
-  color: #aab4b9;
-  line-height: 1.45;
-}
-
-.live-placeholder {
-  min-height: 100vh;
-  display: grid;
-  align-content: center;
-  justify-items: start;
-  gap: 4px;
-  padding: 24px;
-  background: #0d1013;
-}
-
 .login-page {
   min-height: 100vh;
   display: grid;

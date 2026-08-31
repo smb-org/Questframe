@@ -97,6 +97,11 @@
   color: var(--wc-muted);
 }
 
+.challenge-source__timer--expired {
+  color: var(--wc-critical);
+  animation: none;
+}
+
 .challenge-source__timer--critical {
   color: var(--wc-critical);
   animation: challenge-source-pulse 1.35s ease-in-out infinite;

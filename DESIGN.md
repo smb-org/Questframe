@@ -76,6 +76,16 @@ Symbol codiert. Konflikte und Merge-Folgen stehen oberhalb der Save-Aktion und b
 Das Levelmedaillon ist ein Geschwisterelement von Portrait und Body. Es darf niemals Kind des
 geclippten Portraits sein, sonst wird die Zahl beschnitten.
 
+### Challenge-Browserquellen
+
+Das Challenges-Log ist eine eigene Browserquelle unter `/overlay/challenges`. Es berührt den
+`630 × 259 px`-Geometrievertrag des HUDs nicht und verwendet seinen eigenen `--wc-*`-Tokenvertrag.
+`themeMode: inherit` mappt diese Tokens im eigenen Dokument auf die geladenen `--hud-*`-Werte;
+`surface` garantiert Lesbarkeit, `bare` ist der kontrastreiche Fallback ohne Flächengarantie.
+Die Live-Bedienseite unter `/live/challenges` ist keine Ausgabequelle, sondern eine per
+Dock-Token authentifizierte Bedienfläche. Beide Interaktionsflächen übernehmen dieselben
+Touch-Ziele: `44 px` für `+` und `−`, `38 px` für alle übrigen Steuerelemente.
+
 ## Varianten
 
 Es gibt sechs Unitframe-Varianten. Drei tragen generierte Rahmengrafik, drei sind rein aus CSS gebaut.
@@ -114,7 +124,7 @@ in der Rahmenöffnung; das Asset braucht daher keinen Alphaausschnitt.
 - Slider und Felder ändern ausschließlich den lokalen Entwurf. Nur **Änderungen speichern** publiziert atomar.
 - Der Sichtbarkeitsschalter ist eine eigene sofortige Aktion und bleibt mobil erreichbar.
 - Effekt hinzufügen/bearbeiten öffnet ein fokussiertes Flyover; es verschiebt das Arbeitsraster nicht. Escape, Backdrop und Schließen beenden es kontrolliert.
-- Übergänge liegen üblicherweise bei `160–240 ms`. Kritische HP pulsiert langsam (`1.35 s`) und ohne Flackern.
+- Übergänge liegen üblicherweise bei `160–240 ms`. Kritische HP pulsiert langsam (`1.35 s`) und ohne Flackern. Derselbe Puls gilt für einen globalen Challenge-Timer mit weniger als einer Minute Restzeit; dafür gibt es keine zweite Animationsdauer.
 - Bei `prefers-reduced-motion: reduce` entfallen nicht notwendige Animationen und Übergänge.
 
 ## Responsive Regeln
