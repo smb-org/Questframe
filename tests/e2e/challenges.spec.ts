@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
 type EditorBootstrap = {
   capsule: {
@@ -14,6 +14,10 @@ type ChallengeSnapshot = {
 
 type ChallengeSourceWindow = Window & {
   e2eChallengeSocket?: WebSocket;
+};
+
+type ChallengeTestWindow = Window & {
+  e2eSockets?: Set<WebSocket>;
 };
 
 const loginAsLocalEditor = async (page: Page) => {
@@ -117,9 +121,57 @@ const challengeRow = (page: Page, title: string) =>
   page.locator(".challenge-source__row").filter({ hasText: title });
 
 const disposePage = async (page: Page): Promise<void> => {
-  await page.goto("about:blank");
-  await page.close();
+  if (page.isClosed()) return;
+  try {
+    await page.goto("about:blank", { waitUntil: "commit", timeout: 5_000 });
+  } catch {
+    // Auch wenn die Navigation scheitert, muss die Seite geschlossen werden.
+  }
+  if (!page.isClosed()) await page.close().catch(() => undefined);
 };
+
+const disposeContextPages = async (context: BrowserContext): Promise<void> => {
+  await Promise.all(context.pages().map(disposePage));
+};
+
+test.beforeEach(async ({ context }) => {
+  await context.addInitScript(() => {
+    const originalWebSocket = window.WebSocket;
+    const sockets = new Set<WebSocket>();
+    const immediateCloses = new WeakMap<WebSocket, () => void>();
+    const trackedWebSocket = function (this: WebSocket, url: string | URL, protocols?: string | string[]) {
+      const socket = new originalWebSocket(url, protocols);
+      sockets.add(socket);
+      const closeSocket = socket.close.bind(socket);
+      immediateCloses.set(socket, closeSocket);
+      socket.close = (...args) => {
+        if (socket.readyState === WebSocket.CONNECTING) {
+          socket.addEventListener("open", () => { closeSocket(...args); }, { once: true });
+          return;
+        }
+        closeSocket(...args);
+      };
+      socket.addEventListener("close", () => sockets.delete(socket), { once: true });
+      return socket;
+    };
+    trackedWebSocket.prototype = originalWebSocket.prototype;
+    Object.setPrototypeOf(trackedWebSocket, originalWebSocket);
+    (window as ChallengeTestWindow).e2eSockets = sockets;
+    window.addEventListener("pagehide", () => {
+      for (const socket of sockets) immediateCloses.get(socket)?.();
+    }, { once: true });
+    window.WebSocket = trackedWebSocket as unknown as typeof WebSocket;
+  });
+});
+
+// Auch nach einem fehlgeschlagenen Test muessen alle Seiten und ihre Sockets geschlossen sein.
+test.afterEach(async ({ context }) => {
+  await disposeContextPages(context);
+  // Der Context beendet auch verbliebene Browser-Socket-Zustaende zuverlässig.
+  await context.close();
+  // Der lokale Worker verarbeitet den WebSocket-Close asynchron.
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+});
 
 test("eine neue Board-Challenge erscheint in der Challenge-Quelle", async ({ page, context }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-desktop", "Desktop-Challenge-Quelle");
