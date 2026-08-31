@@ -28,6 +28,16 @@ import "./composite.css";
 
 const COMPOSITE_WATCHDOG_MARKER = "irl-stream-hud:composite-watchdog-reload-at";
 const COMPOSITE_WATCHDOG_DELAY_MS = 1_000;
+// Schwelle für ein dauerhaft kaputtes Einzelmodul: scheitert ein Modul seit
+// seinem ersten Fehlschlag ohne zwischenzeitliche erfolgreiche Nachricht länger
+// als diese Zeitspanne, löst es allein einen Reload aus (das AND-Gate unten
+// verlangt sonst, dass BEIDE Module gleichzeitig kaputt sind). 20s liegen
+// bewusst über der üblichen Reconnect-Dauer (Backoff startet bei 750ms und
+// deckt kurze Verbindungsrucker meist binnen weniger Sekunden ab), damit ein
+// einzelner kaputter Frame oder ein kurzer Aussetzer nicht sofort einen Reload
+// auslöst — aber deutlich unter der Größenordnung, in der ein still verschwundenes
+// Modul (z.B. nach einem Deploy mit inkompatiblem State-Schema) unbemerkt bliebe.
+const COMPOSITE_WATCHDOG_SUSTAINED_MS = 20_000;
 const PARSE_RELOAD_COOLDOWN_MS = 5 * 60 * 1_000;
 
 const clearWatchdogTimer = (timerRef: { current: number | null }): void => {
@@ -52,6 +62,10 @@ export const CompositeApp = ({
   // wird im Render gebraucht, solange noch kein HUD-Zustand geparst wurde.
   const [lastKnownChallengesVisible, setLastKnownChallengesVisible] = useState(true);
   const watchdogTimerRef = useRef<number | null>(null);
+  // Je Modul ein eigener Timer für den Sustained-Failure-Pfad (siehe
+  // COMPOSITE_WATCHDOG_SUSTAINED_MS): läuft parallel zum AND-Gate-Timer oben.
+  const hudSustainedTimerRef = useRef<number | null>(null);
+  const challengeSustainedTimerRef = useRef<number | null>(null);
   const token = useMemo(() => tokenFromLocation(), []);
   const capsuleScope = window.location.host;
   const mediaUrls = useOverlayMediaUrls(hudState, token);
@@ -64,6 +78,8 @@ export const CompositeApp = ({
 
   useEffect(() => () => {
     clearWatchdogTimer(watchdogTimerRef);
+    clearWatchdogTimer(hudSustainedTimerRef);
+    clearWatchdogTimer(challengeSustainedTimerRef);
   }, []);
 
   useEffect(() => {
@@ -74,6 +90,9 @@ export const CompositeApp = ({
     let retry = 0;
     let fingerprint = "";
     let revoked = false;
+
+    const parseFailedRefs = { hud: hudParseFailedRef, challenges: challengeParseFailedRef };
+    const sustainedTimerRefs = { hud: hudSustainedTimerRef, challenges: challengeSustainedTimerRef };
 
     const scheduleWatchdog = () => {
       if (
@@ -97,21 +116,35 @@ export const CompositeApp = ({
       }, COMPOSITE_WATCHDOG_DELAY_MS);
     };
 
+    // Sustained-Failure-Pfad: startet nur beim ERSTEN Fehlschlag einer Serie
+    // (Timer läuft bereits -> kein Reset durch weitere Fehlschläge desselben
+    // Moduls). Erholt sich das Modul, bricht recover() den Timer ab; die Uhr
+    // zählt erst beim nächsten Fehlschlag neu.
+    const scheduleSustainedWatchdog = (module: "hud" | "challenges") => {
+      const timerRef = sustainedTimerRefs[module];
+      if (disposed || timerRef.current !== null) return;
+      timerRef.current = window.setTimeout(() => {
+        timerRef.current = null;
+        if (
+          disposed
+          || revoked
+          || !parseFailedRefs[module].current
+          || hasWatchdogReloadMarker(COMPOSITE_WATCHDOG_MARKER, PARSE_RELOAD_COOLDOWN_MS)
+          || !markWatchdogReload(COMPOSITE_WATCHDOG_MARKER)
+        ) return;
+        reloadPage();
+      }, COMPOSITE_WATCHDOG_SUSTAINED_MS);
+    };
+
     const fail = (module: "hud" | "challenges") => {
-      if (module === "hud") {
-        hudParseFailedRef.current = true;
-      } else {
-        challengeParseFailedRef.current = true;
-      }
+      parseFailedRefs[module].current = true;
       scheduleWatchdog();
+      scheduleSustainedWatchdog(module);
     };
 
     const recover = (module: "hud" | "challenges") => {
-      if (module === "hud") {
-        hudParseFailedRef.current = false;
-      } else {
-        challengeParseFailedRef.current = false;
-      }
+      parseFailedRefs[module].current = false;
+      clearWatchdogTimer(sustainedTimerRefs[module]);
       if (!hudParseFailedRef.current && !challengeParseFailedRef.current) {
         clearWatchdogReloadMarker(COMPOSITE_WATCHDOG_MARKER);
       }
@@ -129,6 +162,8 @@ export const CompositeApp = ({
         hudParseFailedRef.current = false;
         challengeParseFailedRef.current = false;
         clearWatchdogTimer(watchdogTimerRef);
+        clearWatchdogTimer(hudSustainedTimerRef);
+        clearWatchdogTimer(challengeSustainedTimerRef);
       });
       socket.addEventListener("message", (event) => {
         if (typeof event.data !== "string") return;
@@ -211,6 +246,8 @@ export const CompositeApp = ({
       disposed = true;
       if (retryTimer !== null) window.clearTimeout(retryTimer);
       clearWatchdogTimer(watchdogTimerRef);
+      clearWatchdogTimer(hudSustainedTimerRef);
+      clearWatchdogTimer(challengeSustainedTimerRef);
       socket?.close();
     };
   }, [acceptUpdate, capsuleScope, reloadPage, setEffectsEnabled, token]);

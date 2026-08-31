@@ -3,7 +3,9 @@
 // LiveApp). Die drei Watchdog-Flächen haben BEWUSST unterschiedliche
 // Selbstheilungs-Semantik (Overlay: ein Reload-Versuch pro Störung;
 // ChallengeSourceApp: zeitstempelbasierte 5-Minuten-Sperre; CompositeApp:
-// Reload nur wenn beide Module unparsbar sind, ebenfalls mit 5-Minuten-Sperre).
+// Reload wenn beide Module gleichzeitig unparsbar sind ODER ein einzelnes
+// Modul dauerhaft über eine Schwelle hinweg unparsbar bleibt, ebenfalls mit
+// 5-Minuten-Sperre).
 // Dieses Modul parametrisiert nur das tatsächlich Gemeinsame — Marker-Ablage
 // und Backoff-Formel — ohne diese Unterschiede einzuebnen. Die jeweilige
 // Watchdog-Ablaufsteuerung (wann geplant, wann abgebrochen, wann zurückgesetzt)

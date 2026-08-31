@@ -281,6 +281,43 @@ describe("CompositeApp", () => {
     expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument();
   });
 
+  it("lädt allein neu, wenn nur das HUD dauerhaft kaputt ist (Challenges parsen weiter)", async () => {
+    vi.useFakeTimers();
+    const reloadPage = vi.fn();
+    render(<CompositeApp loadStyle={() => Promise.resolve()} reloadPage={reloadPage} />);
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0] as FakeWebSocket;
+    await deliver(socket, { type: "snapshot", state });
+    await deliver(socket, update);
+    await vi.waitFor(() => expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument());
+
+    // HUD bleibt dauerhaft kaputt, Challenges parsen währenddessen weiter.
+    await deliver(socket, { type: "snapshot", state: {} });
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    await deliver(socket, { ...update, eventSeq: 1 });
+    expect(reloadPage).not.toHaveBeenCalled();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(reloadPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("reloadet nicht, wenn ein einzelner Fehlschlag von einer gültigen Nachricht desselben Moduls gefolgt wird", async () => {
+    vi.useFakeTimers();
+    const reloadPage = vi.fn();
+    render(<CompositeApp loadStyle={() => Promise.resolve()} reloadPage={reloadPage} />);
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0] as FakeWebSocket;
+    await deliver(socket, { type: "snapshot", state });
+    await deliver(socket, update);
+    await vi.waitFor(() => expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument());
+
+    // Einzelner Fehlschlag des HUD, danach erholt es sich sofort wieder.
+    await deliver(socket, { type: "snapshot", state: {} });
+    await deliver(socket, { type: "snapshot", state });
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(reloadPage).not.toHaveBeenCalled();
+  });
+
   it("löscht den Watchdog-Marker erst nach der Erholung beider Module", async () => {
     vi.useFakeTimers();
     const reloadPage = vi.fn();
