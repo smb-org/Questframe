@@ -8,6 +8,10 @@ const path = window.location.pathname;
 const route = resolveRoute(path);
 document.documentElement.dataset.surface = route.surface;
 
+if (path === "/admin/composition" || path === "/admin/composition/" || path === "/admin/challenges" || path === "/admin/challenges/") {
+  window.history.replaceState(window.history.state, "", `/admin${window.location.search}${window.location.hash}`);
+}
+
 const root = document.getElementById("root");
 if (root === null) throw new Error("App root is missing");
 const reactRoot = createRoot(root);

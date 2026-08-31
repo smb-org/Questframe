@@ -36,15 +36,15 @@ import {
   type SettingsSaveRequest,
   type SettingsSaveResponse,
 } from "../modules/win-challenges/contracts/schemas";
-import { ChallengeBoard, type ChallengeBoardApi, type ChallengeBoardSubscription } from "../modules/win-challenges/ui/ChallengeBoard";
+import { ChallengeBoard, type ChallengeBoardApi } from "../modules/win-challenges/ui/ChallengeBoard";
 import { ChallengeLog } from "../modules/win-challenges/ui/ChallengeLog";
 import type { AdminWorkspace as AdminWorkspaceId } from "../routing";
 import type { ChannelState, PortraitRef } from "../shared/contracts/state";
 import { ObsSetupPanel } from "./ui/ObsSetupPanel";
-import { HudEditorRail, useHudEditorState } from "./ui/HudEditorRail";
+import { HudEditorRail, type HudEditorState, useHudEditorState } from "./ui/HudEditorRail";
 import { THEME_LABELS } from "./ui/hudConstants";
 import { PreviewPanel } from "./ui/PreviewPanel";
-import { createChallengeObsSources, type DockTokenStatus } from "./ui/obsSetup";
+import { createChallengeObsSources } from "./ui/obsSetup";
 import { PIXELS_PER_HUD_UNIT, PIXELS_PER_RASTER_UNIT, stagePixelsToRaster } from "./ui/placement";
 import "./admin.css";
 
@@ -65,16 +65,6 @@ export type AdminApi = {
   subscribe?: ((callbacks: { onState: (state: ChannelState) => void; onOnlineChange: (online: boolean) => void; onOverlayPresence: (connectedSockets: number) => void; onAudit: (entry: AuditEntry, undoTargets: UndoTarget[]) => void; onUndoTargets: (undoTargets: UndoTarget[]) => void; onChallengeUpdate?: (update: ChallengeUpdate) => void }) => () => void) | undefined;
   logout?: (() => Promise<void>) | undefined;
 };
-
-const emptyDockTokenStatus = (): DockTokenStatus => ({ exists: false, generation: 0, fingerprint: null, createdAt: null, lastUsedAt: null, connectedSockets: 0, token: null });
-
-const WorkspaceSwitcher = ({ current }: { current: AdminWorkspaceId }) => (
-  <nav aria-label="Workspace" className="workspace-switcher">
-    <a aria-current={current === "hud" ? "page" : undefined} className={current === "hud" ? "is-active" : ""} href="/admin">HUD</a>
-    <a aria-current={current === "composition" ? "page" : undefined} className={current === "composition" ? "is-active" : ""} href="/admin/composition">Komposition</a>
-    <a aria-current={current === "challenges" ? "page" : undefined} className={current === "challenges" ? "is-active" : ""} href="/admin/challenges">Challenges</a>
-  </nav>
-);
 
 const sameChallengePlacement = (left: ChallengePlacement | null, right: ChallengePlacement): boolean => left !== null && left.x === right.x && left.y === right.y && left.scale === right.scale;
 
@@ -186,53 +176,74 @@ const channelIdentity = (initialBootstrap: BootstrapResponse) => {
   return <div className="channel-identity"><span className="eyebrow">Twitch-Kanal</span><div><strong title={channel.displayName}>{channel.displayName}</strong>{handle !== null && <small>{handle}</small>}</div></div>;
 };
 
-const HudAdminWorkspace = ({ initialBootstrap, api }: { initialBootstrap: BootstrapResponse; api: AdminApi }) => {
-  const state = useHudEditorState({ initialBootstrap, api });
+const AdminTopbar = ({ initialBootstrap, api, state }: { initialBootstrap: BootstrapResponse; api: AdminApi; state: HudEditorState }) => (
+  <header className="admin-topbar">
+    <div className="brand-block"><span className="brand-mark"><Activity size={19} /></span><div><strong>{initialBootstrap.capsule.name}</strong><span>Live-Regie</span></div></div>
+    <div className="topbar-status">
+      <div aria-label={state.obsConnectionDescription} className={`obs-chip ${state.obsChipState}`} role="group" title={state.obsConnectionDescription}>
+        <i aria-hidden="true" /><Radio aria-hidden="true" size={14} /><span className="obs-chip-label">OBS</span><span className="obs-chip-connection">{state.obsConnectionLabel}</span>
+        {state.obsTokenUnavailable && <span className="sr-only" id="obs-link-unavailable-help">Dieser alte Token ist nicht wiederherstellbar. Bitte einen neuen Token erzeugen.</span>}
+        <button aria-label="OBS-Link kopieren" aria-describedby={state.obsTokenUnavailable ? "obs-link-unavailable-help" : undefined} aria-disabled={state.obsTokenUnavailable ? "true" : undefined} className="obs-chip-action" disabled={state.obsUrl === "" && !state.obsTokenUnavailable} onClick={() => void state.copyHeaderObsUrl()} title={state.obsLinkCopied ? "Kopiert" : state.obsTokenUnavailable ? "Dieser alte Token ist nicht wiederherstellbar. Bitte einen neuen Token erzeugen." : state.obsUrl === "" ? "OBS-Link noch nicht erzeugt." : "OBS-Link kopieren"} type="button">{state.obsLinkCopied ? <Check size={14} /> : <Copy size={14} />}</button>
+        <button aria-label={state.overlayToken.exists ? "Neuen Token erzeugen" : "OBS-Link erzeugen"} className="obs-chip-action" disabled={!state.online} onClick={() => void state.mutateToken(state.overlayToken.exists)} title={state.overlayToken.exists ? "Neuen Token erzeugen" : "OBS-Link erzeugen"} type="button">{state.overlayToken.exists ? <RotateCw aria-hidden="true" size={14} /> : <Plus aria-hidden="true" size={15} />}</button>
+        <button aria-controls="admin-obs-setup" aria-expanded={state.obsSetupOpen} aria-label={state.obsSetupOpen ? "OBS-Einrichtung schließen" : "OBS-Einrichtung öffnen"} className="obs-chip-action" onClick={() => state.setObsSetupOpen((current) => !current)} title={state.obsSetupOpen ? "Einrichtung schließen" : "Einrichtung"} type="button"><Settings2 size={14} /></button>
+      </div>
+      <span className="revision-pill">Rev. {state.committed.revision}</span>
+    </div>
+    {channelIdentity(initialBootstrap)}
+    <button aria-checked={state.committed.overlayEnabled} aria-label="Overlay aktiv" className={`overlay-switch ${state.committed.overlayEnabled ? "is-on" : "is-off"}`} disabled={state.visibilityBusy || !state.online} onClick={() => void state.toggleVisibility()} role="switch" type="button">{state.committed.overlayEnabled ? <Eye size={17} /> : <EyeOff size={17} />}<span>{state.committed.overlayEnabled ? "Overlay aktiv" : "Overlay aus"}</span><i aria-hidden="true" /></button>
+    <div className="editor-identity"><span>{initialBootstrap.editor.displayName}</span><small>Editor</small></div>
+    {api.logout !== undefined && <button aria-label="Abmelden" className="icon-button logout-button" onClick={() => { void api.logout?.().then(() => window.location.assign("/login")); }} title="Abmelden" type="button"><LogOut size={16} /></button>}
+  </header>
+);
+
+const AuditRail = ({ initialBootstrap, state }: { initialBootstrap: BootstrapResponse; state: HudEditorState }) => (
+  <aside className={`audit-rail ${state.auditOpen ? "is-open" : "is-collapsed"}`}>
+    <button aria-controls="audit-log" aria-expanded={state.auditOpen} className="rail-heading" onClick={state.toggleAudit} type="button"><Clock3 aria-hidden="true" size={15} /><span>Änderungen</span>{state.newAuditCount > 0 && <span aria-label={`${String(state.newAuditCount)} neue Einträge`} className="audit-new-badge">{state.newAuditCount}</span>}<ChevronDown aria-hidden="true" className="audit-chevron" size={15} /></button>
+    {state.auditOpen && <div id="audit-log" className="audit-rail-content"><div className="audit-list">{state.audit.length === 0 ? <p className="empty-copy">Noch keine veröffentlichten Änderungen.</p> : state.audit.map((entry) => <article className="audit-entry" key={entry.id}><span className="audit-dot" /><div><strong>{entry.actor.displayName}</strong><p>{entry.summary}</p><time>{new Date(entry.createdAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}</time></div></article>)}</div>{initialBootstrap.capabilities.undo && state.undoTargets.length > 0 && <details className="undo-disclosure"><summary><Undo2 size={14} /> Rückgängig</summary>{state.undoTargets.slice(0, 6).map((target) => <button key={target.revision} onClick={() => void state.undo(target.revision)} type="button">Rev. {target.revision}<span>{target.summary}</span></button>)}</details>}</div>}
+  </aside>
+);
+
+const AdminTabs = ({ activeTab, onChange }: { activeTab: AdminWorkspaceId; onChange: (tab: AdminWorkspaceId) => void }) => {
+  const tabRefs = useRef<Record<AdminWorkspaceId, HTMLButtonElement | null>>({ hud: null, challenges: null });
+  const tabs: { id: AdminWorkspaceId; label: string }[] = [{ id: "hud", label: "HUD" }, { id: "challenges", label: "Challenges" }];
+  const moveTab = (current: AdminWorkspaceId, direction: -1 | 1) => {
+    const index = tabs.findIndex((tab) => tab.id === current);
+    const next = tabs[(index + direction + tabs.length) % tabs.length];
+    if (next === undefined) return;
+    onChange(next.id);
+    window.requestAnimationFrame(() => tabRefs.current[next.id]?.focus());
+  };
   return (
-    <div className="admin-app">
-      <header className="admin-topbar"><div className="brand-block"><span className="brand-mark"><Activity size={19} /></span><div><strong>{initialBootstrap.capsule.name}</strong><span>Live-Regie</span></div></div><div className="topbar-status"><WorkspaceSwitcher current="hud" /><div aria-label={state.obsConnectionDescription} className={`obs-chip ${state.obsChipState}`} role="group" title={state.obsConnectionDescription}><i aria-hidden="true" /><Radio aria-hidden="true" size={14} /><span className="obs-chip-label">OBS</span><span className="obs-chip-connection">{state.obsConnectionLabel}</span>{state.obsTokenUnavailable && <span className="sr-only" id="obs-link-unavailable-help">Dieser alte Token ist nicht wiederherstellbar. Bitte einen neuen Token erzeugen.</span>}<button aria-label="OBS-Link kopieren" aria-describedby={state.obsTokenUnavailable ? "obs-link-unavailable-help" : undefined} aria-disabled={state.obsTokenUnavailable ? "true" : undefined} className="obs-chip-action" disabled={state.obsUrl === "" && !state.obsTokenUnavailable} onClick={() => void state.copyHeaderObsUrl()} title={state.obsLinkCopied ? "Kopiert" : state.obsTokenUnavailable ? "Dieser alte Token ist nicht wiederherstellbar. Bitte einen neuen Token erzeugen." : state.obsUrl === "" ? "OBS-Link noch nicht erzeugt." : "OBS-Link kopieren"} type="button">{state.obsLinkCopied ? <Check size={14} /> : <Copy size={14} />}</button><button aria-label={state.overlayToken.exists ? "Neuen Token erzeugen" : "OBS-Link erzeugen"} className="obs-chip-action" disabled={!state.online} onClick={() => void state.mutateToken(state.overlayToken.exists)} title={state.overlayToken.exists ? "Neuen Token erzeugen" : "OBS-Link erzeugen"} type="button">{state.overlayToken.exists ? <RotateCw aria-hidden="true" size={14} /> : <Plus aria-hidden="true" size={15} />}</button><button aria-controls="hud-obs-setup" aria-expanded={state.obsSetupOpen} aria-label={state.obsSetupOpen ? "OBS-Einrichtung schließen" : "OBS-Einrichtung öffnen"} className="obs-chip-action" onClick={() => state.setObsSetupOpen((current) => !current)} title={state.obsSetupOpen ? "Einrichtung schließen" : "Einrichtung"} type="button"><Settings2 size={14} /></button></div><span className="revision-pill">Rev. {state.committed.revision}</span></div>{channelIdentity(initialBootstrap)}<button aria-checked={state.committed.overlayEnabled} aria-label="Overlay aktiv" className={`overlay-switch ${state.committed.overlayEnabled ? "is-on" : "is-off"}`} disabled={state.visibilityBusy || !state.online} onClick={() => void state.toggleVisibility()} role="switch" type="button">{state.committed.overlayEnabled ? <Eye size={17} /> : <EyeOff size={17} />}<span>{state.committed.overlayEnabled ? "Overlay aktiv" : "Overlay aus"}</span><i aria-hidden="true" /></button><div className="editor-identity"><span>{initialBootstrap.editor.displayName}</span><small>Editor</small></div>{api.logout !== undefined && <button aria-label="Abmelden" className="icon-button logout-button" onClick={() => { void api.logout?.().then(() => window.location.assign("/login")); }} title="Abmelden" type="button"><LogOut size={16} /></button>}</header>
-      {!state.online && <div className="offline-banner">Offline – Bearbeitung pausiert; OBS wurde nicht geändert.</div>}
-      <aside className={`audit-rail ${state.auditOpen ? "is-open" : "is-collapsed"}`}><button aria-controls="audit-log" aria-expanded={state.auditOpen} className="rail-heading" onClick={state.toggleAudit} type="button"><Clock3 aria-hidden="true" size={15} /><span>Änderungen</span>{state.newAuditCount > 0 && <span aria-label={`${String(state.newAuditCount)} neue Einträge`} className="audit-new-badge">{state.newAuditCount}</span>}<ChevronDown aria-hidden="true" className="audit-chevron" size={15} /></button>{state.auditOpen && <div id="audit-log" className="audit-rail-content"><div className="audit-list">{state.audit.length === 0 ? <p className="empty-copy">Noch keine veröffentlichten Änderungen.</p> : state.audit.map((entry) => <article className="audit-entry" key={entry.id}><span className="audit-dot" /><div><strong>{entry.actor.displayName}</strong><p>{entry.summary}</p><time>{new Date(entry.createdAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}</time></div></article>)}</div>{initialBootstrap.capabilities.undo && state.undoTargets.length > 0 && <details className="undo-disclosure"><summary><Undo2 size={14} /> Rückgängig</summary>{state.undoTargets.slice(0, 6).map((target) => <button key={target.revision} onClick={() => void state.undo(target.revision)} type="button">Rev. {target.revision}<span>{target.summary}</span></button>)}</details>}</div>}</aside>
-      <main className="admin-main">{state.obsSetupOpen && <div id="hud-obs-setup"><ObsSetupPanel api={api} dockToken={state.dockToken} online={state.online} onDockToken={state.setDockToken} onOverlayToken={state.setOverlayToken} overlayToken={state.overlayToken} sources={createChallengeObsSources(window.location.origin, state.overlayToken, state.dockToken)} /></div>}<PreviewPanel mediaUrls={state.previewMediaUrls} previewOverlay={!state.committed.overlayEnabled ? <div className="disabled-veil">Overlay deaktiviert</div> : undefined} state={state.preview} themeLabel={THEME_LABELS[state.draft.themeId]} /></main>
-      <HudEditorRail api={api} initialBootstrap={initialBootstrap} state={state} />
+    <div aria-label="Kompositionsbereiche" className="admin-tabs" role="tablist">
+      {tabs.map((tab) => <button aria-controls="admin-composition-panel" aria-selected={activeTab === tab.id} className={activeTab === tab.id ? "is-active" : ""} id={`admin-tab-${tab.id}`} key={tab.id} onClick={() => onChange(tab.id)} onKeyDown={(event) => {
+        if (event.key === "ArrowRight" || event.key === "ArrowDown") { event.preventDefault(); moveTab(tab.id, 1); }
+        if (event.key === "ArrowLeft" || event.key === "ArrowUp") { event.preventDefault(); moveTab(tab.id, -1); }
+        if (event.key === "Home") { const first = tabs[0]; if (first === undefined) return; event.preventDefault(); onChange(first.id); tabRefs.current[first.id]?.focus(); }
+        if (event.key === "End") { const last = tabs[tabs.length - 1]; if (last === undefined) return; event.preventDefault(); onChange(last.id); tabRefs.current[last.id]?.focus(); }
+      }} ref={(element) => { tabRefs.current[tab.id] = element; }} role="tab" tabIndex={activeTab === tab.id ? 0 : -1} type="button">{tab.label}</button>)}
     </div>
   );
 };
 
-const ChallengeAdminWorkspace = ({ initialBootstrap, api }: { initialBootstrap: BootstrapResponse; api: AdminApi }) => {
-  const [committed, setCommitted] = useState(initialBootstrap.state);
-  const [overlayToken, setOverlayToken] = useState(initialBootstrap.capsule.overlayToken);
-  const [dockToken, setDockToken] = useState<DockTokenStatus>(() => initialBootstrap.capsule.dockToken ?? emptyDockTokenStatus());
-  const [challengeUpdate, setChallengeUpdate] = useState<ChallengeUpdate | null>(null);
-  const [online, setOnline] = useState(true);
-  const [visibilityBusy, setVisibilityBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [obsSetupOpen, setObsSetupOpen] = useState(false);
-  const channel = initialBootstrap.capsule.channel ?? null;
-  const boardApi = useMemo<ChallengeBoardApi | null>(() => {
-    if (api.getChallengeBoard === undefined || api.saveChallengeBoard === undefined) return null;
-    const next: ChallengeBoardApi = { load: api.getChallengeBoard.bind(api), save: api.saveChallengeBoard.bind(api) };
-    if (api.subscribe !== undefined) next.subscribe = (callbacks: ChallengeBoardSubscription) => api.subscribe?.({ onState: () => undefined, onOnlineChange: callbacks.onOnlineChange ?? (() => undefined), onOverlayPresence: (connectedSockets) => setOverlayToken((current) => ({ ...current, connectedSockets })), onAudit: () => undefined, onUndoTargets: () => undefined, onChallengeUpdate: (update) => { setChallengeUpdate(update); callbacks.onChallengeUpdate(update); } }) ?? (() => undefined);
-    return next;
-  }, [api]);
-  const obsConnectionLabel = overlayToken.connectedSockets > 0 ? `${String(overlayToken.connectedSockets)} verbunden` : overlayToken.exists ? "nicht verbunden" : "kein Link";
-  const toggleVisibility = async () => {
-    if (visibilityBusy || !online) return;
-    if (committed.overlayEnabled && !window.confirm("Overlay in OBS sofort ausblenden? Zuschauer sehen das HUD dann nicht mehr.")) return;
-    setVisibilityBusy(true); setError("");
-    try { const response = await api.setVisibility(!committed.overlayEnabled); setCommitted(response.state); } catch (caught) { setError(caught instanceof Error ? caught.message : "Overlay-Schalter fehlgeschlagen."); } finally { setVisibilityBusy(false); }
-  };
-  return (
-    <div className="admin-app admin-app--challenges"><header className="admin-topbar"><div className="brand-block"><span className="brand-mark"><Activity size={19} /></span><div><strong>{initialBootstrap.capsule.name}</strong><span>Live-Regie</span></div></div><div className="topbar-status"><WorkspaceSwitcher current="challenges" /><div aria-label={`OBS-Verbindung: ${obsConnectionLabel}`} className={`obs-chip ${overlayToken.connectedSockets > 0 ? "is-live" : overlayToken.exists ? "is-idle" : "is-empty"}`} role="group"><i aria-hidden="true" /><Radio aria-hidden="true" size={14} /><span className="obs-chip-label">OBS</span><span className="obs-chip-connection">{obsConnectionLabel}</span></div><span className="revision-pill">Board</span></div>{channel === null ? <div aria-hidden="true" className="channel-identity" /> : <div className="channel-identity"><span className="eyebrow">Twitch-Kanal</span><div><strong title={channel.displayName}>{channel.displayName}</strong></div></div>}<button aria-checked={committed.overlayEnabled} aria-label="Overlay aktiv" className={`overlay-switch ${committed.overlayEnabled ? "is-on" : "is-off"}`} disabled={visibilityBusy || !online} onClick={() => void toggleVisibility()} role="switch" type="button">{committed.overlayEnabled ? <Eye size={17} /> : <EyeOff size={17} />}<span>{committed.overlayEnabled ? "Overlay aktiv" : "Overlay aus"}</span><i aria-hidden="true" /></button><div className="editor-identity"><span>{initialBootstrap.editor.displayName}</span><small>Editor</small></div>{api.logout !== undefined && <button aria-label="Abmelden" className="icon-button logout-button" onClick={() => { void api.logout?.().then(() => window.location.assign("/login")); }} title="Abmelden" type="button"><LogOut size={16} /></button>}</header>{!online && <div className="offline-banner">Offline – Board-Speicherung pausiert; bestehende Challenges bleiben sichtbar.</div>}{error !== "" && <p className="challenge-board-error challenge-shell-error" role="alert">{error}</p>}<main className="admin-challenges-main"><div className="challenge-workspace-tools"><button aria-controls="challenge-obs-setup" aria-expanded={obsSetupOpen} className="button button--quiet" onClick={() => setObsSetupOpen((current) => !current)} type="button"><Settings2 aria-hidden="true" size={16} /> OBS-Einrichtung</button></div>{obsSetupOpen && <div id="challenge-obs-setup"><ObsSetupPanel api={api} dockToken={dockToken} online={online} onDockToken={setDockToken} onOverlayToken={setOverlayToken} overlayToken={overlayToken} sources={createChallengeObsSources(window.location.origin, overlayToken, dockToken)} /></div>}<ChallengeSettingsPanel api={api} challengeUpdate={challengeUpdate} online={online} />{boardApi === null ? <section className="challenge-board-shell" role="alert"><div className="challenge-board-empty"><AlertTriangle size={22} /><strong>Challenge-Board ist in dieser Sitzung nicht verfügbar.</strong></div></section> : <ChallengeBoard api={boardApi} onOnlineChange={setOnline} />}</main></div>
-  );
-};
+const ModuleVisibilityStrip = ({ hudVisible, challengesVisible, onHudVisibleChange, onChallengesVisibleChange }: { hudVisible: boolean; challengesVisible: boolean; onHudVisibleChange: (visible: boolean) => void; onChallengesVisibleChange: (visible: boolean) => void }) => (
+  <section aria-labelledby="module-visibility-heading" className="module-visibility-strip">
+    <div className="module-visibility-copy"><strong id="module-visibility-heading">Im Sammel-Overlay zeigen</strong><span>Die Vorschau reagiert sofort. Die OBS-Quelle übernimmt die Auswahl erst mit dem Speichern.</span></div>
+    <div className="module-visibility-controls">
+      <button aria-checked={hudVisible} aria-label="HUD im Sammel-Overlay anzeigen" className={`module-visibility-toggle ${hudVisible ? "is-on" : "is-off"}`} onClick={() => onHudVisibleChange(!hudVisible)} role="switch" type="button"><span><strong>HUD</strong><small>{hudVisible ? "An" : "Aus"}</small></span><i aria-hidden="true" /></button>
+      <button aria-checked={challengesVisible} aria-label="Challenges im Sammel-Overlay anzeigen" className={`module-visibility-toggle ${challengesVisible ? "is-on" : "is-off"}`} onClick={() => onChallengesVisibleChange(!challengesVisible)} role="switch" type="button"><span><strong>Challenges</strong><small>{challengesVisible ? "An" : "Aus"}</small></span><i aria-hidden="true" /></button>
+    </div>
+  </section>
+);
 
-const CompositionWorkspace = ({ initialBootstrap, api }: { initialBootstrap: BootstrapResponse; api: AdminApi }) => {
+const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBootstrap: BootstrapResponse; api: AdminApi; initialTab: AdminWorkspaceId }) => {
   const [challengeUpdate, setChallengeUpdate] = useState<ChallengeUpdate | null>(null);
   const [challengePlacementDraft, setChallengePlacementDraft] = useState<ChallengePlacement | null>(null);
   const [previewZoom, setPreviewZoom] = useState(100);
   const [challengeNow, setChallengeNow] = useState(() => Date.now());
   const [dragging, setDragging] = useState<"hud" | "challenges" | null>(null);
+  const [activeTab, setActiveTab] = useState<AdminWorkspaceId>(initialTab);
+  const [hudVisible, setHudVisible] = useState(true);
+  const [challengesVisible, setChallengesVisible] = useState(true);
   const draggingRef = useRef<{ kind: "hud" | "challenges"; pointerId: number } | null>(null);
   const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
   const [challengeCss, setChallengeCss] = useState<{ style: string | null; theme: string | null }>({ style: null, theme: null });
@@ -321,14 +332,10 @@ const CompositionWorkspace = ({ initialBootstrap, api }: { initialBootstrap: Boo
     return { load: api.getChallengeBoard.bind(api), save: api.saveChallengeBoard.bind(api) };
   }, [api]);
   const challengeReady = displayedChallengeUpdate !== null && challengeCss.style === displayedChallengeUpdate.settings.styleId && (displayedChallengeUpdate.settings.themeMode === "own" || challengeCss.theme === displayedChallengeUpdate.settings.themeId);
-  const challengePreview = displayedChallengeUpdate === null || !challengeReady ? null : <ChallengeLog ariaLabel="Challenge-Log verschieben, Pfeiltasten" className={`composition-draggable-module composition-draggable-module--challenge ${dragging === "challenges" ? "is-dragging" : ""}`} onKeyDown={(event) => movePlacementWithKeyboard("challenges", event)} onLostPointerCapture={(event) => stopDrag("challenges", event)} onPointerCancel={(event) => stopDrag("challenges", event)} onPointerDown={(event) => startDrag("challenges", event)} onPointerMove={(event) => moveDrag("challenges", event)} onPointerUp={(event) => stopDrag("challenges", event)} placement={effectiveChallengePlacement ?? displayedChallengeUpdate.settings.placement} rootTag="section" now={challengeNow} update={displayedChallengeUpdate} />;
+  const challengePreview = !challengesVisible || displayedChallengeUpdate === null || !challengeReady ? null : <ChallengeLog ariaLabel="Challenge-Log verschieben, Pfeiltasten" className={`composition-draggable-module composition-draggable-module--challenge ${dragging === "challenges" ? "is-dragging" : ""}`} onKeyDown={(event) => movePlacementWithKeyboard("challenges", event)} onLostPointerCapture={(event) => stopDrag("challenges", event)} onPointerCancel={(event) => stopDrag("challenges", event)} onPointerDown={(event) => startDrag("challenges", event)} onPointerMove={(event) => moveDrag("challenges", event)} onPointerUp={(event) => stopDrag("challenges", event)} placement={effectiveChallengePlacement ?? displayedChallengeUpdate.settings.placement} rootTag="section" now={challengeNow} update={displayedChallengeUpdate} />;
   return (
-    <div className="admin-app admin-app--composition"><header className="admin-topbar"><div className="brand-block"><span className="brand-mark"><Activity size={19} /></span><div><strong>{initialBootstrap.capsule.name}</strong><span>Live-Regie</span></div></div><div className="topbar-status"><WorkspaceSwitcher current="composition" /><span className="revision-pill">Komposition</span></div>{channelIdentity(initialBootstrap)}<button aria-checked={state.committed.overlayEnabled} aria-label="Overlay aktiv" className={`overlay-switch ${state.committed.overlayEnabled ? "is-on" : "is-off"}`} disabled={state.visibilityBusy || !state.online} onClick={() => void state.toggleVisibility()} role="switch" type="button">{state.committed.overlayEnabled ? <Eye size={17} /> : <EyeOff size={17} />}<span>{state.committed.overlayEnabled ? "Overlay aktiv" : "Overlay aus"}</span><i aria-hidden="true" /></button><div className="editor-identity"><span>{initialBootstrap.editor.displayName}</span><small>Editor</small></div>{api.logout !== undefined && <button aria-label="Abmelden" className="icon-button logout-button" onClick={() => { void api.logout?.().then(() => window.location.assign("/login")); }} title="Abmelden" type="button"><LogOut size={16} /></button>}</header>{!state.online && <div className="offline-banner">Offline – Speichern pausiert; bestehende Werte bleiben sichtbar.</div>}<main className="composition-main"><PreviewPanel hudInteraction={{ ariaLabel: "HUD-Modul verschieben, Pfeiltasten", className: `composition-draggable-module composition-draggable-module--hud ${dragging === "hud" ? "is-dragging" : ""}`, onKeyDown: (event) => movePlacementWithKeyboard("hud", event), onLostPointerCapture: (event) => stopDrag("hud", event), onPointerCancel: (event) => stopDrag("hud", event), onPointerDown: (event) => startDrag("hud", event), onPointerMove: (event) => moveDrag("hud", event), onPointerUp: (event) => stopDrag("hud", event) }} mediaUrls={state.previewMediaUrls} onZoomChange={setPreviewZoom} previewOverlay={!state.committed.overlayEnabled ? <div className="disabled-veil">Overlay deaktiviert</div> : undefined} state={compositionHud} themeLabel={THEME_LABELS[state.preview.themeId]} zoom={previewZoom}>{challengePreview}</PreviewPanel></main><aside className="composition-rails"><details className="composition-rail" open><summary><span>HUD</span><ChevronDown size={17} /></summary><HudEditorRail api={api} initialBootstrap={initialBootstrap} state={state} /></details><details className="composition-rail" open><summary><span>Challenges</span><ChevronDown size={17} /></summary><div className="composition-challenge-rail"><ChallengeSettingsPanel api={api} challengeUpdate={displayedChallengeUpdate} online={state.online} onPlacementDraftChange={setChallengePlacementDraft} placementDraft={challengePlacementDraft} />{compositionBoardApi === null ? <section className="challenge-board-shell" role="alert"><div className="challenge-board-empty"><AlertTriangle size={22} /><strong>Challenge-Board ist in dieser Sitzung nicht verfügbar.</strong></div></section> : <ChallengeBoard api={compositionBoardApi} challengeUpdate={displayedChallengeUpdate} online={state.online} />}</div></details></aside></div>
+    <div className="admin-app admin-app--composition"><AdminTopbar api={api} initialBootstrap={initialBootstrap} state={state} />{!state.online && <div className="offline-banner">Offline – Speichern pausiert; bestehende Werte bleiben sichtbar.</div>}<AuditRail initialBootstrap={initialBootstrap} state={state} /><main className="composition-main">{state.obsSetupOpen && <div id="admin-obs-setup"><ObsSetupPanel api={api} dockToken={state.dockToken} online={state.online} onDockToken={state.setDockToken} onOverlayToken={state.setOverlayToken} overlayToken={state.overlayToken} sources={createChallengeObsSources(window.location.origin, state.overlayToken, state.dockToken)} /></div>}<PreviewPanel hudInteraction={hudVisible ? { ariaLabel: "HUD-Modul verschieben, Pfeiltasten", className: `composition-draggable-module composition-draggable-module--hud ${dragging === "hud" ? "is-dragging" : ""}`, onKeyDown: (event) => movePlacementWithKeyboard("hud", event), onLostPointerCapture: (event) => stopDrag("hud", event), onPointerCancel: (event) => stopDrag("hud", event), onPointerDown: (event) => startDrag("hud", event), onPointerMove: (event) => moveDrag("hud", event), onPointerUp: (event) => stopDrag("hud", event) } : undefined} mediaUrls={state.previewMediaUrls} onZoomChange={setPreviewZoom} previewOverlay={!state.committed.overlayEnabled ? <div className="disabled-veil">Overlay deaktiviert</div> : undefined} showHud={hudVisible} state={compositionHud} themeLabel={THEME_LABELS[state.preview.themeId]} zoom={previewZoom}>{challengePreview}</PreviewPanel><ModuleVisibilityStrip challengesVisible={challengesVisible} hudVisible={hudVisible} onChallengesVisibleChange={setChallengesVisible} onHudVisibleChange={setHudVisible} /></main><aside className="composition-rails"><AdminTabs activeTab={activeTab} onChange={setActiveTab} /><div aria-labelledby={`admin-tab-${activeTab}`} className="composition-tabpanel" id="admin-composition-panel" role="tabpanel">{activeTab === "hud" ? <HudEditorRail api={api} initialBootstrap={initialBootstrap} state={state} /> : <div className="composition-challenge-rail"><ChallengeSettingsPanel api={api} challengeUpdate={displayedChallengeUpdate} online={state.online} onPlacementDraftChange={setChallengePlacementDraft} placementDraft={challengePlacementDraft} />{compositionBoardApi === null ? <section className="challenge-board-shell" role="alert"><div className="challenge-board-empty"><AlertTriangle size={22} /><strong>Challenge-Board ist in dieser Sitzung nicht verfügbar.</strong></div></section> : <ChallengeBoard api={compositionBoardApi} challengeUpdate={displayedChallengeUpdate} online={state.online} />}</div>}</div></aside></div>
   );
 };
 
-export const AdminWorkspace = ({ initialBootstrap, api, workspace = "hud" }: { initialBootstrap: BootstrapResponse; api: AdminApi; workspace?: AdminWorkspaceId }) => workspace === "challenges"
-  ? <ChallengeAdminWorkspace api={api} initialBootstrap={initialBootstrap} />
-  : workspace === "composition"
-    ? <CompositionWorkspace api={api} initialBootstrap={initialBootstrap} />
-    : <HudAdminWorkspace api={api} initialBootstrap={initialBootstrap} />;
+export const AdminWorkspace = ({ initialBootstrap, api, workspace = "hud" }: { initialBootstrap: BootstrapResponse; api: AdminApi; workspace?: AdminWorkspaceId }) => <CompositionWorkspace api={api} initialBootstrap={initialBootstrap} initialTab={workspace} />;

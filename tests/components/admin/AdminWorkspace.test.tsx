@@ -115,7 +115,7 @@ describe("Admin workspace shell", () => {
     expect(rotate).not.toHaveTextContent("↻");
   });
 
-  it("hält Challenges außerhalb der HUD-editor-rail und markiert beide Workspaces", async () => {
+  it("zeigt den Challenge-Tab ohne die HUD-editor-rail und markiert beide Bereiche", async () => {
     const challengeSnapshot: ChallengeBoardSnapshot = {
       eventSeq: 0,
       boardRevision: 1,
@@ -143,8 +143,8 @@ describe("Admin workspace shell", () => {
 
     expect(await screen.findByRole("heading", { name: "Board" })).toBeInTheDocument();
     expect(document.querySelector(".editor-rail")).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "HUD" })).toHaveAttribute("href", "/admin");
-    expect(screen.getByRole("link", { name: "Challenges" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("tab", { name: "HUD" })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("tab", { name: "Challenges" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("macht den globalen Zeremonie-Schalter bedienbar und speichert ihn", async () => {
@@ -340,7 +340,7 @@ describe("Admin workspace setup", () => {
       workspace="challenges"
     />);
 
-    const setupToggle = screen.getByRole("button", { name: "OBS-Einrichtung" });
+    const setupToggle = screen.getByRole("button", { name: "OBS-Einrichtung öffnen" });
     expect(setupToggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("heading", { name: "HUD-Overlay" })).not.toBeInTheDocument();
     await user.click(setupToggle);
@@ -1415,7 +1415,7 @@ describe("Admin workspace publication boundary", () => {
     }} />);
 
     act(() => onOnlineChange?.(false));
-    expect(screen.getByText(/Bearbeitung pausiert/)).toBeInTheDocument();
+    expect(screen.getByText(/Speichern pausiert/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Änderungen speichern" })).toBeDisabled();
     act(() => onOnlineChange?.(true));
     fireEvent.change(screen.getByRole("slider", { name: "Gesundheit" }), { target: { value: "40" } });

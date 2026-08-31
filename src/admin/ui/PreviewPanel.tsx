@@ -24,6 +24,7 @@ export const PreviewPanel = ({
   zoom,
   onZoomChange,
   hudInteraction,
+  showHud = true,
 }: {
   state: ChannelState;
   mediaUrls: ReadonlyMap<string, string>;
@@ -32,7 +33,8 @@ export const PreviewPanel = ({
   themeLabel?: string;
   zoom?: number;
   onZoomChange?: (zoom: number) => void;
-  hudInteraction?: Pick<ComponentProps<typeof HudRenderer>, "className" | "ariaLabel" | "onPointerDown" | "onPointerMove" | "onPointerUp" | "onPointerCancel" | "onLostPointerCapture" | "onKeyDown">;
+  showHud?: boolean;
+  hudInteraction?: Pick<ComponentProps<typeof HudRenderer>, "className" | "ariaLabel" | "onPointerDown" | "onPointerMove" | "onPointerUp" | "onPointerCancel" | "onLostPointerCapture" | "onKeyDown"> | undefined;
 }) => {
   const [internalZoom, setInternalZoom] = useState(100);
   const previewZoom = zoom ?? internalZoom;
@@ -71,13 +73,13 @@ export const PreviewPanel = ({
           <div className="preview-canvas">
             <div className="preview-safe-area" />
             <div className="preview-hud-wrap">
-              <TickingPreview
-                forceVisible
-                mediaUrls={mediaUrls}
-                previewOverlay={previewOverlay}
-                state={state}
-                {...hudInteraction}
-              />
+              {showHud && <TickingPreview
+                  forceVisible
+                  mediaUrls={mediaUrls}
+                  previewOverlay={previewOverlay}
+                  state={state}
+                  {...hudInteraction}
+                />}
               {children}
             </div>
           </div>

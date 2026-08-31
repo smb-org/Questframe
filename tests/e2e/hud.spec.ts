@@ -3,7 +3,8 @@ import { expect, test, type Page } from "@playwright/test";
 const loginAsLocalEditor = async (page: Page) => {
   await page.goto("/auth/dev");
   await expect(page).toHaveURL(/\/admin$/);
-  await expect(page.getByRole("heading", { name: "Live-Steuerung" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "HUD" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("slider", { name: "Gesundheit", exact: true })).toBeVisible();
 };
 
 test("a draft reaches a connected OBS overlay only after Save", async ({ page, context }, testInfo) => {

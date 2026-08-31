@@ -13,8 +13,8 @@ describe("Routenauflösung", () => {
     ["/login", { surface: "admin", app: "login", workspace: "hud" }],
     ["/", { surface: "admin", app: "admin", workspace: "hud" }],
     ["/admin", { surface: "admin", app: "admin", workspace: "hud" }],
-    ["/admin/composition", { surface: "admin", app: "admin", workspace: "composition" }],
-    ["/admin/composition/", { surface: "admin", app: "admin", workspace: "composition" }],
+    ["/admin/composition", { surface: "admin", app: "admin", workspace: "hud" }],
+    ["/admin/composition/", { surface: "admin", app: "admin", workspace: "hud" }],
     ["/admin/challenges", { surface: "admin", app: "admin", workspace: "challenges" }],
     ["/unbekannt", { surface: "admin", app: "admin", workspace: "hud" }],
   ])("ordnet %s korrekt zu", (path, expected) => {

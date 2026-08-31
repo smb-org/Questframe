@@ -65,9 +65,10 @@ const resetChallengeBoard = async (page: Page): Promise<void> => {
 const openChallengeAdmin = async (page: Page): Promise<void> => {
   await loginAsLocalEditor(page);
   await page.goto("/admin/challenges");
+  await expect(page).toHaveURL(/\/admin$/);
   await expect(page.getByRole("heading", { name: "Board", exact: true })).toBeVisible();
   await expect(page.locator(".challenge-board-shell .connection-state.is-online")).toBeVisible();
-  await page.getByRole("button", { name: "OBS-Einrichtung" }).click();
+  await page.getByRole("button", { name: "OBS-Einrichtung öffnen" }).click();
   await expect(page.locator(".challenge-setup__source--hud")).toBeVisible();
   await resetChallengeBoard(page);
   await expect(page.locator(".challenge-board-row")).toHaveCount(0);
@@ -198,6 +199,8 @@ test("die Komposition verschiebt und veröffentlicht die Challenge-Quelle", asyn
   await createChallenge(page, title);
 
   await page.goto("/admin/composition");
+  await expect(page).toHaveURL(/\/admin$/);
+  await page.getByRole("tab", { name: "Challenges" }).click();
   await expect(page.getByRole("heading", { name: "Live-Vorschau" })).toBeVisible();
   await expect(page.getByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" })).toBeVisible();
 
