@@ -5,7 +5,13 @@
  * Diese Datei setzt ausschliesslich Custom Properties aus src/overlay/hud.css.
  */
 
-.hud-theme--classic-simple {
+/* Doppelte Klasse mit Absicht: Die Theme-Chunks werden im Build vor der
+ * HudRenderer-CSS (mit den `none`-Defaults auf .hud-root) verlinkt. Bei
+ * gleicher Spezifitaet wuerde die spaeter geladene Default-Datei gewinnen und
+ * saemtliche Theme-Variablen totlegen. (0,2,0) macht die Overrides
+ * reihenfolge-unabhaengig; .hud-root.hud-theme--X ginge nicht, weil das
+ * Challenge-Log dieselbe Klasse ohne .hud-root traegt. */
+.hud-theme--classic-simple.hud-theme--classic-simple {
   --hud-text: #f3ecd9;
   --hud-name-color: #d8bc62;
   --hud-name-font: Georgia, serif;
