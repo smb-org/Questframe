@@ -36,5 +36,3 @@ export const discriminateCompositeMessage = (input: unknown): CompositeDiscrimin
   }
   return { kind: "ignore" };
 };
-
-export const parseCompositeMessage = discriminateCompositeMessage;

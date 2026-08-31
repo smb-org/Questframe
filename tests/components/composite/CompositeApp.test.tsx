@@ -105,6 +105,7 @@ beforeEach(() => {
     removeEventListener: vi.fn(),
   }));
   window.sessionStorage.clear();
+  window.localStorage.clear();
   window.history.replaceState({}, "", `/overlay/all#token=${token}`);
 });
 
@@ -116,6 +117,17 @@ afterEach(() => {
 });
 
 describe("CompositeApp", () => {
+  it("rendert Challenge-Updates nach einem kaputten HUD-Snapshot beim Kaltstart", async () => {
+    render(<CompositeApp loadStyle={() => Promise.resolve()} />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0] as FakeWebSocket;
+
+    await deliver(socket, { type: "snapshot", state: {} });
+    await deliver(socket, update);
+
+    await waitFor(() => expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument());
+  });
+
   it("rendert HUD und Challenge-Log an ihren eigenen Placements", async () => {
     render(<CompositeApp loadStyle={() => Promise.resolve()} />);
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
@@ -129,6 +141,18 @@ describe("CompositeApp", () => {
     await waitFor(() => expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument());
     expect(document.querySelector(".hud-root")).toHaveStyle({ "--hud-x": "42px", "--hud-y": "24px" });
     expect(document.querySelector(".challenge-source")).toHaveStyle({ "--wc-x": "150px", "--wc-y": "40px", "--wc-scale": "1.25" });
+  });
+
+  it("spiegelt das HUD-Theme in ein geerbtes Challenge-Update", async () => {
+    render(<CompositeApp loadStyle={() => Promise.resolve()} />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0] as FakeWebSocket;
+
+    await deliver(socket, { type: "snapshot", state: { ...state, themeId: "field-journal" } });
+    await deliver(socket, update);
+
+    await waitFor(() => expect(document.querySelector(".challenge-source")).toHaveClass("hud-theme--field-journal"));
+    expect(document.querySelector(".challenge-source")).toHaveAttribute("data-theme-id", "field-journal");
   });
 
   it("wendet Mitgliedschaft und overlayEnabled unabhängig auf die Module an", async () => {
@@ -257,7 +281,27 @@ describe("CompositeApp", () => {
     expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument();
   });
 
-  it("rearmiert den Watchdog nach einer erfolgreich geparsten Nachricht", async () => {
+  it("löscht den Watchdog-Marker erst nach der Erholung beider Module", async () => {
+    vi.useFakeTimers();
+    const reloadPage = vi.fn();
+    render(<CompositeApp loadStyle={() => Promise.resolve()} reloadPage={reloadPage} />);
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0] as FakeWebSocket;
+
+    await deliver(socket, { eventSeq: 1 });
+    await deliver(socket, { type: "snapshot", state: {} });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(reloadPage).toHaveBeenCalledTimes(1);
+    expect(window.sessionStorage.getItem("irl-stream-hud:composite-watchdog-reload-at")).not.toBeNull();
+
+    await deliver(socket, update);
+    expect(window.sessionStorage.getItem("irl-stream-hud:composite-watchdog-reload-at")).not.toBeNull();
+
+    await deliver(socket, { type: "snapshot", state });
+    expect(window.sessionStorage.getItem("irl-stream-hud:composite-watchdog-reload-at")).toBeNull();
+  });
+
+  it("rearmiert den Watchdog nach erfolgreich geparsten Nachrichten beider Module", async () => {
     vi.useFakeTimers();
     const reloadPage = vi.fn();
     render(<CompositeApp loadStyle={() => Promise.resolve()} reloadPage={reloadPage} />);
@@ -273,6 +317,7 @@ describe("CompositeApp", () => {
     expect(reloadPage).toHaveBeenCalledTimes(1);
 
     await deliver(socket, update);
+    await deliver(socket, { type: "snapshot", state });
     await deliver(socket, { eventSeq: 2 });
     await deliver(socket, { type: "snapshot", state: {} });
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
