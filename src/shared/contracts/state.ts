@@ -128,8 +128,10 @@ const stateContentShape = {
     }),
   ]),
   petVisible: z.boolean().default(true),
+  compositeHudVisible: z.boolean().default(true),
   group: z.array(groupMemberSchema).max(5),
   groupVisible: z.boolean().default(true),
+  compositeChallengesVisible: z.boolean().default(true),
   effects: z.array(activeEffectSchema).max(8),
   featuredEffectId: z.union([normalizedText(1, 64), z.null()]),
 } as const;
@@ -219,6 +221,8 @@ export const channelStateSaveDraftSchema = z
     ...stateContentShape,
     petVisible: z.boolean(),
     groupVisible: z.boolean(),
+    compositeHudVisible: z.boolean(),
+    compositeChallengesVisible: z.boolean(),
   })
   .superRefine(addStateContentIssues);
 
@@ -274,8 +278,10 @@ export const createDefaultState = (
     },
     pet: null,
     petVisible: true,
+    compositeHudVisible: true,
     group: [],
     groupVisible: true,
+    compositeChallengesVisible: true,
     effects: [],
     featuredEffectId: null,
     updatedAt,

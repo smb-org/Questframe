@@ -74,7 +74,7 @@ describe("Kompositions-Workspace", () => {
     expect(challengesTab).toHaveAttribute("aria-selected", "false");
   });
 
-  it("blendet HUD und Challenges mit lokalen Modul-Schaltern aus der Vorschau aus", async () => {
+  it("blendet HUD und Challenges mit Draft-Modul-Schaltern aus der Vorschau aus und macht den Save aktiv", async () => {
     const user = userEvent.setup();
     const { container } = render(<AdminWorkspace api={createCompositionApi(challengeSnapshot())} initialBootstrap={bootstrap()} />);
     await screen.findByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" });
@@ -92,6 +92,74 @@ describe("Kompositions-Workspace", () => {
     expect(challengesToggle).toHaveAttribute("aria-checked", "false");
     expect(challengesToggle).toHaveTextContent("Aus");
     expect(screen.queryByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Änderungen speichern" })).toBeEnabled();
+  });
+
+  it("speichert die Modul-Mitgliedschaft, zeigt sie im Audit und stellt sie mit Undo wieder her", async () => {
+    const user = userEvent.setup();
+    const initial = bootstrap();
+    const snapshot = challengeSnapshot();
+    const save = vi.fn<AdminApi["save"]>((request) => Promise.resolve({
+      state: {
+        ...initial.state,
+        ...request.state,
+        revision: 2,
+        updatedAt: "2026-08-29T12:01:00.000Z",
+      },
+      auditEntry: {
+        id: "audit-composite",
+        revision: 2,
+        action: "save",
+        actor,
+        summary: "HUD im Sammel-Overlay: Aus · Challenges im Sammel-Overlay: Aus",
+        createdAt: "2026-08-29T12:01:00.000Z",
+      },
+      undoTargets: [{ revision: 2, createdAt: "2026-08-29T12:01:00.000Z", summary: "Sammel-Overlay geändert" }],
+      serverTime: "2026-08-29T12:01:00.000Z",
+    }));
+    const undo = vi.fn<NonNullable<AdminApi["undo"]>>(() => Promise.resolve({
+      state: { ...initial.state, revision: 3 },
+      auditEntry: {
+        id: "audit-composite-undo",
+        revision: 3,
+        action: "undo",
+        actor,
+        summary: "Revision 2 wiederhergestellt",
+        createdAt: "2026-08-29T12:02:00.000Z",
+      },
+      undoTargets: [],
+      serverTime: "2026-08-29T12:02:00.000Z",
+    }));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<AdminWorkspace api={{
+      save,
+      setVisibility: vi.fn(),
+      undo,
+      getChallengeBoard: vi.fn(() => Promise.resolve(snapshot)),
+      saveChallengeBoard: vi.fn(),
+      saveChallengeSettings: vi.fn(() => Promise.resolve({ snapshot })),
+    }} initialBootstrap={initial} />);
+
+    await screen.findByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" });
+    await user.click(screen.getByRole("switch", { name: "HUD im Sammel-Overlay anzeigen" }));
+    await user.click(screen.getByRole("switch", { name: "Challenges im Sammel-Overlay anzeigen" }));
+    await user.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+
+    expect(save.mock.calls[0]?.[0].baseRevision).toBe(1);
+    expect(save.mock.calls[0]?.[0].state).toMatchObject({
+      compositeHudVisible: false,
+      compositeChallengesVisible: false,
+    });
+    await user.click(document.querySelector(".audit-rail .rail-heading") as HTMLElement);
+    expect(screen.getByText("HUD im Sammel-Overlay: Aus · Challenges im Sammel-Overlay: Aus")).toBeInTheDocument();
+
+    await user.click(screen.getByText("Rückgängig").closest("summary") as HTMLElement);
+    await user.click(screen.getByRole("button", { name: /Rev\. 2/ }));
+    expect(undo).toHaveBeenCalledWith(2, 2);
+    expect(screen.getByRole("switch", { name: "HUD im Sammel-Overlay anzeigen" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("switch", { name: "Challenges im Sammel-Overlay anzeigen" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" })).toBeInTheDocument();
+    expect(screen.getByText("HUD im Sammel-Overlay: Aus · Challenges im Sammel-Overlay: Aus")).toBeInTheDocument();
   });
 
   it("zeigt Bühne und beide angedockten Rails und rechnet Drag unabhängig vom Zoom", async () => {

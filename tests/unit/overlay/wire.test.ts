@@ -20,10 +20,25 @@ describe("lightweight overlay wire boundary", () => {
   });
 
   it("accepts section visibility flags and rejects non-booleans", () => {
-    const hidden = { ...state, petVisible: false, groupVisible: false };
+    const hidden = {
+      ...state,
+      petVisible: false,
+      groupVisible: false,
+      compositeHudVisible: false,
+      compositeChallengesVisible: false,
+    };
     expect(parseOverlayState(hidden)).toEqual(hidden);
     expect(parseOverlayState({ ...state, petVisible: "false" })).toBeNull();
     expect(parseOverlayState({ ...state, groupVisible: 0 })).toBeNull();
+    expect(parseOverlayState({ ...state, compositeHudVisible: "false" })).toBeNull();
+    expect(parseOverlayState({ ...state, compositeChallengesVisible: 0 })).toBeNull();
+  });
+
+  it("requires the composite visibility flags in the exact overlay snapshot shape", () => {
+    const { compositeHudVisible: _hudVisible, compositeChallengesVisible: _challengesVisible, ...legacy } = state;
+    void [_hudVisible, _challengesVisible];
+    expect(parseOverlayMessage({ type: "snapshot", state })).toEqual({ type: "snapshot", state });
+    expect(parseOverlayMessage({ type: "snapshot", state: legacy })).toBeNull();
   });
 
   it("normalizes legacy classic-remix snapshots at the lightweight overlay boundary", () => {

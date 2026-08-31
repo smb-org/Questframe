@@ -35,8 +35,10 @@ describe("channel state contract", () => {
       },
       pet: null,
       petVisible: true,
+      compositeHudVisible: true,
       group: [],
       groupVisible: true,
+      compositeChallengesVisible: true,
       effects: [],
       featuredEffectId: null,
       updatedBy: actor,
@@ -48,6 +50,8 @@ describe("channel state contract", () => {
     const {
       petVisible: _petVisible,
       groupVisible: _groupVisible,
+      compositeHudVisible: _compositeHudVisible,
+      compositeChallengesVisible: _compositeChallengesVisible,
       ...legacyStateWithoutFlags
     } = state;
     const {
@@ -60,6 +64,8 @@ describe("channel state contract", () => {
     void [
       _petVisible,
       _groupVisible,
+      _compositeHudVisible,
+      _compositeChallengesVisible,
       _legacyRevision,
       _legacyOverlayEnabled,
       _legacyUpdatedAt,
@@ -69,10 +75,14 @@ describe("channel state contract", () => {
     expect(channelStateDraftSchema.parse(legacyDraft)).toMatchObject({
       petVisible: true,
       groupVisible: true,
+      compositeHudVisible: true,
+      compositeChallengesVisible: true,
     });
     expect(channelStateSchema.parse(legacyStateWithoutFlags)).toMatchObject({
       petVisible: true,
       groupVisible: true,
+      compositeHudVisible: true,
+      compositeChallengesVisible: true,
     });
   });
 

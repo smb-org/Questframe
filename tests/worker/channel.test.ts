@@ -100,6 +100,36 @@ describe("channel worker", () => {
     bootstrapRevision = body.state.revision;
   });
 
+  it("reads an existing state without composite flags with both flags enabled", async () => {
+    const stub = env.CHANNEL.get(env.CHANNEL.idFromName(`channel:${env.BROADCASTER_ID}`));
+    const current = await runInDurableObject(stub, (_instance, state) =>
+      state.storage.sql
+        .exec<{ state_json: string }>("SELECT state_json FROM channel_state WHERE singleton = 1")
+        .toArray()[0],
+    );
+    expect(current).toBeDefined();
+    if (current === undefined) throw new Error("expected initialized channel state");
+    const legacy = JSON.parse(current.state_json) as Record<string, unknown>;
+    delete legacy.compositeHudVisible;
+    delete legacy.compositeChallengesVisible;
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec("UPDATE channel_state SET state_json = ? WHERE singleton = 1", JSON.stringify(legacy));
+    });
+    try {
+      const response = await fetchWorker("http://localhost/api/editor/bootstrap", {
+        headers: { cookie, "x-editor-tab": "test-tab-a" },
+      });
+      const body = bootstrapResponseSchema.parse(await response.json());
+      expect(body.state).toMatchObject({ compositeHudVisible: true, compositeChallengesVisible: true });
+      csrfToken = body.csrfToken;
+      bootstrapRevision = body.state.revision;
+    } finally {
+      await runInDurableObject(stub, (_instance, state) => {
+        state.storage.sql.exec("UPDATE channel_state SET state_json = ? WHERE singleton = 1", current.state_json);
+      });
+    }
+  });
+
   it("applies the overlay envelope column as schema migration version 2", async () => {
     const stub = env.CHANNEL.get(env.CHANNEL.idFromName(`channel:${env.BROADCASTER_ID}`));
     const result = await runInDurableObject(stub, (_instance, state) => ({
@@ -186,6 +216,8 @@ describe("channel worker", () => {
         baseRevision: bootstrapRevision,
         state: {
           ...draft,
+          compositeHudVisible: false,
+          compositeChallengesVisible: false,
           player: { ...draft.player, hpPercent: 49, resource: { ...draft.player.resource, percent: 77 } },
         },
       }),
@@ -196,7 +228,11 @@ describe("channel worker", () => {
       revision: bootstrapRevision + 1,
       overlayEnabled: bootstrap.state.overlayEnabled,
       player: { hpPercent: 49, resource: { percent: 77 } },
+      compositeHudVisible: false,
+      compositeChallengesVisible: false,
     });
+    expect(committed.auditEntry.summary).toContain("HUD im Sammel-Overlay: Aus");
+    expect(committed.auditEntry.summary).toContain("Challenges im Sammel-Overlay: Aus");
 
     const stale = await fetchWorker("http://localhost/api/state", {
       method: "PUT",

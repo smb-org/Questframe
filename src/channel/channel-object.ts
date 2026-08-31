@@ -172,6 +172,12 @@ const summarizeChange = (before: ChannelState, after: ChannelState): string => {
   }
   if (before.player.name !== after.player.name) changes.push(`Name: ${after.player.name}`);
   if (before.themeId !== after.themeId) changes.push(`Theme: ${after.themeId}`);
+  if (before.compositeHudVisible !== after.compositeHudVisible) {
+    changes.push(`HUD im Sammel-Overlay: ${after.compositeHudVisible ? "An" : "Aus"}`);
+  }
+  if (before.compositeChallengesVisible !== after.compositeChallengesVisible) {
+    changes.push(`Challenges im Sammel-Overlay: ${after.compositeChallengesVisible ? "An" : "Aus"}`);
+  }
   return changes.length > 0 ? changes.join(" · ") : "HUD-Einstellungen aktualisiert";
 };
 

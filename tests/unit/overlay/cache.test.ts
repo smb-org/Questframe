@@ -32,6 +32,19 @@ describe("overlay recovery cache", () => {
     expect(localStorage.getItem("hud:2:irl-stream-hud:broken")).toBeNull();
   });
 
+  it("discards cached snapshots from before the composite visibility flags existed", () => {
+    const state = createDefaultState(
+      { twitchUserId: "123", displayName: "Moderator" },
+      "2026-08-29T12:00:00.000Z",
+    );
+    const { compositeHudVisible: _hudVisible, compositeChallengesVisible: _challengesVisible, ...legacy } = state;
+    void [_hudVisible, _challengesVisible];
+    localStorage.setItem("hud:2:irl-stream-hud:legacy", JSON.stringify(legacy));
+
+    expect(loadOverlaySnapshot("irl-stream-hud", "legacy")).toBeNull();
+    expect(localStorage.getItem("hud:2:irl-stream-hud:legacy")).toBeNull();
+  });
+
   describe("with a blocked localStorage", () => {
     afterEach(() => {
       vi.restoreAllMocks();
