@@ -18,6 +18,75 @@ Static Assets ─────────┴──> Admin-Konsole / transparente
 
 Der Worker prüft Origin, Bodygrößen, Routen und öffentliche Overlay-Limits. Das Durable Object serialisiert Mutationen, validiert den finalen Zustand und veröffentlicht nach dem SQLite-Commit immer vollständige Snapshots. Es gibt keine Feld-für-Feld-Liveupdates.
 
+## Win-Challenges-Modul
+
+Das Modul ist als Feature-Slice unter `src/modules/win-challenges/` geschnitten: Contracts,
+Domain, Kommando-Service, Repository-Interface, SQLite-Adapter, UI und vier Style-Chunks.
+Der Host behält Routentabelle, Socket-Authentifizierung und -Broadcasts sowie die
+Style-Zeremonien und Audio-Policy. Es gibt bewusst keinen Sammel-Index. Ein Fabrik-Einstieg
+würde Kommandoschicht, Repository und Zod über einen gemeinsamen Import bis in das
+Overlay-Bundle ziehen. Der Host erstellt Service und Adapter; die Overlay-Quelle importiert
+nur die dafür freigegebenen UI-, Domain- und Predicate-Teile.
+
+Die vier Tabellen `wc_meta`, `wc_challenges`, `wc_commands` und `wc_dock_tokens` werden als
+`MIGRATION_3` in derselben linearen Migrationskette wie der übrige Kanal angelegt. Der
+`wc_`-Präfix ist eine interne Adapterkonvention und ausschließlich dort festgelegt; Domain,
+Service und Repository-Interface kennen keine SQL-Tabellennamen und bieten keine
+Präfix-Konfiguration nach außen an.
+
+## Zwei Nebenläufigkeitsmodelle
+
+Hier bestehen absichtlich zwei Modelle nebeneinander, die nicht vereinheitlicht werden
+dürfen:
+
+- Live-Kommandos sind in `transactionSync` atomar und über `wc_commands` mit
+  `commandId` plus Request-Hash idempotent. Sie verwenden keine Revision und können wegen
+  paralleler Änderungen nicht mit `revision_conflict` scheitern. Ein identischer Retry wird
+  als Replay beantwortet; ein anderer Inhalt mit derselben ID ist ein Idempotenzfehler.
+- Board- und Settings-Saves sind optimistisch. Board und Settings führen getrennte
+  Revisionen; Lesen, Prüfen und Schreiben liegen jeweils in derselben Transaktion. Eine
+  veraltete Revision antwortet mit `revision_conflict` und dem aktuellen vollständigen
+  Snapshot im Body.
+
+Das erste Modell schützt den laufenden Stream vor Konfliktdialogen, das zweite verhindert
+stilles Überschreiben in der Konfiguration.
+
+## Socket-Tags und Broadcasts
+
+Es gibt vier Tags: `editor`, `overlay`, `challenge` und `dock`. Die Broadcast-Regeln sind
+fest verdrahtet:
+
+| Broadcast | erreicht | erreicht nicht |
+| --- | --- | --- |
+| `state_committed` und `snapshot` | `editor`, `overlay` | `challenge`, `dock` |
+| `challenge_update` | `editor`, `challenge`, `dock` | `overlay` |
+| `overlay_presence`, `history_changed`, `audit_appended` | `editor` | `overlay`, `challenge`, `dock` |
+
+Der Dock-Token ist schreibberechtigt, aber seine Sicherheitsgrenze ist hart: Er gilt nur für
+`/api/challenges/commands` und `/ws/dock`. Board, Settings, HUD-State, Token-Rotation und
+alle anderen Routen bleiben Session-only. Auch `resetGlobalTimer` ist Session-only; der Dock
+darf den globalen Timer nur starten und pausieren.
+
+Der Widerruf wird vor jedem Senden geprüft, nicht nur beim Schließen einer Verbindung. Ein
+Socket mit veralteter Token-Generation wird übersprungen und geschlossen. Eine Rotation
+sendet `token_revoked` und schließt die betroffenen Sockets aktiv.
+
+## Flächen und Routenauflösung
+
+Die Routentabelle in `src/routing.ts` löst vier Flächen auf: `admin`, `overlay`,
+`challenges` und `live`.
+
+| Fläche | Route | App bzw. Workspace |
+| --- | --- | --- |
+| `admin` | `/admin`, `/admin/challenges` | `AdminApp`, HUD- bzw. Challenges-Workspace |
+| `overlay` | `/overlay` | `OverlayApp` |
+| `challenges` | `/overlay/challenges` | `ChallengeSourceApp` |
+| `live` | `/live/challenges` | `LiveApp` |
+
+Die spezifischeren Pfade stehen vor den Präfixpfaden. `/login` und unbekannte Pfade fallen
+auf die Admin-Auflösung zurück; der Pfad entscheidet damit vor dem Lazy-Import, welches
+Bundle überhaupt geladen wird.
+
 ## Veröffentlichungsgrenze
 
 Die Admin-Konsole hält `draft` und `committed` getrennt. Texteingaben, Slider, Pet, Gruppe, Themes und Effekte verändern ausschließlich `draft`. Save sendet `baseRevision` plus vollständigen Draft. Bei einer parallelen Änderung antwortet der Server mit Konflikt; die UI bietet dann Serverstand laden oder einen explizit gegen die inzwischen beobachtete Revision geschützten Replace an.

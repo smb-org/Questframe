@@ -49,11 +49,19 @@ Production nutzt bis zum bestandenen V1a-Rehearsal `RELEASE_STAGE=v1a`. Erst dan
 3. OBS-Quelle verbinden und vollständigen Snapshot abwarten.
 4. Release-Report abschließen. Eine tatsächliche Cloudflare-Deployment-ID und der menschliche Rehearsal-Ausgang dürfen niemals vorab erfunden werden.
 
-## Token-Leak
+## Dock-Token-Leak
 
-Jede:r berechtigte Editor:in kann den aktuellen Link jederzeit im OBS-Chip des Headers kopieren. Bei einem Token aus der Zeit vor der serverseitigen Wiederherstellung ist der Klartext nicht verfügbar; diesen Alt-Token einmalig über **Neuen Token erzeugen** rotieren. Bei einem Leak weiterhin **Neuen Token erzeugen** klicken und bestätigen. Der alte Token wird sofort widerrufen; verbundene Clients erhalten `token_revoked`, leeren ihre Anzeige und schließen die Verbindung. Den neuen Link anschließend in OBS einsetzen. Den Link nicht in Chat, Logs, Screenshots oder Tickets kopieren.
+Wenn ein Dock-Token geleakt ist, im Challenges-Workspace sofort **Neuen Token erzeugen**
+ausführen und bestätigen. Die Rotation widerruft die alte Generation, sendet den betroffenen
+Sockets `token_revoked` und schließt sie sofort. Die Prüfung vor jedem Broadcast verhindert
+zusätzlich, dass ein alter Dock-Socket zwischen Leak und aktivem Schließen noch ein Update
+erhält. Die neue Token-URL beziehungsweise den neuen QR-Code anschließend nur im Dock
+einsetzen. URL und QR-Code nicht in Chat, Logs, Screenshots oder Tickets kopieren.
 
-Ein vollständig offline befindlicher Browser kann seinen bereits gespeicherten Snapshot naturgemäß nicht remote löschen. Er kann mit dem alten Token aber keine neue autorisierte Verbindung aufbauen.
+Für einen Token aus der Zeit vor der serverseitigen Wiederherstellung ist der Klartext nicht
+verfügbar; diesen Alt-Token einmalig über **Neuen Token erzeugen** rotieren. Ein vollständig
+offline befindlicher Browser kann seinen bereits gespeicherten Snapshot nicht remote löschen,
+kann mit dem alten Token aber keine neue autorisierte Verbindung aufbauen.
 
 ## Rollenverlust oder verdächtige Session
 
@@ -69,11 +77,43 @@ Nach dem Rollback `/healthz`, Login, vollständigen Snapshot, Save, Sichtbarkeit
 
 ## Free-Tier-Beobachtung
 
-Die Anwendung pollt weder Zustand noch Timer. Bei ungewöhnlichem Traffic zuerst verbundene Socket-Zahlen, Rate-Limit-Antworten und Audit-Aktivität prüfen; keinen höheren Grenzwert blind konfigurieren. Cloudflare-Quoten vor jeder öffentlichen Veröffentlichung erneut gegen die aktuelle offizielle Dokumentation prüfen.
+Die Betriebsgrundlage sind die gemessenen Free-Tier-Grenzen: 5 Mio. gelesene und 100.000
+geschriebene Zeilen pro Tag für SQLite-Durable-Objects, zusätzlich 100.000 DO-Requests pro
+Tag sowie ein separates Duration-Budget. Deletes zählen als Writes, Indexänderungen als
+zusätzliche Row-Writes. Cloudflare-Quoten vor jeder öffentlichen Veröffentlichung erneut
+gegen die aktuelle offizielle Dokumentation prüfen.
 
-Die getrennten Socket-Caps für Overlay, Challenge-Quelle und Dock im Durable Object
-trennen die Cloudflare-Limiter davor nicht. Weil `/ws/overlay` und `/ws/challenge`
-denselben Overlay-Token als Schlüssel verwenden, kann ein Reconnect-Sturm der
-Challenge-Quelle über `OVERLAY_TOKEN_LIMITER` auch HUD-Verbindungen drosseln. Das ist für
-V1 bewusst akzeptiert; bei der Diagnose deshalb neben den Socket-Caps auch die
-Overlay-Rate-Limit-Antworten prüfen.
+Die folgende Baseline stammt aus dem DO-SQLite-Adapter mit drei Challenges. Session-Writes
+sind nicht enthalten; insbesondere `editor_sessions.idle_expires_at` kommt bei
+authentisierten Aktionen hinzu. Cursor-Werte und Indexkosten sind tatsächlich gemessen:
+
+| Aktion | `rowsWritten` | `rowsRead` |
+| --- | ---: | ---: |
+| Mutation mit Event, bestehende Challenge, `increment` inklusive Auto-Complete | 4 | 5 |
+| `startGlobalTimer` | 3 | 17 |
+| `pauseGlobalTimer` | 3 | 18 |
+| `resetGlobalTimer` | 3 | 19 |
+| Board-Save mit drei neuen Challenges | 7 | 15 |
+| Settings-Save | 1 | 15 |
+| Snapshot-Read | 0 | 7 |
+
+Einige hundert Live-Kommandos pro Stream liegen damit deutlich unter dem Tageslimit; der
+Request-Zähler ist die engere Grenze als der Write-Zähler. Bei ungewöhnlichem Traffic zuerst
+verbundene Socket-Zahlen, Rate-Limit-Antworten und Audit-Aktivität prüfen, keinen höheren
+Grenzwert blind konfigurieren.
+
+Für die drei funktionsbezogenen Rate-Limiter gelten diese Schlüssel:
+
+| Limiter | Schlüssel | Einsatz |
+| --- | --- | --- |
+| `OVERLAY_CAPSULE_LIMITER` | `CAPSULE_ID` | alle Overlay- und Challenge-Socket-Upgrades |
+| `OVERLAY_TOKEN_LIMITER` | erste 32 Zeichen des SHA-256-Hashes des Overlay-Tokens | `/ws/overlay` und `/ws/challenge` |
+| `DOCK_TOKEN_LIMITER` | erste 32 Zeichen des SHA-256-Hashes des Dock-Tokens | Dock-Kommando-Route und `/ws/dock` |
+
+Zusätzlich schützt `DOCK_IP_LIMITER` die Dock-Einstiege pro `cf-connecting-ip` (unbekannte
+Quellen teilen sich den Fallback-Schlüssel). Die getrennten Socket-Caps im Durable Object
+trennen die Edge-Limiter nicht: Ein Reconnect-Sturm der Challenge-Quelle teilt sich den
+Overlay-Token und kann deshalb über `OVERLAY_TOKEN_LIMITER` auch HUD-Verbindungen drosseln.
+Bei der Diagnose neben den Socket-Caps die Overlay-Rate-Limit-Antworten prüfen.
+
+Die Anwendung pollt weder Zustand noch Timer.

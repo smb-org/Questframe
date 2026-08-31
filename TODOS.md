@@ -30,7 +30,7 @@ gemessen werden.
 **Kontext:** Aufgefallen im `/plan-eng-review` am 2026-08-30 beim Entwurf der
 Challenge-Timer (`docs/designs/win-challenges-module.md`). Bewusst aus dem Modul
 herausgehalten, weil es beide Timer-Arten betrifft und mit Challenges nichts zu tun hat.
-Im Design-Doc steht der Befund unter "Reviewer Concerns".
+Im Design-Doc steht der Befund unter "Bekannte Grenze außerhalb dieses Moduls".
 
 **Wo anfangen:** `time_sync` in den Exact-Key-Parser in `wire.ts` aufnehmen, beim
 Verbinden ein `time_sync_request` senden (das Schema existiert bereits in
@@ -40,38 +40,3 @@ statt `Date.now()` eine korrigierte Zeitquelle verwenden. Danach das Bundle-Gate
 **Hängt ab von:** Nichts. Kann unabhängig gebaut werden, auch vor dem Challenge-Modul.
 
 ---
-
-## Visuelle Ausarbeitung des `quest-log`-Styles
-
-**Was:** Die gestalterische Richtung für den `quest-log`-Style des Win-Challenges-Moduls:
-Rahmenform, Materialbehandlung, Zustandsübergänge des Objective-Texts, das Aufblitzen beim
-Hochzählen, der Abschluss-Sound.
-
-**Warum:** `docs/designs/win-challenges-module.md` legt Aufbau, Token-Vertrag, Zustände und
-Barrierefreiheit vollständig fest. Wie der `quest-log`-Style konkret aussieht, ist als
-einziges offen. Schritt 15 der Umsetzung sagt nur "mit eigenen Assets und eigenem Sound".
-Der `quest-log` ist zugleich der Style, wegen dem das Feature überhaupt existiert: Er lebt
-davon, dass ein Zuschauer die visuelle Sprache sofort wiedererkennt.
-
-**Pros:** Die drei `plain-*`-Styles sind durch Tokens und Struktur vollständig beschrieben
-und sofort baubar. Nur dieser eine Style hängt, und er kommt ohnehin zuletzt.
-
-**Cons:** Die Gestaltung ist die einzige Stelle im Modul, an der Geschmack entscheidet und
-nicht der Vertrag. Sie braucht mindestens eine Runde Ansehen und Verwerfen.
-
-**Kontext:** Aufgefallen im `/plan-design-review` am 2026-08-30. Das vorhandene Wireframe
-unter `~/.gstack/projects/twitchBrudi/designs/challenge-log-20260830/placement-wireframe.html`
-ist eine **Platzierungsstudie**, keine Gestaltung: Es beantwortet, wo das Log auf der
-OBS-Fläche lebt, nicht wie es aussieht.
-
-Die Urheberrechtsgrenze steht bereits fest und ist nicht verhandelbar: die visuelle Sprache
-treffen, niemals Assets, Namen, Schriften oder Audio aus einem bestehenden Spiel kopieren.
-Gold auf dunklem Pergament, eckige Rahmen, serifenbetonte Versalien, ein aufsteigender
-Zweiklang beim Abschluss. Der Sound kann per muapi generiert werden.
-
-**Wo anfangen:** Bildentwürfe über muapi mit Grok, Sounds über muapi mit
-`suno-generate-sounds`. Ein OpenAI-Key und der gstack-Designer werden dafür nicht gebraucht.
-Aus den Entwürfen wird eine Richtung gewählt und gegen die `--wc-*`-Tokens aus dem Design-Doc
-übersetzt.
-
-**Hängt ab von:** nichts. Betrifft Schritt 15 der Umsetzung.

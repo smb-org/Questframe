@@ -95,6 +95,20 @@ Die Live-Bedienseite unter `/live/challenges` ist keine Ausgabequelle, sondern e
 Dock-Token authentifizierte Bedienfläche. Beide Interaktionsflächen übernehmen dieselben
 Touch-Ziele: `44 px` für `+` und `−`, `38 px` für alle übrigen Steuerelemente.
 
+### Challenge-Stile
+
+Die Challenge-Quelle hat vier Styles: `plain-list`, `plain-bullets`, `plain-numbered` und
+`quest-log`. `ChallengeStyleId` bestimmt ausschließlich die Struktur der Quelle, also etwa
+Listenmarker, Zeilenaufbau und die eigene Rahmenbehandlung. Die Materialwelt kommt getrennt
+aus Theme und Flächenmodus: `themeMode` wählt die Modulwelt oder die geerbte HUD-Variante,
+`surfaceMode` wählt `surface` oder `bare`. Ein Style ist deshalb keine Materialvariante und
+erzeugt keine eigene Kombination aus allen Themes und Flächen.
+
+CSS wird in der langlebigen Browserquelle nie entladen. Ein bereits geladener Style- oder
+Theme-Chunk bleibt aktiv; Umschalten erfolgt über `data-style` und `data-theme-mode` am Root.
+Alle Brücken-, Style- und Materialregeln sind über diese Attribute gescoped, damit ein
+früher geladener Chunk keinen späteren Zustand überlagert.
+
 ## Varianten
 
 Es gibt sechs Unitframe-Varianten. Drei tragen generierte Rahmengrafik, drei sind rein aus CSS gebaut.
@@ -139,6 +153,9 @@ in der Rahmenöffnung; das Asset braucht daher keinen Alphaausschnitt.
   aktualisierten Zähler, Häkchen, Durchstreichung oder ein Symbol erkennbar. Ton bleibt
   aktiv, solange der globale `effects_enabled`-Schalter aktiv ist, weil reduzierte Bewegung
   nichts über Ton aussagt.
+- Ton ist immer eine Zugabe zur sichtbaren Zustandsänderung und nie deren Informationsträger.
+  Zähler, Text, Häkchen, Durchstreichung und Symbole bleiben ohne Ton vollständig
+  verständlich; `effects_enabled` darf nur die Zeremonie stummschalten.
 
 ## Responsive Regeln
 
@@ -153,4 +170,4 @@ Unter `760 px` wird die Konsole zur Notfallansicht: Status, globaler Sichtbarkei
 
 ## Assets und Änderungen
 
-Produktionsassets und ihre MuAPI/Grok-Herkunft sind unter [src/assets/provenance/README.md](src/assets/provenance/README.md) dokumentiert. Die Bar-Tröge und Portraitöffnungen sind in jedem Master leer; Füllung, Name und Levelzahl kommen ausschließlich aus CSS. Der deterministische Build erzeugt die WebP-Derivate; direkte manuelle Änderungen an generierten Dateien sind nicht zulässig. Jede Änderung an Tokens, HUD-Geometrie oder Interaktionsmustern muss dieses Dokument und die betroffenen Komponenten-/Browserprüfungen gemeinsam aktualisieren.
+Produktionsassets und ihre Herkunft sind unter [src/assets/provenance/README.md](src/assets/provenance/README.md) dokumentiert. Die Bar-Tröge und Portraitöffnungen sind in jedem Master leer; Füllung, Name und Levelzahl kommen ausschließlich aus CSS. Der deterministische Build erzeugt die WebP-Derivate; direkte manuelle Änderungen an generierten Dateien sind nicht zulässig. Jede Änderung an Tokens, HUD-Geometrie oder Interaktionsmustern muss dieses Dokument und die betroffenen Komponenten-/Browserprüfungen gemeinsam aktualisieren.
