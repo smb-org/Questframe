@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "bounce-easing",
+        "value": "cubic-bezier(0.2, 1.5, 0.4, 1)",
+        "createdAt": "2026-09-01T20:28:54.048Z",
+        "reason": "Bestehende Abhak-Zeremonie (Haekchen-Pop mit Ueberschwingen), Projektentscheidung aus frueherem Commit, in dieser Session unveraendert"
+      }
+    ]
+  }
+}
