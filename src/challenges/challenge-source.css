@@ -260,6 +260,8 @@
   .challenge-source[data-style="plain-bullets"],
   .challenge-source[data-style="quest-log"]
 )[data-overflow-mode="scroll"] .challenge-source__scroll-viewport {
+  /* Die Zeilen messen offsetTop relativ zum Viewport, nicht zum absoluten Root. */
+  position: relative;
   height: calc(var(--wc-row-height) * var(--wc-scroll-visible-rows));
   overflow: hidden;
 }
@@ -565,7 +567,13 @@
   .challenge-source-ceremony[data-style="plain-bullets"],
   .challenge-source-ceremony[data-style="quest-log"]
 )[data-ceremony-motion="animated"][data-ceremony-type="quiet"]
-  [data-ceremony-target="true"] {
+  [data-ceremony-target="true"] .challenge-source__row-inner,
+:is(
+  .challenge-source-ceremony[data-style="plain-list"],
+  .challenge-source-ceremony[data-style="plain-bullets"],
+  .challenge-source-ceremony[data-style="quest-log"]
+)[data-ceremony-motion="animated"][data-ceremony-type="quiet"]
+  [data-ceremony-target="true"].challenge-source__timer {
   animation: challenge-ceremony-quiet 260ms ease-out;
 }
 
@@ -607,8 +615,8 @@
   :is(
     .challenge-source-ceremony[data-style="plain-list"],
     .challenge-source-ceremony[data-style="plain-bullets"],
-      .challenge-source-ceremony[data-style="quest-log"]
-  )[data-ceremony-motion="animated"] [data-ceremony-target="true"],
+    .challenge-source-ceremony[data-style="quest-log"]
+  )[data-ceremony-motion="animated"] [data-ceremony-target="true"] .challenge-source__row-inner,
   :is(
     .challenge-source-ceremony[data-style="plain-list"],
     .challenge-source-ceremony[data-style="plain-bullets"],
@@ -619,6 +627,14 @@
     .challenge-source-ceremony[data-style="plain-bullets"],
       .challenge-source-ceremony[data-style="quest-log"]
   )[data-ceremony-motion="animated"] [data-ceremony-target="true"] .challenge-source__mark {
+    animation: none;
+  }
+
+  :is(
+    .challenge-source-ceremony[data-style="plain-list"],
+    .challenge-source-ceremony[data-style="plain-bullets"],
+    .challenge-source-ceremony[data-style="quest-log"]
+  )[data-ceremony-motion="animated"] [data-ceremony-target="true"].challenge-source__timer {
     animation: none;
   }
 }

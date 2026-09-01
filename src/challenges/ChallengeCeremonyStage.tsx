@@ -13,13 +13,17 @@ export type ChallengeCeremonyStageProps = {
 // bewusst Sache des jeweiligen Aufrufers, nicht dieser Komponente.
 export const ChallengeCeremonyStage = ({ presentation, update }: ChallengeCeremonyStageProps) => (
   <div
-    key={presentation.activeCeremony?.eventSeq ?? "idle"}
     className="challenge-source-ceremony"
     data-ceremony-event={presentation.activeCeremony?.eventType}
     data-ceremony-motion={presentation.activeCeremony === null ? undefined : presentation.reducedMotion ? "static" : "animated"}
     data-ceremony-type={presentation.activeCeremony?.visual}
     data-style={update.settings.styleId}
   >
-    <ChallengeLog ceremonyTarget={presentation.ceremonyTarget} now={presentation.now} update={update} />
+    <ChallengeLog
+      ceremonySeq={presentation.activeCeremony?.eventSeq}
+      ceremonyTarget={presentation.ceremonyTarget}
+      now={presentation.now}
+      update={update}
+    />
   </div>
 );

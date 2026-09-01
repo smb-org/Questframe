@@ -1,11 +1,6 @@
 import type { Challenge } from "../contracts/schemas";
 import { deriveTimerState, type DomainNow } from "./timers";
 
-export type VisibleSelection = {
-  challenges: Challenge[];
-  remaining: number;
-};
-
 export type VisibleSelectionOptions = {
   includeHidden?: boolean;
   doneOrder?: "end" | "keep";
@@ -18,7 +13,7 @@ export const selectVisible = (
   challenges: readonly Challenge[],
   now: DomainNow,
   options: VisibleSelectionOptions = {},
-): VisibleSelection => {
+): Challenge[] => {
   const ordered = challenges
     .filter((challenge) => options.includeHidden === true || !challenge.hidden)
     .sort(bySortOrder);
@@ -37,10 +32,7 @@ export const selectVisible = (
       ];
   const selected = pinned === undefined ? reordered : [pinned, ...reordered];
 
-  return {
-    challenges: selected,
-    remaining: 0,
-  };
+  return selected;
 };
 
 export const challengeNumbers = (challenges: readonly Challenge[]): Map<string, number> => {

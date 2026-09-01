@@ -303,14 +303,13 @@ describe("Win-Challenges-Domain", () => {
       makeChallenge({ id: "finished-3", sortOrder: 4, state: "done", completedAt: now }),
     ];
     const result = selectVisible(challenges, now);
-    expect(result.challenges.map((challenge) => challenge.id)).toEqual([
+    expect(result.map((challenge) => challenge.id)).toEqual([
       "timer",
       "first",
       "finished-1",
       "finished-2",
       "finished-3",
     ]);
-    expect(result.remaining).toBe(0);
   });
 
   it("gibt die vollständige geordnete Liste ohne Overflow-Schnitt zurück", () => {
@@ -326,20 +325,19 @@ describe("Win-Challenges-Domain", () => {
       }),
     );
     const result = selectVisible([...open, ...finished], now);
-    expect(result.challenges).toHaveLength(20);
-    expect(result.challenges.slice(0, 15).every((challenge) => challenge.state !== "done")).toBe(true);
-    expect(result.remaining).toBe(0);
+    expect(result).toHaveLength(20);
+    expect(result.slice(0, 15).every((challenge) => challenge.state !== "done")).toBe(true);
     expect(selectVisible([
       makeChallenge({ state: "done", completedAt: "2026-08-30T11:59:51.999Z" }),
-    ], now).challenges).toHaveLength(1);
+    ], now)).toHaveLength(1);
   });
 
   it("filtert versteckte Challenges und lässt sie für das Dock optional zu", () => {
     const hidden = makeChallenge({ id: "hidden", hidden: true, sortOrder: 0 });
     const open = makeChallenge({ id: "open", sortOrder: 1 });
 
-    expect(selectVisible([hidden, open], now).challenges.map(({ id }) => id)).toEqual(["open"]);
-    expect(selectVisible([hidden, open], now, { includeHidden: true }).challenges.map(({ id }) => id))
+    expect(selectVisible([hidden, open], now).map(({ id }) => id)).toEqual(["open"]);
+    expect(selectVisible([hidden, open], now, { includeHidden: true }).map(({ id }) => id))
       .toEqual(["hidden", "open"]);
   });
 
@@ -352,9 +350,9 @@ describe("Win-Challenges-Domain", () => {
       makeChallenge({ id: "hidden", sortOrder: 4, hidden: true }),
     ];
 
-    expect(selectVisible(challenges, now, { doneOrder: "end" }).challenges.map(({ id }) => id))
+    expect(selectVisible(challenges, now, { doneOrder: "end" }).map(({ id }) => id))
       .toEqual(["pinned", "open", "done-first", "done-last"]);
-    expect(selectVisible(challenges, now, { doneOrder: "keep" }).challenges.map(({ id }) => id))
+    expect(selectVisible(challenges, now, { doneOrder: "keep" }).map(({ id }) => id))
       .toEqual(["pinned", "done-first", "open", "done-last"]);
 
     expect([...challengeNumbers(challenges).entries()]).toEqual([

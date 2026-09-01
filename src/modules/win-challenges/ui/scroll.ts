@@ -6,8 +6,40 @@ const CEREMONY_FOCUS_MS = 300;
 
 export type ScrollDirection = "forward" | "backward";
 
+export type FocusTargetRect = {
+  top: number;
+  bottom: number;
+};
+
+export type FocusViewport = {
+  height: number;
+};
+
+export type FocusResolution = {
+  outside: boolean;
+  targetOffset: number;
+};
+
 const positiveModulo = (value: number, modulus: number): number =>
   ((value % modulus) + modulus) % modulus;
+
+const clampOffset = (value: number, distance: number): number =>
+  Math.min(distance, Math.max(0, value));
+
+export const resolveFocus = (
+  targetRect: FocusTargetRect,
+  viewport: FocusViewport,
+  offset: number,
+  distance: number,
+): FocusResolution => {
+  const outside = targetRect.top < offset || targetRect.bottom > offset + viewport.height;
+  const minimum = Math.max(0, targetRect.bottom - viewport.height);
+  const maximum = Math.min(distance, targetRect.top);
+  return {
+    outside,
+    targetOffset: clampOffset(Math.min(maximum, Math.max(minimum, offset)), distance),
+  };
+};
 
 export const pingPongOffset = (
   tMs: number,
@@ -142,14 +174,7 @@ export const useScrollOffset = ({
     resizeObserver?.observe(viewport);
     resizeObserver?.observe(rows);
 
-    const clamp = (value: number): number => Math.min(metrics.distance, Math.max(0, value));
-    const targetOffsetFor = (target: HTMLElement, currentOffset: number): number => {
-      const top = target.offsetTop;
-      const bottom = top + target.offsetHeight;
-      const minimum = Math.max(0, bottom - metrics.viewportHeight);
-      const maximum = Math.min(metrics.distance, top);
-      return clamp(Math.min(maximum, Math.max(minimum, currentOffset)));
-    };
+    let resolvedTargetId: string | null = null;
 
     const tick = () => {
       if (disposed) return;
@@ -162,28 +187,36 @@ export const useScrollOffset = ({
       }
 
       const targetId = targetIdRef.current;
-      if (focus !== null && focus.targetId !== targetId) {
-        phaseOffset = rephase(now, metrics.distance, speedPxPerS, focus.currentOffset, focus.direction, holdMs);
-        lastOffset = focus.currentOffset;
-        focus = null;
-      }
-
       let offset = pingPongOffset(now + phaseOffset, metrics.distance, speedPxPerS, holdMs);
-      if (focus === null && targetId !== null) {
-        const target = [...rows.querySelectorAll<HTMLElement>("[data-challenge-id]")]
-          .find((candidate) => candidate.dataset.challengeId === targetId) ?? null;
-        if (target !== null) {
-          const targetOffset = targetOffsetFor(target, offset);
-          const targetTop = target.offsetTop;
-          const targetBottom = targetTop + target.offsetHeight;
-          const outside = targetTop < offset || targetBottom > offset + metrics.viewportHeight;
-          if (outside) {
+      if (targetId !== resolvedTargetId) {
+        const previousFocus = focus;
+        const previousOffset = previousFocus?.currentOffset ?? lastOffset;
+        const previousDirection = previousFocus?.direction ?? lastDirection;
+        if (resolvedTargetId !== null) {
+          phaseOffset = rephase(now, metrics.distance, speedPxPerS, previousOffset, previousDirection, holdMs);
+          offset = previousOffset;
+        }
+        focus = null;
+        resolvedTargetId = targetId;
+
+        if (targetId !== null) {
+          const target = [...rows.querySelectorAll<HTMLElement>("[data-challenge-id]")]
+            .find((candidate) => candidate.dataset.challengeId === targetId) ?? null;
+          if (target !== null) {
+            // offsetTop is relative to the positioned scroll viewport.
+            const targetTop = target.offsetTop;
+            const resolution = resolveFocus(
+              { top: targetTop, bottom: targetTop + target.offsetHeight },
+              { height: metrics.viewportHeight },
+              offset,
+              metrics.distance,
+            );
             const direction: ScrollDirection = offset > lastOffset ? "forward" : offset < lastOffset ? "backward" : lastDirection;
             focus = {
               targetId,
               startedAt: now,
               startOffset: offset,
-              targetOffset,
+              targetOffset: resolution.targetOffset,
               direction,
               currentOffset: offset,
             };

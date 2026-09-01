@@ -292,9 +292,44 @@ describe("ChallengeSourceApp", () => {
 
     await deliver(socket, sourceUpdate({ eventSeq: 1, settings, event: progressed }));
     const firstCeremony = document.querySelector(".challenge-source-ceremony");
+    const firstSource = document.querySelector(".challenge-source");
+    const firstRow = document.querySelector('[data-challenge-id="open"]');
+    const firstCount = document.querySelector('[data-challenge-id="open"] .challenge-source__count');
     await deliver(socket, sourceUpdate({ eventSeq: 2, settings, event: { ...progressed, previousCount: 4, currentCount: 5 } }));
 
-    expect(document.querySelector(".challenge-source-ceremony")).not.toBe(firstCeremony);
+    expect(document.querySelector(".challenge-source-ceremony")).toBe(firstCeremony);
+    expect(document.querySelector(".challenge-source")).toBe(firstSource);
+    expect(document.querySelector('[data-challenge-id="open"]')).toBe(firstRow);
+    expect(document.querySelector('[data-challenge-id="open"] .challenge-source__count')).not.toBe(firstCount);
+
+    await waitFor(() => expect(document.querySelector(".challenge-source-ceremony")).toHaveAttribute("data-ceremony-type", "progressed"));
+    await waitFor(() => expect(document.querySelector(".challenge-source-ceremony")).not.toHaveAttribute("data-ceremony-type", "progressed"));
+    expect(document.querySelector(".challenge-source")).toBe(firstSource);
+    expect(document.querySelector('[data-challenge-id="open"]')).toBe(firstRow);
+  });
+
+  it("erzeugt Markierung und Zeileninneres je Zeremonie-Ereignis neu", () => {
+    const update = sourceUpdate({ settings: { ...message().settings, themeMode: "own" } });
+    const view = render(<ChallengeLog ceremonySeq={1} ceremonyTarget={{ kind: "challenge", id: "open" }} now={fixedNow} update={update} />);
+    const row = document.querySelector('[data-challenge-id="open"]');
+    const mark = row?.querySelector(".challenge-source__mark");
+    const rowInner = row?.querySelector(".challenge-source__row-inner");
+
+    view.rerender(<ChallengeLog ceremonySeq={2} ceremonyTarget={{ kind: "challenge", id: "open" }} now={fixedNow} update={update} />);
+
+    expect(document.querySelector('[data-challenge-id="open"]')).toBe(row);
+    expect(row?.querySelector(".challenge-source__mark")).not.toBe(mark);
+    expect(row?.querySelector(".challenge-source__row-inner")).not.toBe(rowInner);
+  });
+
+  it("erzeugt den globalen Timer-Span je globaler Zeremonie neu", () => {
+    const update = sourceUpdate({ settings: { ...message().settings, themeMode: "own", globalTimer: globalTimer("running") } });
+    const view = render(<ChallengeLog ceremonySeq={1} ceremonyTarget={{ kind: "global" }} now={fixedNow} update={update} />);
+    const timer = document.querySelector(".challenge-source__timer");
+
+    view.rerender(<ChallengeLog ceremonySeq={2} ceremonyTarget={{ kind: "global" }} now={fixedNow} update={update} />);
+
+    expect(document.querySelector(".challenge-source__timer")).not.toBe(timer);
   });
 
   it("zeigt das Ziel auch dann, wenn es sonst außerhalb der sichtbaren Zeilen läge", async () => {

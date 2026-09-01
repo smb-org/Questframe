@@ -218,6 +218,41 @@ describe("Admin workspace shell", () => {
     }));
   });
 
+  it("verwirft in der Vorschau alte Globaltimer-Laufzeit bei geänderter Dauer", async () => {
+    const challengeSnapshot: ChallengeBoardSnapshot = {
+      eventSeq: 0,
+      boardRevision: 1,
+      settingsRevision: 1,
+      settings: {
+        styleId: "plain-list",
+        themeMode: "inherit",
+        surfaceMode: "surface",
+        headerTitle: "CHALLENGES",
+        effectsEnabled: true,
+        maxVisible: 5,
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+        globalTimer: { totalMs: 60_000, endsAt: new Date(Date.now() + 60_000).toISOString(), pausedRemainMs: null },
+        placement: { x: 300, y: 8, scale: 1 },
+      },
+      challenges: [],
+    };
+    const api: AdminApi = {
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      getChallengeBoard: vi.fn(() => Promise.resolve(challengeSnapshot)),
+      saveChallengeBoard: vi.fn(),
+      saveChallengeSettings: vi.fn(),
+    };
+
+    render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="challenges" />);
+    const timerField = await screen.findByRole("spinbutton", { name: "Globaler Timer" });
+    await waitFor(() => expect(document.querySelector(".challenge-source__timer")).toHaveAttribute("data-state", "running"));
+
+    fireEvent.change(timerField, { target: { value: "2" } });
+
+    await waitFor(() => expect(document.querySelector(".challenge-source__timer")).toBeNull());
+  });
+
   it("übernimmt geänderte Settings aus dem Live-Update des Boards", async () => {
     let onChallengeUpdate: ((update: ChallengeUpdate) => void) | undefined;
     const challengeSnapshot: ChallengeBoardSnapshot = {

@@ -30,10 +30,12 @@ const GlobalTimerDisplay = ({
   timer,
   now,
   ceremonyTarget = false,
+  ceremonySeq,
 }: {
   timer: GlobalTimer;
   now: number;
   ceremonyTarget?: boolean;
+  ceremonySeq?: number | undefined;
 }) => {
   const state = deriveTimerState(timer.endsAt, timer.pausedRemainMs, now);
   const remainingMs = remainingFor(timer.endsAt, timer.pausedRemainMs, state, now);
@@ -47,6 +49,7 @@ const GlobalTimerDisplay = ({
         : null;
   return (
     <span
+      key={ceremonyTarget ? ceremonySeq : undefined}
       aria-label={`Globaler Timer: ${formatRemaining(remainingMs)}${statusLabel === null ? "" : `, ${statusLabel}`}`}
       className={`challenge-source__timer ${timerClass(state, remainingMs)}`}
       data-critical={critical ? "true" : "false"}
@@ -64,12 +67,14 @@ const ChallengeRow = ({
   challenge,
   now,
   ceremonyTargetId,
+  ceremonySeq,
   number,
   numbered,
 }: {
   challenge: Challenge;
   now: number;
   ceremonyTargetId?: string | null;
+  ceremonySeq?: number | undefined;
   number: number | undefined;
   numbered: boolean;
 }) => {
@@ -87,6 +92,7 @@ const ChallengeRow = ({
   const progressStyle = progress === null
     ? undefined
     : { "--wc-progress": `${String(progress)}%` } as CSSProperties;
+  const ceremonyKey = ceremonyTargetId === challenge.id ? ceremonySeq : undefined;
   return (
     <li
       className={`challenge-source__row${done ? " challenge-source__row--done" : ""}`}
@@ -94,8 +100,8 @@ const ChallengeRow = ({
       data-ceremony-target={ceremonyTargetId === challenge.id ? "true" : undefined}
       data-state={challenge.state}
     >
-      <span className="challenge-source__row-inner">
-        <span aria-hidden="true" className="challenge-source__mark">{numbered ? number ?? "" : done ? "✓" : ""}</span>
+      <span className="challenge-source__row-inner" key={ceremonyKey}>
+        <span aria-hidden="true" className="challenge-source__mark" key={ceremonyKey}>{numbered ? number ?? "" : done ? "✓" : ""}</span>
         <span className="challenge-source__content">
           <span className="challenge-source__name">{challenge.title}</span>
           {progress !== null && (
@@ -114,7 +120,7 @@ const ChallengeRow = ({
         </span>
         <span className="challenge-source__meta">
           {challenge.targetCount !== null && (
-            <span className="challenge-source__count">{challenge.currentCount} / {challenge.targetCount}</span>
+            <span className="challenge-source__count" key={ceremonyKey}>{challenge.currentCount} / {challenge.targetCount}</span>
           )}
           {challenge.timerEndsAt !== null && !done && (
             <span className="challenge-source__time">{formatRemaining(remainingMs)}</span>
@@ -129,6 +135,7 @@ export const ChallengeLog = ({
   update,
   now,
   ceremonyTarget = null,
+  ceremonySeq,
   placement,
   className,
   ariaLabel,
@@ -143,6 +150,7 @@ export const ChallengeLog = ({
   update: ChallengeUpdate;
   now: number;
   ceremonyTarget?: ChallengeLogCeremonyTarget | null;
+  ceremonySeq?: number | undefined;
   placement?: ChallengeUpdate["settings"]["placement"];
   className?: string;
   ariaLabel?: string;
@@ -154,14 +162,13 @@ export const ChallengeLog = ({
   onKeyDown?: KeyboardEventHandler<HTMLElement>;
   rootTag?: "main" | "section";
 }) => {
-  const selection = selectVisible(update.challenges, now, { doneOrder: update.settings.doneOrder });
+  const allChallenges = selectVisible(update.challenges, now, { doneOrder: update.settings.doneOrder });
   const globalTimer = update.settings.globalTimer;
   const globalState = globalTimer === null
     ? "idle"
     : deriveTimerState(globalTimer.endsAt, globalTimer.pausedRemainMs, now);
   const globalTimerVisible = globalTimer !== null && globalState !== "idle";
   const capacity = update.settings.maxVisible;
-  const allChallenges = selection.challenges;
   const pinnedCandidate = allChallenges[0];
   const pinned = pinnedCandidate !== undefined && pinnedCandidate.state !== "done"
     && pinnedCandidate.timerEndsAt !== null
@@ -263,6 +270,7 @@ export const ChallengeLog = ({
         {globalTimerVisible && (
           <GlobalTimerDisplay
             ceremonyTarget={ceremonyTarget?.kind === "global"}
+            ceremonySeq={ceremonySeq}
             now={now}
             timer={globalTimer}
           />
@@ -276,6 +284,7 @@ export const ChallengeLog = ({
         <>
           {pinned !== null && <ul aria-label="Gepinnte Challenge" className="challenge-source__rows challenge-source__pinned-row">
             <ChallengeRow
+              ceremonySeq={ceremonySeq}
               ceremonyTargetId={ceremonyTarget?.kind === "challenge" ? ceremonyTarget.id : null}
               challenge={pinned}
               numbered={update.settings.numbered}
@@ -290,6 +299,7 @@ export const ChallengeLog = ({
             <ul aria-label="Challenges" className="challenge-source__rows" ref={scroll.rows}>
               {(pinned === null ? allChallenges : allChallenges.slice(1)).map((challenge) => (
                 <ChallengeRow
+                  ceremonySeq={ceremonySeq}
                   ceremonyTargetId={ceremonyTarget?.kind === "challenge" ? ceremonyTarget.id : null}
                   challenge={challenge}
                   key={challenge.id}
@@ -306,6 +316,7 @@ export const ChallengeLog = ({
         <ul aria-label="Challenges" className="challenge-source__rows">
           {challenges.map((challenge) => (
             <ChallengeRow
+              ceremonySeq={ceremonySeq}
               ceremonyTargetId={ceremonyTarget?.kind === "challenge" ? ceremonyTarget.id : null}
               challenge={challenge}
               key={challenge.id}
@@ -320,6 +331,7 @@ export const ChallengeLog = ({
         <ul aria-label="Challenges" className="challenge-source__rows" key={effectiveMode === "page" ? pageIndex : "cut"}>
           {challenges.map((challenge) => (
             <ChallengeRow
+              ceremonySeq={ceremonySeq}
               ceremonyTargetId={ceremonyTarget?.kind === "challenge" ? ceremonyTarget.id : null}
               key={challenge.id}
               challenge={challenge}

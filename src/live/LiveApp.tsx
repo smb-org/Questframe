@@ -447,13 +447,13 @@ export const LiveApp = () => {
   }
 
   const patchedChallenges = update.challenges.map((challenge) => mergeChallenge(challenge, optimistic[challenge.id]));
-  const selection = selectVisible(patchedChallenges, now, { doneOrder: update.settings.doneOrder, includeHidden: true });
+  const selectedChallenges = selectVisible(patchedChallenges, now, { doneOrder: update.settings.doneOrder, includeHidden: true });
   const numbers = challengeNumbers(patchedChallenges);
-  const rows = selection.challenges;
+  const rows = selectedChallenges;
   if (deletedNotice !== null && !rows.some((challenge) => challenge.id === deletedNotice.challenge.id)) {
     rows.push(deletedNotice.challenge);
   }
-  const pinnedId = selection.challenges[0]?.id ?? null;
+  const pinnedId = selectedChallenges[0]?.id ?? null;
   const visibleRows = compact
     ? pinnedId === null ? [] : rows.filter((challenge) => challenge.id === pinnedId)
     : rows;

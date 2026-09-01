@@ -14,7 +14,7 @@ import {
   type DomainNow,
 } from "../domain/timers";
 import { MAX_COUNT } from "../contracts/predicates";
-import { selectVisible, type VisibleSelection } from "../domain/visibility";
+import { selectVisible } from "../domain/visibility";
 import {
   NotFoundError,
   ValidationError,
@@ -203,7 +203,7 @@ export class WinChallengesService {
     return { ...this.readSnapshot(), event: null };
   }
 
-  public selectVisible(now: DomainNow = this.clock()): VisibleSelection {
+  public selectVisible(now: DomainNow = this.clock()): Challenge[] {
     const snapshot = this.repository.readSnapshot();
     return selectVisible(snapshot.challenges, now, { doneOrder: snapshot.settings.doneOrder });
   }

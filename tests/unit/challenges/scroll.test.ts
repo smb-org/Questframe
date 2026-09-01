@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { pingPongOffset, rephase } from "../../../src/modules/win-challenges/ui/scroll";
+import { pingPongOffset, rephase, resolveFocus } from "../../../src/modules/win-challenges/ui/scroll";
 
 describe("Challenge-Scroll", () => {
   it("fährt linear, hält an den Enden und kehrt nach einer Periode zurück", () => {
@@ -28,5 +28,16 @@ describe("Challenge-Scroll", () => {
     expect(pingPongOffset(5_000 + backwardPhase, 100, 10)).toBeCloseTo(30);
     expect(pingPongOffset(5_000 + forwardPhase + 1, 100, 10)).toBeGreaterThan(30);
     expect(pingPongOffset(5_000 + backwardPhase + 1, 100, 10)).toBeLessThan(30);
+  });
+
+  it("hält ein sichtbares Ziel und berechnet für ein außerhalb liegendes Ziel den Zieloffset", () => {
+    expect(resolveFocus({ top: 40, bottom: 70 }, { height: 100 }, 25, 200)).toEqual({
+      outside: false,
+      targetOffset: 25,
+    });
+    expect(resolveFocus({ top: 180, bottom: 220 }, { height: 100 }, 0, 200)).toEqual({
+      outside: true,
+      targetOffset: 120,
+    });
   });
 });

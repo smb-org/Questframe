@@ -126,6 +126,7 @@ const sameChallengeSettingsDraft = (left: ChallengeSettingsDraft | null, right: 
 
 const challengeSettingsWithDraft = (settings: ChallengeSettings, draft: ChallengeSettingsDraft | null, themeId: ChallengeThemeId): ChallengeSettings => {
   if (draft === null) return { ...settings, themeId };
+  const timerDurationChanged = draft.globalTimerTotalMs !== (settings.globalTimer?.totalMs ?? null);
   return {
     ...settings,
     themeId,
@@ -142,8 +143,8 @@ const challengeSettingsWithDraft = (settings: ChallengeSettings, draft: Challeng
       ? null
       : {
           totalMs: draft.globalTimerTotalMs,
-          endsAt: settings.globalTimer?.endsAt ?? null,
-          pausedRemainMs: settings.globalTimer?.pausedRemainMs ?? null,
+          endsAt: timerDurationChanged ? null : settings.globalTimer?.endsAt ?? null,
+          pausedRemainMs: timerDurationChanged ? null : settings.globalTimer?.pausedRemainMs ?? null,
         },
   };
 };
