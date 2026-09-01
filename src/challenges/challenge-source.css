@@ -6,16 +6,13 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) {
   --wc-source-width: 340px;
-  --wc-source-height: 300px;
   --wc-x: 0px;
   --wc-y: 0px;
   --wc-scale: 1;
-  --wc-header-height: 26px;
-  --wc-timer-height: 40px;
+  --wc-header-height: 30px;
   --wc-overflow-height: 20px;
   --wc-inline-padding: 10px;
   --wc-gap: 8px;
@@ -54,7 +51,6 @@
   transform: scale(var(--wc-scale));
   transform-origin: top left;
   width: min(var(--wc-source-width), 100%);
-  max-height: var(--wc-source-height);
   overflow: hidden;
   color: var(--wc-text);
   font-family: var(--wc-font-ui);
@@ -72,37 +68,31 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 )[data-theme-mode="inherit"].hud-theme--trail-wood,
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 )[data-theme-mode="inherit"].hud-theme--field-journal,
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 )[data-theme-mode="inherit"].hud-theme--forged-compass,
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 )[data-theme-mode="inherit"].hud-theme--classic-simple,
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 )[data-theme-mode="inherit"].hud-theme--modern-compact,
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 )[data-theme-mode="inherit"].hud-theme--modern-minimal {
   --wc-surface: var(--hud-panel, rgba(13, 16, 19, 0.88));
@@ -125,7 +115,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 )[data-theme-mode][data-surface-mode="bare"] {
   --wc-surface: transparent;
@@ -144,19 +133,11 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__header,
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
-  .challenge-source[data-style="quest-log"]
-) .challenge-source__timer,
-:is(
-  .challenge-source[data-style="plain-list"],
-  .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__row {
   position: relative;
@@ -169,19 +150,11 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__header::after,
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
-  .challenge-source[data-style="quest-log"]
-) .challenge-source__timer::after,
-:is(
-  .challenge-source[data-style="plain-list"],
-  .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__row::after {
   position: absolute;
@@ -198,10 +171,9 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__header {
-  height: var(--wc-header-height);
+  min-height: var(--wc-header-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -213,9 +185,9 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__title {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   color: var(--wc-accent);
@@ -231,19 +203,16 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__stand,
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__count,
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__time {
   flex: 0 0 auto;
@@ -254,7 +223,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__stand {
   color: var(--wc-muted);
@@ -263,14 +231,66 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
+  .challenge-source[data-style="quest-log"]
+)[data-numbered="true"] .challenge-source__mark {
+  flex-basis: 18px;
+  color: var(--wc-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+)[data-numbered="true"] .challenge-source__row--done .challenge-source__mark {
+  color: var(--wc-ok);
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+)[data-overflow-mode="page"] .challenge-source__rows:not(.challenge-source__pinned-row) {
+  animation: challenge-source-page-in 200ms ease-out;
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+)[data-overflow-mode="scroll"] .challenge-source__scroll-viewport {
+  height: calc(var(--wc-row-height) * var(--wc-scroll-visible-rows));
+  overflow: hidden;
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+)[data-overflow-mode="scroll"] .challenge-source__rows {
+  will-change: transform;
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__page {
+  color: var(--wc-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: pre;
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__timer {
-  height: var(--wc-timer-height);
-  display: flex;
+  flex: 0 0 auto;
+  display: inline-flex;
   align-items: center;
   gap: var(--wc-gap);
-  padding: 0 var(--wc-inline-padding);
   color: var(--wc-accent);
   font-family: var(--wc-font-display);
   font-size: var(--wc-timer-size);
@@ -281,7 +301,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__timer--paused {
   color: var(--wc-muted);
@@ -290,13 +309,11 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__timer--expired,
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__timer--critical {
   color: var(--wc-critical);
@@ -305,7 +322,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__timer--expired {
   animation: none;
@@ -314,7 +330,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__timer--critical {
   animation: challenge-source-pulse 1.35s ease-in-out infinite;
@@ -325,7 +340,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__timer-label {
   margin-left: auto;
@@ -338,7 +352,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__rows {
   margin: 0;
@@ -350,7 +363,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__row {
   min-height: var(--wc-row-height);
@@ -361,7 +373,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__row-inner {
   min-height: var(--wc-row-height);
@@ -374,7 +385,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__row--done {
   color: var(--wc-ok);
@@ -384,7 +394,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__mark {
   flex: 0 0 12px;
@@ -395,7 +404,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__row--done .challenge-source__mark {
   color: var(--wc-ok);
@@ -404,7 +412,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__row--done .challenge-source__name {
   text-decoration: line-through;
@@ -413,7 +420,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__content {
   min-width: 0;
@@ -428,7 +434,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__name {
   display: -webkit-box;
@@ -444,7 +449,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__meta {
   display: flex;
@@ -456,7 +460,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__count {
   color: var(--wc-text);
@@ -465,7 +468,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__time {
   color: var(--wc-accent);
@@ -475,7 +477,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__progress {
   height: 3px;
@@ -487,7 +488,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__progress-fill {
   display: block;
@@ -500,7 +500,6 @@
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="plain-numbered"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__more {
   display: block;
@@ -518,6 +517,11 @@
   50% { opacity: 0.62; }
 }
 
+@keyframes challenge-source-page-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* Die OBS-Quelle ist eine vollflaechige 1920x1080-Komposition. Nur der Log-Root
    wird innerhalb dieses Dokuments ueber sein Placement positioniert. */
 .challenge-source-ceremony {
@@ -531,7 +535,6 @@
 :is(
   .challenge-source-ceremony[data-style="plain-list"],
   .challenge-source-ceremony[data-style="plain-bullets"],
-  .challenge-source-ceremony[data-style="plain-numbered"],
   .challenge-source-ceremony[data-style="quest-log"]
 ) {
   display: block;
@@ -540,7 +543,6 @@
 :is(
   .challenge-source-ceremony[data-style="plain-list"],
   .challenge-source-ceremony[data-style="plain-bullets"],
-  .challenge-source-ceremony[data-style="plain-numbered"],
   .challenge-source-ceremony[data-style="quest-log"]
 )[data-ceremony-motion="animated"][data-ceremony-type="progressed"]
   [data-ceremony-target="true"] .challenge-source__count {
@@ -551,7 +553,6 @@
 :is(
   .challenge-source-ceremony[data-style="plain-list"],
   .challenge-source-ceremony[data-style="plain-bullets"],
-  .challenge-source-ceremony[data-style="plain-numbered"],
   .challenge-source-ceremony[data-style="quest-log"]
 )[data-ceremony-motion="animated"][data-ceremony-type="completed"]
   [data-ceremony-target="true"] .challenge-source__mark {
@@ -562,7 +563,6 @@
 :is(
   .challenge-source-ceremony[data-style="plain-list"],
   .challenge-source-ceremony[data-style="plain-bullets"],
-  .challenge-source-ceremony[data-style="plain-numbered"],
   .challenge-source-ceremony[data-style="quest-log"]
 )[data-ceremony-motion="animated"][data-ceremony-type="quiet"]
   [data-ceremony-target="true"] {
@@ -590,9 +590,16 @@
   :is(
     .challenge-source[data-style="plain-list"],
     .challenge-source[data-style="plain-bullets"],
-    .challenge-source[data-style="plain-numbered"],
-    .challenge-source[data-style="quest-log"]
+      .challenge-source[data-style="quest-log"]
   ) .challenge-source__timer--critical {
+    animation: none;
+  }
+
+  :is(
+    .challenge-source[data-style="plain-list"],
+    .challenge-source[data-style="plain-bullets"],
+    .challenge-source[data-style="quest-log"]
+  )[data-overflow-mode="page"] .challenge-source__rows:not(.challenge-source__pinned-row) {
     animation: none;
   }
 
@@ -600,20 +607,17 @@
   :is(
     .challenge-source-ceremony[data-style="plain-list"],
     .challenge-source-ceremony[data-style="plain-bullets"],
-    .challenge-source-ceremony[data-style="plain-numbered"],
-    .challenge-source-ceremony[data-style="quest-log"]
+      .challenge-source-ceremony[data-style="quest-log"]
   )[data-ceremony-motion="animated"] [data-ceremony-target="true"],
   :is(
     .challenge-source-ceremony[data-style="plain-list"],
     .challenge-source-ceremony[data-style="plain-bullets"],
-    .challenge-source-ceremony[data-style="plain-numbered"],
-    .challenge-source-ceremony[data-style="quest-log"]
+      .challenge-source-ceremony[data-style="quest-log"]
   )[data-ceremony-motion="animated"] [data-ceremony-target="true"] .challenge-source__count,
   :is(
     .challenge-source-ceremony[data-style="plain-list"],
     .challenge-source-ceremony[data-style="plain-bullets"],
-    .challenge-source-ceremony[data-style="plain-numbered"],
-    .challenge-source-ceremony[data-style="quest-log"]
+      .challenge-source-ceremony[data-style="quest-log"]
   )[data-ceremony-motion="animated"] [data-ceremony-target="true"] .challenge-source__mark {
     animation: none;
   }
