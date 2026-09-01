@@ -107,6 +107,24 @@ describe("ChallengeBoard", () => {
     expect(remove.compareDocumentPosition(challengeInput) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
   });
 
+  it("öffnet die kompakte Vollbildansicht und gibt den Fokus beim Schließen zurück", async () => {
+    const user = userEvent.setup();
+    const initial = snapshot([challenge("one", "Bellen")]);
+    renderBoard(initial);
+
+    const trigger = await screen.findByRole("button", { name: "Board im Vollbild bearbeiten" });
+    await user.click(trigger);
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveAttribute("open", "");
+    const compactTitle = within(dialog).getByDisplayValue("Bellen");
+    expect(compactTitle).toHaveAttribute("type", "text");
+    expect(within(dialog).queryByRole("group", { name: "Ziel und Timer" })).not.toBeInTheDocument();
+
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(dialog).not.toHaveAttribute("open"));
+    expect(trigger).toHaveFocus();
+  });
+
   it("sendet nur den sichtbaren Challenge-Text", async () => {
     const user = userEvent.setup();
     const initial = snapshot([challenge("one", "Bellen")]);
@@ -168,8 +186,11 @@ describe("ChallengeBoard", () => {
     const openRow = await screen.findByDisplayValue("Offene Challenge").then((input) => input.closest("article"));
     if (!(openRow instanceof HTMLElement)) throw new Error("Offene Challenge-Zeile fehlt.");
     const openToggle = within(openRow).getByRole("switch", { name: "Offene Challenge ausblenden" });
-    await user.click(openToggle);
     expect(openToggle).toHaveAttribute("aria-checked", "true");
+    expect(openToggle).toHaveClass("is-on");
+    await user.click(openToggle);
+    expect(openToggle).toHaveAttribute("aria-checked", "false");
+    expect(openToggle).toHaveClass("is-off");
 
     const doneRow = screen.getByDisplayValue("Erledigte Challenge").closest("article");
     if (!(doneRow instanceof HTMLElement)) throw new Error("Erledigte Challenge-Zeile fehlt.");
@@ -284,6 +305,54 @@ describe("ChallengeBoard", () => {
     expect(await screen.findByText("Jemand anderes hat das Board gespeichert.")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Mein Entwurf")).toBeInTheDocument();
     expect(screen.getByText("Von außen")).toBeInTheDocument();
+  });
+
+  it("behandelt das eigene Socket-Echo während des Speicherns nicht als Konflikt und übernimmt erstellte IDs", async () => {
+    const user = userEvent.setup();
+    let onUpdate: ((update: ChallengeUpdate) => void) | undefined;
+    let resolveSave: ((value: BoardSaveResponse) => void) | undefined;
+    const initial = snapshot([], 1);
+    const save = vi.fn<ChallengeBoardApi["save"]>(() => new Promise<BoardSaveResponse>((resolve) => { resolveSave = resolve; }));
+    const api: ChallengeBoardApi = {
+      load: vi.fn(() => Promise.resolve(initial)),
+      save,
+      subscribe: (callbacks) => { onUpdate = callbacks.onChallengeUpdate; return () => undefined; },
+    };
+    let handle: ChallengeBoardSaveHandle | null = null;
+    render(<ChallengeBoard api={api} onHandleChange={(next) => { handle = next; }} />);
+
+    await user.click(await screen.findByRole("button", { name: "Challenge anlegen" }));
+    const title = screen.getByDisplayValue("Neue Challenge");
+    act(() => {
+      if (handle === null) throw new Error("Speicher-Griff noch nicht registriert.");
+      void handle.save();
+    });
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+
+    const firstDefinition = save.mock.calls[0]?.[0].challenges[0];
+    if (firstDefinition === undefined || !("clientId" in firstDefinition)) throw new Error("Neue Definition fehlt.");
+    const echoed = challenge("server-id", "Neue Challenge", { targetCount: null });
+    const incoming = snapshot([echoed], 2);
+    act(() => {
+      onUpdate?.({ ...incoming, settings: { ...incoming.settings, themeId: "trail-wood" }, event: null });
+    });
+
+    expect(screen.queryByText("Jemand anderes hat das Board gespeichert.")).not.toBeInTheDocument();
+    resolveSave?.(responseFor(incoming, { [firstDefinition.clientId]: "server-id" }));
+    await waitFor(() => expect(screen.getByDisplayValue("Neue Challenge")).toBeInTheDocument());
+    expect(screen.queryByText("Jemand anderes hat das Board gespeichert.")).not.toBeInTheDocument();
+
+    const next = snapshot([challenge("server-id", "Nach Echo", { targetCount: null })], 3);
+    save.mockResolvedValueOnce(responseFor(next));
+    await user.clear(title);
+    await user.type(title, "Nach Echo");
+    await act(async () => {
+      if (handle === null) throw new Error("Speicher-Griff fehlt nach der Reconciliation.");
+      await handle.save();
+    });
+
+    expect(save.mock.calls[1]?.[0].challenges[0]).toMatchObject({ id: "server-id" });
+    expect(save.mock.calls[1]?.[0].challenges[0]).not.toHaveProperty("clientId");
   });
 
   it("verwirft eine verspätete Load-Antwort mit älterer Board-Revision als ein Socket-Update", async () => {

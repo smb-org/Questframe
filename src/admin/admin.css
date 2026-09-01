@@ -368,6 +368,8 @@ input[type="color"] { padding: 4px; }
 .challenge-board-heading h1 { margin: 4px 0 4px; font-family: Georgia, serif; font-size: 30px; font-weight: 600; }
 .challenge-board-heading p { max-width: 620px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
 .challenge-board-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.challenge-board-fullscreen-trigger { width: 38px; height: 38px; flex-basis: 38px; border-color: var(--line); color: var(--accent-bright); background: var(--surface); }
+.challenge-board-fullscreen-trigger:hover:not(:disabled) { border-color: var(--accent); background: var(--surface-3); }
 .challenge-revision, .connection-state { min-height: 38px; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .connection-state i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .connection-state.is-online { color: var(--green); }
@@ -384,6 +386,23 @@ input[type="color"] { padding: 4px; }
 .challenge-board-row:hover { border-color: var(--surface-3); background: var(--surface-2); }
 .challenge-board-row[draggable="true"] { cursor: grab; }
 .challenge-board-row[draggable="true"]:active { cursor: grabbing; }
+.challenge-board-row--compact { min-width: 930px; grid-template-columns: auto minmax(126px, max-content) minmax(220px, 1fr) 102px 118px max-content max-content; align-items: center; gap: 8px; padding: 8px 10px; }
+.challenge-board-row--compact .challenge-row-order { gap: 2px; }
+.challenge-board-row--compact .challenge-row-order .icon-button { width: 30px; height: 30px; flex-basis: 30px; }
+.challenge-board-row--compact .challenge-drag-handle { min-width: 30px; min-height: 30px; }
+.challenge-board-row--compact .challenge-row-runtime { flex: none; flex-wrap: nowrap; gap: 7px; }
+.challenge-board-row--compact .challenge-row-runtime strong { font-size: 12px; white-space: nowrap; }
+.challenge-board-row--compact .challenge-state { white-space: nowrap; }
+.challenge-board-row--compact .challenge-field--compact-title { min-width: 0; }
+.challenge-board-row--compact .challenge-field--compact-title input { min-width: 0; min-height: 34px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.challenge-board-row--compact .challenge-field--compact-title input:focus { overflow: visible; text-overflow: clip; }
+.challenge-compact-field { min-width: 0; display: grid; gap: 3px; }
+.challenge-compact-field > span:first-child { color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+.challenge-compact-toggle-field { min-height: 30px; display: grid; grid-template-columns: 22px minmax(0, 68px); align-items: center; gap: 5px; }
+.challenge-compact-toggle-field input[type="checkbox"] { width: 22px; height: 22px; margin: 0; accent-color: var(--accent); }
+.challenge-compact-toggle-field input[type="number"] { width: 68px; min-width: 0; min-height: 30px; padding: 0 6px; }
+.challenge-board-row--compact .challenge-hidden-toggle { min-height: 30px; }
+.challenge-board-row--compact .challenge-delete { width: 30px; min-height: 30px; height: 30px; margin-left: 0; }
 .challenge-row-header { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .challenge-row-order { display: flex; gap: 4px; align-items: center; }
 .challenge-row-order .icon-button { width: 38px; height: 38px; }
@@ -436,6 +455,20 @@ input[type="color"] { padding: 4px; }
 .challenge-board-save-bar > span { color: var(--muted); font-size: 12px; }
 .challenge-board-save-bar .button--save { width: auto; min-width: 190px; }
 .challenge-board-empty { display: grid; justify-items: center; gap: 12px; padding: 40px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--muted); text-align: center; }
+
+/* Natives <dialog> fuer die kompakte Board-Uebersicht: die Bearbeitung bleibt an
+   denselben Drafts und Handlern wie in der Rail, bekommt aber eine eigene Top-Layer-Flaeche. */
+.challenge-board-fullscreen-dialog { position: fixed; inset: 0; width: min(1400px, 96vw); height: min(900px, 92vh); max-width: none; max-height: none; margin: auto; padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); overflow: hidden; box-shadow: 0 28px 90px rgba(0, 0, 0, 0.58); }
+.challenge-board-fullscreen-dialog::backdrop { background: rgba(4, 6, 8, 0.7); backdrop-filter: blur(4px); }
+.challenge-board-fullscreen-dialog__content { min-height: 0; height: 100%; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; }
+.challenge-board-fullscreen-dialog__header { display: flex; align-items: start; justify-content: space-between; gap: 18px; padding: 20px 22px 14px; border-bottom: 1px solid var(--line); }
+.challenge-board-fullscreen-dialog__header h2 { margin: 4px 0 3px; font-family: Georgia, serif; font-size: 24px; font-weight: 600; }
+.challenge-board-fullscreen-dialog__header p { margin: 0; color: var(--muted); font-size: 12px; }
+.challenge-board-fullscreen-dialog__toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 22px; border-bottom: 1px solid var(--line-soft); background: var(--surface-2); }
+.challenge-board-fullscreen-dialog__toolbar strong { font-size: 12px; }
+.challenge-board-fullscreen-dialog > .challenge-board-fullscreen-dialog__content > .challenge-board-list { min-width: 0; min-height: 0; align-content: start; overflow: auto; gap: 6px; margin-right: 0; margin-left: 0; padding: 12px 22px 18px; }
+.challenge-board-fullscreen-dialog__footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 22px; border-top: 1px solid var(--line); background: var(--surface-2); color: var(--muted); font-size: 11px; }
+.challenge-board-fullscreen-dialog__footer .save-dirty { color: var(--accent-bright); }
 
 .effect-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 20px; background: rgba(4, 6, 8, 0.7); backdrop-filter: blur(4px); }
 .effect-flyover { width: min(680px, 100%); max-height: min(840px, calc(100vh - 40px)); display: grid; grid-template-rows: auto auto auto minmax(120px, 1fr) auto auto; overflow: hidden; border: 1px solid #3b454c; border-radius: 10px; background: #151a1e; box-shadow: 0 28px 90px rgba(0, 0, 0, 0.58); }

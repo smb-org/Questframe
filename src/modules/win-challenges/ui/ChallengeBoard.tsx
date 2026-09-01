@@ -4,10 +4,12 @@ import {
   ArrowUp,
   GripVertical,
   Info,
+  Maximize2,
   Plus,
   Trash2,
+  X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 import type { ChallengeUpdate } from "../../../shared/contracts/win-challenges";
 import {
@@ -107,6 +109,20 @@ const sameDefinitions = (
   left: readonly ChallengeDraft[],
   right: readonly ChallengeDraft[],
 ): boolean => JSON.stringify(definitionsFromDrafts(left)) === JSON.stringify(definitionsFromDrafts(right));
+
+const definitionFieldsOnly = (draft: ChallengeDraft) => ({
+  title: draft.title,
+  targetCount: draft.targetCount,
+  timerTotalMs: draft.timerTotalMs,
+  hidden: draft.hidden,
+});
+
+const sameFieldsIgnoringIdentity = (
+  left: readonly ChallengeDraft[],
+  right: readonly ChallengeDraft[],
+): boolean =>
+  left.length === right.length &&
+  JSON.stringify(left.map(definitionFieldsOnly)) === JSON.stringify(right.map(definitionFieldsOnly));
 
 const clientIdForNewChallenge = (): string => `client-${crypto.randomUUID()}`;
 
@@ -212,84 +228,84 @@ const defaultDraft = (sortOrder: number): ChallengeDraft => ({
   timerEndsAt: null,
 });
 
-const ChallengeRow = ({
-  draft,
-  index,
-  total,
-  disabled,
-  onChange,
-  onDelete,
-  onMove,
-  onDragStart,
-  onDrop,
-}: {
+type ChallengeRowLayout = "stacked" | "compact";
+
+type ChallengeRowProps = {
   draft: ChallengeDraft;
   index: number;
   total: number;
   disabled: boolean;
+  layout?: ChallengeRowLayout;
   onChange: (patch: Partial<ChallengeDraft>) => void;
   onDelete: () => void;
   onMove: (to: number) => void;
   onDragStart: () => void;
   onDrop: () => void;
-}) => {
+};
+
+const ChallengeRow = ({
+  draft,
+  index,
+  total,
+  disabled,
+  layout = "stacked",
+  onChange,
+  onDelete,
+  onMove,
+  onDragStart,
+  onDrop,
+}: ChallengeRowProps) => {
   const hasTarget = draft.targetCount !== null;
   const hasTimer = draft.timerTotalMs !== null;
-  return (
-    <article
-      className="challenge-board-row"
-      draggable={!disabled}
-      onDragOver={(event) => event.preventDefault()}
-      onDrop={(event) => {
-        event.preventDefault();
-        onDrop();
-      }}
-    >
-      <div className="challenge-row-header">
-        <div className="challenge-row-order">
+  const orderControls = (
+    <div className="challenge-row-order">
+      <button
+        aria-label={`${draft.title} nach oben verschieben`}
+        className="icon-button"
+        disabled={disabled || index === 0}
+        onClick={() => onMove(index - 1)}
+        type="button"
+      >
+        <ArrowUp size={16} />
+      </button>
+      <button
+        aria-label={`${draft.title} nach unten verschieben`}
+        className="icon-button"
+        disabled={disabled || index === total - 1}
+        onClick={() => onMove(index + 1)}
+        type="button"
+      >
+        <ArrowDown size={16} />
+      </button>
+      <button
+        aria-label={`${draft.title} sortieren`}
+        className="challenge-drag-handle"
+        disabled={disabled}
+        draggable={!disabled}
+        onDragStart={onDragStart}
+        title="Zum Sortieren ziehen"
+        type="button"
+      >
+        <GripVertical size={18} />
+      </button>
+    </div>
+  );
+  const runtime = (
+    <div className="challenge-row-runtime" aria-label={`${draft.title} Laufzeitstand`}>
+      <span className={`challenge-state challenge-state--${draft.state}`}>
+        <i aria-hidden="true" /> {draft.state === "active" ? "läuft" : draft.state === "done" ? "erledigt" : "offen"}
+      </span>
+      <strong>
+        {draft.targetCount === null
+          ? `Stand ${String(draft.currentCount)}`
+          : `${String(draft.currentCount)} / ${String(draft.targetCount)}`}
+      </strong>
+      {layout === "stacked" && (
+        <>
           <button
-            aria-label={`${draft.title} nach oben verschieben`}
-            className="icon-button"
-            disabled={disabled || index === 0}
-            onClick={() => onMove(index - 1)}
-            type="button"
-          >
-            <ArrowUp size={16} />
-          </button>
-          <button
-            aria-label={`${draft.title} nach unten verschieben`}
-            className="icon-button"
-            disabled={disabled || index === total - 1}
-            onClick={() => onMove(index + 1)}
-            type="button"
-          >
-            <ArrowDown size={16} />
-          </button>
-          <button
-            aria-label={`${draft.title} sortieren`}
-            className="challenge-drag-handle"
-            disabled={disabled}
-            draggable={!disabled}
-            onDragStart={onDragStart}
-            title="Zum Sortieren ziehen"
-            type="button"
-          >
-            <GripVertical size={18} />
-          </button>
-        </div>
-        <div className="challenge-row-runtime" aria-label={`${draft.title} Laufzeitstand`}>
-          <span className={`challenge-state challenge-state--${draft.state}`}>
-            <i aria-hidden="true" /> {draft.state === "active" ? "läuft" : draft.state === "done" ? "erledigt" : "offen"}
-          </span>
-          <strong>
-            {draft.targetCount === null
-              ? `Stand ${String(draft.currentCount)}`
-              : `${String(draft.currentCount)} / ${String(draft.targetCount)}`}
-          </strong>
-          <button
-            aria-checked={draft.hidden}
+            aria-checked={!draft.hidden}
             aria-label={`${draft.title} ${draft.hidden ? "einblenden" : "ausblenden"}`}
-            className={`challenge-hidden-toggle ${draft.hidden ? "is-on" : "is-off"}`}
+            className={`challenge-hidden-toggle ${!draft.hidden ? "is-on" : "is-off"}`}
             disabled={disabled || draft.state === "done"}
             onClick={() => onChange({ hidden: !draft.hidden })}
             role="switch"
@@ -301,16 +317,123 @@ const ChallengeRow = ({
           </button>
           {draft.state === "done" && <small>Erledigte Challenges bleiben sichtbar.</small>}
           {draft.targetCount === null && draft.currentCount > 0 && <small>Stand bleibt erhalten</small>}
-        </div>
-        <button
-          aria-label={`${draft.title} löschen`}
-          className="icon-button challenge-delete"
-          disabled={disabled}
-          onClick={onDelete}
-          type="button"
-        >
-          <Trash2 size={17} />
-        </button>
+        </>
+      )}
+    </div>
+  );
+  const visibilityToggle = (
+    <button
+      aria-checked={!draft.hidden}
+      aria-label={`${draft.title} ${draft.hidden ? "einblenden" : "ausblenden"}`}
+      className={`challenge-hidden-toggle ${!draft.hidden ? "is-on" : "is-off"}`}
+      disabled={disabled || draft.state === "done"}
+      onClick={() => onChange({ hidden: !draft.hidden })}
+      role="switch"
+      title={draft.state === "done" ? "Erledigte Challenges können nicht ausgeblendet werden." : "Challenge im OBS-Overlay ein- oder ausblenden."}
+      type="button"
+    >
+      <span>{draft.hidden ? "Aus" : "Sichtbar"}</span>
+      <i aria-hidden="true" />
+    </button>
+  );
+  const deleteButton = (
+    <button
+      aria-label={`${draft.title} löschen`}
+      className="icon-button challenge-delete"
+      disabled={disabled}
+      onClick={onDelete}
+      type="button"
+    >
+      <Trash2 size={17} />
+    </button>
+  );
+
+  if (layout === "compact") {
+    return (
+      <article
+        className="challenge-board-row challenge-board-row--compact"
+        draggable={!disabled}
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          onDrop();
+        }}
+      >
+        {orderControls}
+        {runtime}
+        <label className="challenge-field challenge-field--compact-title">
+          <span className="sr-only">Challenge</span>
+          <input
+            disabled={disabled}
+            maxLength={160}
+            title={draft.title}
+            type="text"
+            value={draft.title}
+            onChange={(event) => onChange({ title: event.target.value })}
+          />
+        </label>
+        <label className="challenge-compact-field">
+          <span>Ziel</span>
+          <span className="challenge-compact-toggle-field">
+            <input
+              aria-label={`${draft.title} mit Zielwert`}
+              checked={hasTarget}
+              disabled={disabled}
+              onChange={(event) => onChange({ targetCount: event.target.checked ? Math.max(1, draft.currentCount) : null })}
+              type="checkbox"
+            />
+            <input
+              aria-label={`${draft.title} Zielwert`}
+              disabled={disabled || !hasTarget}
+              max={999}
+              min={1}
+              type="number"
+              value={hasTarget ? String(draft.targetCount) : ""}
+              onChange={(event) => onChange({ targetCount: event.target.value === "" ? null : Number(event.target.value) })}
+            />
+          </span>
+        </label>
+        <label className="challenge-compact-field">
+          <span>Timer</span>
+          <span className="challenge-compact-toggle-field">
+            <input
+              aria-label={`${draft.title} mit Timer`}
+              checked={hasTimer}
+              disabled={disabled}
+              onChange={(event) => onChange({ timerTotalMs: event.target.checked ? 60_000 : null })}
+              type="checkbox"
+            />
+            <input
+              aria-label={`${draft.title} Timerdauer in Sekunden`}
+              disabled={disabled || !hasTimer}
+              max={21_600}
+              min={10}
+              type="number"
+              value={secondsFromTimer(draft.timerTotalMs)}
+              onChange={(event) => onChange({ timerTotalMs: parseTimerSeconds(event.target.value) })}
+            />
+          </span>
+        </label>
+        {visibilityToggle}
+        {deleteButton}
+      </article>
+    );
+  }
+
+  return (
+    <article
+      className="challenge-board-row"
+      draggable={!disabled}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        event.preventDefault();
+        onDrop();
+      }}
+    >
+      <div className="challenge-row-header">
+        {orderControls}
+        {runtime}
+        {deleteButton}
       </div>
       <div className="challenge-row-fields">
         <label className="challenge-field challenge-field--title">
@@ -372,6 +495,133 @@ const ChallengeRow = ({
   );
 };
 
+type ChallengeBoardListProps = {
+  drafts: readonly ChallengeDraft[];
+  disabled: boolean;
+  layout?: ChallengeRowLayout;
+  ariaLabel?: string;
+  onChange: (key: string, patch: Partial<ChallengeDraft>) => void;
+  onDelete: (key: string) => void;
+  onMove: (key: string, to: number) => void;
+  onDragStart: (key: string) => void;
+  onDrop: (key: string) => void;
+};
+
+const ChallengeBoardList = ({
+  drafts,
+  disabled,
+  layout = "stacked",
+  ariaLabel = "Challenge-Definitionen",
+  onChange,
+  onDelete,
+  onMove,
+  onDragStart,
+  onDrop,
+}: ChallengeBoardListProps) => (
+  <div aria-label={ariaLabel} className={`challenge-board-list${layout === "compact" ? " challenge-board-list--compact" : ""}`}>
+    {drafts.length === 0 && <p className="challenge-board-empty-copy">Noch keine Challenges. Lege den ersten Eintrag an.</p>}
+    {drafts.map((draft, index) => (
+      <ChallengeRow
+        draft={draft}
+        disabled={disabled}
+        index={index}
+        key={draft.key}
+        layout={layout}
+        onChange={(patch) => onChange(draft.key, patch)}
+        onDelete={() => onDelete(draft.key)}
+        onDragStart={() => onDragStart(draft.key)}
+        onDrop={() => onDrop(draft.key)}
+        onMove={(to) => onMove(draft.key, to)}
+        total={drafts.length}
+      />
+    ))}
+  </div>
+);
+
+type ChallengeBoardFullscreenDialogProps = Omit<ChallengeBoardListProps, "ariaLabel" | "layout"> & {
+  open: boolean;
+  dirty: boolean;
+  triggerRef: RefObject<HTMLButtonElement | null>;
+  onClose: () => void;
+  onAdd: () => void;
+};
+
+const ChallengeBoardFullscreenDialog = ({
+  open,
+  dirty,
+  triggerRef,
+  onClose,
+  onAdd,
+  ...listProps
+}: ChallengeBoardFullscreenDialogProps) => {
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+  const wasOpenRef = useRef(false);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog === null) return;
+    if (open) {
+      if (typeof dialog.showModal === "function") {
+        if (!dialog.open) dialog.showModal();
+      } else {
+        dialog.setAttribute("open", "");
+      }
+      dialog.querySelector<HTMLElement>("button, [href], input, select, textarea, [tabindex]")?.focus();
+    } else if (wasOpenRef.current) {
+      if (typeof dialog.close === "function") {
+        if (dialog.open) dialog.close();
+      } else {
+        dialog.removeAttribute("open");
+      }
+      triggerRef.current?.focus();
+    }
+    wasOpenRef.current = open;
+  }, [open, triggerRef]);
+
+  return (
+    <dialog
+      aria-labelledby="challenge-board-fullscreen-heading"
+      className="challenge-board-fullscreen-dialog"
+      id="challenge-board-fullscreen"
+      onClick={(event) => { if (event.target === dialogRef.current) onClose(); }}
+      onClose={onClose}
+      onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); onClose(); } }}
+      ref={dialogRef}
+    >
+      {open && <div className="challenge-board-fullscreen-dialog__content">
+        <header className="challenge-board-fullscreen-dialog__header">
+          <div>
+            <span className="eyebrow">Übersicht</span>
+            <h2 id="challenge-board-fullscreen-heading">Challenge-Board</h2>
+            <p>Alle Einträge kompakt bearbeiten und per Drag-and-drop sortieren.</p>
+          </div>
+          <button aria-label="Vollbild schließen" className="icon-button" onClick={onClose} title="Vollbild schließen" type="button">
+            <X size={18} />
+          </button>
+        </header>
+        <div className="challenge-board-fullscreen-dialog__toolbar">
+          <strong>{String(listProps.drafts.length)} / 30 Einträge</strong>
+          <button
+            className="button button--quiet"
+            disabled={listProps.drafts.length >= 30 || listProps.disabled}
+            onClick={onAdd}
+            type="button"
+          >
+            <Plus size={16} /> Challenge anlegen
+          </button>
+        </div>
+        <ChallengeBoardList {...listProps} ariaLabel="Challenge-Definitionen im Vollbild" layout="compact" />
+        <footer className="challenge-board-fullscreen-dialog__footer">
+          <span className={dirty ? "save-dirty" : ""} aria-live="polite">
+            {dirty ? "Ungespeicherte Board-Änderungen" : "Board ist veröffentlicht"}
+          </span>
+          <span>Speichern über die globale Speicherleiste.</span>
+        </footer>
+      </div>}
+    </dialog>
+  );
+};
+
 export const ChallengeBoard = ({
   api,
   onOnlineChange,
@@ -394,8 +644,12 @@ export const ChallengeBoard = ({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [draggedKey, setDraggedKey] = useState<string | null>(null);
+  const [fullscreen, setFullscreen] = useState(false);
   const snapshotRef = useRef<ChallengeBoardSnapshot | null>(null);
   const draftsRef = useRef<ChallengeDraft[]>([]);
+  const savingRef = useRef(false);
+  const draftsPendingReconciliationRef = useRef(false);
+  const fullscreenTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     snapshotRef.current = snapshot;
@@ -415,6 +669,13 @@ export const ChallengeBoard = ({
     const incoming = snapshotFromUpdate(update);
     const current = snapshotRef.current;
     if (current !== null && incoming.boardRevision <= current.boardRevision) return;
+    if (savingRef.current && sameFieldsIgnoringIdentity(draftsRef.current, draftsFromSnapshot(incoming))) {
+      snapshotRef.current = incoming;
+      setSnapshot(incoming);
+      draftsPendingReconciliationRef.current = true;
+      return;
+    }
+    draftsPendingReconciliationRef.current = false;
     snapshotRef.current = incoming;
     const currentDrafts = draftsRef.current;
     const isDirty = current !== null && !sameDefinitions(currentDrafts, draftsFromSnapshot(current));
@@ -489,6 +750,27 @@ export const ChallengeBoard = ({
     setMessage("");
   };
 
+  const addDraft = () => {
+    setDrafts((current) => [...current, defaultDraft(current.length)]);
+    setMessage("");
+  };
+
+  const deleteDraft = (key: string) => {
+    setDrafts((current) => current
+      .filter((item) => item.key !== key)
+      .map((item, sortOrder) => ({ ...item, sortOrder })));
+    setMessage("");
+  };
+
+  const dropDraft = (key: string) => {
+    setDrafts((current) => {
+      const from = current.findIndex((item) => item.key === draggedKey);
+      const to = current.findIndex((item) => item.key === key);
+      return reorder(current, from, to);
+    });
+    setDraggedKey(null);
+  };
+
   const save = async (replaceForeignBoard = false): Promise<{ ok: boolean; conflict: boolean; message?: string }> => {
     if (snapshot === null || !dirty || saving || !effectiveOnline) return { ok: false, conflict: false, message: "Nicht speicherbar." };
     if (conflict !== null && !replaceForeignBoard) {
@@ -500,6 +782,7 @@ export const ChallengeBoard = ({
       ? conflict.boardRevision
       : snapshot.boardRevision;
     setSaving(true);
+    savingRef.current = true;
     setMessage("");
     setError("");
     try {
@@ -512,7 +795,12 @@ export const ChallengeBoard = ({
       // unterwegs war, kann per Socket schon eine neuere boardRevision eingetroffen sein.
       // Eine verspaetete eigene Antwort darf diesen neueren lokalen Stand nicht
       // zurueckdrehen, sonst laeuft der naechste Save in einen falschen Konflikt.
-      if (snapshotRef.current === null || response.snapshot.boardRevision > snapshotRef.current.boardRevision) {
+      if (
+        snapshotRef.current === null ||
+        response.snapshot.boardRevision > snapshotRef.current.boardRevision ||
+        draftsPendingReconciliationRef.current
+      ) {
+        draftsPendingReconciliationRef.current = false;
         const resolvedDrafts = applyCreatedIds(drafts, response);
         setSnapshot(response.snapshot);
         setDrafts(resolvedDrafts);
@@ -538,6 +826,8 @@ export const ChallengeBoard = ({
       return { ok: false, conflict: false, message: messageText };
     } finally {
       setSaving(false);
+      savingRef.current = false;
+      draftsPendingReconciliationRef.current = false;
     }
   };
 
@@ -572,9 +862,21 @@ export const ChallengeBoard = ({
         </div>
         <div className="challenge-board-meta">
           <span className="challenge-revision">Board-Revision {snapshot.boardRevision}</span>
-            <span className={effectiveOnline ? "connection-state is-online" : "connection-state is-offline"}>
+          <span className={effectiveOnline ? "connection-state is-online" : "connection-state is-offline"}>
             <i aria-hidden="true" /> {effectiveOnline ? "Live verbunden" : "Offline"}
           </span>
+          <button
+            aria-controls="challenge-board-fullscreen"
+            aria-expanded={fullscreen}
+            aria-label="Board im Vollbild bearbeiten"
+            className="icon-button challenge-board-fullscreen-trigger"
+            onClick={() => setFullscreen((current) => !current)}
+            ref={fullscreenTriggerRef}
+            title="Vollbild"
+            type="button"
+          >
+            <Maximize2 size={17} />
+          </button>
         </div>
       </header>
 
@@ -607,43 +909,22 @@ export const ChallengeBoard = ({
         <button
           className="button button--quiet"
           disabled={drafts.length >= 30 || saving || !effectiveOnline}
-          onClick={() => {
-            setDrafts((current) => [...current, defaultDraft(current.length)]);
-            setMessage("");
-          }}
+          onClick={addDraft}
           type="button"
         >
           <Plus size={16} /> Challenge anlegen
         </button>
       </div>
 
-      <div className="challenge-board-list" aria-label="Challenge-Definitionen">
-        {drafts.length === 0 && <p className="challenge-board-empty-copy">Noch keine Challenges. Lege den ersten Eintrag an.</p>}
-        {drafts.map((draft, index) => (
-          <ChallengeRow
-            draft={draft}
-            disabled={saving || !effectiveOnline}
-            index={index}
-            key={draft.key}
-            onChange={(patch) => updateDraft(draft.key, patch)}
-            onDelete={() => {
-              setDrafts((current) => current
-                .filter((item) => item.key !== draft.key)
-                .map((item, sortOrder) => ({ ...item, sortOrder })));
-              setMessage("");
-            }}
-            onDragStart={() => setDraggedKey(draft.key)}
-            onDrop={() => {
-              const from = drafts.findIndex((item) => item.key === draggedKey);
-              const to = drafts.findIndex((item) => item.key === draft.key);
-              setDrafts((current) => reorder(current, from, to));
-              setDraggedKey(null);
-            }}
-            onMove={(to) => moveDraft(draft.key, to)}
-            total={drafts.length}
-          />
-        ))}
-      </div>
+      <ChallengeBoardList
+        drafts={drafts}
+        disabled={saving || !effectiveOnline}
+        onChange={updateDraft}
+        onDelete={deleteDraft}
+        onDragStart={setDraggedKey}
+        onDrop={dropDraft}
+        onMove={moveDraft}
+      />
 
       {notices.length > 0 && (
         <aside aria-label="Folgen des Speicherns" className="challenge-merge-notices" aria-live="polite">
@@ -664,6 +945,21 @@ export const ChallengeBoard = ({
           {dirty ? "Ungespeicherte Board-Änderungen" : "Board ist veröffentlicht"}
         </span>
       </footer>
+
+      <ChallengeBoardFullscreenDialog
+        dirty={dirty}
+        disabled={saving || !effectiveOnline}
+        drafts={drafts}
+        onAdd={addDraft}
+        onChange={updateDraft}
+        onClose={() => setFullscreen(false)}
+        onDelete={deleteDraft}
+        onDragStart={setDraggedKey}
+        onDrop={dropDraft}
+        onMove={moveDraft}
+        open={fullscreen}
+        triggerRef={fullscreenTriggerRef}
+      />
     </section>
   );
 };
