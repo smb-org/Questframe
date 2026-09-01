@@ -127,6 +127,7 @@ describe("Admin workspace shell", () => {
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -163,6 +164,7 @@ describe("Admin workspace shell", () => {
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -185,6 +187,16 @@ describe("Admin workspace shell", () => {
     // Die HUD-Rail ist ebenfalls dauerhaft gemountet und hat eigene X/Y/Skalierung-Felder;
     // hier gezielt im sichtbaren Challenge-Tabpanel suchen.
     const challengesPanel = within(document.querySelector("#admin-composition-panel-challenges") as HTMLElement);
+    expect(challengesPanel.getByRole("combobox", { name: "Tempo" })).toBeDisabled();
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Liste" }), { target: { value: "quest-log" } });
+    fireEvent.change(challengesPanel.getByLabelText("Kopfzeile"), { target: { value: "RUN" } });
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Fläche" }), { target: { value: "bare" } });
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Zeilen" }), { target: { value: "8" } });
+    fireEvent.change(challengesPanel.getByLabelText("Globaler Timer"), { target: { value: "45" } });
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Erledigte" }), { target: { value: "keep" } });
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Überlauf" }), { target: { value: "page" } });
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Tempo" }), { target: { value: "fast" } });
+    await user.click(challengesPanel.getByRole("checkbox", { name: "Nummerierung" }));
     fireEvent.change(challengesPanel.getByLabelText("X"), { target: { value: "250" } });
     fireEvent.change(challengesPanel.getByLabelText("Y"), { target: { value: "12" } });
     fireEvent.change(challengesPanel.getByLabelText("Skalierung"), { target: { value: "1.25" } });
@@ -193,6 +205,15 @@ describe("Admin workspace shell", () => {
     expect(saveChallengeSettings).toHaveBeenCalledWith(expect.objectContaining({
       baseSettingsRevision: 3,
       effectsEnabled: false,
+      styleId: "quest-log",
+      surfaceMode: "bare",
+      headerTitle: "RUN",
+      maxVisible: 8,
+      overflowMode: "page",
+      overflowTempo: "fast",
+      numbered: true,
+      doneOrder: "keep",
+      globalTimerTotalMs: 2_700_000,
       placement: { x: 250, y: 12, scale: 1.25 },
     }));
   });
@@ -210,6 +231,7 @@ describe("Admin workspace shell", () => {
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -257,6 +279,7 @@ describe("Admin workspace shell", () => {
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -312,6 +335,7 @@ describe("Admin workspace shell", () => {
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -363,6 +387,7 @@ describe("Admin workspace shell", () => {
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -410,6 +435,7 @@ describe("Admin workspace shell", () => {
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -448,7 +474,7 @@ describe("Admin workspace shell", () => {
     // Jetzt kommt die verspätete Antwort für unseren (jetzt veralteten) Request rein –
     // mit einer niedrigeren Revision als der bereits bekannte Socket-Stand.
     resolveSave?.({ snapshot: { ...challengeSnapshot, settingsRevision: 2, settings: { ...challengeSnapshot.settings, effectsEnabled: false } } });
-    expect(await screen.findByText("Zeremonie-Einstellung veröffentlicht.")).toBeInTheDocument();
+    expect(await screen.findByText("Einstellung veröffentlicht.")).toBeInTheDocument();
 
     // Der nächste Save muss auf der neueren (per Socket erhaltenen) Revision 4 aufsetzen,
     // nicht auf der veralteten Revision 2 aus der verspäteten Antwort.
@@ -495,6 +521,7 @@ describe("Admin workspace setup", () => {
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },

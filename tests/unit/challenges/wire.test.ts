@@ -17,6 +17,7 @@ const update = (): ChallengeUpdate => ({
     headerTitle: "CHALLENGES",
     effectsEnabled: true,
     maxVisible: 5,
+    overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
     themeId: "trail-wood",
     globalTimer: null,
     placement: { x: 300, y: 8, scale: 1 },
@@ -95,7 +96,7 @@ describe("Challenge-Quelle-Wire", () => {
     })()],
     ["unbekanntes Feld", { ...update(), unexpected: true }],
     ["falscher Typ", { ...update(), eventSeq: "3" }],
-    ["außerhalb der Prädikatsgrenze", { ...update(), settings: { ...update().settings, maxVisible: 11 } }],
+    ["außerhalb der Prädikatsgrenze", { ...update(), settings: { ...update().settings, overflowMode: "other" } }],
   ] as const)("verwirft %s", (_label, value) => {
     expect(parseChallengeUpdate(value)).toBeNull();
   });

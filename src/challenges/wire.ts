@@ -12,12 +12,16 @@ import {
   isChallengeStyleId,
   isChallengeTitle,
   isCurrentCount,
+  isDoneOrder,
   isDelta,
   isEventSeq,
   isHeaderTitle,
   isHidden,
   isInstant,
   isMaxVisible,
+  isNumbered,
+  isOverflowMode,
+  isOverflowTempo,
   isPausedRemainMs,
   isChallengePlacement,
   isRevision,
@@ -70,6 +74,10 @@ const parseSettings = (input: unknown): ChallengeSettings | null => {
       "headerTitle",
       "effectsEnabled",
       "maxVisible",
+      "overflowMode",
+      "overflowTempo",
+      "numbered",
+      "doneOrder",
       "themeId",
       "globalTimer",
       "placement",
@@ -80,6 +88,10 @@ const parseSettings = (input: unknown): ChallengeSettings | null => {
     !isHeaderTitle(input.headerTitle) ||
     typeof input.effectsEnabled !== "boolean" ||
     !isMaxVisible(input.maxVisible) ||
+    !isOverflowMode(input.overflowMode) ||
+    !isOverflowTempo(input.overflowTempo) ||
+    !isNumbered(input.numbered) ||
+    !isDoneOrder(input.doneOrder) ||
     !isThemeId(input.themeId) ||
     !isChallengePlacement(input.placement) ||
     !isRecord(input.placement) ||

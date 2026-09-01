@@ -30,7 +30,7 @@ const challengeSnapshot = (): ChallengeBoardSnapshot => ({
   eventSeq: 0,
   boardRevision: 1,
   settingsRevision: 1,
-  settings: { styleId: "plain-list", themeMode: "inherit", surfaceMode: "surface", headerTitle: "CHALLENGES", effectsEnabled: true, maxVisible: 5, globalTimer: null, placement: { x: 300, y: 8, scale: 1 } },
+  settings: { styleId: "plain-list", themeMode: "inherit", surfaceMode: "surface", headerTitle: "CHALLENGES", effectsEnabled: true, maxVisible: 5, overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimer: null, placement: { x: 300, y: 8, scale: 1 } },
   challenges: [{ id: "challenge-1", title: "Wasser trinken", targetCount: null, timerTotalMs: null, sortOrder: 0, hidden: false, currentCount: 0, state: "pending", timerEndsAt: null, completedAt: null, createdAt: "2026-08-29T12:00:00.000Z", updatedAt: "2026-08-29T12:00:00.000Z" }],
 });
 

@@ -107,7 +107,11 @@ CREATE TABLE IF NOT EXISTS wc_meta (
   surface_mode TEXT NOT NULL CHECK (surface_mode IN ('surface', 'bare')),
   header_title TEXT NOT NULL,
   effects_enabled INTEGER NOT NULL CHECK (effects_enabled IN (0, 1)),
-  max_visible INTEGER NOT NULL CHECK (max_visible BETWEEN 3 AND 10),
+  max_visible INTEGER NOT NULL DEFAULT 5 CHECK (max_visible BETWEEN 3 AND 10),
+  overflow_mode TEXT NOT NULL DEFAULT 'cut' CHECK (overflow_mode IN ('cut', 'page', 'scroll')),
+  overflow_tempo TEXT NOT NULL DEFAULT 'medium' CHECK (overflow_tempo IN ('slow', 'medium', 'fast')),
+  numbered INTEGER NOT NULL DEFAULT 0 CHECK (numbered IN (0, 1)),
+  done_order TEXT NOT NULL DEFAULT 'end' CHECK (done_order IN ('end', 'keep')),
   placement_x INTEGER NOT NULL DEFAULT 300 CHECK (placement_x BETWEEN 0 AND 384),
   placement_y INTEGER NOT NULL DEFAULT 8 CHECK (placement_y BETWEEN 0 AND 216),
   placement_scale REAL NOT NULL DEFAULT 1 CHECK (placement_scale BETWEEN 0.75 AND 2),
@@ -152,10 +156,13 @@ CREATE TABLE IF NOT EXISTS wc_dock_tokens (
 );
 INSERT INTO wc_meta(
   singleton, event_seq, board_revision, settings_revision, style_id,
-  theme_mode, surface_mode, header_title, effects_enabled, max_visible,
+  theme_mode, surface_mode, header_title, effects_enabled,
+  max_visible,
+  overflow_mode, overflow_tempo, numbered, done_order,
   placement_x, placement_y, placement_scale,
   global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms
-) VALUES (1, 0, 1, 1, 'plain-list', 'inherit', 'surface', 'CHALLENGES', 1, 5, 300, 8, 1, NULL, NULL, NULL)
+) VALUES (1, 0, 1, 1, 'plain-list', 'inherit', 'surface', 'CHALLENGES', 1,
+  5, 'cut', 'medium', 0, 'end', 300, 8, 1, NULL, NULL, NULL)
 ON CONFLICT(singleton) DO NOTHING;
 `;
 
@@ -196,6 +203,25 @@ const hasChallengeDescription = (sql: SqlStorage): boolean =>
     .exec<{ name: string }>("PRAGMA table_info(wc_challenges)")
     .toArray()
     .some((column) => column.name === "description");
+
+const hasChallengeMetaColumn = (sql: SqlStorage, name: string): boolean =>
+  sql
+    .exec<{ name: string }>("PRAGMA table_info(wc_meta)")
+    .toArray()
+    .some((column) => column.name === name);
+
+const MIGRATION_7_OVERFLOW_MODE = `
+ALTER TABLE wc_meta ADD COLUMN overflow_mode TEXT NOT NULL DEFAULT 'cut' CHECK (overflow_mode IN ('cut','page','scroll'));
+`;
+const MIGRATION_7_OVERFLOW_TEMPO = `
+ALTER TABLE wc_meta ADD COLUMN overflow_tempo TEXT NOT NULL DEFAULT 'medium' CHECK (overflow_tempo IN ('slow','medium','fast'));
+`;
+const MIGRATION_7_NUMBERED = `
+ALTER TABLE wc_meta ADD COLUMN numbered INTEGER NOT NULL DEFAULT 0 CHECK (numbered IN (0,1));
+`;
+const MIGRATION_7_DONE_ORDER = `
+ALTER TABLE wc_meta ADD COLUMN done_order TEXT NOT NULL DEFAULT 'end' CHECK (done_order IN ('end','keep'));
+`;
 
 export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
   sql.exec(MIGRATION_1);
@@ -271,6 +297,22 @@ export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
     sql.exec(
       "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
       6,
+      buildId,
+      new Date().toISOString(),
+    );
+  }
+  const versionSevenWasApplied = sql
+    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 7")
+    .toArray().length > 0;
+  if (!versionSevenWasApplied) {
+    if (!hasChallengeMetaColumn(sql, "overflow_mode")) sql.exec(MIGRATION_7_OVERFLOW_MODE);
+    if (!hasChallengeMetaColumn(sql, "overflow_tempo")) sql.exec(MIGRATION_7_OVERFLOW_TEMPO);
+    if (!hasChallengeMetaColumn(sql, "numbered")) sql.exec(MIGRATION_7_NUMBERED);
+    if (!hasChallengeMetaColumn(sql, "done_order")) sql.exec(MIGRATION_7_DONE_ORDER);
+    sql.exec("UPDATE wc_meta SET style_id = 'plain-list', numbered = 1 WHERE style_id = 'plain-numbered'");
+    sql.exec(
+      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
+      7,
       buildId,
       new Date().toISOString(),
     );

@@ -42,6 +42,7 @@ const resetModuleTables = async (): Promise<void> => {
         event_seq = 0, board_revision = 1, settings_revision = 1,
         style_id = 'plain-list', theme_mode = 'inherit', surface_mode = 'surface',
         header_title = 'CHALLENGES', effects_enabled = 1, max_visible = 5,
+        overflow_mode = 'cut', overflow_tempo = 'medium', numbered = 0, done_order = 'end',
         placement_x = 300, placement_y = 8, placement_scale = 1,
         global_timer_total_ms = NULL, global_timer_ends_at = NULL,
         global_timer_paused_remain_ms = NULL
@@ -118,6 +119,10 @@ describe("win-challenges repository and migration", () => {
           header_title: string;
           effects_enabled: number;
           max_visible: number;
+          overflow_mode: string;
+          overflow_tempo: string;
+          numbered: number;
+          done_order: string;
           placement_x: number;
           placement_y: number;
           placement_scale: number;
@@ -140,6 +145,7 @@ describe("win-challenges repository and migration", () => {
     expect(result.versions).toContain(4);
     expect(result.versions).toContain(5);
     expect(result.versions).toContain(6);
+    expect(result.versions).toContain(7);
     expect(result.tables).toEqual([
       "wc_challenges",
       "wc_commands",
@@ -157,6 +163,10 @@ describe("win-challenges repository and migration", () => {
       "header_title",
       "effects_enabled",
       "max_visible",
+      "overflow_mode",
+      "overflow_tempo",
+      "numbered",
+      "done_order",
       "placement_x",
       "placement_y",
       "placement_scale",
@@ -188,6 +198,10 @@ describe("win-challenges repository and migration", () => {
       header_title: "CHALLENGES",
       effects_enabled: 1,
       max_visible: 5,
+      overflow_mode: "cut",
+      overflow_tempo: "medium",
+      numbered: 0,
+      done_order: "end",
       placement_x: 300,
       placement_y: 8,
       placement_scale: 1,
@@ -197,7 +211,7 @@ describe("win-challenges repository and migration", () => {
     });
   });
 
-  it("setzt bei bestehenden Meta-Zeilen den Placement-Default per Migration", async () => {
+  it("überführt alte Meta-Zeilen mit plain-numbered und max_visible vollständig", async () => {
     const placement = await runInDurableObject(legacyStub, (_instance, state) => {
       state.storage.sql.exec(`
         DROP TABLE wc_meta;
@@ -232,17 +246,21 @@ describe("win-challenges repository and migration", () => {
           singleton, event_seq, board_revision, settings_revision, style_id,
           theme_mode, surface_mode, header_title, effects_enabled, max_visible,
           global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms
-        ) VALUES (1, 0, 1, 1, 'plain-list', 'inherit', 'surface', 'CHALLENGES', 1, 5, NULL, NULL, NULL);
+        ) VALUES (1, 0, 1, 1, 'plain-numbered', 'inherit', 'surface', 'CHALLENGES', 1, 5, NULL, NULL, NULL);
       `);
       runMigrations(state.storage.sql, "worker-test-legacy");
-      return state.storage.sql
-        .exec<{ placement_x: number; placement_y: number; placement_scale: number }>(
-          "SELECT placement_x, placement_y, placement_scale FROM wc_meta WHERE singleton = 1",
-        )
-        .toArray()[0];
+      return state.storage.sql.exec<{
+        style_id: string;
+        numbered: number;
+        placement_x: number;
+        placement_y: number;
+        placement_scale: number;
+      }>("SELECT style_id, numbered, placement_x, placement_y, placement_scale FROM wc_meta WHERE singleton = 1").toArray()[0];
     });
 
-    expect(placement).toEqual({ placement_x: 300, placement_y: 8, placement_scale: 1 });
+    expect(placement).toEqual({ style_id: "plain-list", numbered: 1, placement_x: 300, placement_y: 8, placement_scale: 1 });
+    const columns = await runInDurableObject(legacyStub, (_instance, state) => state.storage.sql.exec<{ name: string }>("PRAGMA table_info(wc_meta)").toArray().map(({ name }) => name));
+    expect(columns).toContain("max_visible");
   });
 
   it("enforces both global timer CHECK constraints", async () => {
@@ -365,7 +383,7 @@ describe("win-challenges repository and migration", () => {
     });
   });
 
-  it("changes settings without deleting a running global timer", async () => {
+  it("resets a running global timer when its configured duration changes", async () => {
     await runInDurableObject(stub, (_instance, state) => {
       state.storage.sql.exec(
         "UPDATE wc_meta SET global_timer_total_ms = ?, global_timer_ends_at = ?, global_timer_paused_remain_ms = NULL WHERE singleton = 1",
@@ -377,12 +395,16 @@ describe("win-challenges repository and migration", () => {
     const saved = await inRepository((repository) =>
       repository.saveSettings({
         baseSettingsRevision: before.settingsRevision,
-        styleId: "plain-numbered",
+        styleId: "plain-list",
         themeMode: "own",
         surfaceMode: "bare",
         headerTitle: "RUN",
         effectsEnabled: false,
-        maxVisible: 6,
+        maxVisible: 8,
+        overflowMode: "page",
+        overflowTempo: "fast",
+        numbered: true,
+        doneOrder: "keep",
         globalTimerTotalMs: 180_000,
         placement: { x: 12, y: 34, scale: 1.25 },
         now: future,
@@ -390,14 +412,17 @@ describe("win-challenges repository and migration", () => {
     );
 
     expect(saved.snapshot.settings).toMatchObject({
-      styleId: "plain-numbered",
+      styleId: "plain-list",
       themeMode: "own",
       surfaceMode: "bare",
       headerTitle: "RUN",
       effectsEnabled: false,
-      maxVisible: 6,
+      overflowMode: "page",
+      overflowTempo: "fast",
+      numbered: true,
+      doneOrder: "keep",
       placement: { x: 12, y: 34, scale: 1.25 },
-      globalTimer: { totalMs: 180_000, endsAt: future, pausedRemainMs: null },
+      globalTimer: { totalMs: 180_000, endsAt: null, pausedRemainMs: null },
     });
   });
 
@@ -419,6 +444,7 @@ describe("win-challenges repository and migration", () => {
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
         globalTimerTotalMs: null,
         placement: { x: 300, y: 8, scale: 1 },
         now: future,
@@ -451,6 +477,7 @@ describe("win-challenges repository and migration", () => {
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
         globalTimerTotalMs: null,
         placement: { x: 300, y: 8, scale: 1 },
         now: now,
@@ -601,6 +628,7 @@ describe("win-challenges repository and migration", () => {
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
         globalTimerTotalMs: 120_000,
         placement: { x: 300, y: 8, scale: 1 },
         now,
@@ -744,6 +772,7 @@ describe("win-challenges repository and migration", () => {
           headerTitle: "CHALLENGES",
           effectsEnabled: true,
           maxVisible: 5,
+          overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
           globalTimerTotalMs: null,
           placement: { x: 300, y: 8, scale: 1 },
           now: now,
@@ -762,7 +791,7 @@ describe("win-challenges repository and migration", () => {
     });
     expect(mutation).toMatchObject({ rowsWritten: 4, rowsRead: 5 });
     expect(board).toMatchObject({ rowsWritten: 7, rowsRead: 15 });
-    expect(settings).toMatchObject({ rowsWritten: 1, rowsRead: 15 });
+    expect(settings).toMatchObject({ rowsWritten: 1, rowsRead: 17 });
     expect(snapshot).toMatchObject({ rowsWritten: 0, rowsRead: 7 });
   });
 });

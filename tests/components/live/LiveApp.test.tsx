@@ -60,6 +60,7 @@ const message = (currentCount = 3): ChallengeUpdate => ({
     headerTitle: "CHALLENGES",
     effectsEnabled: true,
     maxVisible: 5,
+    overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
     themeId: "trail-wood",
     globalTimer: null,
     placement: { x: 300, y: 8, scale: 1 },
@@ -143,7 +144,7 @@ describe("Live-Bedienseite", () => {
     render(<LiveApp />);
     emitUpdate({
       ...message(),
-      settings: { ...message().settings, maxVisible: 3 },
+      settings: { ...message().settings },
       challenges,
     });
 
@@ -155,7 +156,7 @@ describe("Live-Bedienseite", () => {
       .toHaveAttribute("data-state", "done");
   });
 
-  it("hält beim optimistischen Rückgängigmachen die Zahl offener Zeilen unter maxVisible", async () => {
+  it("zeigt beim optimistischen Rückgängigmachen die vollständige Liste", async () => {
     const user = userEvent.setup();
     const done = { ...challenge(), id: "done", title: "Erledigt", state: "done" as const, currentCount: 10, sortOrder: 0 };
     const open = [1, 2, 3].map((sortOrder) => ({
@@ -167,14 +168,14 @@ describe("Live-Bedienseite", () => {
     render(<LiveApp />);
     emitUpdate({
       ...message(),
-      settings: { ...message().settings, maxVisible: 3 },
+      settings: { ...message().settings },
       challenges: [done, ...open],
     });
 
     await user.click(screen.getByRole("button", { name: "Erledigt Rückgängig" }));
 
     const rows = [...document.querySelectorAll(".live-page__challenge-row")];
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(4);
     expect(rows.every((row) => row.getAttribute("data-state") !== "done")).toBe(true);
   });
 

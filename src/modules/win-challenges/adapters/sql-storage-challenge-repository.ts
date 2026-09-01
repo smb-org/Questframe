@@ -47,6 +47,10 @@ type MetaRow = {
   header_title: string;
   effects_enabled: number;
   max_visible: number;
+  overflow_mode: string;
+  overflow_tempo: string;
+  numbered: number;
+  done_order: string;
   placement_x: number;
   placement_y: number;
   placement_scale: number;
@@ -100,6 +104,10 @@ const metaRowSchema = z.strictObject({
   header_title: z.string(),
   effects_enabled: z.number().int(),
   max_visible: z.number().int(),
+  overflow_mode: z.string(),
+  overflow_tempo: z.string(),
+  numbered: z.number().int(),
+  done_order: z.string(),
   placement_x: z.number().int(),
   placement_y: z.number().int(),
   placement_scale: z.number(),
@@ -185,6 +193,10 @@ const parseMeta = (row: MetaRow): ChallengeSnapshot["settings"] &
     headerTitle: parsedRow.header_title,
     effectsEnabled: parseBooleanInteger(parsedRow.effects_enabled),
     maxVisible: parsedRow.max_visible,
+    overflowMode: parsedRow.overflow_mode,
+    overflowTempo: parsedRow.overflow_tempo,
+    numbered: parseBooleanInteger(parsedRow.numbered),
+    doneOrder: parsedRow.done_order,
     globalTimer,
     placement: challengePlacementSchema.parse({
       x: parsedRow.placement_x,
@@ -358,10 +370,9 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       this.execute<MetaRow>(
         `UPDATE ${this.table("meta")} SET
           style_id = ?, theme_mode = ?, surface_mode = ?, header_title = ?,
-          effects_enabled = ?, max_visible = ?, global_timer_total_ms = ?,
+          effects_enabled = ?, max_visible = ?, overflow_mode = ?, overflow_tempo = ?, numbered = ?, done_order = ?,
+          global_timer_total_ms = ?, global_timer_ends_at = ?, global_timer_paused_remain_ms = ?,
           placement_x = ?, placement_y = ?, placement_scale = ?,
-          global_timer_ends_at = CASE WHEN ? IS NULL THEN NULL ELSE global_timer_ends_at END,
-          global_timer_paused_remain_ms = CASE WHEN ? IS NULL THEN NULL ELSE global_timer_paused_remain_ms END,
           settings_revision = settings_revision + 1
          WHERE singleton = 1`,
         nextSettings.styleId,
@@ -370,12 +381,16 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         nextSettings.headerTitle,
         nextSettings.effectsEnabled ? 1 : 0,
         nextSettings.maxVisible,
-        input.globalTimerTotalMs,
+        nextSettings.overflowMode,
+        nextSettings.overflowTempo,
+        nextSettings.numbered ? 1 : 0,
+        nextSettings.doneOrder,
+        nextSettings.globalTimer?.totalMs ?? null,
+        nextSettings.globalTimer?.endsAt ?? null,
+        nextSettings.globalTimer?.pausedRemainMs ?? null,
         nextSettings.placement.x,
         nextSettings.placement.y,
         nextSettings.placement.scale,
-        input.globalTimerTotalMs,
-        input.globalTimerTotalMs,
       );
       return { snapshot: this.readSnapshotInternal() };
     });
@@ -521,6 +536,10 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         headerTitle: parsedMeta.headerTitle,
         effectsEnabled: parsedMeta.effectsEnabled,
         maxVisible: parsedMeta.maxVisible,
+        overflowMode: parsedMeta.overflowMode,
+        overflowTempo: parsedMeta.overflowTempo,
+        numbered: parsedMeta.numbered,
+        doneOrder: parsedMeta.doneOrder,
         globalTimer: parsedMeta.globalTimer,
         placement: parsedMeta.placement,
       },
@@ -667,6 +686,11 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       globalTimer = null;
     } else if (current.globalTimer === null) {
       globalTimer = { totalMs: input.globalTimerTotalMs, endsAt: null, pausedRemainMs: null };
+    } else if (current.globalTimer.totalMs !== input.globalTimerTotalMs) {
+      // Eine geänderte Dauer darf keinen alten Lauf mit einer neuen Gesamtdauer
+      // weiterführen. Wie resetGlobalTimer setzt der neue Timer deshalb auf idle;
+      // die neue Dauer gilt beim nächsten Start.
+      globalTimer = { totalMs: input.globalTimerTotalMs, endsAt: null, pausedRemainMs: null };
     } else {
       globalTimer = globalTimerSchema.parse({
         ...current.globalTimer,
@@ -680,6 +704,10 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       headerTitle: input.headerTitle,
       effectsEnabled: input.effectsEnabled,
       maxVisible: input.maxVisible,
+      overflowMode: input.overflowMode,
+      overflowTempo: input.overflowTempo,
+      numbered: input.numbered,
+      doneOrder: input.doneOrder,
       globalTimer,
       placement: input.placement,
     });

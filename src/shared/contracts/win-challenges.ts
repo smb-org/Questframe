@@ -1,8 +1,11 @@
 export type ChallengeStyleId =
   | "plain-list"
   | "plain-bullets"
-  | "plain-numbered"
   | "quest-log";
+
+export type ChallengeOverflowMode = "cut" | "page" | "scroll";
+export type ChallengeOverflowTempo = "slow" | "medium" | "fast";
+export type ChallengeDoneOrder = "end" | "keep";
 
 export type ChallengeThemeId =
   | "trail-wood"
@@ -48,6 +51,10 @@ export type ChallengeSettings = {
   headerTitle: string;
   effectsEnabled: boolean;
   maxVisible: number;
+  overflowMode: ChallengeOverflowMode;
+  overflowTempo: ChallengeOverflowTempo;
+  numbered: boolean;
+  doneOrder: ChallengeDoneOrder;
   themeId: ChallengeThemeId;
   globalTimer: GlobalTimer | null;
   placement: ChallengePlacement;

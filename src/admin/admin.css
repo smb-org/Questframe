@@ -145,22 +145,22 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 /* The composition keeps the reference canvas and both persistence boundaries
    visible at once. The right rail changes by tab while the stage stays put. */
-.admin-app--composition { display: grid; grid-template-columns: minmax(540px, 1fr) minmax(360px, 520px); grid-template-rows: 64px minmax(0, 1fr); }
+.admin-app--composition { display: grid; height: 100vh; height: 100dvh; grid-template-columns: minmax(540px, 1fr) minmax(360px, 520px); grid-template-rows: 64px minmax(0, 1fr); }
 .admin-app--composition .admin-topbar { grid-column: 1 / -1; }
 /* Das eingeklappte Audit-Rail schwebt bei top:64px 48px hoch über dem Inhalt;
    padding-top muss das mindestens ausgleichen, sonst verdeckt es den Panel-Heading. */
-.composition-main { --composition-preview-frame: min(100%, calc((100vh - 250px) * 16 / 9)); grid-column: 1; grid-row: 2; min-width: 0; padding: clamp(20px, 3vw, 42px); padding-top: max(clamp(20px, 3vw, 42px), 64px); overflow: auto; }
+.composition-main { --composition-preview-frame: min(100%, calc((100vh - 250px) * 16 / 9)); grid-column: 1; grid-row: 2; min-width: 0; min-height: 0; padding: clamp(20px, 3vw, 42px); padding-top: max(clamp(20px, 3vw, 42px), 64px); overflow: hidden; }
 /* Die Buehne bleibt an die Fensterhoehe gebunden: 100% Breite wuerde bei
    breiten Fenstern eine Vorschau erzeugen, die hoeher als der Bildschirm ist.
    Die Kappung aus der Basisregel (--preview-frame) gilt darum auch hier. */
 .composition-main .preview-panel { width: var(--composition-preview-frame); }
-.composition-rails { grid-column: 2; grid-row: 2; min-width: 0; overflow: auto; border-left: 1px solid var(--line); background: #121619; }
+.composition-rails { grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; overflow: auto; border-left: 1px solid var(--line); background: #121619; }
 .composition-save-dock { position: sticky; z-index: 15; bottom: 0; }
 .admin-tabs { display: flex; gap: 4px; min-height: 52px; padding: 7px 12px; border-bottom: 1px solid var(--line); background: #121619; }
 .admin-tabs button { min-width: 0; min-height: 38px; flex: 1; padding: 0 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--muted); font-size: 12px; font-weight: 800; cursor: pointer; }
 .admin-tabs button:hover { color: var(--text); background: var(--surface-2); }
 .admin-tabs button.is-active, .admin-tabs button[aria-selected="true"] { border-color: var(--accent); color: var(--accent-bright); background: var(--surface-3); box-shadow: inset 0 0 0 1px rgba(213, 170, 87, 0.2); }
-.composition-tabpanel { min-width: 0; min-height: 0; overflow: auto; }
+.composition-tabpanel { min-width: 0; min-height: 0; overflow: visible; }
 .composition-tabpanel > .editor-rail { position: static; height: auto; min-height: calc(100vh - 116px); display: grid; grid-template-rows: minmax(0, 1fr) auto; border-left: 0; }
 .composition-tabpanel > .editor-rail .editor-rail-heading { display: none; }
 .composition-tabpanel > .editor-rail .editor-scroll { max-height: none; overflow: visible; }
@@ -311,6 +311,14 @@ input[type="color"] { padding: 4px; }
 .theme-preview .hud-root { position: absolute; inset: 0 auto auto 0; }
 .theme-card-check { position: absolute; z-index: 5; top: 5px; right: 5px; width: 18px; height: 18px; display: grid; place-items: center; border: 1px solid #17130c; border-radius: 50%; color: #17130c; background: var(--accent-bright); }
 .placement-grid { display: grid; grid-template-columns: 70px 70px 1fr; gap: 8px; margin-top: 13px; }
+.settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
+.settings-grid label { min-width: 0; display: grid; gap: 5px; }
+.settings-grid label > span { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.challenge-timer-input { display: flex; align-items: center; gap: 7px; }
+.challenge-timer-input input { min-width: 0; flex: 1 1 auto; }
+.challenge-timer-input small { color: var(--muted); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+.challenge-numbered-toggle { display: flex; align-items: center; gap: 8px; min-height: 32px; margin-bottom: 10px; color: var(--text); font-size: 12px; }
+.challenge-numbered-toggle input { width: 20px; height: 20px; accent-color: var(--accent); }
 
 .save-dock { padding: 12px 16px max(12px, env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: rgba(18, 22, 25, 0.97); box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.22); }
 .save-conflict { display: grid; gap: 4px; margin: 0 0 10px; padding: 9px 10px; border: 1px solid rgba(222, 126, 87, 0.48); border-radius: 6px; background: rgba(93, 42, 28, 0.32); }
@@ -361,6 +369,7 @@ input[type="color"] { padding: 4px; }
 .challenge-effects-toggle span { display: grid; gap: 3px; }
 .challenge-effects-toggle strong { font-size: 13px; }
 .challenge-effects-toggle small { color: var(--muted); font-size: 11px; line-height: 1.35; }
+.challenge-effects-toggle { margin-top: 2px; }
 .challenge-settings-save-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 12px; }
 .challenge-settings-save-bar > span { color: var(--muted); font-size: 11px; }
 .challenge-settings-save-bar .button--save { width: auto; min-width: 220px; }
@@ -413,6 +422,8 @@ input[type="color"] { padding: 4px; }
 .challenge-row-goals { min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; padding: 0; border: 0; }
 .challenge-field { min-width: 0; display: grid; gap: 5px; }
 .challenge-field > span:first-child { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+.challenge-board-number-label { display: flex; align-items: baseline; gap: 6px; }
+.challenge-board-number-label b { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; font-weight: 600; }
 .challenge-field input:not([type="checkbox"]), .challenge-field textarea { min-height: 38px; }
 .challenge-field textarea { min-height: 64px; resize: vertical; }
 .challenge-toggle-field { min-height: 38px; display: grid; grid-template-columns: 38px minmax(0, 1fr); align-items: center; gap: 6px; }
@@ -532,6 +543,7 @@ input[type="color"] { padding: 4px; }
   .desktop-only { display: none; }
   .save-dock { position: sticky; z-index: 15; bottom: 0; }
   .field-grid { grid-template-columns: 1fr; }
+  .settings-grid { grid-template-columns: 1fr; }
   .theme-picker { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .theme-preview { width: 100%; }
   .effect-backdrop { align-items: end; padding: 0; }
@@ -539,9 +551,9 @@ input[type="color"] { padding: 4px; }
   .effect-catalog { grid-template-columns: repeat(2, 1fr); }
   .effect-form { grid-template-columns: 1fr; max-height: 38vh; overflow-y: auto; }
   .button, .icon-button, input, select, .admin-tabs button { min-height: 44px; }
-  .admin-app--composition { display: block; padding-top: 64px; }
-  .composition-main { padding: 15px 12px 4px; padding-top: max(15px, 64px); overflow: visible; }
-  .composition-rails { overflow: visible; border-left: 0; }
+  .admin-app--composition { display: block; height: auto; padding-top: 64px; }
+  .composition-main { min-height: auto; padding: 15px 12px 4px; padding-top: max(15px, 64px); overflow: visible; }
+  .composition-rails { min-height: auto; overflow: visible; border-left: 0; }
   .composition-tabpanel { overflow: visible; }
   .composition-tabpanel > .editor-rail { min-height: 0; display: block; }
   .challenge-board-heading { align-items: start; flex-direction: column; gap: 12px; margin-bottom: 16px; }

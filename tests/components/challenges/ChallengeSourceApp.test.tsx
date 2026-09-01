@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChallengeSourceApp } from "../../../src/challenges/ChallengeSourceApp";
 import { ChallengeLog } from "../../../src/modules/win-challenges/ui/ChallengeLog";
-import { MAX_TOTAL_ROWS } from "../../../src/modules/win-challenges/contracts/predicates";
 import type { ChallengeStyleId, ChallengeThemeId, ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
 import { OVERLAY_SOCKET_PROTOCOL } from "../../../src/shared/contracts/protocol";
 
@@ -74,6 +73,7 @@ const message = (): ChallengeUpdate => ({
     headerTitle: "CHALLENGES",
     effectsEnabled: true,
     maxVisible: 5,
+    overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
     themeId: "trail-wood",
     globalTimer: null,
     placement: { x: 300, y: 8, scale: 1 },
@@ -86,7 +86,7 @@ const message = (): ChallengeUpdate => ({
 });
 
 const fixedNow = Date.parse("2026-08-31T12:00:00.000Z");
-const styleNames = ["plain-list", "plain-bullets", "plain-numbered", "quest-log"] as const;
+const styleNames = ["plain-list", "plain-bullets", "quest-log"] as const;
 
 const globalTimer = (state: "running" | "paused" | "expired"): NonNullable<ChallengeUpdate["settings"]["globalTimer"]> => ({
   totalMs: 60_000,
@@ -239,7 +239,7 @@ describe("ChallengeSourceApp", () => {
     expect(document.querySelector(".challenge-source-ceremony")).toHaveAttribute("data-ceremony-type", "progressed");
   });
 
-  it.each(["plain-list", "plain-bullets", "plain-numbered"] as const)(
+  it.each(["plain-list", "plain-bullets"] as const)(
     "ordnet %s die gemeinsame Abschlusszeremonie zu",
     async (styleId) => {
       render(<ChallengeSourceApp />);
@@ -304,17 +304,19 @@ describe("ChallengeSourceApp", () => {
       challenge("first", "Erste Challenge", "pending", 0),
       challenge("second", "Zweite Challenge", "pending", 1),
       challenge("third", "Dritte Challenge", "pending", 2),
-      challenge("target", "Ziel außerhalb der Auswahl", "pending", 3),
+      challenge("fourth", "Vierte Challenge", "pending", 3),
+      challenge("fifth", "Fünfte Challenge", "pending", 4),
+      challenge("target", "Ziel außerhalb der Auswahl", "pending", 5),
     ];
     await deliver(socket, sourceUpdate({
       eventSeq: 1,
       challenges,
-      settings: { ...message().settings, themeMode: "own", maxVisible: 3 },
+      settings: { ...message().settings, themeMode: "own" },
       event: { scope: "challenge", type: "progressed", challengeId: "target", delta: 1, previousCount: 3, currentCount: 4 },
     }));
 
     expect(document.querySelector('[data-challenge-id="target"]')).toHaveAttribute("data-ceremony-target", "true");
-    expect(document.querySelectorAll('.challenge-source__row[data-state="pending"]')).toHaveLength(3);
+    expect(document.querySelectorAll('.challenge-source__row[data-state="pending"]')).toHaveLength(5);
     expect(screen.getByText("+1 weitere")).toBeInTheDocument();
   });
 
@@ -324,7 +326,7 @@ describe("ChallengeSourceApp", () => {
     const socket = FakeWebSocket.instances[0];
     await deliver(socket, message());
     expect(screen.getByText("Offene Challenge")).toBeInTheDocument();
-    act(() => socket?.emit("message", JSON.stringify({ ...message(), settings: { ...message().settings, maxVisible: 11 } })));
+    act(() => socket?.emit("message", JSON.stringify({ ...message(), settings: { ...message().settings, overflowMode: "invalid" } })));
     expect(document.body).not.toHaveTextContent("Offene Challenge");
     expect(reloadPage).toHaveBeenCalledTimes(1);
     await deliver(socket, message());
@@ -633,6 +635,54 @@ describe("ChallengeSourceApp", () => {
     expect(screen.getByText("1 / 2")).toBeInTheDocument();
   });
 
+  it("blättert synchron durch Seiten, hält die gepinnte Challenge fest und zieht Zeremonienziele auf die aktuelle Seite", () => {
+    const challenges = Array.from({ length: 6 }, (_, index) => challenge(`page-${String(index)}`, `Seite ${String(index)}`, "pending", index));
+    const update = sourceUpdate({ challenges, settings: { ...message().settings, overflowMode: "page" } });
+    const view = render(<ChallengeLog now={0} update={update} />);
+    expect(document.querySelectorAll(".challenge-source__row")).toHaveLength(5);
+    expect(screen.getByText(/· 1\/2$/)).toBeInTheDocument();
+    expect(screen.queryByText("Seite 5")).not.toBeInTheDocument();
+
+    view.rerender(<ChallengeLog now={8_000} update={update} />);
+    expect(screen.getByText("Seite 5")).toBeInTheDocument();
+    expect(screen.getByText(/· 2\/2$/)).toBeInTheDocument();
+
+    const pinned = { ...challenge("pinned", "Gepinnt", "pending", 0), state: "active" as const, timerEndsAt: new Date(fixedNow + 30_000).toISOString() };
+    const withPinned = sourceUpdate({
+      challenges: [pinned, ...challenges.slice(1)],
+      settings: { ...message().settings, overflowMode: "page" },
+    });
+    view.rerender(<ChallengeLog now={8_000} update={withPinned} />);
+    expect(screen.getByText("Gepinnt")).toBeInTheDocument();
+    expect(screen.getByText("Seite 5")).toBeInTheDocument();
+    expect(document.querySelectorAll(".challenge-source__row")).toHaveLength(2);
+
+    view.rerender(<ChallengeLog ceremonyTarget={{ kind: "challenge", id: "page-0" }} now={8_000} update={update} />);
+    expect(screen.getByText("Seite 0")).toBeInTheDocument();
+    expect(screen.queryByText("Seite 5")).not.toBeInTheDocument();
+  });
+
+  it("zeigt die Nummer in der Markierungsspalte und ersetzt Häkchen sowie Quest-Raute", () => {
+    const done = { ...challenge("done-number", "Erledigt nummeriert", "done", 1), completedAt: new Date(fixedNow).toISOString() };
+    const update = sourceUpdate({
+      challenges: [challenge("open-number", "Offen nummeriert", "pending", 0), done],
+      settings: { ...message().settings, numbered: true },
+    });
+    const view = render(<ChallengeLog now={fixedNow} update={update} />);
+    const openMark = document.querySelector('[data-challenge-id="open-number"] .challenge-source__mark');
+    const doneMark = document.querySelector('[data-challenge-id="done-number"] .challenge-source__mark');
+    expect(openMark).toHaveTextContent("1");
+    expect(doneMark).toHaveTextContent("2");
+    expect(doneMark).not.toHaveTextContent("✓");
+
+    view.rerender(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      challenges: [challenge("quest-number", "Quest nummeriert", "pending", 0)],
+      settings: { ...message().settings, styleId: "quest-log", numbered: true },
+    })} />);
+    expect(document.querySelector(".challenge-source__mark")).toHaveTextContent("1");
+    expect(document.querySelector(".challenge-source__mark")).not.toHaveTextContent("◆");
+  });
+
   it("setzt die Leerzustands-Matrix für keine Challenges und keinen Timer um", () => {
     const view = render(<ChallengeLog now={fixedNow} update={sourceUpdate({ challenges: [] })} />);
     expect(view.container.firstChild).toBeNull();
@@ -650,6 +700,22 @@ describe("ChallengeSourceApp", () => {
       expect(document.querySelectorAll(".challenge-source__row")).toHaveLength(0);
     },
   );
+
+  it("markiert den Global-Timer als Zeremonieziel und blendet einen idle Timer aus", () => {
+    const update = sourceUpdate({
+      settings: { ...message().settings, globalTimer: globalTimer("running") },
+    });
+    const view = render(<ChallengeLog ceremonyTarget={{ kind: "global" }} now={fixedNow} update={update} />);
+    expect(screen.getByLabelText(/Globaler Timer/)).toHaveAttribute("data-ceremony-target", "true");
+
+    view.rerender(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      settings: {
+        ...message().settings,
+        globalTimer: { totalMs: 60_000, endsAt: null, pausedRemainMs: null },
+      },
+    })} />);
+    expect(screen.queryByLabelText(/Globaler Timer/)).not.toBeInTheDocument();
+  });
 
   it("zeigt erledigte Challenges dauerhaft auch ohne aktiven Timer", () => {
     const old = { ...challenge("old", "Alte Challenge", "done", 0), completedAt: "2026-08-31T11:59:00.000Z" };
@@ -712,7 +778,7 @@ describe("ChallengeSourceApp", () => {
     expect(timer).toHaveTextContent("kritisch");
   });
 
-  it("zeigt den Überlauf und hält die sichtbare Auswahl unter dem harten Gesamtlimit", () => {
+  it("zeigt den Überlauf mit der eingestellten Kapazität", () => {
     const openChallenges = Array.from({ length: 10 }, (_, index) => challenge(`open-${String(index)}`, `Offen ${String(index)}`, "pending", index));
     const finishedChallenges = Array.from({ length: 30 }, (_, index) => ({
       ...challenge(`done-${String(index)}`, `Fertig ${String(index)}`, "done", index + 10),
@@ -720,11 +786,22 @@ describe("ChallengeSourceApp", () => {
     }));
     const update = sourceUpdate({
       challenges: [...openChallenges, ...finishedChallenges],
-      settings: { ...message().settings, maxVisible: 10 },
+      settings: { ...message().settings },
     });
     render(<ChallengeLog now={fixedNow} update={update} />);
-    expect(screen.getByText("+36 weitere")).toBeInTheDocument();
-    expect(document.querySelectorAll(".challenge-source__row")).toHaveLength(4);
-    expect(document.querySelectorAll(".challenge-source__row").length).toBeLessThanOrEqual(MAX_TOTAL_ROWS);
+    expect(screen.getByText("+35 weitere")).toBeInTheDocument();
+    expect(document.querySelectorAll(".challenge-source__row")).toHaveLength(5);
+    expect(document.querySelectorAll(".challenge-source__row").length).toBe(5);
+  });
+
+  it("verwendet maxVisible als Kapazität in der cut-Quelle", () => {
+    const challenges = Array.from({ length: 10 }, (_, index) => challenge(`capacity-${String(index)}`, `Kapazität ${String(index)}`, "pending", index));
+    const view = render(<ChallengeLog now={fixedNow} update={sourceUpdate({ challenges, settings: { ...message().settings, maxVisible: 3 } })} />);
+    expect(document.querySelectorAll(".challenge-source__row")).toHaveLength(3);
+    expect(screen.getByText("+7 weitere")).toBeInTheDocument();
+
+    view.rerender(<ChallengeLog now={fixedNow} update={sourceUpdate({ challenges, settings: { ...message().settings, maxVisible: 8 } })} />);
+    expect(document.querySelectorAll(".challenge-source__row")).toHaveLength(8);
+    expect(screen.getByText("+2 weitere")).toBeInTheDocument();
   });
 });

@@ -15,11 +15,15 @@ import {
   isCommandId,
   isCurrentCount,
   isDelta,
+  isDoneOrder,
   isEventSeq,
   isHeaderTitle,
   isHidden,
   isInstant,
   isMaxVisible,
+  isNumbered,
+  isOverflowMode,
+  isOverflowTempo,
   isPausedRemainMs,
   isPlacementScale,
   isPlacementX,
@@ -99,6 +103,10 @@ const themeIdSchema = custom(
 );
 const themeModeSchema = custom(isThemeMode, "Theme-Modus ist ungültig.");
 const surfaceModeSchema = custom(isSurfaceMode, "Flächenmodus ist ungültig.");
+const overflowModeSchema = custom(isOverflowMode, "Überlaufmodus ist ungültig.");
+const overflowTempoSchema = custom(isOverflowTempo, "Überlauf-Tempo ist ungültig.");
+const doneOrderSchema = custom(isDoneOrder, "Erledigt-Reihenfolge ist ungültig.");
+const numberedSchema = custom(isNumbered, "Nummerierung muss ein Boolean sein.");
 const commandIdSchema = custom(isCommandId, "Kommando-ID muss eine UUID sein.");
 
 const challengeDefinitionFields = {
@@ -159,6 +167,10 @@ export const settingsSchema = z.strictObject({
   headerTitle: headerTitleSchema,
   effectsEnabled: z.boolean(),
   maxVisible: maxVisibleSchema,
+  overflowMode: overflowModeSchema,
+  overflowTempo: overflowTempoSchema,
+  numbered: numberedSchema,
+  doneOrder: doneOrderSchema,
   themeId: themeIdSchema,
   globalTimer: z.union([globalTimerSchema, z.null()]),
   placement: challengePlacementSchema.default(DEFAULT_CHALLENGE_PLACEMENT),
@@ -228,6 +240,10 @@ export const settingsSaveRequestSchema = z.strictObject({
   headerTitle: headerTitleSchema,
   effectsEnabled: z.boolean(),
   maxVisible: maxVisibleSchema,
+  overflowMode: overflowModeSchema,
+  overflowTempo: overflowTempoSchema,
+  numbered: numberedSchema,
+  doneOrder: doneOrderSchema,
   globalTimerTotalMs: timerTotalMsSchema,
   placement: challengePlacementSchema,
 });

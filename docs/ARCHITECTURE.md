@@ -21,7 +21,7 @@ Der Worker prüft Origin, Bodygrößen, Routen und öffentliche Overlay-Limits. 
 ## Win-Challenges-Modul
 
 Das Modul ist als Feature-Slice unter `src/modules/win-challenges/` geschnitten: Contracts,
-Domain, Kommando-Service, Repository-Interface, SQLite-Adapter, UI und vier Style-Chunks.
+Domain, Kommando-Service, Repository-Interface, SQLite-Adapter, UI und drei Style-Chunks.
 Der Host behält Routentabelle, Socket-Authentifizierung und -Broadcasts sowie die
 Style-Zeremonien und Audio-Policy. Es gibt bewusst keinen Sammel-Index. Ein Fabrik-Einstieg
 würde Kommandoschicht, Repository und Zod über einen gemeinsamen Import bis in das
@@ -33,6 +33,10 @@ Die vier Tabellen `wc_meta`, `wc_challenges`, `wc_commands` und `wc_dock_tokens`
 `wc_`-Präfix ist eine interne Adapterkonvention und ausschließlich dort festgelegt; Domain,
 Service und Repository-Interface kennen keine SQL-Tabellennamen und bieten keine
 Präfix-Konfiguration nach außen an.
+Die Challenge-Settings enthalten neben Style, Fläche und Kopfzeile `max_visible`, Überlaufmodus,
+Tempo, Nummerierung, erledigte Reihenfolge und `global_timer_total_ms`; Migration 7 ergänzt die
+Überlauffelder, überführt `plain-numbered` zu `plain-list` mit Nummerierung und lässt `max_visible`
+als Anzeige-Kapazität bestehen.
 
 ## Zwei Nebenläufigkeitsmodelle
 

@@ -20,6 +20,7 @@ const challengeUpdate: ChallengeUpdate = {
     headerTitle: "CHALLENGES",
     effectsEnabled: true,
     maxVisible: 5,
+    overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
     themeId: "trail-wood",
     globalTimer: null,
     placement: { x: 30, y: 8, scale: 1 },
