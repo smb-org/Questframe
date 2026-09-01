@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { Challenge, ChallengeUpdate, GlobalTimer } from "../shared/contracts/win-challenges";
 import { DOCK_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
-import { formatChallengeStand, selectVisible } from "../modules/win-challenges/domain/visibility";
+import { challengeNumbers, formatChallengeStand, selectVisible } from "../modules/win-challenges/domain/visibility";
 import { deriveTimerState } from "../modules/win-challenges/domain/timers";
 import type { Command } from "../modules/win-challenges/contracts/schemas";
 import {
@@ -160,6 +160,8 @@ const ChallengeRow = ({
   deleted,
   compact,
   now,
+  number,
+  numbered,
   onCommand,
 }: {
   challenge: Challenge;
@@ -169,6 +171,8 @@ const ChallengeRow = ({
   deleted: boolean;
   compact: boolean;
   now: number;
+  number: number | undefined;
+  numbered: boolean;
   onCommand: (command: Command, challengeId: string) => void;
 }) => {
   const done = challenge.state === "done";
@@ -185,6 +189,7 @@ const ChallengeRow = ({
     >
       <div className="live-page__challenge-main">
         <span aria-hidden="true" className="live-page__challenge-mark">{done ? "✓" : "▸"}</span>
+        {numbered && number !== undefined && <span aria-hidden="true" className="live-page__challenge-number">{number}</span>}
         <span className="live-page__challenge-title">{challenge.title}</span>
         {challenge.hidden && <span className="live-page__challenge-hidden-badge">ausgeblendet</span>}
         <span className="live-page__challenge-count">
@@ -442,7 +447,8 @@ export const LiveApp = () => {
   }
 
   const patchedChallenges = update.challenges.map((challenge) => mergeChallenge(challenge, optimistic[challenge.id]));
-  const selection = selectVisible(patchedChallenges, update.settings.maxVisible, now, { includeHidden: true });
+  const selection = selectVisible(patchedChallenges, now, { doneOrder: update.settings.doneOrder, includeHidden: true });
+  const numbers = challengeNumbers(patchedChallenges);
   const rows = selection.challenges;
   if (deletedNotice !== null && !rows.some((challenge) => challenge.id === deletedNotice.challenge.id)) {
     rows.push(deletedNotice.challenge);
@@ -482,13 +488,14 @@ export const LiveApp = () => {
               deleted={deletedNotice?.challenge.id === challenge.id && !update.challenges.some((candidate) => candidate.id === challenge.id)}
               error={errors[challenge.id] ?? (deletedNotice?.challenge.id === challenge.id ? deletedNotice.message : null)}
               key={challenge.id}
+              numbered={update.settings.numbered}
+              number={numbers.get(challenge.id)}
               onCommand={(command, challengeId) => runCommand(command, challengeId)}
               pending={pending[challenge.id] === true}
               pinned={challenge.id === pinnedId}
               now={now}
             />
           ))}
-          {selection.remaining > 0 && <p className="live-page__more">+{selection.remaining} weitere</p>}
         </section>
       ) : !compact ? (
         <section className="live-page__empty" aria-label="Keine Challenges">

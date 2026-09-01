@@ -97,12 +97,16 @@ Touch-Ziele: `44 px` für `+` und `−`, `38 px` für alle übrigen Steuerelemen
 
 ### Challenge-Stile
 
-Die Challenge-Quelle hat vier Styles: `plain-list`, `plain-bullets`, `plain-numbered` und
-`quest-log`. `ChallengeStyleId` bestimmt ausschließlich die Struktur der Quelle, also etwa
+Die Challenge-Quelle hat drei Styles: `plain-list`, `plain-bullets` und `quest-log`.
+`ChallengeStyleId` bestimmt ausschließlich die Struktur der Quelle, also etwa
 Listenmarker, Zeilenaufbau und die eigene Rahmenbehandlung. Die Materialwelt kommt getrennt
 aus Theme und Flächenmodus: `themeMode` wählt die Modulwelt oder die geerbte HUD-Variante,
 `surfaceMode` wählt `surface` oder `bare`. Ein Style ist deshalb keine Materialvariante und
 erzeugt keine eigene Kombination aus allen Themes und Flächen.
+
+Die Nummerierung ist ein eigener Schalter und verwendet stabile Positionen der nicht
+versteckten Challenges. Bei Überlauf kann die Quelle abschneiden, paginieren oder weich
+scrollen; Tempo und erledigte Reihenfolge sind ebenfalls eigene Einstellungen.
 
 CSS wird in der langlebigen Browserquelle nie entladen. Ein bereits geladener Style- oder
 Theme-Chunk bleibt aktiv; Umschalten erfolgt über `data-style` und `data-theme-mode` am Root.

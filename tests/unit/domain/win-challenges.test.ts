@@ -18,6 +18,7 @@ import {
   normalizeSortOrder,
 } from "../../../src/modules/win-challenges/domain/definitions";
 import {
+  challengeNumbers,
   formatChallengeStand,
   selectVisible,
 } from "../../../src/modules/win-challenges/domain/visibility";
@@ -293,7 +294,7 @@ describe("Win-Challenges-Domain", () => {
     });
   });
 
-  it("sortiert Sichtbarkeit nach Ordnung, pinnt den laufenden Timer und begrenzt korrekt", () => {
+  it("sortiert ohne Schnitt, pinnt den laufenden Timer und reiht Erledigte ans Ende", () => {
     const challenges = [
       makeChallenge({ id: "first", sortOrder: 0 }),
       makeChallenge({ id: "timer", sortOrder: 1, timerEndsAt: "2026-08-30T12:01:00.000Z" }),
@@ -301,7 +302,7 @@ describe("Win-Challenges-Domain", () => {
       makeChallenge({ id: "finished-2", sortOrder: 3, state: "done", completedAt: now }),
       makeChallenge({ id: "finished-3", sortOrder: 4, state: "done", completedAt: now }),
     ];
-    const result = selectVisible(challenges, 3, now);
+    const result = selectVisible(challenges, now);
     expect(result.challenges.map((challenge) => challenge.id)).toEqual([
       "timer",
       "first",
@@ -312,7 +313,7 @@ describe("Win-Challenges-Domain", () => {
     expect(result.remaining).toBe(0);
   });
 
-  it("begrenzt offene und fertige Einträge unabhängig, mit hartem Gesamtlimit und Overflow", () => {
+  it("gibt die vollständige geordnete Liste ohne Overflow-Schnitt zurück", () => {
     const open = Array.from({ length: 15 }, (_, index) =>
       makeChallenge({ id: `open-${String(index)}`, sortOrder: index }),
     );
@@ -324,22 +325,44 @@ describe("Win-Challenges-Domain", () => {
         completedAt: now,
       }),
     );
-    const result = selectVisible([...open, ...finished], 10, now);
-    expect(result.challenges).toHaveLength(12);
-    expect(result.challenges.slice(0, 10).every((challenge) => challenge.state !== "done")).toBe(true);
-    expect(result.remaining).toBe(8);
+    const result = selectVisible([...open, ...finished], now);
+    expect(result.challenges).toHaveLength(20);
+    expect(result.challenges.slice(0, 15).every((challenge) => challenge.state !== "done")).toBe(true);
+    expect(result.remaining).toBe(0);
     expect(selectVisible([
       makeChallenge({ state: "done", completedAt: "2026-08-30T11:59:51.999Z" }),
-    ], 3, now).challenges).toHaveLength(1);
+    ], now).challenges).toHaveLength(1);
   });
 
   it("filtert versteckte Challenges und lässt sie für das Dock optional zu", () => {
     const hidden = makeChallenge({ id: "hidden", hidden: true, sortOrder: 0 });
     const open = makeChallenge({ id: "open", sortOrder: 1 });
 
-    expect(selectVisible([hidden, open], 3, now).challenges.map(({ id }) => id)).toEqual(["open"]);
-    expect(selectVisible([hidden, open], 3, now, { includeHidden: true }).challenges.map(({ id }) => id))
+    expect(selectVisible([hidden, open], now).challenges.map(({ id }) => id)).toEqual(["open"]);
+    expect(selectVisible([hidden, open], now, { includeHidden: true }).challenges.map(({ id }) => id))
       .toEqual(["hidden", "open"]);
+  });
+
+  it("unterstützt Erledigt-Reihenfolge keep und Nummern unabhängig von Zustand und Pin", () => {
+    const challenges = [
+      makeChallenge({ id: "done-first", sortOrder: 0, state: "done", completedAt: now }),
+      makeChallenge({ id: "open", sortOrder: 1 }),
+      makeChallenge({ id: "done-last", sortOrder: 2, state: "done", completedAt: now }),
+      makeChallenge({ id: "pinned", sortOrder: 3, state: "active", timerEndsAt: "2026-08-30T12:01:00.000Z" }),
+      makeChallenge({ id: "hidden", sortOrder: 4, hidden: true }),
+    ];
+
+    expect(selectVisible(challenges, now, { doneOrder: "end" }).challenges.map(({ id }) => id))
+      .toEqual(["pinned", "open", "done-first", "done-last"]);
+    expect(selectVisible(challenges, now, { doneOrder: "keep" }).challenges.map(({ id }) => id))
+      .toEqual(["pinned", "done-first", "open", "done-last"]);
+
+    expect([...challengeNumbers(challenges).entries()]).toEqual([
+      ["done-first", 1],
+      ["open", 2],
+      ["done-last", 3],
+      ["pinned", 4],
+    ]);
   });
 
   it("formatiert den Stand mit optionalem Zähler für versteckte Challenges", () => {

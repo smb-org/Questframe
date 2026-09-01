@@ -222,7 +222,7 @@ test("mehrere lange Challenge-Texte bleiben mit sichtbarem Überlauf innerhalb d
   const source = await context.newPage();
   await source.goto(`/overlay/challenges#token=${overlayToken}`);
 
-  for (let index = 0; index < 6; index += 1) {
+  for (let index = 0; index < 7; index += 1) {
     await page.getByRole("button", { name: "Challenge anlegen" }).click();
     const row = page.locator(".challenge-board-row").last();
     await row.getByRole("textbox", { name: "Challenge", exact: true }).fill(
@@ -232,7 +232,7 @@ test("mehrere lange Challenge-Texte bleiben mit sichtbarem Überlauf innerhalb d
   await page.getByRole("button", { name: "Alle speichern" }).click();
   await expect(page.getByText(/Board gespeichert · Revision \d+\./)).toBeVisible();
 
-  await expect(source.locator(".challenge-source__row")).toHaveCount(4);
+  await expect(source.locator(".challenge-source__row")).toHaveCount(5);
   await expect(source.locator(".challenge-source__more")).toHaveText("+2 weitere");
   await expect.poll(async () => source.locator(".challenge-source").evaluate(
     (element) => element.scrollHeight <= element.clientHeight,
@@ -284,7 +284,7 @@ test("die Komposition verschiebt und veröffentlicht die Challenge-Quelle", asyn
   await challengeRail.getByLabel("X").fill(String(nextX));
   // Kein modul-eigener Save-Button mehr: die globale Speicherleiste ist der einzige Trigger.
   await page.getByRole("button", { name: "Alle speichern" }).click();
-  await expect(page.getByText("Zeremonie-Einstellung veröffentlicht.")).toBeVisible();
+  await expect(page.getByText("Einstellung veröffentlicht.")).toBeVisible();
   await expect.poll(async () => source.locator(".challenge-source").evaluate((element) => getComputedStyle(element).getPropertyValue("--wc-x").trim())).toBe(`${String(nextX * 5)}px`);
 
   await disposePage(source);

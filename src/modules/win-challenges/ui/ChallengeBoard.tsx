@@ -235,6 +235,8 @@ type ChallengeRowProps = {
   index: number;
   total: number;
   disabled: boolean;
+  numbered: boolean;
+  number: number | undefined;
   layout?: ChallengeRowLayout;
   onChange: (patch: Partial<ChallengeDraft>) => void;
   onDelete: () => void;
@@ -248,6 +250,8 @@ const ChallengeRow = ({
   index,
   total,
   disabled,
+  numbered,
+  number,
   layout = "stacked",
   onChange,
   onDelete,
@@ -362,7 +366,7 @@ const ChallengeRow = ({
         {orderControls}
         {runtime}
         <label className="challenge-field challenge-field--compact-title">
-          <span className="sr-only">Challenge</span>
+          <span className="challenge-board-number-label">{numbered && number !== undefined && <b>{number}</b>}<span className="sr-only">Challenge</span></span>
           <input
             disabled={disabled}
             maxLength={160}
@@ -437,7 +441,7 @@ const ChallengeRow = ({
       </div>
       <div className="challenge-row-fields">
         <label className="challenge-field challenge-field--title">
-          <span>Challenge</span>
+          <span className="challenge-board-number-label">{numbered && number !== undefined && <b>{number}</b>} Challenge</span>
           <textarea
             disabled={disabled}
             maxLength={160}
@@ -498,6 +502,7 @@ const ChallengeRow = ({
 type ChallengeBoardListProps = {
   drafts: readonly ChallengeDraft[];
   disabled: boolean;
+  numbered: boolean;
   layout?: ChallengeRowLayout;
   ariaLabel?: string;
   onChange: (key: string, patch: Partial<ChallengeDraft>) => void;
@@ -510,6 +515,7 @@ type ChallengeBoardListProps = {
 const ChallengeBoardList = ({
   drafts,
   disabled,
+  numbered,
   layout = "stacked",
   ariaLabel = "Challenge-Definitionen",
   onChange,
@@ -527,6 +533,8 @@ const ChallengeBoardList = ({
         index={index}
         key={draft.key}
         layout={layout}
+        numbered={numbered}
+        number={numbered && !draft.hidden ? drafts.slice(0, index + 1).filter((candidate) => !candidate.hidden).length : undefined}
         onChange={(patch) => onChange(draft.key, patch)}
         onDelete={() => onDelete(draft.key)}
         onDragStart={() => onDragStart(draft.key)}
@@ -664,6 +672,7 @@ export const ChallengeBoard = ({
     () => (snapshot === null ? [] : noticesFor(drafts, snapshot)),
     [drafts, snapshot],
   );
+  const numbered = challengeUpdate?.settings.numbered === true;
 
   const applyChallengeUpdate = useCallback((update: ChallengeUpdate) => {
     const incoming = snapshotFromUpdate(update);
@@ -919,6 +928,7 @@ export const ChallengeBoard = ({
       <ChallengeBoardList
         drafts={drafts}
         disabled={saving || !effectiveOnline}
+        numbered={numbered}
         onChange={updateDraft}
         onDelete={deleteDraft}
         onDragStart={setDraggedKey}
@@ -958,6 +968,7 @@ export const ChallengeBoard = ({
         onDrop={dropDraft}
         onMove={moveDraft}
         open={fullscreen}
+        numbered={numbered}
         triggerRef={fullscreenTriggerRef}
       />
     </section>

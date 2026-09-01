@@ -205,7 +205,7 @@ export class WinChallengesService {
 
   public selectVisible(now: DomainNow = this.clock()): VisibleSelection {
     const snapshot = this.repository.readSnapshot();
-    return selectVisible(snapshot.challenges, snapshot.settings.maxVisible, now);
+    return selectVisible(snapshot.challenges, now, { doneOrder: snapshot.settings.doneOrder });
   }
 
   public saveBoard(

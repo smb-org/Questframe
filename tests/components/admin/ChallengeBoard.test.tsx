@@ -49,6 +49,7 @@ const snapshot = (
     headerTitle: "CHALLENGES",
     effectsEnabled: true,
     maxVisible: 5,
+    overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
     globalTimer: null,
     placement: { x: 300, y: 8, scale: 1 },
   },
@@ -105,6 +106,25 @@ describe("ChallengeBoard", () => {
     const remove = within(row).getByRole("button", { name: "Bellen löschen" });
     expect(visibility.compareDocumentPosition(challengeInput) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
     expect(remove.compareDocumentPosition(challengeInput) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+  });
+
+  it("zeigt stabile Nummern aus dem veröffentlichten Entwurf und überspringt versteckte Einträge", async () => {
+    const initial = snapshot([
+      challenge("hidden", "Versteckt", { hidden: true, sortOrder: 0 }),
+      challenge("first", "Erste", { sortOrder: 1 }),
+      challenge("second", "Zweite", { sortOrder: 2 }),
+    ]);
+    const update = {
+      ...initial,
+      settings: { ...initial.settings, themeId: "trail-wood" as const, numbered: true },
+      event: null,
+    };
+    render(<ChallengeBoard api={{ load: vi.fn(() => Promise.resolve(initial)), save: vi.fn() }} challengeUpdate={update} />);
+
+    const list = await screen.findByLabelText("Challenge-Definitionen");
+    expect(within(list).getByText("1")).toBeInTheDocument();
+    expect(within(list).getByText("2")).toBeInTheDocument();
+    expect(within(list).queryByText("3")).not.toBeInTheDocument();
   });
 
   it("öffnet die kompakte Vollbildansicht und gibt den Fokus beim Schließen zurück", async () => {

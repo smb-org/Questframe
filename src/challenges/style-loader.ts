@@ -6,7 +6,6 @@ type StyleImport = () => Promise<unknown>;
 const STYLE_IMPORTS: Record<ChallengeStyleId, StyleImport> = {
   "plain-list": () => import("../modules/win-challenges/styles/plain-list"),
   "plain-bullets": () => import("../modules/win-challenges/styles/plain-bullets"),
-  "plain-numbered": () => import("../modules/win-challenges/styles/plain-numbered"),
   "quest-log": () => import("../modules/win-challenges/styles/quest-log"),
 };
 

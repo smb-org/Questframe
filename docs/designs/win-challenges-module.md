@@ -54,7 +54,8 @@ Minute rot.
   genau einer Implementierung für DO-SQLite.
 - **P4.** Das Modul meldet Fakten und weiß nichts von Flash, Sound oder Animation. Der Host
   hält die Style-zu-Zeremonie-Registry, den Aus-Schalter und die Audio-Policy.
-- **P5.** Kein Scrollen und kein Paging im Overlay. Im Admin darf gescrollt werden.
+- **P5.** Überlauf bleibt im Overlay kontrolliert: abschneiden, synchron paginieren oder weich
+  scrollen; bei reduzierter Bewegung wird Scrollen zu Paging.
 
 ## Architekturentscheidung
 
@@ -94,7 +95,7 @@ const repository = createSqlStorageChallengeRepository({
 const challenges = createWinChallenges({ repository, clock, emit });
 ```
 
-**V1-Scope:** konstantes Präfix, vier Styles, kein Capability-Manifest, keine Plattform für
+**V1-Scope:** konstantes Präfix, drei Styles, kein Capability-Manifest, keine Plattform für
 künftige Module.
 
 **Extrahierbarkeit, ehrlich:** Code-Organisation, keine fast fertige Paketierung. Die
@@ -132,7 +133,11 @@ CREATE TABLE wc_meta (
   surface_mode       TEXT    NOT NULL CHECK (surface_mode IN ('surface', 'bare')),
   header_title       TEXT    NOT NULL,  -- 1..24, Vorgabe "CHALLENGES"
   effects_enabled    INTEGER NOT NULL CHECK (effects_enabled IN (0, 1)),
-  max_visible        INTEGER NOT NULL CHECK (max_visible BETWEEN 3 AND 10),
+  max_visible        INTEGER NOT NULL DEFAULT 5 CHECK (max_visible BETWEEN 3 AND 10),
+  overflow_mode      TEXT NOT NULL DEFAULT 'cut' CHECK (overflow_mode IN ('cut', 'page', 'scroll')),
+  overflow_tempo     TEXT NOT NULL DEFAULT 'medium' CHECK (overflow_tempo IN ('slow', 'medium', 'fast')),
+  numbered           INTEGER NOT NULL DEFAULT 0 CHECK (numbered IN (0, 1)),
+  done_order         TEXT NOT NULL DEFAULT 'end' CHECK (done_order IN ('end', 'keep')),
   -- Optionaler globaler Timer über alle Challenges
   global_timer_total_ms         INTEGER,  -- NULL = Feature aus
   global_timer_ends_at          TEXT,     -- absoluter ISO-Instant, NULL wenn nicht laufend
@@ -279,6 +284,7 @@ challenge_update {
   settingsRevision: number,
   settings: {
     styleId, themeMode, surfaceMode, headerTitle, effectsEnabled, maxVisible,
+    overflowMode, overflowTempo, numbered, doneOrder,
     themeId,                       // aktive HUD-Variante, nur relevant bei themeMode "inherit"
     globalTimer: null | {           // null = Feature aus
       totalMs: number,
@@ -346,7 +352,7 @@ Editor-Routen nutzen die bestehende Kette: Same-Origin, `x-csrf-token`, `x-edito
 | `/api/challenges` | GET | Session | — | `unauthorized` |
 | `/api/challenges/commands` | POST | Session **oder** Dock-Token | siehe Kommando-DTO unten | `validation_failed`, `challenge_timer_not_configured`, `global_timer_not_configured`, `idempotency_mismatch`, `not_found`, `rate_limited` |
 | `/api/challenges/board` | PUT | Session | `{ baseBoardRevision, challenges: Definition[] }` | `revision_conflict` (mit Snapshot), `payload_too_large` |
-| `/api/challenges/settings` | PUT | Session | `{ baseSettingsRevision, styleId, themeMode, surfaceMode, headerTitle, effectsEnabled, maxVisible, globalTimerTotalMs }` | `revision_conflict` (mit Snapshot), `validation_failed` |
+| `/api/challenges/settings` | PUT | Session | `{ baseSettingsRevision, styleId, themeMode, surfaceMode, headerTitle, effectsEnabled, maxVisible, overflowMode, overflowTempo, numbered, doneOrder, globalTimerTotalMs }` | `revision_conflict` (mit Snapshot), `validation_failed` |
 
 **Kommando-DTO, zwei Formen.** Die drei globalen Kommandos haben keine `challengeId`, also
 kann das DTO sie nicht verlangen:
@@ -436,7 +442,7 @@ damit Overlay, Admin und Login gleichzeitig lahmlegen.
 ### Styles und Zeremonien
 
 ```ts
-type ChallengeStyleId = "plain-list" | "plain-bullets" | "plain-numbered" | "quest-log";
+type ChallengeStyleId = "plain-list" | "plain-bullets" | "quest-log";
 type CeremonySpec = {
   overlayFlash: boolean;
   soundAssetId: string | null;
@@ -446,15 +452,15 @@ type CeremonySpec = {
 const CEREMONIES: Record<ChallengeStyleId, Partial<Record<ChallengeEventType, CeremonySpec>>>;
 ```
 
-Die drei `plain-*`-Styles unterscheiden sich in genau einer CSS-Regel (`list-style-type`)
-und teilen sich alles Übrige über eine gemeinsame Basis.
+Die drei Styles teilen sich die gemeinsame Basis; `plain-list` und `plain-bullets` unterscheiden
+sich in der Listenmarkierung, während `quest-log` die eigene Quest-Markierung ergänzt.
 
 Default: `plain-list`. Ein Style ohne Registry-Eintrag macht nichts; kein
 `if (style === ...)` im Code. `wc_meta.effects_enabled` ist der globale Aus-Schalter,
 `prefers-reduced-motion` wird respektiert.
 
 **Style-CSS liegt in dynamischen Chunks.** Der Budget-Checker summiert die vollständige
-Closure jedes Styles und verwendet für die vier Styles `Math.max`, weil pro laufender
+Closure jedes Styles und verwendet für die drei Styles `Math.max`, weil pro laufender
 Quelle genau ein Aufbau geladen wird. Der Wechsel lädt den Chunk bei Bedarf nach und wird
 durch das Render-Gate abgesichert.
 
@@ -510,24 +516,22 @@ Browserfenster. Der Code ist in allen drei Fällen identisch, es ist eine URL.
 
 ### Overflow und Sortierung
 
-```
-offen    = challenges.filter(state !== 'done').sortBy(sort_order)
-fertig   = challenges.filter(state === 'done' && now - completed_at < 8s).sortBy(sort_order)
-gepinnt  = offen.find(timer_ends_at !== null) ?? offen[0] ?? null
+Die Domäne liefert die vollständige geordnete Liste. Eine laufende Timer-Challenge bleibt
+gepinnt an erster Stelle. `done_order = 'end'` sortiert danach offene und erledigte Einträge
+jeweils nach `sort_order`; `keep` lässt die gemeinsame Reihenfolge unverändert. Versteckte
+Einträge werden im Overlay ausgelassen, behalten aber ihre stabile Entwurfsposition.
 
-sichtbarOffen = [gepinnt, ...offen.without(gepinnt).take(max_visible - 1)]
-sichtbarFertig = fertig.take(MAX_TOTAL_ROWS - sichtbarOffen.length)   // MAX_TOTAL_ROWS = 12
-rest     = offen.length - sichtbarOffen.length
-render     sichtbarOffen, dann sichtbarFertig, dann falls rest > 0 die Zeile "+{rest} weitere"
-```
-
-`max_visible` (3 bis 10) begrenzt die **offenen** Einträge. Weil in acht Sekunden theoretisch
-sehr viele Einträge fertig werden können, gibt es zusätzlich ein hartes Gesamtlimit
-`MAX_TOTAL_ROWS = 12` über offene und fertige Zeilen zusammen. Ohne dieses zweite Limit
-wäre die Zusage "kein Scrollen" bei 10 offenen plus 30 gerade abgehakten Einträgen gebrochen.
+Die 340 px breite Quelle wächst mit Kopfzeile und gerenderten Zeilen; `max_visible` ist die
+Kapazität in allen Modi und wird nicht um einen Timer oder eine Umbruchreserve reduziert.
+Der globale Timer steht bei aktivem Zustand in der Kopfzeile. `overflow_mode = 'cut'` rendert
+bei Überlauf `capacity` Zeilen plus `+N weitere`.
+`page` behält eine gepinnte Zeile auf jeder Seite und blättert den Rest nach
+`overflow_tempo` (12/8/5 Sekunden). `scroll` rendert alle Zeilen und fährt sie weich mit
+8/14/24 px/s; bei reduzierter Bewegung fällt es auf Paging zurück. `numbered` zeigt stabile
+Nummern der nicht versteckten Challenges in Quelle, Live-Seite und Board.
 
 Manuelle `sort_order` bleibt die einzige Ordnung und geht beim Abhaken und beim `reopen`
-nicht verloren. Kein Scrollen, kein Paging.
+nicht verloren.
 
 ## Visuelle Spezifikation
 
@@ -558,38 +562,36 @@ Maßstabsgetreues Wireframe mit allen drei geprüften Platzierungen:
 │ ▸  12:34                                 │  Globaler Timer, große Ziffern (optional)
 ├──────────────────────────────────────────┤
 │ Ohne Schaden durch Zone 3   ▬▬▭  4:12    │  gepinnt (laufender Timer, sonst erste offene)
-│ 10 Kills mit dem Bogen           3 / 10  │  offene, bis max_visible gesamt
+│ 10 Kills mit dem Bogen           3 / 10  │  offene, bis zur Kapazität
 │ Keine Heiltränke benutzen                │
 ├──────────────────────────────────────────┤
 │ ✓  B̶o̶s̶s̶ ̶o̶h̶n̶e̶ ̶T̶o̶d̶ ̶b̶e̶s̶i̶e̶g̶t̶                 │  Fertig-Gruppe, verblasst nach 8 s
-│ +3 weitere                               │  Überlauf, nie eine Scrollleiste
+│ +3 weitere                               │  Überlauf im Abschneidemodus
 └──────────────────────────────────────────┘
 ```
 
 **Zeilen-Anatomie:** Titel linksbündig und bei Bedarf mit Ellipse gekürzt, Zähler und
-Timer rechtsbündig in tabellarischen Ziffern. Der Titel gewinnt bei Platzmangel nie gegen
-die Zahl, weil die Zahl der veränderliche Teil ist.
+Timer rechtsbündig in tabellarischen Ziffern. In der Kopfzeile steht der globale Timer
+zwischen Titel und Sessionstand; der Titel ist bei Platzmangel der veränderliche Teil.
 
 **Eigener Geometrievertrag.** Die Einrichtungsseite nennt eine empfohlene Größe, also
-braucht die Quelle eine. Sie ist bewusst kleiner gefasst als der theoretische Maximalfall,
-damit "kein Scrollen" nicht durch OBS-Clipping ersetzt wird:
+braucht die Quelle eine. Sie ist bewusst auf 340 px Breite gefasst, damit die Placement-Grenze
+nicht durch unbemerkte Layout-Überläufe ersetzt wird:
 
 | Bauteil | Höhe | Anmerkung |
 |---|---|---|
-| Kopfzeile | 26 px | immer sichtbar, sobald überhaupt gerendert wird |
-| Globaler Timer | 40 px | nur wenn `globalTimer !== null` |
+| Kopfzeile | mindestens 30 px | enthält Titel, optionalen globalen Timer und Stand |
 | Challenge-Zeile | 33 px | Rhythmus der vorhandenen Effektreihe |
 | "+N weitere" | 20 px | nur bei Überlauf |
 
-Empfohlene Quellgröße **340 × 300 px**. Das trägt Kopf, Timer und sieben Zeilen. Die harte
-Obergrenze `MAX_TOTAL_ROWS = 12` gilt weiterhin über offene und fertige Zeilen zusammen,
-aber die Quelle rendert zusätzlich nie mehr Zeilen, als in ihre tatsächliche Höhe passen.
-Ohne diese zweite Grenze verhindert `MAX_TOTAL_ROWS` zwar Scrollen, aber nicht, dass OBS
-den unteren Rand abschneidet.
+Empfohlene Quellbreite **340 px**. Die Höhe wächst mit Kopfzeile, Kapazität und optionaler
+Überlaufzeile; die bestehende Placement-Grenze beschneidet die Quelle erst am Rand der
+1920 × 1080-Komposition.
 
 **Kopfzeile.** Titel ist frei wählbar (`header_title`, Vorgabe "CHALLENGES"), damit der
-Streamer sein eigenes Framing setzen kann. Rechts der Sessionstand als `erledigt / gesamt`
-über das aktuelle Board. Ohne diesen Kopf wären vier Zeilen Text mit Zahlen für jemanden,
+Streamer sein eigenes Framing setzen kann. Zwischen Titel und Sessionstand steht optional der
+globale Timer; rechts bleibt der Sessionstand als `erledigt / gesamt`
+über das aktuelle Board. Ohne diesen Kopf wären die Zeilen mit Zahlen für jemanden,
 der mitten im Stream dazukommt, nicht einzuordnen.
 
 ### Globaler Timer
@@ -679,10 +681,10 @@ und, bei `inherit`, Theme-CSS geladen sind. Schlägt ein Chunk fehl, bleibt die 
 transparent statt ungestylt zu erscheinen, und ein überholter Import wird verworfen statt
 angewendet.
 
-Damit sind es nicht 24 Kombinationen aus vier Styles und sechs Varianten, sondern vier
+Damit sind es nicht 18 Kombinationen aus drei Styles und sechs Varianten, sondern drei
 **Aufbauten** in der Materialwelt, die der Streamer ohnehin gewählt hat. `ChallengeStyleId`
-bestimmt ausschließlich die Struktur: `plain-list`, `plain-bullets`, `plain-numbered`,
-`quest-log`. Das folgt exakt der Slot-Architektur, die `DESIGN.md` für `hud.css`
+bestimmt ausschließlich die Struktur: `plain-list`, `plain-bullets`, `quest-log`.
+Das folgt exakt der Slot-Architektur, die `DESIGN.md` für `hud.css`
 vorschreibt, eine Ebene höher.
 
 ### Lesbarkeit über beliebigem Video
@@ -730,8 +732,8 @@ leer.
 
 ### Barrierefreiheit
 
-- **Fertig ist nie nur Farbe.** Häkchen **plus** Durchstreichung **plus** Farbe, in allen
-  vier Styles.
+- **Fertig ist nie nur Farbe.** Durchstreichung **plus** Farbe, in allen drei Styles; bei
+  aktivierter Nummerierung bleibt die Nummer sichtbar.
 - **Pausiert ist nie nur Farbe.** Symbol plus Helligkeit plus Wort.
 - **Sortieren im Board** funktioniert zusätzlich per Pfeiltasten mit sichtbarem Fokus,
   nicht nur per Ziehen mit der Maus.
@@ -887,12 +889,12 @@ CODE PATHS                                                  USER FLOWS
   │   └── kein Timer / Zukunft / Vergangenheit / done         ├──        Reconnect mitten in Vollendung →
   ├── selectVisible()                                         │           keine nachträgliche Zeremonie
   │   ├── gepinnt = laufender Timer, sonst erster             ├──        Verbindung weg → Log weg, HUD bleibt
-  │   ├── max_visible begrenzt NUR offene                     ├──        Parse-Fehler → Log weg, HUD flackert NICHT
-  │   ├── MAX_TOTAL_ROWS greift bei vielen Fertigen           ├──        Dock-Token rotiert → Dock-Socket schließt
+  │   ├── done_order ordnet erledigte Einträge                ├──        Parse-Fehler → Log weg, HUD flackert NICHT
+  │   ├── overflow_mode cut/page/scroll                      ├──        Dock-Token rotiert → Dock-Socket schließt
   │   ├── Fertig-Gruppe nur < 8 s                             └──        Rate-Limit greift → rate_limited im Dock
   │   └── "+N weitere" ab Überlauf
   └── normalizeSortOrder() lückenlos 0..N-1                 [+] Aussehen
-                                                              ├── plain-list / -bullets / -numbered / quest-log
+                                                              ├── plain-list / -bullets / quest-log
 [+] service/commands.ts                                       └── effects_enabled aus → keine Zeremonie,
   ├── CRITICAL Dedupe für ALLE fünf Mutationen:                      kein Sound, reduced-motion respektiert
   │        complete→reopen→complete-Retry vollendet
@@ -1070,7 +1072,7 @@ keine Rastergrafik.
 
 **CROSS-MODEL:** Vier unabhängige Läufe (zwei Codex-Spec-Reviews auf Revision 1 und 2, ein
 Codex-Outside-Voice auf Revision 4, plus dieses Eng-Review). Die Modelle waren sich bei
-"kein Scrollen im Overlay", "kein Durable-Object-Alarm" und "eingebettete Feature-Slice
+"kontrolliertem Überlauf im Overlay", "kein Durable-Object-Alarm" und "eingebettete Feature-Slice
 statt eigenem Durable Object" einig. Codex hat drei Blocker gefunden, die dieses Review
 übersehen hatte, darunter einen, den dieses Review selbst erzeugt hat: Der auf Token-Auth
 umgestellte OBS-Dock hätte keinen WebSocket und damit keine Wahrheitsquelle für das

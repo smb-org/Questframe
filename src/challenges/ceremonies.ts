@@ -49,7 +49,6 @@ const QUEST_LOG_CEREMONIES: Partial<Record<CeremonyEventType, CeremonyEntry>> = 
 const CEREMONY_REGISTRY: Partial<Record<ChallengeStyleId, Partial<Record<CeremonyEventType, CeremonyEntry>>>> = {
   "plain-list": PLAIN_CEREMONIES,
   "plain-bullets": PLAIN_CEREMONIES,
-  "plain-numbered": PLAIN_CEREMONIES,
   "quest-log": QUEST_LOG_CEREMONIES,
 };
 

@@ -67,6 +67,22 @@
   font-size: 9px;
 }
 
+.challenge-source[data-style="quest-log"][data-numbered="true"] .challenge-source__row:not(.challenge-source__row--done) .challenge-source__mark {
+  color: var(--wc-accent);
+  font-family: var(--wc-font-display);
+  font-size: var(--wc-meta-size);
+  font-variant-numeric: tabular-nums;
+}
+
+.challenge-source[data-style="quest-log"][data-numbered="true"] .challenge-source__mark {
+  font-family: var(--wc-font-display);
+  font-variant-numeric: tabular-nums;
+}
+
+.challenge-source[data-style="quest-log"][data-numbered="true"] .challenge-source__row:not(.challenge-source__row--done) .challenge-source__mark::before {
+  content: none;
+}
+
 .challenge-source[data-style="quest-log"] .challenge-source__row--done .challenge-source__mark {
   font-size: 12px;
   font-weight: 700;

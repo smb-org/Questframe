@@ -181,6 +181,13 @@ html[data-surface="live"] #root {
   text-align: center;
 }
 
+.live-page__challenge-number {
+  flex: 0 0 auto;
+  color: var(--live-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 .live-page__challenge-row--done .live-page__challenge-mark {
   color: var(--live-ok);
 }
@@ -277,13 +284,6 @@ html[data-surface="live"] #root {
   grid-column: 1 / -1;
 }
 
-.live-page__more {
-  margin: 0;
-  padding: 2px 10px;
-  color: var(--live-muted);
-  font-size: 12px;
-}
-
 .live-page__empty,
 .live-page--message,
 .live-page--loading {
@@ -350,7 +350,6 @@ html[data-surface="live"] #root {
   .live-page__challenge-actions,
   .live-page__pending-label,
   .live-page__row-error,
-  .live-page__more,
   .live-page__empty {
     display: none;
   }

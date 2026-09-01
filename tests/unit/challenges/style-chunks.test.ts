@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const styleNames = ["plain-list", "plain-bullets", "plain-numbered", "quest-log"] as const;
+const styleNames = ["plain-list", "plain-bullets", "quest-log"] as const;
 const stylesDirectory = path.join(import.meta.dirname, "../../../src/modules/win-challenges/styles");
 const challengeLogSource = readFileSync(
   path.join(import.meta.dirname, "../../../src/modules/win-challenges/ui/ChallengeLog.tsx"),
@@ -10,16 +10,16 @@ const challengeLogSource = readFileSync(
 );
 
 describe("Challenge-Style-Chunks", () => {
-  it("legt vier dynamisch importierbare Styles über derselben Basis an", () => {
+  it("legt drei dynamisch importierbare Styles über derselben Basis an", () => {
     const files = styleNames.map((styleName) => path.join(stylesDirectory, `${styleName}.css`));
 
     expect(files.every((file) => existsSync(file))).toBe(true);
     const css = files.map((file) => (existsSync(file) ? readFileSync(file, "utf8") : ""));
     expect(css.every((source) => source.includes('@import "../../../challenges/challenge-source.css";'))).toBe(true);
 
-    const listStyleTypes = css.slice(0, 3).map((source) => source.match(/list-style-type:\s*([^;]+);/)?.[1]?.trim());
-    expect(listStyleTypes).toEqual(["none", "disc", "decimal"]);
-    expect(css.slice(0, 3).every((source) => (source.match(/\{/g) ?? []).length === 1)).toBe(true);
+    const listStyleTypes = css.slice(0, 2).map((source) => source.match(/list-style-type:\s*([^;]+);/)?.[1]?.trim());
+    expect(listStyleTypes).toEqual(["none", "disc"]);
+    expect(css.slice(0, 2).every((source) => (source.match(/\{/g) ?? []).length === 1)).toBe(true);
   });
 
   it("baut quest-log ohne Rastergrafik mit Rahmenwinkeln und Rautenmarke", () => {
