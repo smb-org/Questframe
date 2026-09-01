@@ -6,6 +6,7 @@ export type ChallengeStyleId =
 export type ChallengeOverflowMode = "cut" | "page" | "scroll";
 export type ChallengeOverflowTempo = "slow" | "medium" | "fast";
 export type ChallengeDoneOrder = "end" | "keep";
+export type GlobalTimerMode = "down" | "up";
 
 export type ChallengeThemeId =
   | "trail-wood"
@@ -55,6 +56,7 @@ export type ChallengeSettings = {
   overflowTempo: ChallengeOverflowTempo;
   numbered: boolean;
   doneOrder: ChallengeDoneOrder;
+  globalTimerMode: GlobalTimerMode;
   themeId: ChallengeThemeId;
   globalTimer: GlobalTimer | null;
   placement: ChallengePlacement;

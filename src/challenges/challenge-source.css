@@ -290,6 +290,7 @@
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__timer {
   flex: 0 0 auto;
+  margin-right: 5px;
   display: inline-flex;
   align-items: center;
   gap: var(--wc-gap);

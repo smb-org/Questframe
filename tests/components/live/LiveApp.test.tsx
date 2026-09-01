@@ -61,6 +61,7 @@ const message = (currentCount = 3): ChallengeUpdate => ({
     effectsEnabled: true,
     maxVisible: 5,
     overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+    globalTimerMode: "down",
     themeId: "trail-wood",
     globalTimer: null,
     placement: { x: 300, y: 8, scale: 1 },
@@ -88,6 +89,45 @@ afterEach(() => {
 });
 
 describe("Live-Bedienseite", () => {
+  it("zeigt im Hochzählmodus die verstrichene Zeit, das Hochzähl-Präfix und keinen kritischen Zustand", () => {
+    render(<LiveApp />);
+    emitUpdate({
+      ...message(),
+      settings: {
+        ...message().settings,
+        globalTimerMode: "up",
+        globalTimer: {
+          totalMs: 60_000,
+          endsAt: new Date(Date.now() + 30_000).toISOString(),
+          pausedRemainMs: null,
+        },
+      },
+    });
+
+    const timer = document.querySelector(".live-page__global-display");
+    expect(timer).toHaveTextContent("▴");
+    expect(timer).toHaveTextContent("0:30");
+    expect(timer).toHaveAttribute("data-critical", "false");
+  });
+
+  it("zeigt im Hochzählmodus vor dem Start und nach dem Reset null", () => {
+    render(<LiveApp />);
+    emitUpdate({
+      ...message(),
+      settings: {
+        ...message().settings,
+        globalTimerMode: "up",
+        globalTimer: { totalMs: 60_000, endsAt: null, pausedRemainMs: null },
+      },
+    });
+
+    const timer = document.querySelector(".live-page__global-display");
+    expect(timer).toHaveTextContent("▴");
+    expect(timer).toHaveTextContent("0:00");
+    expect(timer).toHaveAttribute("data-state", "idle");
+    expect(timer).toHaveAttribute("aria-label", "Globaler Timer: 0:00, hochzählend");
+  });
+
   it("verwendet den Dock-Token und den Dock-Socket", () => {
     render(<LiveApp />);
     const socket = FakeWebSocket.instances[0];

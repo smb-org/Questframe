@@ -17,6 +17,7 @@ const legacyStub = env.CHANNEL.get(env.CHANNEL.idFromName(`win-challenges-legacy
 
 type GlobalTimerRow = {
   global_timer_total_ms: number | null;
+  global_timer_mode: string;
   global_timer_ends_at: string | null;
   global_timer_paused_remain_ms: number | null;
 };
@@ -44,6 +45,7 @@ const resetModuleTables = async (): Promise<void> => {
         header_title = 'CHALLENGES', effects_enabled = 1, max_visible = 5,
         overflow_mode = 'cut', overflow_tempo = 'medium', numbered = 0, done_order = 'end',
         placement_x = 300, placement_y = 8, placement_scale = 1,
+        global_timer_mode = 'down',
         global_timer_total_ms = NULL, global_timer_ends_at = NULL,
         global_timer_paused_remain_ms = NULL
        WHERE singleton = 1`,
@@ -55,7 +57,7 @@ const readGlobalTimerRow = async (): Promise<GlobalTimerRow> =>
   runInDurableObject(stub, (_instance, state) => {
     const row = state.storage.sql
       .exec<GlobalTimerRow>(
-        "SELECT global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms FROM wc_meta WHERE singleton = 1",
+        "SELECT global_timer_total_ms, global_timer_mode, global_timer_ends_at, global_timer_paused_remain_ms FROM wc_meta WHERE singleton = 1",
       )
       .toArray()[0];
     if (row === undefined) throw new Error("wc_meta ist nicht initialisiert.");
@@ -126,6 +128,7 @@ describe("win-challenges repository and migration", () => {
           placement_x: number;
           placement_y: number;
           placement_scale: number;
+          global_timer_mode: string;
           global_timer_total_ms: number | null;
           global_timer_ends_at: string | null;
           global_timer_paused_remain_ms: number | null;
@@ -146,6 +149,7 @@ describe("win-challenges repository and migration", () => {
     expect(result.versions).toContain(5);
     expect(result.versions).toContain(6);
     expect(result.versions).toContain(7);
+    expect(result.versions).toContain(8);
     expect(result.tables).toEqual([
       "wc_challenges",
       "wc_commands",
@@ -167,6 +171,7 @@ describe("win-challenges repository and migration", () => {
       "overflow_tempo",
       "numbered",
       "done_order",
+      "global_timer_mode",
       "placement_x",
       "placement_y",
       "placement_scale",
@@ -205,6 +210,7 @@ describe("win-challenges repository and migration", () => {
       placement_x: 300,
       placement_y: 8,
       placement_scale: 1,
+      global_timer_mode: "down",
       global_timer_total_ms: null,
       global_timer_ends_at: null,
       global_timer_paused_remain_ms: null,
@@ -249,16 +255,21 @@ describe("win-challenges repository and migration", () => {
         ) VALUES (1, 0, 1, 1, 'plain-numbered', 'inherit', 'surface', 'CHALLENGES', 1, 5, NULL, NULL, NULL);
       `);
       runMigrations(state.storage.sql, "worker-test-legacy");
-      return state.storage.sql.exec<{
-        style_id: string;
-        numbered: number;
-        placement_x: number;
-        placement_y: number;
-        placement_scale: number;
-      }>("SELECT style_id, numbered, placement_x, placement_y, placement_scale FROM wc_meta WHERE singleton = 1").toArray()[0];
+      return {
+        placement: state.storage.sql.exec<{
+          style_id: string;
+          numbered: number;
+          placement_x: number;
+          placement_y: number;
+          placement_scale: number;
+          global_timer_mode: string;
+        }>("SELECT style_id, numbered, placement_x, placement_y, placement_scale, global_timer_mode FROM wc_meta WHERE singleton = 1").toArray()[0],
+        versions: state.storage.sql.exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version").toArray().map(({ version }) => version),
+      };
     });
 
-    expect(placement).toEqual({ style_id: "plain-list", numbered: 1, placement_x: 300, placement_y: 8, placement_scale: 1 });
+    expect(placement.placement).toEqual({ style_id: "plain-list", numbered: 1, placement_x: 300, placement_y: 8, placement_scale: 1, global_timer_mode: "down" });
+    expect(placement.versions).toContain(8);
     const columns = await runInDurableObject(legacyStub, (_instance, state) => state.storage.sql.exec<{ name: string }>("PRAGMA table_info(wc_meta)").toArray().map(({ name }) => name));
     expect(columns).toContain("max_visible");
   });
@@ -405,6 +416,7 @@ describe("win-challenges repository and migration", () => {
         overflowTempo: "fast",
         numbered: true,
         doneOrder: "keep",
+        globalTimerMode: "up",
         globalTimerTotalMs: 180_000,
         placement: { x: 12, y: 34, scale: 1.25 },
         now: future,
@@ -423,7 +435,9 @@ describe("win-challenges repository and migration", () => {
       doneOrder: "keep",
       placement: { x: 12, y: 34, scale: 1.25 },
       globalTimer: { totalMs: 180_000, endsAt: null, pausedRemainMs: null },
+      globalTimerMode: "up",
     });
+    expect((await readGlobalTimerRow()).global_timer_mode).toBe("up");
   });
 
   it("stops a running global timer when settings disable it", async () => {
@@ -445,6 +459,7 @@ describe("win-challenges repository and migration", () => {
         effectsEnabled: true,
         maxVisible: 5,
         overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+        globalTimerMode: "down",
         globalTimerTotalMs: null,
         placement: { x: 300, y: 8, scale: 1 },
         now: future,
@@ -454,6 +469,7 @@ describe("win-challenges repository and migration", () => {
     expect(saved.snapshot.settings.globalTimer).toBeNull();
     expect(await readGlobalTimerRow()).toEqual({
       global_timer_total_ms: null,
+      global_timer_mode: "down",
       global_timer_ends_at: null,
       global_timer_paused_remain_ms: null,
     });
@@ -478,6 +494,7 @@ describe("win-challenges repository and migration", () => {
         effectsEnabled: true,
         maxVisible: 5,
         overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+        globalTimerMode: "down",
         globalTimerTotalMs: null,
         placement: { x: 300, y: 8, scale: 1 },
         now: now,
@@ -487,6 +504,7 @@ describe("win-challenges repository and migration", () => {
     expect(saved.snapshot.settings.globalTimer).toBeNull();
     expect(await readGlobalTimerRow()).toEqual({
       global_timer_total_ms: null,
+      global_timer_mode: "down",
       global_timer_ends_at: null,
       global_timer_paused_remain_ms: null,
     });
@@ -629,6 +647,7 @@ describe("win-challenges repository and migration", () => {
         effectsEnabled: true,
         maxVisible: 5,
         overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+        globalTimerMode: "down",
         globalTimerTotalMs: 120_000,
         placement: { x: 300, y: 8, scale: 1 },
         now,
@@ -773,6 +792,7 @@ describe("win-challenges repository and migration", () => {
           effectsEnabled: true,
           maxVisible: 5,
           overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+          globalTimerMode: "down",
           globalTimerTotalMs: null,
           placement: { x: 300, y: 8, scale: 1 },
           now: now,

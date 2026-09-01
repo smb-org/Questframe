@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS wc_meta (
   overflow_tempo TEXT NOT NULL DEFAULT 'medium' CHECK (overflow_tempo IN ('slow', 'medium', 'fast')),
   numbered INTEGER NOT NULL DEFAULT 0 CHECK (numbered IN (0, 1)),
   done_order TEXT NOT NULL DEFAULT 'end' CHECK (done_order IN ('end', 'keep')),
+  global_timer_mode TEXT NOT NULL DEFAULT 'down' CHECK (global_timer_mode IN ('down', 'up')),
   placement_x INTEGER NOT NULL DEFAULT 300 CHECK (placement_x BETWEEN 0 AND 384),
   placement_y INTEGER NOT NULL DEFAULT 8 CHECK (placement_y BETWEEN 0 AND 216),
   placement_scale REAL NOT NULL DEFAULT 1 CHECK (placement_scale BETWEEN 0.75 AND 2),
@@ -159,10 +160,11 @@ INSERT INTO wc_meta(
   theme_mode, surface_mode, header_title, effects_enabled,
   max_visible,
   overflow_mode, overflow_tempo, numbered, done_order,
+  global_timer_mode,
   placement_x, placement_y, placement_scale,
   global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms
 ) VALUES (1, 0, 1, 1, 'plain-list', 'inherit', 'surface', 'CHALLENGES', 1,
-  5, 'cut', 'medium', 0, 'end', 300, 8, 1, NULL, NULL, NULL)
+  5, 'cut', 'medium', 0, 'end', 'down', 300, 8, 1, NULL, NULL, NULL)
 ON CONFLICT(singleton) DO NOTHING;
 `;
 
@@ -221,6 +223,10 @@ ALTER TABLE wc_meta ADD COLUMN numbered INTEGER NOT NULL DEFAULT 0 CHECK (number
 `;
 const MIGRATION_7_DONE_ORDER = `
 ALTER TABLE wc_meta ADD COLUMN done_order TEXT NOT NULL DEFAULT 'end' CHECK (done_order IN ('end','keep'));
+`;
+
+const MIGRATION_8_GLOBAL_TIMER_MODE = `
+ALTER TABLE wc_meta ADD COLUMN global_timer_mode TEXT NOT NULL DEFAULT 'down' CHECK (global_timer_mode IN ('down','up'));
 `;
 
 export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
@@ -313,6 +319,18 @@ export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
     sql.exec(
       "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
       7,
+      buildId,
+      new Date().toISOString(),
+    );
+  }
+  const versionEightWasApplied = sql
+    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 8")
+    .toArray().length > 0;
+  if (!versionEightWasApplied) {
+    if (!hasChallengeMetaColumn(sql, "global_timer_mode")) sql.exec(MIGRATION_8_GLOBAL_TIMER_MODE);
+    sql.exec(
+      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
+      8,
       buildId,
       new Date().toISOString(),
     );

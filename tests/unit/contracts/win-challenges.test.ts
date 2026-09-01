@@ -12,6 +12,7 @@ import {
   isCurrentCount,
   isDoneOrder,
   isDelta,
+  isGlobalTimerMode,
   isHeaderTitle,
   isInstant,
   isNumbered,
@@ -60,6 +61,7 @@ const settings = {
   overflowTempo: "medium" as const,
   numbered: false,
   doneOrder: "end" as const,
+  globalTimerMode: "down" as const,
   themeId: "trail-wood" as const,
   globalTimer: null,
   placement: { x: 300, y: 8, scale: 1 },
@@ -199,6 +201,16 @@ describe("Win-Challenges-Verträge", () => {
         ],
       },
       {
+        name: "globalTimerMode",
+        predicate: isGlobalTimerMode,
+        schema: (value: unknown) => settingsSchema.safeParse({ ...settings, globalTimerMode: value }).success,
+        values: [
+          { value: "down", accepted: true },
+          { value: "up", accepted: true },
+          { value: "sideways", accepted: false },
+        ],
+      },
+      {
         name: "headerTitle",
         predicate: isHeaderTitle,
         schema: (value: unknown) => settingsSchema.safeParse({ ...settings, headerTitle: value }).success,
@@ -278,6 +290,11 @@ describe("Win-Challenges-Verträge", () => {
       y: 8,
       scale: 1,
     });
+  });
+
+  it("verlangt den Timer-Modus im Settings-Schema", () => {
+    expect(settingsSchema.safeParse(settings).success).toBe(true);
+    expect(settingsSchema.safeParse({ ...settings, globalTimerMode: undefined }).success).toBe(false);
   });
 
   it("akzeptiert alle Admin-Skalierungsstufen trotz Float-Rundungsfehlern", () => {

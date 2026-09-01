@@ -49,7 +49,7 @@ const snapshot = (
     headerTitle: "CHALLENGES",
     effectsEnabled: true,
     maxVisible: 5,
-    overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+    overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
     globalTimer: null,
     placement: { x: 300, y: 8, scale: 1 },
   },

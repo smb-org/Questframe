@@ -8,7 +8,7 @@ import {
   getReleaseCapabilities,
   twitchUserIdSchema,
 } from "../../../src/shared/contracts/state";
-import type { ChallengeBoardSnapshot } from "../../../src/modules/win-challenges/contracts/schemas";
+import type { ChallengeBoardSnapshot, Command } from "../../../src/modules/win-challenges/contracts/schemas";
 import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
 import { AdminWorkspace, type AdminApi } from "../../../src/admin/AdminWorkspace";
 
@@ -127,7 +127,7 @@ describe("Admin workspace shell", () => {
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -164,7 +164,7 @@ describe("Admin workspace shell", () => {
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -192,7 +192,8 @@ describe("Admin workspace shell", () => {
     fireEvent.change(challengesPanel.getByLabelText("Kopfzeile"), { target: { value: "RUN" } });
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Fläche" }), { target: { value: "bare" } });
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Zeilen" }), { target: { value: "8" } });
-    fireEvent.change(challengesPanel.getByLabelText("Globaler Timer"), { target: { value: "45" } });
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Globaler Timer" }), { target: { value: "down" } });
+    fireEvent.change(challengesPanel.getByRole("spinbutton", { name: "Dauer" }), { target: { value: "45" } });
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Erledigte" }), { target: { value: "keep" } });
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Überlauf" }), { target: { value: "page" } });
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Tempo" }), { target: { value: "fast" } });
@@ -213,6 +214,7 @@ describe("Admin workspace shell", () => {
       overflowTempo: "fast",
       numbered: true,
       doneOrder: "keep",
+      globalTimerMode: "down",
       globalTimerTotalMs: 2_700_000,
       placement: { x: 250, y: 12, scale: 1.25 },
     }));
@@ -230,7 +232,7 @@ describe("Admin workspace shell", () => {
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: { totalMs: 60_000, endsAt: new Date(Date.now() + 60_000).toISOString(), pausedRemainMs: null },
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -245,12 +247,108 @@ describe("Admin workspace shell", () => {
     };
 
     render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="challenges" />);
-    const timerField = await screen.findByRole("spinbutton", { name: "Globaler Timer" });
+    const timerField = await screen.findByRole("spinbutton", { name: "Dauer" });
+    expect(timerField).toBeRequired();
     await waitFor(() => expect(document.querySelector(".challenge-source__timer")).toHaveAttribute("data-state", "running"));
 
     fireEvent.change(timerField, { target: { value: "2" } });
 
     await waitFor(() => expect(document.querySelector(".challenge-source__timer")).toBeNull());
+  });
+
+  it("setzt einen laufenden globalen Timer ohne Bestätigungsdialog über das Session-Kommando zurück", async () => {
+    const user = userEvent.setup();
+    const challengeSnapshot: ChallengeBoardSnapshot = {
+      eventSeq: 3,
+      boardRevision: 1,
+      settingsRevision: 1,
+      settings: {
+        styleId: "plain-list",
+        themeMode: "inherit",
+        surfaceMode: "surface",
+        headerTitle: "CHALLENGES",
+        effectsEnabled: true,
+        maxVisible: 5,
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        globalTimer: { totalMs: 60_000, endsAt: new Date(Date.now() + 30_000).toISOString(), pausedRemainMs: null },
+        placement: { x: 300, y: 8, scale: 1 },
+      },
+      challenges: [],
+    };
+    const sendChallengeCommand = vi.fn((command: Command) => {
+      void command;
+      return Promise.resolve({
+      eventSeq: 4,
+      replayed: false,
+      settings: challengeSnapshot.settings,
+      });
+    });
+    const api: AdminApi = {
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      getChallengeBoard: vi.fn(() => Promise.resolve(challengeSnapshot)),
+      saveChallengeBoard: vi.fn(),
+      saveChallengeSettings: vi.fn(),
+      sendChallengeCommand,
+    };
+
+    render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="challenges" />);
+    const reset = await screen.findByRole("button", { name: "Zurücksetzen" });
+    expect(reset).toBeEnabled();
+    await user.click(reset);
+
+    const commandCall = sendChallengeCommand.mock.calls[0];
+    if (commandCall === undefined) throw new Error("Reset-Kommando wurde nicht gesendet.");
+    const [command] = commandCall;
+    expect(command.commandId).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(command).toMatchObject({ scope: "global", type: "resetGlobalTimer" });
+  });
+
+  it("setzt beim Hochzählen das leere Limit auf 360 Minuten und deaktiviert es im Aus-Zustand", async () => {
+    const user = userEvent.setup();
+    const challengeSnapshot: ChallengeBoardSnapshot = {
+      eventSeq: 0,
+      boardRevision: 1,
+      settingsRevision: 1,
+      settings: {
+        styleId: "plain-list",
+        themeMode: "inherit",
+        surfaceMode: "surface",
+        headerTitle: "CHALLENGES",
+        effectsEnabled: true,
+        maxVisible: 5,
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        globalTimer: null,
+        placement: { x: 300, y: 8, scale: 1 },
+      },
+      challenges: [],
+    };
+    const saveChallengeSettings = vi.fn(() => Promise.resolve({ snapshot: challengeSnapshot }));
+    const api: AdminApi = {
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      getChallengeBoard: vi.fn(() => Promise.resolve(challengeSnapshot)),
+      saveChallengeBoard: vi.fn(),
+      saveChallengeSettings,
+    };
+
+    render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="challenges" />);
+    const panel = within(await screen.findByRole("region", { name: "Darstellung" }));
+    const minutes = panel.getByRole("spinbutton", { name: "Dauer" });
+    expect(minutes).toBeDisabled();
+    expect(panel.getByRole("button", { name: "Zurücksetzen" })).toBeDisabled();
+    expect(panel.getByText("bereit")).toBeInTheDocument();
+
+    fireEvent.change(panel.getByRole("combobox", { name: "Globaler Timer" }), { target: { value: "up" } });
+    const limit = panel.getByRole("spinbutton", { name: "Limit" });
+    expect(limit).toHaveValue(360);
+    fireEvent.change(limit, { target: { value: "" } });
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
+
+    expect(saveChallengeSettings).toHaveBeenCalledWith(expect.objectContaining({
+      globalTimerMode: "up",
+      globalTimerTotalMs: 21_600_000,
+    }));
   });
 
   it("übernimmt geänderte Settings aus dem Live-Update des Boards", async () => {
@@ -266,7 +364,7 @@ describe("Admin workspace shell", () => {
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -314,7 +412,7 @@ describe("Admin workspace shell", () => {
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -370,7 +468,7 @@ describe("Admin workspace shell", () => {
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -422,7 +520,7 @@ describe("Admin workspace shell", () => {
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -470,7 +568,7 @@ describe("Admin workspace shell", () => {
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -556,7 +654,7 @@ describe("Admin workspace setup", () => {
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },

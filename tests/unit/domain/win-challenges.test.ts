@@ -22,6 +22,7 @@ import {
   formatChallengeStand,
   selectVisible,
 } from "../../../src/modules/win-challenges/domain/visibility";
+import { displayedMsFor } from "../../../src/modules/win-challenges/ui/timer";
 
 const now = "2026-08-30T12:00:00.000Z" as const;
 const nowMilliseconds = Date.parse(now);
@@ -59,6 +60,12 @@ const definition = {
 } as const;
 
 describe("Win-Challenges-Domain", () => {
+  it("berechnet die angezeigte Timerzeit für runter- und hochzählend", () => {
+    expect(displayedMsFor("down", 60_000, 12_345)).toBe(12_345);
+    expect(displayedMsFor("up", 60_000, 12_345)).toBe(47_655);
+    expect(displayedMsFor("up", 60_000, 0)).toBe(60_000);
+  });
+
   it("leitet idle, running, expired und paused mit derselben Funktion ab", () => {
     expect(deriveTimerState(null, null, now)).toBe("idle");
     expect(deriveTimerState("2026-08-30T12:00:01.000Z", null, now)).toBe("running");

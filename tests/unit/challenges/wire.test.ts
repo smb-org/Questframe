@@ -18,6 +18,7 @@ const update = (): ChallengeUpdate => ({
     effectsEnabled: true,
     maxVisible: 5,
     overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+    globalTimerMode: "down",
     themeId: "trail-wood",
     globalTimer: null,
     placement: { x: 300, y: 8, scale: 1 },
@@ -76,6 +77,17 @@ describe("Challenge-Quelle-Wire", () => {
     };
     expect(parseChallengeUpdate(update())).toEqual(update());
     expect(parseChallengeUpdate(withoutPlacement)).toBeNull();
+  });
+
+  it("verlangt im Settings-Key-Set den globalen Timer-Modus", () => {
+    const withoutMode = {
+      ...update(),
+      settings: Object.fromEntries(
+        Object.entries(update().settings).filter(([key]) => key !== "globalTimerMode"),
+      ),
+    };
+    expect(parseChallengeUpdate(update())).toEqual(update());
+    expect(parseChallengeUpdate(withoutMode)).toBeNull();
   });
 
   it("verlangt auch im Placement exakte Keys", () => {

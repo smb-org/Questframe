@@ -74,6 +74,7 @@ const message = (): ChallengeUpdate => ({
     effectsEnabled: true,
     maxVisible: 5,
     overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+    globalTimerMode: "down",
     themeId: "trail-wood",
     globalTimer: null,
     placement: { x: 300, y: 8, scale: 1 },
@@ -811,6 +812,25 @@ describe("ChallengeSourceApp", () => {
     expect(timer).toHaveAttribute("data-critical", "true");
     expect(timer).toHaveTextContent("!");
     expect(timer).toHaveTextContent("kritisch");
+  });
+
+  it("zeigt im Hochzählmodus die verstrichene Zeit ohne kritischen Zustand", () => {
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      settings: { ...message().settings, globalTimerMode: "up", globalTimer: globalTimer("running") },
+    })} />);
+    const timer = screen.getByLabelText("Globaler Timer: 0:30, hochzählend");
+    expect(timer).toHaveTextContent("▴");
+    expect(timer).toHaveTextContent("0:30");
+    expect(timer).toHaveAttribute("data-critical", "false");
+    expect(timer).not.toHaveTextContent("kritisch");
+
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      settings: { ...message().settings, globalTimerMode: "up", globalTimer: globalTimer("expired") },
+    })} />);
+    const expired = screen.getByLabelText("Globaler Timer: 1:00, abgelaufen, hochzählend");
+    expect(expired).toHaveTextContent("1:00");
+    expect(expired).toHaveAttribute("data-state", "expired");
+    expect(expired).toHaveAttribute("data-critical", "false");
   });
 
   it("zeigt den Überlauf mit der eingestellten Kapazität", () => {

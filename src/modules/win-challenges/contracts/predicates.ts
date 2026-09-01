@@ -104,6 +104,9 @@ export const isNumbered = (value: unknown): value is boolean =>
 export const isDoneOrder = (value: unknown): value is "end" | "keep" =>
   value === "end" || value === "keep";
 
+export const isGlobalTimerMode = (value: unknown): value is "down" | "up" =>
+  value === "down" || value === "up";
+
 export const isPlacementX = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 384;
 

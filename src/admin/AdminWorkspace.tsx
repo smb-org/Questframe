@@ -34,6 +34,7 @@ import type {
   ChallengeStyleId,
   ChallengeThemeId,
   ChallengeUpdate,
+  GlobalTimerMode,
   ChallengeOverflowMode,
   ChallengeOverflowTempo,
 } from "../shared/contracts/win-challenges";
@@ -42,11 +43,15 @@ import {
   type BoardSaveRequest,
   type BoardSaveResponse,
   type ChallengeBoardSnapshot,
+  type Command,
+  type CommandResponse,
   type SettingsSaveRequest,
   type SettingsSaveResponse,
 } from "../modules/win-challenges/contracts/schemas";
 import { ChallengeBoard, type ChallengeBoardApi, type ChallengeBoardSaveHandle } from "../modules/win-challenges/ui/ChallengeBoard";
 import { ChallengeLog } from "../modules/win-challenges/ui/ChallengeLog";
+import { deriveTimerState, type TimerState } from "../modules/win-challenges/domain/timers";
+import { displayedMsFor, formatRemaining, remainingFor } from "../modules/win-challenges/ui/timer";
 import type { AdminWorkspace as AdminWorkspaceId } from "../routing";
 import type { ChannelState, PortraitRef } from "../shared/contracts/state";
 import { ObsSetupPanel } from "./ui/ObsSetupPanel";
@@ -71,6 +76,7 @@ export type AdminApi = {
   getChallengeBoard?: (() => Promise<ChallengeBoardSnapshot>) | undefined;
   saveChallengeBoard?: ((request: BoardSaveRequest) => Promise<BoardSaveResponse>) | undefined;
   saveChallengeSettings?: ((request: SettingsSaveRequest) => Promise<SettingsSaveResponse>) | undefined;
+  sendChallengeCommand?: ((command: Command) => Promise<CommandResponse>) | undefined;
   subscribe?: ((callbacks: { onState: (state: ChannelState) => void; onOnlineChange: (online: boolean) => void; onOverlayPresence: (connectedSockets: number) => void; onAudit: (entry: AuditEntry, undoTargets: UndoTarget[]) => void; onUndoTargets: (undoTargets: UndoTarget[]) => void; onChallengeUpdate?: (update: ChallengeUpdate) => void }) => () => void) | undefined;
   logout?: (() => Promise<void>) | undefined;
 };
@@ -103,10 +109,12 @@ const loadCompositionChallengeTheme = async (themeId: ChallengeThemeId): Promise
 };
 
 type ChallengeSettingsDraft = Pick<ChallengeSettings, "styleId" | "surfaceMode" | "headerTitle" | "effectsEnabled" | "maxVisible" | "overflowMode" | "overflowTempo" | "numbered" | "doneOrder"> & {
+  globalTimerMode: GlobalTimerMode | "off";
   globalTimerTotalMs: number | null;
+  globalTimerMinutes: string;
 };
 
-type ChallengeSettingsDraftSource = Pick<ChallengeSettings, "styleId" | "surfaceMode" | "headerTitle" | "effectsEnabled" | "maxVisible" | "overflowMode" | "overflowTempo" | "numbered" | "doneOrder" | "globalTimer">;
+type ChallengeSettingsDraftSource = Pick<ChallengeSettings, "styleId" | "surfaceMode" | "headerTitle" | "effectsEnabled" | "maxVisible" | "overflowMode" | "overflowTempo" | "numbered" | "doneOrder" | "globalTimerMode" | "globalTimer">;
 
 const settingsDraftFrom = (settings: ChallengeSettingsDraftSource): ChallengeSettingsDraft => ({
   styleId: settings.styleId,
@@ -118,11 +126,13 @@ const settingsDraftFrom = (settings: ChallengeSettingsDraftSource): ChallengeSet
   overflowTempo: settings.overflowTempo,
   numbered: settings.numbered,
   doneOrder: settings.doneOrder,
+  globalTimerMode: settings.globalTimer === null ? "off" : settings.globalTimerMode,
   globalTimerTotalMs: settings.globalTimer?.totalMs ?? null,
+  globalTimerMinutes: settings.globalTimer === null ? "" : String(settings.globalTimer.totalMs / 60_000),
 });
 
 const sameChallengeSettingsDraft = (left: ChallengeSettingsDraft | null, right: ChallengeSettingsDraft): boolean =>
-  left !== null && left.styleId === right.styleId && left.surfaceMode === right.surfaceMode && left.headerTitle === right.headerTitle && left.effectsEnabled === right.effectsEnabled && left.maxVisible === right.maxVisible && left.overflowMode === right.overflowMode && left.overflowTempo === right.overflowTempo && left.numbered === right.numbered && left.doneOrder === right.doneOrder && left.globalTimerTotalMs === right.globalTimerTotalMs;
+  left !== null && left.styleId === right.styleId && left.surfaceMode === right.surfaceMode && left.headerTitle === right.headerTitle && left.effectsEnabled === right.effectsEnabled && left.maxVisible === right.maxVisible && left.overflowMode === right.overflowMode && left.overflowTempo === right.overflowTempo && left.numbered === right.numbered && left.doneOrder === right.doneOrder && left.globalTimerMode === right.globalTimerMode && left.globalTimerTotalMs === right.globalTimerTotalMs;
 
 const challengeSettingsWithDraft = (settings: ChallengeSettings, draft: ChallengeSettingsDraft | null, themeId: ChallengeThemeId): ChallengeSettings => {
   if (draft === null) return { ...settings, themeId };
@@ -139,7 +149,8 @@ const challengeSettingsWithDraft = (settings: ChallengeSettings, draft: Challeng
     overflowTempo: draft.overflowTempo,
     numbered: draft.numbered,
     doneOrder: draft.doneOrder,
-    globalTimer: draft.globalTimerTotalMs === null
+    globalTimerMode: draft.globalTimerMode === "off" ? "down" : draft.globalTimerMode,
+    globalTimer: draft.globalTimerMode === "off" || draft.globalTimerTotalMs === null
       ? null
       : {
           totalMs: draft.globalTimerTotalMs,
@@ -149,12 +160,32 @@ const challengeSettingsWithDraft = (settings: ChallengeSettings, draft: Challeng
   };
 };
 
+const GLOBAL_TIMER_MAX_MS = 360 * 60_000;
+const GLOBAL_TIMER_DEFAULT_MS = 60_000;
+
+const liveGlobalTimerStatus = (update: ChallengeUpdate | null, now: number): { state: TimerState; label: string } => {
+  const timer = update?.settings.globalTimer;
+  if (update === null || timer === null || timer === undefined) return { state: "idle", label: "bereit" };
+  const mode = update.settings.globalTimerMode;
+  const state = deriveTimerState(timer.endsAt, timer.pausedRemainMs, now);
+  if (state === "expired") return { state, label: "abgelaufen" };
+  if (state === "idle") return { state, label: "bereit" };
+  const remainingMs = remainingFor(timer.endsAt, timer.pausedRemainMs, state, now);
+  const displayedMs = displayedMsFor(mode, timer.totalMs, remainingMs);
+  return {
+    state,
+    label: `${state === "running" ? "läuft" : "pausiert"} · ${formatRemaining(displayedMs)}`,
+  };
+};
+
 const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, onPlacementDraftChange, onDraftChange, onHandleChange }: { api: AdminApi; online: boolean; challengeUpdate: ChallengeUpdate | null; placementDraft?: ChallengePlacement | null; onPlacementDraftChange?: (placement: ChallengePlacement) => void; onDraftChange?: (draft: ChallengeSettingsDraft) => void; onHandleChange?: (handle: ModuleSaveHandle) => void }) => {
   const [snapshot, setSnapshot] = useState<ChallengeBoardSnapshot | null>(null);
   const [settingsDraft, setSettingsDraft] = useState<ChallengeSettingsDraft | null>(null);
   const [placement, setPlacement] = useState<ChallengePlacement | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [timerNow, setTimerNow] = useState(() => Date.now());
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const snapshotRef = useRef<ChallengeBoardSnapshot | null>(null);
@@ -164,6 +195,10 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
   useEffect(() => { snapshotRef.current = snapshot; }, [snapshot]);
   useEffect(() => { settingsDraftRef.current = settingsDraft; }, [settingsDraft]);
   useEffect(() => { placementRef.current = effectivePlacement; }, [effectivePlacement]);
+  useEffect(() => {
+    const interval = window.setInterval(() => setTimerNow(Date.now()), 1_000);
+    return () => window.clearInterval(interval);
+  }, []);
 
   const applyRemoteSnapshot = useCallback((next: ChallengeBoardSnapshot) => {
     const current = snapshotRef.current;
@@ -215,12 +250,52 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
       return next;
     });
   };
+  const updateGlobalTimerMode = (value: GlobalTimerMode | "off") => {
+    if (value === "off") {
+      updateSettings({ globalTimerMode: value, globalTimerTotalMs: null, globalTimerMinutes: "" });
+      return;
+    }
+    const totalMs = settingsDraft?.globalTimerTotalMs ?? (value === "up" ? GLOBAL_TIMER_MAX_MS : GLOBAL_TIMER_DEFAULT_MS);
+    updateSettings({
+      globalTimerMode: value,
+      globalTimerTotalMs: totalMs,
+      globalTimerMinutes: settingsDraft?.globalTimerMinutes === "" || settingsDraft?.globalTimerMinutes === undefined
+        ? String(totalMs / 60_000)
+        : settingsDraft.globalTimerMinutes,
+    });
+  };
+  const updateGlobalTimerMinutes = (minutes: string) => {
+    const totalMs = minutes === ""
+      ? settingsDraft?.globalTimerMode === "up" ? GLOBAL_TIMER_MAX_MS : null
+      : Number(minutes) * 60_000;
+    updateSettings({ globalTimerMinutes: minutes, globalTimerTotalMs: totalMs });
+  };
+  const resetGlobalTimer = async () => {
+    if (api.sendChallengeCommand === undefined || resetting || !online || liveStatus.state === "idle") return;
+    setResetting(true);
+    setError("");
+    setMessage("");
+    try {
+      await api.sendChallengeCommand({ commandId: crypto.randomUUID(), scope: "global", type: "resetGlobalTimer" });
+      setMessage("Globaler Timer zurückgesetzt.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Globaler Timer konnte nicht zurückgesetzt werden.");
+    } finally {
+      setResetting(false);
+    }
+  };
+  const liveStatus = liveGlobalTimerStatus(challengeUpdate, timerNow);
   const save = async (): Promise<ModuleSaveOutcome> => {
     if (saveChallengeSettings === undefined || snapshot === null || settingsDraft === null || effectivePlacement === null || !dirty || saving || !online) return { ok: false, conflict: false, message: "Nicht speicherbar." };
     setSaving(true); setError(""); setMessage("");
     try {
       const settings = snapshot.settings;
-      const response = await saveChallengeSettings({ baseSettingsRevision: snapshot.settingsRevision, styleId: settingsDraft.styleId, themeMode: settings.themeMode, surfaceMode: settingsDraft.surfaceMode, headerTitle: settingsDraft.headerTitle, effectsEnabled: settingsDraft.effectsEnabled, maxVisible: settingsDraft.maxVisible, overflowMode: settingsDraft.overflowMode, overflowTempo: settingsDraft.overflowTempo, numbered: settingsDraft.numbered, doneOrder: settingsDraft.doneOrder, globalTimerTotalMs: settingsDraft.globalTimerTotalMs, placement: effectivePlacement });
+      if (settingsDraft.globalTimerMode === "down" && settingsDraft.globalTimerMinutes === "") {
+        const messageText = "Für den Modus ‚runterzählen‘ ist eine Dauer erforderlich.";
+        setError(messageText);
+        return { ok: false, conflict: false, message: messageText };
+      }
+      const response = await saveChallengeSettings({ baseSettingsRevision: snapshot.settingsRevision, styleId: settingsDraft.styleId, themeMode: settings.themeMode, surfaceMode: settingsDraft.surfaceMode, headerTitle: settingsDraft.headerTitle, effectsEnabled: settingsDraft.effectsEnabled, maxVisible: settingsDraft.maxVisible, overflowMode: settingsDraft.overflowMode, overflowTempo: settingsDraft.overflowTempo, numbered: settingsDraft.numbered, doneOrder: settingsDraft.doneOrder, globalTimerMode: settingsDraft.globalTimerMode === "off" ? "down" : settingsDraft.globalTimerMode, globalTimerTotalMs: settingsDraft.globalTimerTotalMs, placement: effectivePlacement });
       // Derselbe Revisions-Guard wie in applyRemoteSnapshot: waehrend unsere Antwort
       // unterwegs war, kann per Socket schon eine neuere Revision eingetroffen sein
       // (zweiter Editor). Eine verspaetete eigene Antwort darf diesen neueren lokalen
@@ -265,13 +340,20 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
           <label><span>Kopfzeile</span><input aria-label="Kopfzeile" maxLength={24} disabled={disabled} type="text" value={settingsDraft.headerTitle} onChange={(event) => updateSettings({ headerTitle: event.target.value })} /></label>
           <label><span>Fläche</span><select aria-label="Fläche" disabled={disabled} value={settingsDraft.surfaceMode} onChange={(event) => updateSettings({ surfaceMode: event.target.value as ChallengeSettingsDraft["surfaceMode"] })}><option value="surface">Fläche</option><option value="bare">Ohne Fläche</option></select></label>
           <label><span>Zeilen</span><select aria-label="Zeilen" disabled={disabled} value={settingsDraft.maxVisible} onChange={(event) => updateSettings({ maxVisible: Number(event.target.value) })}>{[3, 4, 5, 6, 7, 8, 9, 10].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-          <label><span>Globaler Timer</span><span className="challenge-timer-input"><input aria-label="Globaler Timer" disabled={disabled} max={360} min={1} step={1} type="number" value={settingsDraft.globalTimerTotalMs === null ? "" : Math.round(settingsDraft.globalTimerTotalMs / 60_000)} onChange={(event) => updateSettings({ globalTimerTotalMs: event.target.value === "" ? null : Number(event.target.value) * 60_000 })} /><small>Minuten</small></span></label>
+          <div className="challenge-timer-settings">
+            <label><span>Globaler Timer</span><select aria-label="Globaler Timer" disabled={disabled} value={settingsDraft.globalTimerMode} onChange={(event) => updateGlobalTimerMode(event.target.value as GlobalTimerMode | "off")}><option value="off">aus</option><option value="down">runterzählen</option><option value="up">hochzählen</option></select></label>
+            <label><span>{settingsDraft.globalTimerMode === "up" ? "Limit" : "Dauer"}</span><span className="challenge-timer-input"><input aria-label={settingsDraft.globalTimerMode === "up" ? "Limit" : "Dauer"} disabled={disabled || settingsDraft.globalTimerMode === "off"} max={360} min={1} required={settingsDraft.globalTimerMode === "down"} step={1} type="number" value={settingsDraft.globalTimerMinutes} onChange={(event) => updateGlobalTimerMinutes(event.target.value)} /><small>Minuten</small></span></label>
+          </div>
           <label><span>Erledigte</span><select aria-label="Erledigte" disabled={disabled} value={settingsDraft.doneOrder} onChange={(event) => updateSettings({ doneOrder: event.target.value as ChallengeDoneOrder })}><option value="end">ans Ende</option><option value="keep">Position behalten</option></select></label>
           <label><span>Überlauf</span><select aria-label="Überlauf" disabled={disabled} value={settingsDraft.overflowMode} onChange={(event) => updateSettings({ overflowMode: event.target.value as ChallengeOverflowMode })}><option value="cut">abschneiden</option><option value="page">paginieren</option><option value="scroll">scrollen</option></select></label>
           <label><span>Tempo</span><select aria-label="Tempo" disabled={disabled || settingsDraft.overflowMode === "cut"} value={settingsDraft.overflowTempo} onChange={(event) => updateSettings({ overflowTempo: event.target.value as ChallengeOverflowTempo })}><option value="slow">langsam</option><option value="medium">mittel</option><option value="fast">schnell</option></select></label>
         </div>
         <label className="challenge-numbered-toggle"><input aria-label="Nummerierung" checked={settingsDraft.numbered} disabled={disabled} onChange={(event) => updateSettings({ numbered: event.target.checked })} type="checkbox" /><span>Nummerierung</span></label>
         <label className="challenge-effects-toggle"><input aria-label="Zeremonien und Töne aktiv" checked={settingsDraft.effectsEnabled} disabled={disabled} onChange={(event) => updateSettings({ effectsEnabled: event.target.checked })} type="checkbox" /><span><strong>Zeremonien und Töne aktiv</strong><small>Der Schalter gilt für alle Styles und alle OBS-Quellen.</small></span></label>
+        <div className="challenge-timer-actions">
+          <small className={`challenge-timer-status challenge-timer-status--${liveStatus.state}`}>{liveStatus.label}</small>
+          <button className="button button--quiet" disabled={disabled || resetting || api.sendChallengeCommand === undefined || liveStatus.state === "idle"} onClick={() => void resetGlobalTimer()} type="button">{resetting ? "Wird zurückgesetzt …" : "Zurücksetzen"}</button>
+        </div>
       </>}
       <div className="placement-grid"><label><span>X</span><input disabled={loading || saving || !online || effectivePlacement === null} max={384} min={0} type="number" value={fallbackPlacement.x} onChange={(event) => updatePlacement({ ...fallbackPlacement, x: Number(event.target.value) })} /></label><label><span>Y</span><input disabled={loading || saving || !online || effectivePlacement === null} max={216} min={0} type="number" value={fallbackPlacement.y} onChange={(event) => updatePlacement({ ...fallbackPlacement, y: Number(event.target.value) })} /></label><label><span>Skalierung</span><select disabled={loading || saving || !online || effectivePlacement === null} value={fallbackPlacement.scale} onChange={(event) => updatePlacement({ ...fallbackPlacement, scale: Number(event.target.value) })}>{[0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2].map((scale) => <option key={scale} value={scale}>{Math.round(scale * 100)}%</option>)}</select></label></div>
       {/* Kein modul-eigener Speichern-Button mehr: die globale Speicherleiste ist die

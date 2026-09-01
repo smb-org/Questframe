@@ -7,6 +7,7 @@ import { deriveTimerState } from "../modules/win-challenges/domain/timers";
 import type { Command } from "../modules/win-challenges/contracts/schemas";
 import {
   formatRemaining,
+  displayedMsFor,
   remainingFor,
   timerIsCritical,
 } from "../modules/win-challenges/ui/timer";
@@ -253,12 +254,14 @@ const ChallengeRow = ({
 
 const GlobalTimerControl = ({
   timer,
+  mode,
   now,
   pending,
   error,
   onCommand,
 }: {
   timer: GlobalTimer | null;
+  mode: ChallengeUpdate["settings"]["globalTimerMode"];
   now: number;
   pending: boolean;
   error: string | null;
@@ -266,7 +269,8 @@ const GlobalTimerControl = ({
 }) => {
   const state = timer === null ? "idle" : deriveTimerState(timer.endsAt, timer.pausedRemainMs, now);
   const remainingMs = timer === null ? 0 : remainingFor(timer.endsAt, timer.pausedRemainMs, state, now);
-  const critical = timer !== null && timerIsCritical(state, remainingMs);
+  const critical = timer !== null && timerIsCritical(state, remainingMs, mode);
+  const displayedMs = timer === null || state === "idle" ? 0 : displayedMsFor(mode, timer.totalMs, remainingMs);
   const label = timer === null
     ? "Globaler Timer ist nicht eingerichtet"
     : state === "running"
@@ -276,11 +280,13 @@ const GlobalTimerControl = ({
     <section className="live-page__global" aria-label="Globaler Timer">
       <div
         className={`live-page__global-display${critical ? " live-page__global-display--critical" : ""}`}
+        aria-label={`Globaler Timer: ${formatRemaining(displayedMs)}${state === "paused" ? ", pausiert" : state === "expired" ? ", abgelaufen" : ""}${mode === "up" ? ", hochzählend" : ""}`}
         data-critical={critical ? "true" : "false"}
         data-state={state}
       >
         <span className="live-page__global-label">Global</span>
-        <strong>{formatRemaining(remainingMs)}</strong>
+        <span aria-hidden="true">{state === "paused" ? "Ⅱ" : critical ? "!" : mode === "up" ? "▴" : "▸"}</span>
+        <strong>{formatRemaining(displayedMs)}</strong>
         {state === "paused" && <span>pausiert</span>}
         {state === "expired" && <span>abgelaufen</span>}
       </div>
@@ -475,6 +481,7 @@ export const LiveApp = () => {
       {!compact && <GlobalTimerControl
           error={globalError}
           now={now}
+          mode={update.settings.globalTimerMode}
           onCommand={(command) => runCommand(command)}
           pending={globalPending}
           timer={update.settings.globalTimer}

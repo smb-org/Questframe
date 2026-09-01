@@ -752,7 +752,7 @@ describe("Win-Challenges-Sockets", () => {
           headerTitle: "CHALLENGES",
           effectsEnabled: true,
           maxVisible: 5,
-          overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+          overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
           globalTimerTotalMs: 60_000,
           placement: { x: 300, y: 8, scale: 1 },
         }),

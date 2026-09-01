@@ -151,7 +151,7 @@ in der Rahmenöffnung; das Asset braucht daher keinen Alphaausschnitt.
 - Slider und Felder ändern ausschließlich den lokalen Entwurf. Nur **Änderungen speichern** publiziert atomar.
 - Der Sichtbarkeitsschalter ist eine eigene sofortige Aktion und bleibt mobil erreichbar.
 - Effekt hinzufügen/bearbeiten öffnet ein fokussiertes Flyover; es verschiebt das Arbeitsraster nicht. Escape, Backdrop und Schließen beenden es kontrolliert.
-- Übergänge liegen üblicherweise bei `160–240 ms`. Kritische HP pulsiert langsam (`1.35 s`) und ohne Flackern. Derselbe Puls gilt für einen globalen Challenge-Timer mit weniger als einer Minute Restzeit; dafür gibt es keine zweite Animationsdauer.
+- Übergänge liegen üblicherweise bei `160–240 ms`. Kritische HP pulsiert langsam (`1.35 s`) und ohne Flackern. Derselbe Puls gilt nur für einen globalen, runterzählenden Challenge-Timer mit weniger als einer Minute Restzeit; dafür gibt es keine zweite Animationsdauer.
 - Bei `prefers-reduced-motion: reduce` entfallen nicht notwendige Animationen und Übergänge.
   Bei Challenge-Zeremonien entfällt nur die Bewegung; die Zustandsänderung bleibt über den
   aktualisierten Zähler, Häkchen, Durchstreichung oder ein Symbol erkennbar. Ton bleibt

@@ -139,6 +139,7 @@ CREATE TABLE wc_meta (
   numbered           INTEGER NOT NULL DEFAULT 0 CHECK (numbered IN (0, 1)),
   done_order         TEXT NOT NULL DEFAULT 'end' CHECK (done_order IN ('end', 'keep')),
   -- Optionaler globaler Timer über alle Challenges
+  global_timer_mode             TEXT NOT NULL DEFAULT 'down' CHECK (global_timer_mode IN ('down', 'up')),
   global_timer_total_ms         INTEGER,  -- NULL = Feature aus
   global_timer_ends_at          TEXT,     -- absoluter ISO-Instant, NULL wenn nicht laufend
   global_timer_paused_remain_ms INTEGER,  -- eingefrorene Restzeit, NULL wenn nicht pausiert
@@ -285,6 +286,7 @@ challenge_update {
   settings: {
     styleId, themeMode, surfaceMode, headerTitle, effectsEnabled, maxVisible,
     overflowMode, overflowTempo, numbered, doneOrder,
+    globalTimerMode,                  // "down" = Restzeit, "up" = verstrichene Zeit
     themeId,                       // aktive HUD-Variante, nur relevant bei themeMode "inherit"
     globalTimer: null | {           // null = Feature aus
       totalMs: number,
@@ -352,7 +354,7 @@ Editor-Routen nutzen die bestehende Kette: Same-Origin, `x-csrf-token`, `x-edito
 | `/api/challenges` | GET | Session | — | `unauthorized` |
 | `/api/challenges/commands` | POST | Session **oder** Dock-Token | siehe Kommando-DTO unten | `validation_failed`, `challenge_timer_not_configured`, `global_timer_not_configured`, `idempotency_mismatch`, `not_found`, `rate_limited` |
 | `/api/challenges/board` | PUT | Session | `{ baseBoardRevision, challenges: Definition[] }` | `revision_conflict` (mit Snapshot), `payload_too_large` |
-| `/api/challenges/settings` | PUT | Session | `{ baseSettingsRevision, styleId, themeMode, surfaceMode, headerTitle, effectsEnabled, maxVisible, overflowMode, overflowTempo, numbered, doneOrder, globalTimerTotalMs }` | `revision_conflict` (mit Snapshot), `validation_failed` |
+| `/api/challenges/settings` | PUT | Session | `{ baseSettingsRevision, styleId, themeMode, surfaceMode, headerTitle, effectsEnabled, maxVisible, overflowMode, overflowTempo, numbered, doneOrder, globalTimerMode, globalTimerTotalMs }` | `revision_conflict` (mit Snapshot), `validation_failed` |
 
 **Kommando-DTO, zwei Formen.** Die drei globalen Kommandos haben keine `challengeId`, also
 kann das DTO sie nicht verlangen:
@@ -596,7 +598,11 @@ der mitten im Stream dazukommt, nicht einzuordnen.
 
 ### Globaler Timer
 
-Optional (`global_timer_total_ms = NULL` schaltet ihn ab). Drei Zustände, kein Server-Tick
+Optional (`global_timer_total_ms = NULL` schaltet ihn ab). `global_timer_mode = 'down'` zeigt die
+Restzeit und markiert die letzte Minute kritisch; `global_timer_mode = 'up'` zeigt die seit dem
+Start verstrichene Zeit ohne kritischen Zustand, bis das Limit erreicht und der Timer abgelaufen
+ist. Das Laufzeitmodell bleibt für beide Modi gleich (`total_ms`, `ends_at`,
+`paused_remain_ms`). Vier Zustände, kein Server-Tick
 und kein Alarm, dieselbe Ableitung wie bei den Challenge-Timern:
 
 | Zustand | `ends_at` | `paused_remain_ms` | abgeleitet |

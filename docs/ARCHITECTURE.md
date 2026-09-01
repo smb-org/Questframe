@@ -34,9 +34,10 @@ Die vier Tabellen `wc_meta`, `wc_challenges`, `wc_commands` und `wc_dock_tokens`
 Service und Repository-Interface kennen keine SQL-Tabellennamen und bieten keine
 Präfix-Konfiguration nach außen an.
 Die Challenge-Settings enthalten neben Style, Fläche und Kopfzeile `max_visible`, Überlaufmodus,
-Tempo, Nummerierung, erledigte Reihenfolge und `global_timer_total_ms`; Migration 7 ergänzt die
-Überlauffelder, überführt `plain-numbered` zu `plain-list` mit Nummerierung und lässt `max_visible`
-als Anzeige-Kapazität bestehen.
+Tempo, Nummerierung, erledigte Reihenfolge sowie `global_timer_mode` und
+`global_timer_total_ms`; Migration 7 ergänzt die Überlauffelder, überführt `plain-numbered` zu
+`plain-list` mit Nummerierung und lässt `max_visible` als Anzeige-Kapazität bestehen, Migration 8
+ergänzt den globalen Timer-Modus mit dem Default `down`.
 
 ## Zwei Nebenläufigkeitsmodelle
 

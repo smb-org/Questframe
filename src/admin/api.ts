@@ -16,11 +16,14 @@ import {
   boardSaveRequestSchema,
   boardSaveResponseSchema,
   challengeBoardSnapshotSchema,
+  commandResponseSchema,
   settingsSaveRequestSchema,
   settingsSaveResponseSchema,
   type BoardSaveRequest,
   type BoardSaveResponse,
   type ChallengeBoardSnapshot,
+  type Command,
+  type CommandResponse,
   type SettingsSaveRequest,
   type SettingsSaveResponse,
 } from "../modules/win-challenges/contracts/schemas";
@@ -111,6 +114,11 @@ export class BrowserAdminApi implements AdminApi {
     const request = settingsSaveRequestSchema.parse(input);
     const response = await this.requestJson("/api/challenges/settings", "PUT", request);
     return settingsSaveResponseSchema.parse(await response.json());
+  }
+
+  async sendChallengeCommand(command: Command): Promise<CommandResponse> {
+    const response = await this.requestJson("/api/challenges/commands", "POST", command);
+    return commandResponseSchema.parse(await response.json());
   }
 
   async undo(baseRevision: number, targetRevision: number) {

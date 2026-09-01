@@ -17,6 +17,7 @@ import {
   isDelta,
   isDoneOrder,
   isEventSeq,
+  isGlobalTimerMode,
   isHeaderTitle,
   isHidden,
   isInstant,
@@ -106,6 +107,7 @@ const surfaceModeSchema = custom(isSurfaceMode, "Flächenmodus ist ungültig.");
 const overflowModeSchema = custom(isOverflowMode, "Überlaufmodus ist ungültig.");
 const overflowTempoSchema = custom(isOverflowTempo, "Überlauf-Tempo ist ungültig.");
 const doneOrderSchema = custom(isDoneOrder, "Erledigt-Reihenfolge ist ungültig.");
+const globalTimerModeSchema = custom(isGlobalTimerMode, "Globaler Timer-Modus ist ungültig.");
 const numberedSchema = custom(isNumbered, "Nummerierung muss ein Boolean sein.");
 const commandIdSchema = custom(isCommandId, "Kommando-ID muss eine UUID sein.");
 
@@ -171,6 +173,7 @@ export const settingsSchema = z.strictObject({
   overflowTempo: overflowTempoSchema,
   numbered: numberedSchema,
   doneOrder: doneOrderSchema,
+  globalTimerMode: globalTimerModeSchema,
   themeId: themeIdSchema,
   globalTimer: z.union([globalTimerSchema, z.null()]),
   placement: challengePlacementSchema.default(DEFAULT_CHALLENGE_PLACEMENT),
@@ -232,6 +235,13 @@ export const settingsSaveResponseSchema = z.strictObject({
   snapshot: challengeBoardSnapshotSchema,
 });
 
+export const commandResponseSchema = z.strictObject({
+  eventSeq: eventSeqSchema,
+  replayed: z.boolean(),
+  challenge: challengeSchema.optional(),
+  settings: challengeRepositorySettingsSchema.optional(),
+});
+
 export const settingsSaveRequestSchema = z.strictObject({
   baseSettingsRevision: revisionSchema,
   styleId: styleIdSchema,
@@ -244,6 +254,7 @@ export const settingsSaveRequestSchema = z.strictObject({
   overflowTempo: overflowTempoSchema,
   numbered: numberedSchema,
   doneOrder: doneOrderSchema,
+  globalTimerMode: globalTimerModeSchema,
   globalTimerTotalMs: timerTotalMsSchema,
   placement: challengePlacementSchema,
 });
@@ -297,6 +308,7 @@ export type ChallengeBoardSnapshot = z.infer<typeof challengeBoardSnapshotSchema
 export type BoardSaveResponse = z.infer<typeof boardSaveResponseSchema>;
 export type SettingsSaveResponse = z.infer<typeof settingsSaveResponseSchema>;
 export type SettingsSaveRequest = z.infer<typeof settingsSaveRequestSchema>;
+export type CommandResponse = z.infer<typeof commandResponseSchema>;
 export type ChallengeUpdate = z.infer<typeof challengeUpdateSchema>;
 
 export type ChallengeEventPayload = ChallengeEvent;

@@ -9,7 +9,7 @@ import {
   type Challenge,
   type GlobalTimer,
 } from "../contracts/schemas";
-import { MAX_CHALLENGES, MAX_COUNT, isEventSeq, isRevision, isTimerTotalMs } from "../contracts/predicates";
+import { MAX_CHALLENGES, MAX_COUNT, isEventSeq, isGlobalTimerMode, isRevision, isTimerTotalMs } from "../contracts/predicates";
 import { mergeDefinition, normalizeSortOrder } from "../domain/definitions";
 import type { DomainNow } from "../domain/timers";
 import {
@@ -51,6 +51,7 @@ type MetaRow = {
   overflow_tempo: string;
   numbered: number;
   done_order: string;
+  global_timer_mode: string;
   placement_x: number;
   placement_y: number;
   placement_scale: number;
@@ -108,6 +109,7 @@ const metaRowSchema = z.strictObject({
   overflow_tempo: z.string(),
   numbered: z.number().int(),
   done_order: z.string(),
+  global_timer_mode: z.string(),
   placement_x: z.number().int(),
   placement_y: z.number().int(),
   placement_scale: z.number(),
@@ -197,6 +199,7 @@ const parseMeta = (row: MetaRow): ChallengeSnapshot["settings"] &
     overflowTempo: parsedRow.overflow_tempo,
     numbered: parseBooleanInteger(parsedRow.numbered),
     doneOrder: parsedRow.done_order,
+    globalTimerMode: parsedRow.global_timer_mode,
     globalTimer,
     placement: challengePlacementSchema.parse({
       x: parsedRow.placement_x,
@@ -371,7 +374,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         `UPDATE ${this.table("meta")} SET
           style_id = ?, theme_mode = ?, surface_mode = ?, header_title = ?,
           effects_enabled = ?, max_visible = ?, overflow_mode = ?, overflow_tempo = ?, numbered = ?, done_order = ?,
-          global_timer_total_ms = ?, global_timer_ends_at = ?, global_timer_paused_remain_ms = ?,
+          global_timer_mode = ?, global_timer_total_ms = ?, global_timer_ends_at = ?, global_timer_paused_remain_ms = ?,
           placement_x = ?, placement_y = ?, placement_scale = ?,
           settings_revision = settings_revision + 1
          WHERE singleton = 1`,
@@ -385,6 +388,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         nextSettings.overflowTempo,
         nextSettings.numbered ? 1 : 0,
         nextSettings.doneOrder,
+        nextSettings.globalTimerMode,
         nextSettings.globalTimer?.totalMs ?? null,
         nextSettings.globalTimer?.endsAt ?? null,
         nextSettings.globalTimer?.pausedRemainMs ?? null,
@@ -540,6 +544,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         overflowTempo: parsedMeta.overflowTempo,
         numbered: parsedMeta.numbered,
         doneOrder: parsedMeta.doneOrder,
+        globalTimerMode: parsedMeta.globalTimerMode,
         globalTimer: parsedMeta.globalTimer,
         placement: parsedMeta.placement,
       },
@@ -678,6 +683,9 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     input: SettingsSaveInputWithRevision,
     current: ChallengeRepositorySettings,
   ): ChallengeRepositorySettings {
+    if (!isGlobalTimerMode(input.globalTimerMode)) {
+      throw new ValidationError("Ungültiger globaler Timer-Modus.");
+    }
     if (!isTimerTotalMs(input.globalTimerTotalMs)) {
       throw new ValidationError("Ungültige globale Timerdauer.");
     }
@@ -708,6 +716,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       overflowTempo: input.overflowTempo,
       numbered: input.numbered,
       doneOrder: input.doneOrder,
+      globalTimerMode: input.globalTimerMode,
       globalTimer,
       placement: input.placement,
     });

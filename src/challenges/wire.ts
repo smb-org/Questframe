@@ -15,6 +15,7 @@ import {
   isDoneOrder,
   isDelta,
   isEventSeq,
+  isGlobalTimerMode,
   isHeaderTitle,
   isHidden,
   isInstant,
@@ -78,6 +79,7 @@ const parseSettings = (input: unknown): ChallengeSettings | null => {
       "overflowTempo",
       "numbered",
       "doneOrder",
+      "globalTimerMode",
       "themeId",
       "globalTimer",
       "placement",
@@ -92,6 +94,7 @@ const parseSettings = (input: unknown): ChallengeSettings | null => {
     !isOverflowTempo(input.overflowTempo) ||
     !isNumbered(input.numbered) ||
     !isDoneOrder(input.doneOrder) ||
+    !isGlobalTimerMode(input.globalTimerMode) ||
     !isThemeId(input.themeId) ||
     !isChallengePlacement(input.placement) ||
     !isRecord(input.placement) ||

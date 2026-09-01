@@ -9,17 +9,16 @@ import { challengeNumbers, formatChallengeStand, selectVisible } from "../domain
 import { deriveTimerState, type TimerState } from "../domain/timers";
 import {
   formatRemaining,
+  displayedMsFor,
   remainingFor,
   timerIsCritical,
 } from "./timer";
 import { useScrollOffset } from "./scroll";
 
-const timerClass = (state: TimerState, remainingMs: number): string => {
+const timerClass = (state: TimerState, critical: boolean): string => {
   if (state === "paused") return "challenge-source__timer--paused";
   if (state === "expired") return "challenge-source__timer--expired";
-  return remainingMs > 0 && remainingMs < 60_000
-    ? "challenge-source__timer--critical"
-    : "";
+  return critical ? "challenge-source__timer--critical" : "";
 };
 
 export type ChallengeLogCeremonyTarget =
@@ -28,18 +27,21 @@ export type ChallengeLogCeremonyTarget =
 
 const GlobalTimerDisplay = ({
   timer,
+  mode,
   now,
   ceremonyTarget = false,
   ceremonySeq,
 }: {
   timer: GlobalTimer;
+  mode: ChallengeUpdate["settings"]["globalTimerMode"];
   now: number;
   ceremonyTarget?: boolean;
   ceremonySeq?: number | undefined;
 }) => {
   const state = deriveTimerState(timer.endsAt, timer.pausedRemainMs, now);
   const remainingMs = remainingFor(timer.endsAt, timer.pausedRemainMs, state, now);
-  const critical = timerIsCritical(state, remainingMs);
+  const critical = timerIsCritical(state, remainingMs, mode);
+  const displayedMs = displayedMsFor(mode, timer.totalMs, remainingMs);
   const statusLabel = state === "paused"
     ? "pausiert"
     : state === "expired"
@@ -50,14 +52,14 @@ const GlobalTimerDisplay = ({
   return (
     <span
       key={ceremonyTarget ? ceremonySeq : undefined}
-      aria-label={`Globaler Timer: ${formatRemaining(remainingMs)}${statusLabel === null ? "" : `, ${statusLabel}`}`}
-      className={`challenge-source__timer ${timerClass(state, remainingMs)}`}
+      aria-label={`Globaler Timer: ${formatRemaining(displayedMs)}${statusLabel === null ? "" : `, ${statusLabel}`}${mode === "up" ? ", hochzählend" : ""}`}
+      className={`challenge-source__timer ${timerClass(state, critical)}`}
       data-critical={critical ? "true" : "false"}
       data-state={state}
       data-ceremony-target={ceremonyTarget ? "true" : undefined}
     >
-      <span aria-hidden="true">{state === "paused" ? "Ⅱ" : critical ? "!" : "▸"}</span>
-      <span>{formatRemaining(remainingMs)}</span>
+      <span aria-hidden="true">{state === "paused" ? "Ⅱ" : critical ? "!" : mode === "up" ? "▴" : "▸"}</span>
+      <span>{formatRemaining(displayedMs)}</span>
       {statusLabel !== null && <span className="challenge-source__timer-label">{statusLabel}</span>}
     </span>
   );
@@ -272,6 +274,7 @@ export const ChallengeLog = ({
             ceremonyTarget={ceremonyTarget?.kind === "global"}
             ceremonySeq={ceremonySeq}
             now={now}
+            mode={update.settings.globalTimerMode}
             timer={globalTimer}
           />
         )}

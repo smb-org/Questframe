@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AdminApiError, BrowserAdminApi } from "../../../src/admin/api";
+import type { Command } from "../../../src/modules/win-challenges/contracts/schemas";
 import {
   createDefaultState,
   getReleaseCapabilities,
@@ -94,6 +95,33 @@ afterEach(() => {
 });
 
 describe("BrowserAdminApi", () => {
+  it("sends session challenge commands with the editor tab, CSRF token, and UUID command", async () => {
+    const command: Command = {
+      commandId: "dc95708a-645a-4bc0-9ca3-7ffbd42e6662",
+      scope: "global",
+      type: "resetGlobalTimer",
+    };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json(bootstrap()))
+      .mockResolvedValueOnce(Response.json({ eventSeq: 4, replayed: false, settings: undefined }));
+    vi.stubGlobal("fetch", fetcher);
+    const api = new BrowserAdminApi();
+
+    await api.bootstrap();
+    await expect(api.sendChallengeCommand(command)).resolves.toMatchObject({ eventSeq: 4, replayed: false });
+
+    const requestCall = fetcher.mock.calls[1];
+    if (requestCall === undefined) throw new Error("Command-Request wurde nicht gesendet.");
+    const [input, init] = requestCall;
+    const request = new Request(typeof input === "string" ? new URL(input, "https://example.test") : input, init);
+    expect(request.url).toContain("/api/challenges/commands");
+    expect(request.method).toBe("POST");
+    expect(request.headers.get("x-editor-tab")).toMatch(/[0-9a-f-]+/u);
+    expect(request.headers.get("x-csrf-token")).toBe(bootstrap().csrfToken);
+    expect(await request.json()).toEqual(command);
+  });
+
   it("persists one tab ID, bootstraps CSRF and attaches it only to mutations", async () => {
     const fetcher = vi
       .fn<typeof fetch>()
