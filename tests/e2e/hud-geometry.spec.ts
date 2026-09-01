@@ -1,5 +1,7 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
+import { installSocketLifecycle, releaseTrackedSockets } from "./support/socket-lifecycle";
+
 /**
  * Geometrievertrag des OBS-Overlays. Geprueft werden Bounding Boxes, nicht Pixel,
  * damit die Erwartungen plattformunabhaengig bleiben.
@@ -7,6 +9,14 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
 const STAGE = { width: 630, height: 259 };
 const PLAYER_HEIGHT = 175;
+
+test.beforeEach(async ({ context }) => {
+  await installSocketLifecycle(context);
+});
+
+test.afterEach(async ({ context }, testInfo) => {
+  await releaseTrackedSockets(context, testInfo);
+});
 
 /**
  * Jede Variante fuellt dieselbe Breite. Die Bildvarianten strecken ihr

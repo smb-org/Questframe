@@ -1,5 +1,15 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { installSocketLifecycle, releaseTrackedSockets } from "./support/socket-lifecycle";
+
+test.beforeEach(async ({ context }) => {
+  await installSocketLifecycle(context);
+});
+
+test.afterEach(async ({ context }, testInfo) => {
+  await releaseTrackedSockets(context, testInfo);
+});
+
 const loginAsLocalEditor = async (page: Page) => {
   await page.goto("/auth/dev");
   await expect(page).toHaveURL(/\/admin$/);
