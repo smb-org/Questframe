@@ -69,6 +69,13 @@ export const isTimerTotalMs = (value: unknown): value is number | null =>
     value >= 10_000 &&
     value <= 21_600_000);
 
+export const isTimerRemainMs = (value: unknown): value is number | null =>
+  value === null ||
+  (typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0 &&
+    value <= 21_600_000);
+
 export const isGlobalTimerTotalMs = (value: unknown): value is number | null =>
   value === null ||
   (typeof value === "number" &&

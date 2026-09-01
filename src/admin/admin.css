@@ -315,10 +315,8 @@ input[type="color"] { padding: 4px; }
 .settings-grid label { min-width: 0; display: grid; gap: 5px; }
 .settings-grid label > span { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
 .challenge-timer-input { display: flex; align-items: center; gap: 7px; }
-.challenge-timer-input input { min-width: 0; flex: 1 1 auto; }
+.challenge-timer-input input { width: 100%; min-width: 0; flex: 1 1 auto; box-sizing: border-box; }
 .challenge-timer-input small { color: var(--muted); font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; }
-.challenge-timer-settings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; min-width: 0; }
-.challenge-timer-settings label { min-width: 0; display: grid; gap: 5px; }
 .challenge-timer-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0 12px; }
 .challenge-timer-status { color: var(--muted); font-size: 11px; font-weight: 500; }
 .challenge-numbered-toggle { display: flex; align-items: center; gap: 8px; min-height: 32px; margin-bottom: 10px; color: var(--text); font-size: 12px; }

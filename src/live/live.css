@@ -237,6 +237,10 @@ html[data-surface="live"] #root {
   color: var(--live-accent);
 }
 
+.live-page__challenge-time[data-state="done"] {
+  color: var(--live-ok);
+}
+
 .live-page__challenge-time[data-critical="true"] {
   color: var(--live-error);
 }

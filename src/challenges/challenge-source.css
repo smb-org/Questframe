@@ -476,6 +476,22 @@
   color: var(--wc-accent);
 }
 
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__time[data-state="paused"] {
+  color: var(--wc-muted);
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__time[data-state="done"] {
+  color: var(--wc-ok);
+}
+
 /* Fortschritt und Fuellkante bekommen im bare-Preset denselben Halo wie Text. */
 :is(
   .challenge-source[data-style="plain-list"],

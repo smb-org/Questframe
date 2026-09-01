@@ -70,6 +70,7 @@ type ChallengeRow = {
   current_count: number;
   state: string;
   timer_ends_at: string | null;
+  timer_remain_ms: number | null;
   completed_at: string | null;
   created_at: string;
   updated_at: string;
@@ -226,6 +227,7 @@ const parseChallenge = (row: ChallengeRow): Challenge =>
     currentCount: row.current_count,
     state: row.state,
     timerEndsAt: row.timer_ends_at,
+    timerRemainMs: row.timer_remain_ms,
     completedAt: row.completed_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -258,8 +260,17 @@ const sameRuntime = (left: Challenge, right: Challenge): boolean =>
   left.currentCount === right.currentCount &&
   left.state === right.state &&
   left.timerEndsAt === right.timerEndsAt &&
+  left.timerRemainMs === right.timerRemainMs &&
   left.completedAt === right.completedAt &&
   left.hidden === right.hidden;
+
+const assertChallengeTimerInvariant = (
+  challenge: Pick<Challenge, "timerEndsAt" | "timerRemainMs">,
+): void => {
+  if (challenge.timerEndsAt !== null && challenge.timerRemainMs !== null) {
+    throw new ValidationError("Eine Challenge darf nicht gleichzeitig laufen und pausiert sein.");
+  }
+};
 
 export class SqlStorageChallengeRepository implements ChallengeRepository {
   private readonly sql: SqlStorage;
@@ -582,8 +593,9 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     delta: number,
     maximum: number,
     updatedAt: string,
-    runtime?: Pick<ChallengeRuntime, "state" | "timerEndsAt" | "completedAt" | "hidden">,
+    runtime?: Pick<ChallengeRuntime, "state" | "timerEndsAt" | "timerRemainMs" | "completedAt" | "hidden">,
   ): Challenge | null {
+    if (runtime !== undefined) assertChallengeTimerInvariant(runtime);
     if (!Number.isSafeInteger(delta) || !Number.isSafeInteger(maximum) || maximum < 0 || maximum > MAX_COUNT) {
       throw new ValidationError("Ungültige Zählergrenze.");
     }
@@ -601,12 +613,13 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       this.execute<ChallengeRow>(
         `UPDATE ${this.table("challenges")} SET
           current_count = MIN(MAX(current_count + ?, 0), ?), state = ?,
-          timer_ends_at = ?, completed_at = ?, hidden = ?, updated_at = ?
+          timer_ends_at = ?, timer_remain_ms = ?, completed_at = ?, hidden = ?, updated_at = ?
          WHERE id = ? AND state <> 'done'`,
         delta,
         maximum,
         runtime.state,
         runtime.timerEndsAt,
+        runtime.timerRemainMs,
         runtime.completedAt,
         runtime.hidden ? 1 : 0,
         updatedAt,
@@ -621,13 +634,15 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     runtime: ChallengeRuntime,
     updatedAt: string,
   ): Challenge | null {
+    assertChallengeTimerInvariant(runtime);
     this.execute<ChallengeRow>(
       `UPDATE ${this.table("challenges")} SET
-        current_count = ?, state = ?, timer_ends_at = ?, completed_at = ?, hidden = ?, updated_at = ?
+        current_count = ?, state = ?, timer_ends_at = ?, timer_remain_ms = ?, completed_at = ?, hidden = ?, updated_at = ?
        WHERE id = ?`,
       runtime.currentCount,
       runtime.state,
       runtime.timerEndsAt,
+      runtime.timerRemainMs,
       runtime.completedAt,
       runtime.hidden ? 1 : 0,
       updatedAt,
@@ -735,11 +750,12 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
   }
 
   private insertChallenge(challenge: Challenge): void {
+    assertChallengeTimerInvariant(challenge);
     this.execute<ChallengeRow>(
       `INSERT INTO ${this.table("challenges")}(
         id, title, target_count, timer_total_ms, sort_order,
-        hidden, current_count, state, timer_ends_at, completed_at, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        hidden, current_count, state, timer_ends_at, timer_remain_ms, completed_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       challenge.id,
       challenge.title,
       challenge.targetCount,
@@ -749,6 +765,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       challenge.currentCount,
       challenge.state,
       challenge.timerEndsAt,
+      challenge.timerRemainMs,
       challenge.completedAt,
       challenge.createdAt,
       challenge.updatedAt,
@@ -756,6 +773,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
   }
 
   private updateBoardChallenge(existing: Challenge, challenge: Challenge): void {
+    assertChallengeTimerInvariant(challenge);
     if (sameRuntime(existing, challenge)) {
       this.execute<ChallengeRow>(
         `UPDATE ${this.table("challenges")} SET
@@ -775,7 +793,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     this.execute<ChallengeRow>(
       `UPDATE ${this.table("challenges")} SET
         title = ?, target_count = ?, timer_total_ms = ?, sort_order = ?,
-        hidden = ?, current_count = ?, state = ?, timer_ends_at = ?, completed_at = ?, updated_at = ?
+        hidden = ?, current_count = ?, state = ?, timer_ends_at = ?, timer_remain_ms = ?, completed_at = ?, updated_at = ?
        WHERE id = ?`,
       challenge.title,
       challenge.targetCount,
@@ -785,6 +803,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       challenge.currentCount,
       challenge.state,
       challenge.timerEndsAt,
+      challenge.timerRemainMs,
       challenge.completedAt,
       challenge.updatedAt,
       challenge.id,

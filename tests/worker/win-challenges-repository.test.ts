@@ -14,6 +14,7 @@ const future = "2026-08-30T13:00:00.000Z";
 const testChannelId = `win-challenges-step-2-${crypto.randomUUID()}`;
 const stub = env.CHANNEL.get(env.CHANNEL.idFromName(testChannelId));
 const legacyStub = env.CHANNEL.get(env.CHANNEL.idFromName(`win-challenges-legacy-${crypto.randomUUID()}`));
+const migrationNineStub = env.CHANNEL.get(env.CHANNEL.idFromName(`win-challenges-migration-nine-${crypto.randomUUID()}`));
 
 type GlobalTimerRow = {
   global_timer_total_ms: number | null;
@@ -150,6 +151,7 @@ describe("win-challenges repository and migration", () => {
     expect(result.versions).toContain(6);
     expect(result.versions).toContain(7);
     expect(result.versions).toContain(8);
+    expect(result.versions).toContain(9);
     expect(result.tables).toEqual([
       "wc_challenges",
       "wc_commands",
@@ -188,6 +190,7 @@ describe("win-challenges repository and migration", () => {
       "current_count",
       "state",
       "timer_ends_at",
+      "timer_remain_ms",
       "completed_at",
       "created_at",
       "updated_at",
@@ -324,6 +327,86 @@ describe("win-challenges repository and migration", () => {
     expect(rejected).toBe(true);
   });
 
+  it("enforces the range CHECK for the paused challenge timer", async () => {
+    await inRepository((repository) =>
+      repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Paused", 0)], now }),
+    );
+    const rejected = await runInDurableObject(stub, (_instance, state) => {
+      const id = state.storage.sql.exec<{ id: string }>("SELECT id FROM wc_challenges LIMIT 1").toArray()[0]?.id;
+      if (id === undefined) throw new Error("Challenge fehlt.");
+      try {
+        state.storage.sql.exec("UPDATE wc_challenges SET timer_remain_ms = ? WHERE id = ?", 21_600_001, id);
+      } catch {
+        return true;
+      }
+      return false;
+    });
+
+    expect(rejected).toBe(true);
+  });
+
+  it("führt Migration 9 auf einer Version-8-Tabelle ohne Restzeitspalte aus", async () => {
+    const result = await runInDurableObject(migrationNineStub, (_instance, state) => {
+      state.storage.sql.exec(`
+        DROP TABLE IF EXISTS wc_challenges;
+        DROP TABLE IF EXISTS _sql_schema_migrations;
+        CREATE TABLE _sql_schema_migrations (
+          version INTEGER PRIMARY KEY,
+          build_id TEXT NOT NULL,
+          applied_at TEXT NOT NULL
+        );
+        CREATE TABLE wc_challenges (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          target_count INTEGER,
+          timer_total_ms INTEGER,
+          sort_order INTEGER NOT NULL,
+          current_count INTEGER NOT NULL,
+          state TEXT NOT NULL,
+          timer_ends_at TEXT,
+          completed_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          hidden INTEGER NOT NULL DEFAULT 0
+        );
+        INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES
+          (1, 'legacy', '2026-08-30T12:00:00.000Z'),
+          (2, 'legacy', '2026-08-30T12:00:00.000Z'),
+          (3, 'legacy', '2026-08-30T12:00:00.000Z'),
+          (4, 'legacy', '2026-08-30T12:00:00.000Z'),
+          (5, 'legacy', '2026-08-30T12:00:00.000Z'),
+          (6, 'legacy', '2026-08-30T12:00:00.000Z'),
+          (7, 'legacy', '2026-08-30T12:00:00.000Z'),
+          (8, 'legacy', '2026-08-30T12:00:00.000Z');
+      `);
+      runMigrations(state.storage.sql, "worker-test-migration-9");
+      const columns = state.storage.sql
+        .exec<{ name: string }>("PRAGMA table_info(wc_challenges)")
+        .toArray()
+        .map(({ name }) => name);
+      let rangeCheckRejected = false;
+      try {
+        state.storage.sql.exec(
+          "INSERT INTO wc_challenges(id, title, sort_order, current_count, state, timer_remain_ms, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          "legacy-challenge",
+          "Legacy",
+          0,
+          0,
+          "pending",
+          21_600_001,
+          now,
+          now,
+        );
+      } catch {
+        rangeCheckRejected = true;
+      }
+      return { columns, rangeCheckRejected };
+    });
+
+    expect(result.columns).toContain("timer_remain_ms");
+    expect(result.rangeCheckRejected).toBe(true);
+  });
+
   it("normalisiert beim Nachholen von Migration 4 Alt-Timer erledigter Challenges", async () => {
     const created = await inRepository((repository) =>
       repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Alt erledigt", 0)], now }),
@@ -361,6 +444,7 @@ describe("win-challenges repository and migration", () => {
             currentCount: 4,
             state: "active",
             timerEndsAt: future,
+            timerRemainMs: null,
             completedAt: null,
             hidden: false,
           },
@@ -392,6 +476,33 @@ describe("win-challenges repository and migration", () => {
       timerEndsAt: future,
       completedAt: null,
     });
+  });
+
+  it("liest und schreibt eine pausierte Challenge-Restzeit im Roundtrip", async () => {
+    const created = await inRepository((repository) =>
+      repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Roundtrip", 0)], now }),
+    );
+    const seeded = onlyChallenge(created.snapshot.challenges);
+    const updated = await inRepository((repository) =>
+      repository.transaction((transaction) =>
+        transaction.updateChallengeRuntime(
+          seeded.id,
+          {
+            currentCount: seeded.currentCount,
+            state: "pending",
+            timerEndsAt: null,
+            timerRemainMs: 3_120,
+            completedAt: null,
+            hidden: false,
+          },
+          future,
+        ),
+      ),
+    );
+
+    expect(updated).toMatchObject({ timerEndsAt: null, timerRemainMs: 3_120 });
+    expect(onlyChallenge((await inRepository((repository) => repository.readSnapshot())).challenges))
+      .toMatchObject({ timerEndsAt: null, timerRemainMs: 3_120 });
   });
 
   it("resets a running global timer when its configured duration changes", async () => {

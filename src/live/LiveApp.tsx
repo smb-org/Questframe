@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Challenge, ChallengeUpdate, GlobalTimer } from "../shared/contracts/win-challenges";
 import { DOCK_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
 import { challengeNumbers, formatChallengeStand, selectVisible } from "../modules/win-challenges/domain/visibility";
-import { deriveTimerState } from "../modules/win-challenges/domain/timers";
+import { deriveChallengeTimerState, deriveTimerState } from "../modules/win-challenges/domain/timers";
 import type { Command } from "../modules/win-challenges/contracts/schemas";
 import {
   formatRemaining,
@@ -18,7 +18,7 @@ import "./live.css";
 const ERROR_VISIBLE_MS = 3_000;
 const DELETED_NOTICE_MS = 1_500;
 
-type OptimisticPatch = Partial<Pick<Challenge, "currentCount" | "state" | "timerEndsAt" | "completedAt" | "hidden">>;
+type OptimisticPatch = Partial<Pick<Challenge, "currentCount" | "state" | "timerEndsAt" | "timerRemainMs" | "completedAt" | "hidden">>;
 
 type CommandFailure = {
   code: string;
@@ -113,30 +113,65 @@ const optimisticPatchFor = (
     const maximum = challenge.targetCount ?? 999;
     const currentCount = Math.max(0, Math.min(maximum, challenge.currentCount + command.delta));
     if (currentCount === challenge.currentCount) return null;
-    return challenge.targetCount !== null && currentCount === challenge.targetCount
-      ? { currentCount, state: "done", timerEndsAt: null, completedAt: new Date().toISOString(), hidden: false }
-      : { currentCount };
+    if (challenge.targetCount === null || currentCount !== challenge.targetCount) return { currentCount };
+    const timerState = deriveChallengeTimerState(challenge, Date.now());
+    const timerRemainMs = timerState === "running" || timerState === "paused"
+      ? remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, Date.now())
+      : timerState === "expired"
+        ? 0
+        : null;
+    return {
+      currentCount,
+      state: "done",
+      timerEndsAt: null,
+      timerRemainMs,
+      completedAt: new Date().toISOString(),
+      hidden: false,
+    };
   }
   if (command.type === "complete") {
     if (challenge.state === "done") return null;
-    return { state: "done", timerEndsAt: null, completedAt: new Date().toISOString(), hidden: false };
+    const timerState = deriveChallengeTimerState(challenge, Date.now());
+    const timerRemainMs = timerState === "running" || timerState === "paused"
+      ? remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, Date.now())
+      : timerState === "expired"
+        ? 0
+        : null;
+    return {
+      state: "done",
+      timerEndsAt: null,
+      timerRemainMs,
+      completedAt: new Date().toISOString(),
+      hidden: false,
+    };
   }
   if (command.type === "reopen") {
     if (challenge.state !== "done") return null;
     return {
       state: "pending",
       timerEndsAt: null,
+      timerRemainMs: challenge.timerRemainMs,
       completedAt: null,
     };
   }
   if (command.type === "startTimer") {
     if (challenge.state === "done" || challenge.timerTotalMs === null) return null;
+    const timerState = deriveChallengeTimerState(challenge, Date.now());
+    const duration = timerState === "paused" ? challenge.timerRemainMs : challenge.timerTotalMs;
+    if (duration === null) return null;
     return {
       state: "active",
-      timerEndsAt: new Date(Date.now() + challenge.timerTotalMs).toISOString(),
+      timerEndsAt: new Date(Date.now() + duration).toISOString(),
+      timerRemainMs: null,
     };
   }
-  return challenge.state === "active" ? { state: "pending", timerEndsAt: null } : null;
+  if (challenge.state !== "active") return null;
+  const timerState = deriveChallengeTimerState(challenge, Date.now());
+  if (timerState !== "running" && timerState !== "expired") return null;
+  const timerRemainMs = timerState === "running"
+    ? remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, Date.now())
+    : 0;
+  return { state: "pending", timerEndsAt: null, timerRemainMs };
 };
 
 const mergeChallenge = (challenge: Challenge, patch: OptimisticPatch | undefined): Challenge =>
@@ -178,16 +213,19 @@ const ChallengeRow = ({
 }) => {
   const done = challenge.state === "done";
   const hasTimer = challenge.timerTotalMs !== null;
-  const timerState = hasTimer && challenge.timerEndsAt !== null
-    ? deriveTimerState(challenge.timerEndsAt, null, now)
-    : "idle";
+  const timerState = hasTimer ? deriveChallengeTimerState(challenge, now) : "idle";
   const timerRunning = timerState === "running";
-  const remainingMs = remainingFor(challenge.timerEndsAt, null, timerState, now);
+  const remainingMs = remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, now);
   const timerCritical = timerIsCritical(timerState, remainingMs);
   const timeText = timerState === "expired"
     ? "abgelaufen"
     : formatRemaining(timerState === "idle" ? challenge.timerTotalMs ?? 0 : remainingMs);
-  const timeAriaLabel = timerState === "expired" ? "Timer abgelaufen" : `Restzeit ${timeText}`;
+  const showTime = done
+    ? challenge.timerRemainMs !== null
+    : timerState === "running" || timerState === "paused" || timerState === "expired";
+  const timeAriaLabel = done
+    ? `Rest bei Abschluss ${formatRemaining(remainingMs)}`
+    : timerState === "expired" ? "Timer abgelaufen" : `Restzeit ${timeText}`;
   return (
     <article
       className={`live-page__challenge-row${pinned ? " live-page__challenge-row--pinned" : ""}${done ? " live-page__challenge-row--done" : ""}${pending ? " live-page__challenge-row--pending" : ""}`}
@@ -200,13 +238,13 @@ const ChallengeRow = ({
         <span className="live-page__challenge-title">{challenge.title}</span>
         {challenge.hidden && <span className="live-page__challenge-hidden-badge">ausgeblendet</span>}
         <span className="live-page__challenge-meta">
-          {hasTimer && !done && (
+          {hasTimer && showTime && (
             <span
               aria-label={timeAriaLabel}
               className="live-page__challenge-time"
               data-critical={timerCritical ? "true" : "false"}
-              data-state={timerState}
-            >{timeText}</span>
+              data-state={done ? "done" : timerState}
+            >{timerState === "paused" && !done ? "Ⅱ " : ""}{done ? formatRemaining(remainingMs) : timeText}</span>
           )}
           <span className="live-page__challenge-count">
             {challenge.targetCount === null
@@ -253,12 +291,12 @@ const ChallengeRow = ({
           )}
           {hasTimer && !done && (
             <button
-              aria-label={`${challenge.title} ${timerRunning ? "Timer stoppen" : "Timer starten"}`}
+              aria-label={`${challenge.title} ${timerRunning ? "Timer pausieren" : "Timer starten"}`}
               className="live-control"
               disabled={pending}
               onClick={() => onCommand(challengeCommand(timerRunning ? "stopTimer" : "startTimer", challenge.id), challenge.id)}
               type="button"
-            >{timerRunning ? "Timer stoppen" : "Timer starten"}</button>
+            >{timerRunning ? "Timer pausieren" : "Timer starten"}</button>
           )}
         </div>
       )}

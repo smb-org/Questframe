@@ -49,9 +49,34 @@ export const deriveTimerState = (
   return pausedRemainMs === null ? "idle" : "paused";
 };
 
+export const deriveChallengeTimerState = (
+  challenge: Pick<Challenge, "timerEndsAt" | "timerRemainMs">,
+  now: DomainNow,
+): TimerState => deriveTimerState(challenge.timerEndsAt, challenge.timerRemainMs, now);
+
 const withChallengeTimestamp = (now: DomainNow): Pick<Challenge, "updatedAt"> => ({
   updatedAt: toInstant(now),
 });
+
+const completeChallenge = (challenge: Challenge, now: DomainNow): Challenge => {
+  const timerState = deriveChallengeTimerState(challenge, now);
+  const timerRemainMs = timerState === "running" && challenge.timerEndsAt !== null
+    ? Math.max(0, Date.parse(challenge.timerEndsAt) - toMilliseconds(now))
+    : timerState === "paused"
+      ? challenge.timerRemainMs
+      : timerState === "expired"
+        ? 0
+        : null;
+  return {
+    ...challenge,
+    state: "done",
+    timerEndsAt: null,
+    timerRemainMs,
+    completedAt: toInstant(now),
+    hidden: false,
+    ...withChallengeTimestamp(now),
+  };
+};
 
 export function applyIncrement(
   challenge: Challenge,
@@ -69,18 +94,9 @@ export function applyIncrement(
     return { challenge, event: null };
   }
 
-  const timestamp = toInstant(now);
   if (challenge.targetCount !== null && nextCount === challenge.targetCount) {
     return {
-      challenge: {
-        ...challenge,
-        currentCount: nextCount,
-        state: "done",
-        timerEndsAt: null,
-        completedAt: timestamp,
-        hidden: false,
-        ...withChallengeTimestamp(now),
-      },
+      challenge: completeChallenge({ ...challenge, currentCount: nextCount }, now),
       event: {
         scope: "challenge",
         type: "completed",
@@ -111,16 +127,8 @@ export function applyComplete(
   now: DomainNow,
 ): ChallengeTransition {
   if (challenge.state === "done") return { challenge, event: null };
-  const timestamp = toInstant(now);
   return {
-    challenge: {
-      ...challenge,
-      state: "done",
-      timerEndsAt: null,
-      completedAt: timestamp,
-      hidden: false,
-      ...withChallengeTimestamp(now),
-    },
+    challenge: completeChallenge(challenge, now),
     event: {
       scope: "challenge",
       type: "completed",
@@ -155,8 +163,25 @@ export function applyStartTimer(
   now: DomainNow,
 ): ChallengeTransition {
   if (challenge.state === "done") return { challenge, event: null };
-  if (deriveTimerState(challenge.timerEndsAt, null, now) === "running") {
+  const timerState = deriveChallengeTimerState(challenge, now);
+  if (timerState === "running") {
     return { challenge, event: null };
+  }
+  if (timerState === "paused" && challenge.timerRemainMs !== null) {
+    return {
+      challenge: {
+        ...challenge,
+        state: "active",
+        timerEndsAt: addMilliseconds(now, challenge.timerRemainMs),
+        timerRemainMs: null,
+        ...withChallengeTimestamp(now),
+      },
+      event: {
+        scope: "challenge",
+        type: "timer_started",
+        challengeId: challenge.id,
+      },
+    };
   }
   if (challenge.timerTotalMs === null) {
     return { challenge, event: null, error: "challenge_timer_not_configured" };
@@ -166,6 +191,7 @@ export function applyStartTimer(
       ...challenge,
       state: "active",
       timerEndsAt: addMilliseconds(now, challenge.timerTotalMs),
+      timerRemainMs: null,
       ...withChallengeTimestamp(now),
     },
     event: {
@@ -181,11 +207,17 @@ export function applyStopTimer(
   now: DomainNow,
 ): ChallengeTransition {
   if (challenge.state !== "active") return { challenge, event: null };
+  const timerState = deriveChallengeTimerState(challenge, now);
+  if (timerState !== "running" && timerState !== "expired") return { challenge, event: null };
+  const timerRemainMs = timerState === "running" && challenge.timerEndsAt !== null
+    ? Math.max(0, Date.parse(challenge.timerEndsAt) - toMilliseconds(now))
+    : 0;
   return {
     challenge: {
       ...challenge,
       state: "pending",
       timerEndsAt: null,
+      timerRemainMs,
       ...withChallengeTimestamp(now),
     },
     event: {

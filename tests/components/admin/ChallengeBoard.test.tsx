@@ -29,6 +29,7 @@ const challenge = (
   currentCount: 0,
   state: "pending",
   timerEndsAt: null,
+  timerRemainMs: null,
   completedAt: null,
   createdAt: instant,
   updatedAt: instant,

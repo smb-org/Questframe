@@ -37,6 +37,7 @@ const makeChallenge = (overrides: Partial<Challenge> = {}): Challenge => ({
   currentCount: 0,
   state: "pending",
   timerEndsAt: null,
+  timerRemainMs: null,
   completedAt: null,
   createdAt: now,
   updatedAt: now,
@@ -109,6 +110,7 @@ describe("Win-Challenges-Domain", () => {
     }), 1, now);
     expect(result.challenge.state).toBe("done");
     expect(result.challenge.timerEndsAt).toBeNull();
+    expect(result.challenge).toMatchObject({ timerRemainMs: 1_000 });
     expect(result.challenge.completedAt).toBe(now);
     expect(result.challenge.hidden).toBe(false);
     expect(result.event).toEqual({
@@ -116,6 +118,34 @@ describe("Win-Challenges-Domain", () => {
       type: "completed",
       challengeId: "challenge-1",
     });
+  });
+
+  it("friert beim manuellen Abhaken die Restzeit eines laufenden Timers ein", () => {
+    const result = applyComplete(makeChallenge({
+      state: "active",
+      timerEndsAt: "2026-08-30T12:03:12.000Z",
+    }), now);
+
+    expect(result.challenge).toMatchObject({
+      state: "done",
+      timerEndsAt: null,
+      timerRemainMs: 192_000,
+    });
+  });
+
+  it("friert beim Abhaken eines abgelaufenen Timers genau null ein", () => {
+    const result = applyComplete(makeChallenge({
+      state: "active",
+      timerEndsAt: "2026-08-30T11:59:59.000Z",
+    }), now);
+
+    expect(result.challenge).toMatchObject({ state: "done", timerEndsAt: null, timerRemainMs: 0 });
+  });
+
+  it("setzt beim Abhaken ohne laufenden Timer keine Restzeit", () => {
+    const result = applyComplete(makeChallenge(), now);
+
+    expect(result.challenge).toMatchObject({ state: "done", timerEndsAt: null, timerRemainMs: null });
   });
 
   it("bildet die Challenge-Übergangstabelle ab und behandelt wirkungslose Kommandos", () => {
@@ -127,9 +157,10 @@ describe("Win-Challenges-Domain", () => {
     expect(completed.challenge).toMatchObject({ state: "done", timerEndsAt: null, hidden: false });
     expect(applyComplete(makeChallenge({ state: "done", completedAt: now }), now).event).toBeNull();
 
-    const reopened = applyReopen(makeChallenge({ state: "done", completedAt: now }), now);
+    const reopened = applyReopen(makeChallenge({ state: "done", completedAt: now, timerRemainMs: 3_120 }), now);
     expect(reopened.challenge.state).toBe("pending");
     expect(reopened.challenge.timerEndsAt).toBeNull();
+    expect(reopened.challenge).toMatchObject({ timerRemainMs: 3_120 });
     expect(reopened.event?.type).toBe("reopened");
     expect(applyReopen(makeChallenge(), now).event).toBeNull();
 
@@ -138,9 +169,10 @@ describe("Win-Challenges-Domain", () => {
     expect(started.challenge.timerEndsAt).toBe("2026-08-30T12:00:10.000Z");
     expect(started.event?.type).toBe("timer_started");
 
-    const stopped = applyStopTimer(started.challenge, now);
+    const stopped = applyStopTimer(started.challenge, "2026-08-30T12:00:03.000Z");
     expect(stopped.challenge.state).toBe("pending");
     expect(stopped.challenge.timerEndsAt).toBeNull();
+    expect(stopped.challenge.timerRemainMs).toBe(7_000);
     expect(stopped.event?.type).toBe("timer_stopped");
     expect(applyStopTimer(makeChallenge(), now).event).toBeNull();
     expect(applyStartTimer(makeChallenge({ timerTotalMs: null }), now).error)
@@ -186,6 +218,29 @@ describe("Win-Challenges-Domain", () => {
       challenge,
       event: null,
     });
+  });
+
+  it("startet einen pausierten Challenge-Timer mit der eingefrorenen Restzeit weiter", () => {
+    const result = applyStartTimer(
+      makeChallenge({ state: "pending", timerEndsAt: null, timerRemainMs: 3_120 }),
+      now,
+    );
+
+    expect(result.challenge).toMatchObject({
+      state: "active",
+      timerEndsAt: "2026-08-30T12:00:03.120Z",
+      timerRemainMs: null,
+    });
+    expect(result.event?.type).toBe("timer_started");
+  });
+
+  it("behält beim Abhaken einer pausierten Challenge die eingefrorene Restzeit", () => {
+    const result = applyComplete(
+      makeChallenge({ state: "pending", timerEndsAt: null, timerRemainMs: 3_120 }),
+      now,
+    );
+
+    expect(result.challenge).toMatchObject({ state: "done", timerEndsAt: null, timerRemainMs: 3_120 });
   });
 
   it("startet einen abgelaufenen globalen Timer frisch und läuft nicht ins Leere", () => {
@@ -250,11 +305,12 @@ describe("Win-Challenges-Domain", () => {
     });
 
     const timerChanged = mergeDefinition(
-      makeChallenge({ state: "active", timerEndsAt: "2026-08-30T12:01:00.000Z" }),
+      makeChallenge({ state: "active", timerEndsAt: "2026-08-30T12:01:00.000Z", timerRemainMs: 5_000 }),
       { ...definition, timerTotalMs: 20_000 },
       now,
     );
     expect(timerChanged.timerEndsAt).toBe("2026-08-30T12:01:00.000Z");
+    expect(timerChanged.timerRemainMs).toBeNull();
 
     const targetRemoved = mergeDefinition(
       makeChallenge({ currentCount: 7 }),

@@ -135,9 +135,11 @@ CREATE TABLE IF NOT EXISTS wc_challenges (
   current_count INTEGER NOT NULL,
   state TEXT NOT NULL CHECK (state IN ('pending', 'active', 'done')),
   timer_ends_at TEXT,
+  timer_remain_ms INTEGER CHECK (timer_remain_ms BETWEEN 0 AND 21600000),
   completed_at TEXT,
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  CHECK (timer_ends_at IS NULL OR timer_remain_ms IS NULL)
 );
 CREATE TABLE IF NOT EXISTS wc_commands (
   command_id TEXT PRIMARY KEY,
@@ -228,6 +230,16 @@ ALTER TABLE wc_meta ADD COLUMN done_order TEXT NOT NULL DEFAULT 'end' CHECK (don
 const MIGRATION_8_GLOBAL_TIMER_MODE = `
 ALTER TABLE wc_meta ADD COLUMN global_timer_mode TEXT NOT NULL DEFAULT 'down' CHECK (global_timer_mode IN ('down','up'));
 `;
+
+const MIGRATION_9_CHALLENGE_TIMER_REMAIN = `
+ALTER TABLE wc_challenges ADD COLUMN timer_remain_ms INTEGER CHECK (timer_remain_ms BETWEEN 0 AND 21600000);
+`;
+
+const hasChallengeTimerRemain = (sql: SqlStorage): boolean =>
+  sql
+    .exec<{ name: string }>("PRAGMA table_info(wc_challenges)")
+    .toArray()
+    .some((column) => column.name === "timer_remain_ms");
 
 export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
   sql.exec(MIGRATION_1);
@@ -331,6 +343,18 @@ export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
     sql.exec(
       "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
       8,
+      buildId,
+      new Date().toISOString(),
+    );
+  }
+  const versionNineWasApplied = sql
+    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 9")
+    .toArray().length > 0;
+  if (!versionNineWasApplied) {
+    if (!hasChallengeTimerRemain(sql)) sql.exec(MIGRATION_9_CHALLENGE_TIMER_REMAIN);
+    sql.exec(
+      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
+      9,
       buildId,
       new Date().toISOString(),
     );

@@ -33,6 +33,7 @@ import {
   isThemeMode,
   isSurfaceMode,
   isTimerTotalMs,
+  isTimerRemainMs,
   MAX_CHALLENGES,
 } from "../modules/win-challenges/contracts/predicates";
 
@@ -119,6 +120,7 @@ const parseChallenge = (input: unknown): Challenge | null => {
       "currentCount",
       "state",
       "timerEndsAt",
+      "timerRemainMs",
       "completedAt",
       "createdAt",
       "updatedAt",
@@ -132,6 +134,8 @@ const parseChallenge = (input: unknown): Challenge | null => {
     !isCurrentCount(input.currentCount) ||
     !isChallengeState(input.state) ||
     !(input.timerEndsAt === null || isInstant(input.timerEndsAt)) ||
+    !isTimerRemainMs(input.timerRemainMs) ||
+    (input.timerEndsAt !== null && input.timerRemainMs !== null) ||
     !(input.completedAt === null || isInstant(input.completedAt)) ||
     !isInstant(input.createdAt) ||
     !isInstant(input.updatedAt)

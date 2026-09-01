@@ -161,9 +161,11 @@ CREATE TABLE wc_challenges (
   current_count  INTEGER NOT NULL,   -- 0..999
   state          TEXT NOT NULL CHECK (state IN ('pending', 'active', 'done')),
   timer_ends_at  TEXT,               -- absoluter ISO-Instant, NULL wenn kein Timer
+  timer_remain_ms INTEGER CHECK (timer_remain_ms BETWEEN 0 AND 21_600_000), -- eingefrorene Restzeit
   completed_at   TEXT,
   created_at     TEXT NOT NULL,
-  updated_at     TEXT NOT NULL
+  updated_at     TEXT NOT NULL,
+  CHECK (timer_ends_at IS NULL OR timer_remain_ms IS NULL)
 );
 
 CREATE TABLE wc_commands (           -- Idempotenz, für ALLE Mutationen
@@ -198,10 +200,10 @@ Maximal 30 Challenges. Mehrere gleichzeitig `active` sind erlaubt.
 | von | Kommando | nach | Nebenwirkung |
 |---|---|---|---|
 | `pending` | `startTimer` | `active` | `timer_ends_at = now + timer_total_ms`, Event `timer_started` |
-| `active` | `stopTimer` | `pending` | `timer_ends_at = NULL`, Event `timer_stopped` |
-| `pending` \| `active` | `complete` | `done` | `completed_at`, Event `completed` |
+| `active` | `stopTimer` | `pending` | Restzeit in `timer_remain_ms` einfrieren, `timer_ends_at = NULL`, Event `timer_stopped` |
+| `pending` \| `active` | `complete` | `done` | Restzeit einfrieren/erhalten, `completed_at`, Event `completed` |
 | `pending` \| `active` | `increment` | unverändert, außer Auto-Complete | Event `progressed` |
-| `done` | `reopen` | `active` falls `timer_ends_at` in der Zukunft, sonst `pending` | `completed_at = NULL`, Event `reopened` |
+| `done` | `reopen` | `pending` | `timer_remain_ms` erhalten, `completed_at = NULL`, Event `reopened` |
 
 - **Auto-Complete wird ausschließlich innerhalb von `increment` ausgewertet.** `reopen` ist
   kein `increment`, kann also nicht sofort wieder zuschnappen. Keine Unterdrückungs-Spalte.
@@ -294,7 +296,7 @@ challenge_update {
       pausedRemainMs: number | null // null wenn nicht pausiert
     },
   },
-  challenges: Challenge[],
+  challenges: Array<Challenge & { timerRemainMs: number | null }>, // eingefrorene Restzeit je Challenge
   event: null | ChallengeEvent | GlobalTimerEvent,
 }
 
@@ -367,6 +369,8 @@ type Command =
   | { commandId: string, scope: "global",
       type: "startGlobalTimer" | "pauseGlobalTimer" | "resetGlobalTimer" };
 ```
+
+Jeder `challenge_update`-Snapshot liefert für jede Challenge zusätzlich `timerRemainMs` als eingefrorene Restzeit oder `null`.
 
 Antwort: `{ eventSeq, replayed, challenge? , settings? }`. Challenge-Kommandos liefern die
 betroffene Challenge, globale Kommandos den Settings-Teil. Der Dock-Token darf `scope:

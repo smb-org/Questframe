@@ -79,6 +79,7 @@ const update: ChallengeUpdate = {
     currentCount: 1,
     state: "pending",
     timerEndsAt: null,
+    timerRemainMs: null,
     completedAt: null,
     createdAt: "2026-08-31T12:00:00.000Z",
     updatedAt: "2026-08-31T12:00:00.000Z",

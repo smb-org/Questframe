@@ -36,6 +36,7 @@ export const mergeDefinition = (
       currentCount: 0,
       state: "pending",
       timerEndsAt: null,
+      timerRemainMs: null,
       completedAt: null,
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -44,6 +45,7 @@ export const mergeDefinition = (
 
   const timestamp = toInstant(now);
   const timerRemoved = definition.timerTotalMs === null;
+  const timerChanged = definition.timerTotalMs !== existing.timerTotalMs;
   const currentCount =
     definition.targetCount === null
       ? existing.currentCount
@@ -59,6 +61,7 @@ export const mergeDefinition = (
     currentCount,
     state: timerRemoved && existing.state === "active" ? "pending" : existing.state,
     timerEndsAt: timerRemoved ? null : existing.timerEndsAt,
+    timerRemainMs: timerChanged ? null : existing.timerRemainMs,
     updatedAt: timestamp,
   };
 };

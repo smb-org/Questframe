@@ -6,7 +6,7 @@ import type {
   GlobalTimer,
 } from "../../../shared/contracts/win-challenges";
 import { challengeNumbers, formatChallengeStand, selectVisible } from "../domain/visibility";
-import { deriveTimerState, type TimerState } from "../domain/timers";
+import { deriveChallengeTimerState, deriveTimerState, type TimerState } from "../domain/timers";
 import {
   formatRemaining,
   displayedMsFor,
@@ -81,10 +81,12 @@ const ChallengeRow = ({
   numbered: boolean;
 }) => {
   const done = challenge.state === "done";
-  const timerState = challenge.timerEndsAt === null
-    ? "idle"
-    : deriveTimerState(challenge.timerEndsAt, null, now);
-  const remainingMs = remainingFor(challenge.timerEndsAt, null, timerState, now);
+  const timerState = deriveChallengeTimerState(challenge, now);
+  const remainingMs = remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, now);
+  const showTime = done
+    ? challenge.timerRemainMs !== null
+    : timerState === "running" || timerState === "paused" || timerState === "expired";
+  const timeText = formatRemaining(remainingMs);
   const targetCount = challenge.targetCount;
   const progress = targetCount === null
     ? null
@@ -124,8 +126,14 @@ const ChallengeRow = ({
           {challenge.targetCount !== null && (
             <span className="challenge-source__count" key={ceremonyKey}>{challenge.currentCount} / {challenge.targetCount}</span>
           )}
-          {challenge.timerEndsAt !== null && !done && (
-            <span className="challenge-source__time">{formatRemaining(remainingMs)}</span>
+          {showTime && (
+            <span
+              aria-label={done ? `Rest bei Abschluss ${timeText}` : `Restzeit ${timeText}`}
+              className="challenge-source__time"
+              data-state={done ? "done" : timerState}
+            >
+              {timerState === "paused" && !done ? "Ⅱ " : ""}{timeText}
+            </span>
           )}
         </span>
       </span>
@@ -173,8 +181,7 @@ export const ChallengeLog = ({
   const capacity = update.settings.maxVisible;
   const pinnedCandidate = allChallenges[0];
   const pinned = pinnedCandidate !== undefined && pinnedCandidate.state !== "done"
-    && pinnedCandidate.timerEndsAt !== null
-    && deriveTimerState(pinnedCandidate.timerEndsAt, null, now) === "running"
+    && deriveChallengeTimerState(pinnedCandidate, now) === "running"
     ? pinnedCandidate
     : null;
   const pageSize = Math.max(1, capacity - (pinned === null ? 0 : 1));

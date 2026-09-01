@@ -28,6 +28,7 @@ export type Challenge = {
   currentCount: number;
   state: ChallengeState;
   timerEndsAt: string | null;
+  timerRemainMs: number | null;
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;

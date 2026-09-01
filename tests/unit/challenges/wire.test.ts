@@ -33,6 +33,7 @@ const update = (): ChallengeUpdate => ({
     currentCount: 2,
     state: "pending",
     timerEndsAt: null,
+    timerRemainMs: null,
     completedAt: null,
     createdAt: "2026-08-30T12:00:00.000Z",
     updatedAt: "2026-08-30T12:00:00.000Z",
@@ -100,6 +101,39 @@ describe("Challenge-Quelle-Wire", () => {
 
     expect(parseChallengeUpdate(current)).toEqual(current);
     expect(parseChallengeUpdate(oldWire)).toBeNull();
+  });
+
+  it("validiert die eingefrorene Restzeit mit der Challenge-Grenze", () => {
+    const current = update();
+    const challenge = current.challenges[0];
+    if (challenge === undefined) throw new Error("Test-Challenge fehlt.");
+    const withRemain = { ...challenge, timerRemainMs: 3_600_000 };
+
+    expect(parseChallengeUpdate({ ...current, challenges: [withRemain] })).toMatchObject({
+      challenges: [withRemain],
+    });
+    expect(parseChallengeUpdate({
+      ...current,
+      challenges: [{ ...withRemain, timerRemainMs: -1 }],
+    })).toBeNull();
+    expect(parseChallengeUpdate({
+      ...current,
+      challenges: [{ ...withRemain, timerRemainMs: 21_600_001 }],
+    })).toBeNull();
+  });
+
+  it("weist gleichzeitig laufende und pausierte Timer zurück", () => {
+    const current = update();
+    const challenge = current.challenges[0];
+    if (challenge === undefined) throw new Error("Test-Challenge fehlt.");
+    expect(parseChallengeUpdate({
+      ...current,
+      challenges: [{
+        ...challenge,
+        timerEndsAt: "2026-08-30T12:01:00.000Z",
+        timerRemainMs: 1_000,
+      }],
+    })).toBeNull();
   });
 
   it("verlangt im Settings-Key-Set das Placement", () => {

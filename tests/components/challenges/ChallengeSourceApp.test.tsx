@@ -57,6 +57,7 @@ const challenge = (id: string, title: string, state: "pending" | "done", sortOrd
   currentCount: state === "done" ? 1 : 3,
   state,
   timerEndsAt: null,
+  timerRemainMs: null,
   completedAt: state === "done" ? new Date().toISOString() : null,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
@@ -758,6 +759,52 @@ describe("ChallengeSourceApp", () => {
     render(<ChallengeLog now={fixedNow} update={sourceUpdate({ challenges: [old] })} />);
     expect(screen.getByText("Alte Challenge")).toBeInTheDocument();
     expect(screen.getByText("✓")).toBeInTheDocument();
+  });
+
+  it("zeigt pausierte Restzeit offen und eingefrorene Restzeit beim Abhaken", () => {
+    const paused = {
+      ...challenge("paused", "Pausiert", "pending", 0),
+      timerTotalMs: 60_000,
+      timerRemainMs: 192_000,
+    };
+    const view = render(<ChallengeLog now={fixedNow} update={sourceUpdate({ challenges: [paused] })} />);
+
+    const pausedTime = document.querySelector(".challenge-source__time");
+    expect(pausedTime).toHaveTextContent("Ⅱ 3:12");
+    expect(pausedTime).toHaveAttribute("data-state", "paused");
+    expect(pausedTime).toHaveAttribute("aria-label", "Restzeit 3:12");
+
+    const done = {
+      ...paused,
+      state: "done" as const,
+      timerEndsAt: null,
+      timerRemainMs: 0,
+      completedAt: new Date(fixedNow).toISOString(),
+    };
+    view.rerender(<ChallengeLog now={fixedNow} update={sourceUpdate({ challenges: [done] })} />);
+    const doneTime = document.querySelector(".challenge-source__time");
+    expect(doneTime).toHaveTextContent("0:00");
+    expect(doneTime).toHaveAttribute("data-state", "done");
+    expect(doneTime).toHaveAttribute("aria-label", "Rest bei Abschluss 0:00");
+  });
+
+  it("zeigt bei offenen Challenges ohne laufenden oder pausierten Timer keine Restzeit", () => {
+    const view = render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      challenges: [challenge("open", "Offen", "pending", 0)],
+    })} />);
+
+    expect(document.querySelector(".challenge-source__time")).toBeNull();
+
+    view.rerender(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      challenges: [{
+        ...challenge("expired", "Abgelaufen", "pending", 0),
+        timerTotalMs: 60_000,
+        state: "active",
+        timerEndsAt: new Date(fixedNow - 1_000).toISOString(),
+      }],
+    })} />);
+    expect(document.querySelector(".challenge-source__time")).toHaveTextContent("0:00");
+    expect(document.querySelector(".challenge-source__time")).toHaveAttribute("data-state", "expired");
   });
 
   it("zeigt erledigte Challenges auch bei laufendem globalem Timer", () => {

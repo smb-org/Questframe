@@ -44,6 +44,7 @@ const challenge = (currentCount = 3): ChallengeUpdate["challenges"][number] => (
   currentCount,
   state: "pending",
   timerEndsAt: null,
+  timerRemainMs: null,
   completedAt: null,
   createdAt: now,
   updatedAt: now,
@@ -283,6 +284,7 @@ describe("Live-Bedienseite", () => {
       expect(time).toHaveAttribute("data-state", "running");
       expect(time).toHaveAttribute("data-critical", "true");
       expect(time).toHaveAttribute("aria-label", "Restzeit 0:45");
+      expect(screen.getByRole("button", { name: "Offene Challenge Timer pausieren" })).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -305,6 +307,35 @@ describe("Live-Bedienseite", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("zeigt pausierte Restzeit und eingefrorene Restzeit bei erledigten Challenges", () => {
+    render(<LiveApp />);
+    emitUpdate({
+      ...message(),
+      challenges: [{ ...challenge(), state: "pending", timerRemainMs: 192_000 }],
+    });
+
+    const pausedTime = document.querySelector(".live-page__challenge-time");
+    expect(pausedTime).toHaveTextContent("Ⅱ 3:12");
+    expect(pausedTime).toHaveAttribute("data-state", "paused");
+    expect(screen.getByRole("button", { name: "Offene Challenge Timer starten" })).toBeInTheDocument();
+
+    emitUpdate({
+      ...message(),
+      challenges: [{
+        ...challenge(),
+        state: "done",
+        timerRemainMs: 0,
+        completedAt: now,
+      }],
+    });
+
+    const doneTime = document.querySelector(".live-page__challenge-time");
+    expect(doneTime).toHaveTextContent("0:00");
+    expect(doneTime).toHaveAttribute("data-state", "done");
+    expect(doneTime).toHaveAttribute("aria-label", "Rest bei Abschluss 0:00");
+    expect(screen.queryByRole("button", { name: "Offene Challenge Timer starten" })).not.toBeInTheDocument();
   });
 
   it("bietet keinen Reset des globalen Timers an", () => {

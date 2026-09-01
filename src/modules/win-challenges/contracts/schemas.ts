@@ -37,6 +37,7 @@ import {
   isThemeMode,
   isSurfaceMode,
   isTimerTotalMs,
+  isTimerRemainMs,
   normalizeChallengeText,
 } from "./predicates";
 
@@ -63,6 +64,10 @@ const currentCountSchema = custom(isCurrentCount, `Aktueller Stand muss 0–${ma
 const timerTotalMsSchema = custom(
   isTimerTotalMs,
   "Timerdauer muss null oder 10.000–21.600.000 ms sein.",
+);
+const timerRemainMsSchema = custom(
+  isTimerRemainMs,
+  "Eingefrorene Restzeit muss null oder 0–21.600.000 ms sein.",
 );
 const globalTimerTotalMsSchema = custom(
   isGlobalTimerTotalMs,
@@ -129,20 +134,31 @@ export const challengeDefinitionSchema = z.union([
   z.strictObject({ clientId: clientIdSchema, ...challengeDefinitionFields }),
 ]);
 
-export const challengeSchema = z.strictObject({
-  id: challengeIdSchema,
-  title: challengeTitleSchema,
-  targetCount: targetCountSchema,
-  timerTotalMs: timerTotalMsSchema,
-  sortOrder: sortOrderSchema,
-  hidden: custom(isHidden, "Ausgeblendet muss ein Boolean sein."),
-  currentCount: currentCountSchema,
-  state: challengeStateSchema,
-  timerEndsAt: z.union([instantSchema, z.null()]),
-  completedAt: z.union([instantSchema, z.null()]),
-  createdAt: instantSchema,
-  updatedAt: instantSchema,
-});
+export const challengeSchema = z
+  .strictObject({
+    id: challengeIdSchema,
+    title: challengeTitleSchema,
+    targetCount: targetCountSchema,
+    timerTotalMs: timerTotalMsSchema,
+    sortOrder: sortOrderSchema,
+    hidden: custom(isHidden, "Ausgeblendet muss ein Boolean sein."),
+    currentCount: currentCountSchema,
+    state: challengeStateSchema,
+    timerEndsAt: z.union([instantSchema, z.null()]),
+    timerRemainMs: z.union([timerRemainMsSchema, z.null()]),
+    completedAt: z.union([instantSchema, z.null()]),
+    createdAt: instantSchema,
+    updatedAt: instantSchema,
+  })
+  .superRefine((value, context) => {
+    if (value.timerEndsAt !== null && value.timerRemainMs !== null) {
+      context.addIssue({
+        code: "custom",
+        path: ["timerRemainMs"],
+        message: "Eine Challenge darf nicht gleichzeitig laufen und pausiert sein.",
+      });
+    }
+  });
 
 export const globalTimerSchema = z
   .strictObject({

@@ -1,5 +1,5 @@
 import type { Challenge } from "../contracts/schemas";
-import { deriveTimerState, type DomainNow } from "./timers";
+import { deriveChallengeTimerState, type DomainNow } from "./timers";
 
 export type VisibleSelectionOptions = {
   includeHidden?: boolean;
@@ -20,8 +20,7 @@ export const selectVisible = (
   const pinned = ordered.find(
     (challenge) =>
       challenge.state !== "done" &&
-      challenge.timerEndsAt !== null &&
-      deriveTimerState(challenge.timerEndsAt, null, now) === "running",
+      deriveChallengeTimerState(challenge, now) === "running",
   );
   const withoutPinned = ordered.filter((challenge) => challenge !== pinned);
   const reordered = options.doneOrder === "keep"

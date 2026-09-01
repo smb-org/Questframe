@@ -29,6 +29,7 @@ import {
   isSortOrder,
   isTargetCount,
   isTimerTotalMs,
+  isTimerRemainMs,
 } from "../../../src/modules/win-challenges/contracts/predicates";
 
 const definition = {
@@ -49,6 +50,7 @@ const challenge = {
   currentCount: 0,
   state: "pending" as const,
   timerEndsAt: null,
+  timerRemainMs: null,
   completedAt: null,
   createdAt: "2026-08-30T12:00:00.000Z",
   updatedAt: "2026-08-30T12:00:00.000Z",
@@ -127,6 +129,24 @@ describe("Win-Challenges-Verträge", () => {
       ...saveFields,
       globalTimerTotalMs: GLOBAL_TIMER_UP_CAP_MS + 1,
       placement: settings.placement,
+    }).success).toBe(false);
+  });
+
+  it("validiert die eingefrorene Challenge-Restzeit mit derselben 6-Stunden-Grenze", () => {
+    expect(isTimerRemainMs(null)).toBe(true);
+    expect(isTimerRemainMs(0)).toBe(true);
+    expect(isTimerRemainMs(21_600_000)).toBe(true);
+    expect(isTimerRemainMs(-1)).toBe(false);
+    expect(isTimerRemainMs(21_600_001)).toBe(false);
+    expect(challengeSchema.safeParse({ ...challenge, timerRemainMs: 21_600_000 }).success).toBe(true);
+    expect(challengeSchema.safeParse({ ...challenge, timerRemainMs: 21_600_001 }).success).toBe(false);
+  });
+
+  it("verbietet gleichzeitig laufende und pausierte Challenge-Timer", () => {
+    expect(challengeSchema.safeParse({
+      ...challenge,
+      timerEndsAt: "2026-08-30T12:01:00.000Z",
+      timerRemainMs: 1_000,
     }).success).toBe(false);
   });
 
