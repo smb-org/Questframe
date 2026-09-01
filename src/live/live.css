@@ -215,9 +215,33 @@ html[data-surface="live"] #root {
   white-space: nowrap;
 }
 
-.live-page__challenge-count {
+.live-page__challenge-meta {
   flex: 0 0 auto;
   margin-left: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.live-page__challenge-time {
+  display: inline-block;
+  min-width: 32px;
+  color: var(--live-muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.live-page__challenge-time[data-state="running"] {
+  color: var(--live-accent);
+}
+
+.live-page__challenge-time[data-critical="true"] {
+  color: var(--live-error);
+}
+
+.live-page__challenge-count {
   color: var(--live-text);
   font-variant-numeric: tabular-nums;
   font-weight: 700;

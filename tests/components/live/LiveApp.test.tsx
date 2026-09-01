@@ -269,6 +269,44 @@ describe("Live-Bedienseite", () => {
     expect(screen.getByText("3 / 10")).toBeInTheDocument();
   });
 
+  it("zeigt bei einem laufenden Challenge-Timer die Restzeit und wird unter 60 Sekunden kritisch", () => {
+    vi.useFakeTimers();
+    try {
+      render(<LiveApp />);
+      emitUpdate({
+        ...message(),
+        challenges: [{ ...challenge(), state: "active", timerEndsAt: new Date(Date.now() + 45_000).toISOString() }],
+      });
+
+      const time = document.querySelector(".live-page__challenge-time");
+      expect(time).toHaveTextContent("0:45");
+      expect(time).toHaveAttribute("data-state", "running");
+      expect(time).toHaveAttribute("data-critical", "true");
+      expect(time).toHaveAttribute("aria-label", "Restzeit 0:45");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("zeigt bei einem abgelaufenen Challenge-Timer den Ablauftext", () => {
+    vi.useFakeTimers();
+    try {
+      render(<LiveApp />);
+      emitUpdate({
+        ...message(),
+        challenges: [{ ...challenge(), state: "active", timerEndsAt: new Date(Date.now() - 1_000).toISOString() }],
+      });
+
+      const time = document.querySelector(".live-page__challenge-time");
+      expect(time).toHaveTextContent("abgelaufen");
+      expect(time).toHaveAttribute("data-state", "expired");
+      expect(time).toHaveAttribute("data-critical", "true");
+      expect(time).toHaveAttribute("aria-label", "Timer abgelaufen");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("bietet keinen Reset des globalen Timers an", () => {
     render(<LiveApp />);
     emitUpdate();

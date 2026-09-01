@@ -182,6 +182,12 @@ const ChallengeRow = ({
     ? deriveTimerState(challenge.timerEndsAt, null, now)
     : "idle";
   const timerRunning = timerState === "running";
+  const remainingMs = remainingFor(challenge.timerEndsAt, null, timerState, now);
+  const timerCritical = timerIsCritical(timerState, remainingMs);
+  const timeText = timerState === "expired"
+    ? "abgelaufen"
+    : formatRemaining(timerState === "idle" ? challenge.timerTotalMs ?? 0 : remainingMs);
+  const timeAriaLabel = timerState === "expired" ? "Timer abgelaufen" : `Restzeit ${timeText}`;
   return (
     <article
       className={`live-page__challenge-row${pinned ? " live-page__challenge-row--pinned" : ""}${done ? " live-page__challenge-row--done" : ""}${pending ? " live-page__challenge-row--pending" : ""}`}
@@ -193,10 +199,20 @@ const ChallengeRow = ({
         {numbered && number !== undefined && <span aria-hidden="true" className="live-page__challenge-number">{number}</span>}
         <span className="live-page__challenge-title">{challenge.title}</span>
         {challenge.hidden && <span className="live-page__challenge-hidden-badge">ausgeblendet</span>}
-        <span className="live-page__challenge-count">
-          {challenge.targetCount === null
-            ? String(challenge.currentCount)
-            : `${String(challenge.currentCount)} / ${String(challenge.targetCount)}`}
+        <span className="live-page__challenge-meta">
+          {hasTimer && !done && (
+            <span
+              aria-label={timeAriaLabel}
+              className="live-page__challenge-time"
+              data-critical={timerCritical ? "true" : "false"}
+              data-state={timerState}
+            >{timeText}</span>
+          )}
+          <span className="live-page__challenge-count">
+            {challenge.targetCount === null
+              ? String(challenge.currentCount)
+              : `${String(challenge.currentCount)} / ${String(challenge.targetCount)}`}
+          </span>
         </span>
       </div>
       {!deleted && !compact && (
