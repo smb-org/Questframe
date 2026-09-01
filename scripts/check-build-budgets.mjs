@@ -149,8 +149,8 @@ if (challengeThemeKeys.length !== 6) {
 const challengeStyleKeys = [...challengeSourceDynamicImports].filter((key) => (
   manifest[key]?.src?.startsWith("src/modules/win-challenges/styles/") && manifest[key]?.isDynamicEntry === true
 )) ?? [];
-if (challengeStyleKeys.length !== 4) {
-  throw new Error(`Expected four dynamic Challenge-Style-Chunks, found ${String(challengeStyleKeys.length)}.`);
+if (challengeStyleKeys.length !== 3) {
+  throw new Error(`Expected three dynamic Challenge-Style-Chunks, found ${String(challengeStyleKeys.length)}.`);
 }
 const adminEntry = manifest[adminKey];
 const qrCodeKeyCandidates = adminEntry?.dynamicImports?.filter((key) => key.endsWith(qrCodeKeySuffix)) ?? [];
