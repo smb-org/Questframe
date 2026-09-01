@@ -417,7 +417,7 @@ describe("win-challenges repository and migration", () => {
         numbered: true,
         doneOrder: "keep",
         globalTimerMode: "up",
-        globalTimerTotalMs: 180_000,
+        globalTimerTotalMs: 86_400_000,
         placement: { x: 12, y: 34, scale: 1.25 },
         now: future,
       }),
@@ -434,7 +434,7 @@ describe("win-challenges repository and migration", () => {
       numbered: true,
       doneOrder: "keep",
       placement: { x: 12, y: 34, scale: 1.25 },
-      globalTimer: { totalMs: 180_000, endsAt: null, pausedRemainMs: null },
+      globalTimer: { totalMs: 86_400_000, endsAt: null, pausedRemainMs: null },
       globalTimerMode: "up",
     });
     expect((await readGlobalTimerRow()).global_timer_mode).toBe("up");

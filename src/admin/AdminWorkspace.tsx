@@ -48,6 +48,7 @@ import {
   type SettingsSaveRequest,
   type SettingsSaveResponse,
 } from "../modules/win-challenges/contracts/schemas";
+import { GLOBAL_TIMER_UP_CAP_MS } from "../modules/win-challenges/contracts/predicates";
 import { ChallengeBoard, type ChallengeBoardApi, type ChallengeBoardSaveHandle } from "../modules/win-challenges/ui/ChallengeBoard";
 import { ChallengeLog } from "../modules/win-challenges/ui/ChallengeLog";
 import { deriveTimerState, type TimerState } from "../modules/win-challenges/domain/timers";
@@ -136,7 +137,10 @@ const sameChallengeSettingsDraft = (left: ChallengeSettingsDraft | null, right: 
 
 const challengeSettingsWithDraft = (settings: ChallengeSettings, draft: ChallengeSettingsDraft | null, themeId: ChallengeThemeId): ChallengeSettings => {
   if (draft === null) return { ...settings, themeId };
-  const timerDurationChanged = draft.globalTimerTotalMs !== (settings.globalTimer?.totalMs ?? null);
+  const globalTimerTotalMs = draft.globalTimerMode === "up"
+    ? GLOBAL_TIMER_UP_CAP_MS
+    : draft.globalTimerTotalMs;
+  const timerDurationChanged = globalTimerTotalMs !== (settings.globalTimer?.totalMs ?? null);
   return {
     ...settings,
     themeId,
@@ -150,17 +154,16 @@ const challengeSettingsWithDraft = (settings: ChallengeSettings, draft: Challeng
     numbered: draft.numbered,
     doneOrder: draft.doneOrder,
     globalTimerMode: draft.globalTimerMode === "off" ? "down" : draft.globalTimerMode,
-    globalTimer: draft.globalTimerMode === "off" || draft.globalTimerTotalMs === null
+    globalTimer: draft.globalTimerMode === "off" || globalTimerTotalMs === null
       ? null
       : {
-          totalMs: draft.globalTimerTotalMs,
+          totalMs: globalTimerTotalMs,
           endsAt: timerDurationChanged ? null : settings.globalTimer?.endsAt ?? null,
           pausedRemainMs: timerDurationChanged ? null : settings.globalTimer?.pausedRemainMs ?? null,
         },
   };
 };
 
-const GLOBAL_TIMER_MAX_MS = 360 * 60_000;
 const GLOBAL_TIMER_DEFAULT_MS = 60_000;
 
 const liveGlobalTimerStatus = (update: ChallengeUpdate | null, now: number): { state: TimerState; label: string } => {
@@ -168,10 +171,12 @@ const liveGlobalTimerStatus = (update: ChallengeUpdate | null, now: number): { s
   if (update === null || timer === null || timer === undefined) return { state: "idle", label: "bereit" };
   const mode = update.settings.globalTimerMode;
   const state = deriveTimerState(timer.endsAt, timer.pausedRemainMs, now);
-  if (state === "expired") return { state, label: "abgelaufen" };
-  if (state === "idle") return { state, label: "bereit" };
   const remainingMs = remainingFor(timer.endsAt, timer.pausedRemainMs, state, now);
   const displayedMs = displayedMsFor(mode, timer.totalMs, remainingMs);
+  if (state === "expired") {
+    return { state, label: mode === "up" ? formatRemaining(displayedMs) : "abgelaufen" };
+  }
+  if (state === "idle") return { state, label: "bereit" };
   return {
     state,
     label: `${state === "running" ? "läuft" : "pausiert"} · ${formatRemaining(displayedMs)}`,
@@ -255,7 +260,9 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
       updateSettings({ globalTimerMode: value, globalTimerTotalMs: null, globalTimerMinutes: "" });
       return;
     }
-    const totalMs = settingsDraft?.globalTimerTotalMs ?? (value === "up" ? GLOBAL_TIMER_MAX_MS : GLOBAL_TIMER_DEFAULT_MS);
+    const totalMs = value === "up"
+      ? GLOBAL_TIMER_UP_CAP_MS
+      : settingsDraft?.globalTimerTotalMs ?? GLOBAL_TIMER_DEFAULT_MS;
     updateSettings({
       globalTimerMode: value,
       globalTimerTotalMs: totalMs,
@@ -266,7 +273,7 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
   };
   const updateGlobalTimerMinutes = (minutes: string) => {
     const totalMs = minutes === ""
-      ? settingsDraft?.globalTimerMode === "up" ? GLOBAL_TIMER_MAX_MS : null
+      ? settingsDraft?.globalTimerMode === "up" ? GLOBAL_TIMER_UP_CAP_MS : null
       : Number(minutes) * 60_000;
     updateSettings({ globalTimerMinutes: minutes, globalTimerTotalMs: totalMs });
   };
@@ -295,7 +302,10 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
         setError(messageText);
         return { ok: false, conflict: false, message: messageText };
       }
-      const response = await saveChallengeSettings({ baseSettingsRevision: snapshot.settingsRevision, styleId: settingsDraft.styleId, themeMode: settings.themeMode, surfaceMode: settingsDraft.surfaceMode, headerTitle: settingsDraft.headerTitle, effectsEnabled: settingsDraft.effectsEnabled, maxVisible: settingsDraft.maxVisible, overflowMode: settingsDraft.overflowMode, overflowTempo: settingsDraft.overflowTempo, numbered: settingsDraft.numbered, doneOrder: settingsDraft.doneOrder, globalTimerMode: settingsDraft.globalTimerMode === "off" ? "down" : settingsDraft.globalTimerMode, globalTimerTotalMs: settingsDraft.globalTimerTotalMs, placement: effectivePlacement });
+      const globalTimerTotalMs = settingsDraft.globalTimerMode === "up"
+        ? GLOBAL_TIMER_UP_CAP_MS
+        : settingsDraft.globalTimerTotalMs;
+      const response = await saveChallengeSettings({ baseSettingsRevision: snapshot.settingsRevision, styleId: settingsDraft.styleId, themeMode: settings.themeMode, surfaceMode: settingsDraft.surfaceMode, headerTitle: settingsDraft.headerTitle, effectsEnabled: settingsDraft.effectsEnabled, maxVisible: settingsDraft.maxVisible, overflowMode: settingsDraft.overflowMode, overflowTempo: settingsDraft.overflowTempo, numbered: settingsDraft.numbered, doneOrder: settingsDraft.doneOrder, globalTimerMode: settingsDraft.globalTimerMode === "off" ? "down" : settingsDraft.globalTimerMode, globalTimerTotalMs, placement: effectivePlacement });
       // Derselbe Revisions-Guard wie in applyRemoteSnapshot: waehrend unsere Antwort
       // unterwegs war, kann per Socket schon eine neuere Revision eingetroffen sein
       // (zweiter Editor). Eine verspaetete eigene Antwort darf diesen neueren lokalen
@@ -342,7 +352,7 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
           <label><span>Zeilen</span><select aria-label="Zeilen" disabled={disabled} value={settingsDraft.maxVisible} onChange={(event) => updateSettings({ maxVisible: Number(event.target.value) })}>{[3, 4, 5, 6, 7, 8, 9, 10].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
           <div className="challenge-timer-settings">
             <label><span>Globaler Timer</span><select aria-label="Globaler Timer" disabled={disabled} value={settingsDraft.globalTimerMode} onChange={(event) => updateGlobalTimerMode(event.target.value as GlobalTimerMode | "off")}><option value="off">aus</option><option value="down">runterzählen</option><option value="up">hochzählen</option></select></label>
-            <label><span>{settingsDraft.globalTimerMode === "up" ? "Limit" : "Dauer"}</span><span className="challenge-timer-input"><input aria-label={settingsDraft.globalTimerMode === "up" ? "Limit" : "Dauer"} disabled={disabled || settingsDraft.globalTimerMode === "off"} max={360} min={1} required={settingsDraft.globalTimerMode === "down"} step={1} type="number" value={settingsDraft.globalTimerMinutes} onChange={(event) => updateGlobalTimerMinutes(event.target.value)} /><small>Minuten</small></span></label>
+            {settingsDraft.globalTimerMode !== "up" && <label><span>Dauer</span><span className="challenge-timer-input"><input aria-label="Dauer" disabled={disabled || settingsDraft.globalTimerMode === "off"} max={GLOBAL_TIMER_UP_CAP_MS / 60_000} min={1} required={settingsDraft.globalTimerMode === "down"} step={1} type="number" value={settingsDraft.globalTimerMinutes} onChange={(event) => updateGlobalTimerMinutes(event.target.value)} /><small>Minuten</small></span></label>}
           </div>
           <label><span>Erledigte</span><select aria-label="Erledigte" disabled={disabled} value={settingsDraft.doneOrder} onChange={(event) => updateSettings({ doneOrder: event.target.value as ChallengeDoneOrder })}><option value="end">ans Ende</option><option value="keep">Position behalten</option></select></label>
           <label><span>Überlauf</span><select aria-label="Überlauf" disabled={disabled} value={settingsDraft.overflowMode} onChange={(event) => updateSettings({ overflowMode: event.target.value as ChallengeOverflowMode })}><option value="cut">abschneiden</option><option value="page">paginieren</option><option value="scroll">scrollen</option></select></label>

@@ -280,7 +280,7 @@ const GlobalTimerControl = ({
     <section className="live-page__global" aria-label="Globaler Timer">
       <div
         className={`live-page__global-display${critical ? " live-page__global-display--critical" : ""}`}
-        aria-label={`Globaler Timer: ${formatRemaining(displayedMs)}${state === "paused" ? ", pausiert" : state === "expired" ? ", abgelaufen" : ""}${mode === "up" ? ", hochzählend" : ""}`}
+        aria-label={`Globaler Timer: ${formatRemaining(displayedMs)}${state === "paused" ? ", pausiert" : state === "expired" && mode === "down" ? ", abgelaufen" : ""}${mode === "up" ? ", hochzählend" : ""}`}
         data-critical={critical ? "true" : "false"}
         data-state={state}
       >
@@ -288,7 +288,7 @@ const GlobalTimerControl = ({
         <span aria-hidden="true">{state === "paused" ? "Ⅱ" : critical ? "!" : mode === "up" ? "▴" : "▸"}</span>
         <strong>{formatRemaining(displayedMs)}</strong>
         {state === "paused" && <span>pausiert</span>}
-        {state === "expired" && <span>abgelaufen</span>}
+        {state === "expired" && mode === "down" && <span>abgelaufen</span>}
       </div>
       <button
         className="live-control live-page__global-toggle"

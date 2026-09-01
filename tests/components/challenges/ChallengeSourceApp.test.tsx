@@ -827,10 +827,12 @@ describe("ChallengeSourceApp", () => {
     render(<ChallengeLog now={fixedNow} update={sourceUpdate({
       settings: { ...message().settings, globalTimerMode: "up", globalTimer: globalTimer("expired") },
     })} />);
-    const expired = screen.getByLabelText("Globaler Timer: 1:00, abgelaufen, hochzählend");
+    const expired = screen.getByLabelText("Globaler Timer: 1:00, hochzählend");
     expect(expired).toHaveTextContent("1:00");
     expect(expired).toHaveAttribute("data-state", "expired");
     expect(expired).toHaveAttribute("data-critical", "false");
+    expect(expired).not.toHaveClass("challenge-source__timer--expired");
+    expect(expired).not.toHaveTextContent("abgelaufen");
   });
 
   it("zeigt den Überlauf mit der eingestellten Kapazität", () => {

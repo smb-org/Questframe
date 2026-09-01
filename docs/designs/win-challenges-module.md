@@ -600,8 +600,8 @@ der mitten im Stream dazukommt, nicht einzuordnen.
 
 Optional (`global_timer_total_ms = NULL` schaltet ihn ab). `global_timer_mode = 'down'` zeigt die
 Restzeit und markiert die letzte Minute kritisch; `global_timer_mode = 'up'` zeigt die seit dem
-Start verstrichene Zeit ohne kritischen Zustand, bis das Limit erreicht und der Timer abgelaufen
-ist. Das Laufzeitmodell bleibt für beide Modi gleich (`total_ms`, `ends_at`,
+Start verstrichene Zeit ohne kritischen oder abgelaufenen Zustand bis zur internen Kappe von
+24 Stunden. Das Laufzeitmodell bleibt für beide Modi gleich (`total_ms`, `ends_at`,
 `paused_remain_ms`). Vier Zustände, kein Server-Tick
 und kein Alarm, dieselbe Ableitung wie bei den Challenge-Timern:
 

@@ -15,6 +15,7 @@ import {
   isDoneOrder,
   isDelta,
   isEventSeq,
+  isGlobalTimerTotalMs,
   isGlobalTimerMode,
   isHeaderTitle,
   isHidden,
@@ -55,7 +56,7 @@ const exactKeys = (value: Record<string, unknown>, keys: readonly string[]): boo
 const parseGlobalTimer = (input: unknown): GlobalTimer | null => {
   if (!isRecord(input) || !exactKeys(input, ["totalMs", "endsAt", "pausedRemainMs"])) return null;
   if (
-    !isTimerTotalMs(input.totalMs) ||
+    !isGlobalTimerTotalMs(input.totalMs) ||
     input.totalMs === null ||
     !(input.endsAt === null || isInstant(input.endsAt)) ||
     !isPausedRemainMs(input.pausedRemainMs)

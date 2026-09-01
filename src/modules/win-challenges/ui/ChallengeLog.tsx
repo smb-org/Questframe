@@ -15,9 +15,9 @@ import {
 } from "./timer";
 import { useScrollOffset } from "./scroll";
 
-const timerClass = (state: TimerState, critical: boolean): string => {
+const timerClass = (state: TimerState, critical: boolean, mode: ChallengeUpdate["settings"]["globalTimerMode"]): string => {
   if (state === "paused") return "challenge-source__timer--paused";
-  if (state === "expired") return "challenge-source__timer--expired";
+  if (state === "expired" && mode === "down") return "challenge-source__timer--expired";
   return critical ? "challenge-source__timer--critical" : "";
 };
 
@@ -44,7 +44,7 @@ const GlobalTimerDisplay = ({
   const displayedMs = displayedMsFor(mode, timer.totalMs, remainingMs);
   const statusLabel = state === "paused"
     ? "pausiert"
-    : state === "expired"
+    : state === "expired" && mode === "down"
       ? "abgelaufen"
       : critical
         ? "kritisch"
@@ -53,7 +53,7 @@ const GlobalTimerDisplay = ({
     <span
       key={ceremonyTarget ? ceremonySeq : undefined}
       aria-label={`Globaler Timer: ${formatRemaining(displayedMs)}${statusLabel === null ? "" : `, ${statusLabel}`}${mode === "up" ? ", hochzählend" : ""}`}
-      className={`challenge-source__timer ${timerClass(state, critical)}`}
+      className={`challenge-source__timer ${timerClass(state, critical, mode)}`}
       data-critical={critical ? "true" : "false"}
       data-state={state}
       data-ceremony-target={ceremonyTarget ? "true" : undefined}

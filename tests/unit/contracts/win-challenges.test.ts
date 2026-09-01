@@ -5,9 +5,12 @@ import {
   challengePlacementSchema,
   challengeSchema,
   commandSchema,
+  globalTimerSchema,
+  settingsSaveRequestSchema,
   settingsSchema,
 } from "../../../src/modules/win-challenges/contracts/schemas";
 import {
+  GLOBAL_TIMER_UP_CAP_MS,
   isChallengeTitle,
   isCurrentCount,
   isDoneOrder,
@@ -15,6 +18,7 @@ import {
   isGlobalTimerMode,
   isHeaderTitle,
   isInstant,
+  isGlobalTimerTotalMs,
   isNumbered,
   isOverflowMode,
   isOverflowTempo,
@@ -92,6 +96,38 @@ describe("Win-Challenges-Verträge", () => {
   it("weist das entfernte Beschreibungsfeld in Definition und Snapshot zurück", () => {
     expect(challengeDefinitionSchema.safeParse({ ...definition, description: "veraltet" }).success).toBe(false);
     expect(challengeSchema.safeParse({ ...challenge, description: null }).success).toBe(false);
+  });
+
+  it("trennt die 6-Stunden-Challenge-Grenze von der 24-Stunden-Grenze des globalen Timers", () => {
+    expect(isTimerTotalMs(21_600_000)).toBe(true);
+    expect(isTimerTotalMs(21_600_001)).toBe(false);
+    expect(isGlobalTimerTotalMs(GLOBAL_TIMER_UP_CAP_MS)).toBe(true);
+    expect(isGlobalTimerTotalMs(GLOBAL_TIMER_UP_CAP_MS + 1)).toBe(false);
+    expect(challengeDefinitionSchema.safeParse({
+      ...definition,
+      timerTotalMs: GLOBAL_TIMER_UP_CAP_MS,
+    }).success).toBe(false);
+    expect(globalTimerSchema.safeParse({
+      totalMs: GLOBAL_TIMER_UP_CAP_MS,
+      endsAt: null,
+      pausedRemainMs: GLOBAL_TIMER_UP_CAP_MS,
+    }).success).toBe(true);
+
+    const { themeId: _themeId, globalTimer: _globalTimer, ...saveFields } = settings;
+    void _themeId;
+    void _globalTimer;
+    expect(settingsSaveRequestSchema.safeParse({
+      baseSettingsRevision: 1,
+      ...saveFields,
+      globalTimerTotalMs: GLOBAL_TIMER_UP_CAP_MS,
+      placement: settings.placement,
+    }).success).toBe(true);
+    expect(settingsSaveRequestSchema.safeParse({
+      baseSettingsRevision: 1,
+      ...saveFields,
+      globalTimerTotalMs: GLOBAL_TIMER_UP_CAP_MS + 1,
+      placement: settings.placement,
+    }).success).toBe(false);
   });
 
   it("hält alle Feldprädikate und die darüber gebauten Schemas gekoppelt", () => {

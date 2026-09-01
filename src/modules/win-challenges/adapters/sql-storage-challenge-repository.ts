@@ -9,7 +9,7 @@ import {
   type Challenge,
   type GlobalTimer,
 } from "../contracts/schemas";
-import { MAX_CHALLENGES, MAX_COUNT, isEventSeq, isGlobalTimerMode, isRevision, isTimerTotalMs } from "../contracts/predicates";
+import { MAX_CHALLENGES, MAX_COUNT, isEventSeq, isGlobalTimerMode, isGlobalTimerTotalMs, isRevision } from "../contracts/predicates";
 import { mergeDefinition, normalizeSortOrder } from "../domain/definitions";
 import type { DomainNow } from "../domain/timers";
 import {
@@ -686,7 +686,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     if (!isGlobalTimerMode(input.globalTimerMode)) {
       throw new ValidationError("Ungültiger globaler Timer-Modus.");
     }
-    if (!isTimerTotalMs(input.globalTimerTotalMs)) {
+    if (!isGlobalTimerTotalMs(input.globalTimerTotalMs)) {
       throw new ValidationError("Ungültige globale Timerdauer.");
     }
     let globalTimer: ChallengeRepositorySettings["globalTimer"];

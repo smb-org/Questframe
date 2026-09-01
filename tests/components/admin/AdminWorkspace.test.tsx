@@ -304,7 +304,7 @@ describe("Admin workspace shell", () => {
     expect(command).toMatchObject({ scope: "global", type: "resetGlobalTimer" });
   });
 
-  it("setzt beim Hochzählen das leere Limit auf 360 Minuten und deaktiviert es im Aus-Zustand", async () => {
+  it("blendet beim Hochzählen die Dauer aus und speichert die 24-Stunden-Kappe", async () => {
     const user = userEvent.setup();
     const challengeSnapshot: ChallengeBoardSnapshot = {
       eventSeq: 0,
@@ -340,14 +340,12 @@ describe("Admin workspace shell", () => {
     expect(panel.getByText("bereit")).toBeInTheDocument();
 
     fireEvent.change(panel.getByRole("combobox", { name: "Globaler Timer" }), { target: { value: "up" } });
-    const limit = panel.getByRole("spinbutton", { name: "Limit" });
-    expect(limit).toHaveValue(360);
-    fireEvent.change(limit, { target: { value: "" } });
+    expect(panel.queryByRole("spinbutton", { name: "Dauer" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Alle speichern" }));
 
     expect(saveChallengeSettings).toHaveBeenCalledWith(expect.objectContaining({
       globalTimerMode: "up",
-      globalTimerTotalMs: 21_600_000,
+      globalTimerTotalMs: 86_400_000,
     }));
   });
 

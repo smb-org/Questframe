@@ -17,6 +17,7 @@ import {
   isDelta,
   isDoneOrder,
   isEventSeq,
+  isGlobalTimerTotalMs,
   isGlobalTimerMode,
   isHeaderTitle,
   isHidden,
@@ -63,9 +64,13 @@ const timerTotalMsSchema = custom(
   isTimerTotalMs,
   "Timerdauer muss null oder 10.000–21.600.000 ms sein.",
 );
-const requiredTimerTotalMsSchema = custom(
-  (value): value is number => isTimerTotalMs(value) && value !== null,
-  "Gesamtdauer muss 10.000–21.600.000 ms sein.",
+const globalTimerTotalMsSchema = custom(
+  isGlobalTimerTotalMs,
+  "Globale Timerdauer muss null oder 10.000–86.400.000 ms sein.",
+);
+const requiredGlobalTimerTotalMsSchema = custom(
+  (value): value is number => isGlobalTimerTotalMs(value) && value !== null,
+  "Globale Gesamtdauer muss 10.000–86.400.000 ms sein.",
 );
 const deltaSchema = custom(isDelta, "Delta muss zwischen -99 und 99 liegen.");
 const instantSchema = custom(isInstant, "Zeitpunkt muss ein ISO-Instant sein.");
@@ -88,7 +93,7 @@ const revisionSchema = custom(isRevision, "Revision muss positiv sein.");
 const eventSeqSchema = custom(isEventSeq, "Event-Sequenz muss nichtnegativ sein.");
 const pausedRemainMsSchema = custom(
   isPausedRemainMs,
-  "Pausierte Restzeit muss null oder 0–21.600.000 ms sein.",
+  "Pausierte Restzeit muss null oder 0–86.400.000 ms sein.",
 );
 const challengeStateSchema = custom(
   isChallengeState,
@@ -141,7 +146,7 @@ export const challengeSchema = z.strictObject({
 
 export const globalTimerSchema = z
   .strictObject({
-    totalMs: requiredTimerTotalMsSchema,
+    totalMs: requiredGlobalTimerTotalMsSchema,
     endsAt: z.union([instantSchema, z.null()]),
     pausedRemainMs: z.union([pausedRemainMsSchema, z.null()]),
   })
@@ -255,7 +260,7 @@ export const settingsSaveRequestSchema = z.strictObject({
   numbered: numberedSchema,
   doneOrder: doneOrderSchema,
   globalTimerMode: globalTimerModeSchema,
-  globalTimerTotalMs: timerTotalMsSchema,
+  globalTimerTotalMs: globalTimerTotalMsSchema,
   placement: challengePlacementSchema,
 });
 

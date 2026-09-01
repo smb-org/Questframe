@@ -175,7 +175,7 @@
 ) .challenge-source__header {
   min-height: var(--wc-header-height);
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 12px;
   padding: 0 var(--wc-inline-padding);

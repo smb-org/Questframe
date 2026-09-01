@@ -6,6 +6,7 @@ const challengeGraphemeSegmenter = new Intl.Segmenter("de", {
 
 export const MAX_CHALLENGES = 30 as const;
 export const MAX_COUNT = 999 as const;
+export const GLOBAL_TIMER_UP_CAP_MS = 24 * 60 * 60 * 1000;
 
 export const DEFAULT_CHALLENGE_PLACEMENT = {
   x: 300,
@@ -67,6 +68,13 @@ export const isTimerTotalMs = (value: unknown): value is number | null =>
     Number.isSafeInteger(value) &&
     value >= 10_000 &&
     value <= 21_600_000);
+
+export const isGlobalTimerTotalMs = (value: unknown): value is number | null =>
+  value === null ||
+  (typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 10_000 &&
+    value <= GLOBAL_TIMER_UP_CAP_MS);
 
 export const isDelta = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= -99 && value <= 99;
@@ -165,7 +173,7 @@ export const isPausedRemainMs = (value: unknown): value is number | null =>
   (typeof value === "number" &&
     Number.isSafeInteger(value) &&
     value >= 0 &&
-    value <= 21_600_000);
+    value <= GLOBAL_TIMER_UP_CAP_MS);
 
 export const isRevision = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 1;

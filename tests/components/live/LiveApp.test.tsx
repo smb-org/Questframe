@@ -110,6 +110,29 @@ describe("Live-Bedienseite", () => {
     expect(timer).toHaveAttribute("data-critical", "false");
   });
 
+  it("zeigt im Hochzählmodus nach Erreichen der Kappe weder Ablauf-Label noch Ablauftext", () => {
+    render(<LiveApp />);
+    emitUpdate({
+      ...message(),
+      settings: {
+        ...message().settings,
+        globalTimerMode: "up",
+        globalTimer: {
+          totalMs: 86_400_000,
+          endsAt: new Date(Date.now() - 1_000).toISOString(),
+          pausedRemainMs: null,
+        },
+      },
+    });
+
+    const timer = document.querySelector(".live-page__global-display");
+    expect(timer).toHaveTextContent("24:00:00");
+    expect(timer).toHaveAttribute("data-state", "expired");
+    expect(timer).toHaveAttribute("data-critical", "false");
+    expect(timer).not.toHaveTextContent("abgelaufen");
+    expect(timer).toHaveAttribute("aria-label", "Globaler Timer: 24:00:00, hochzählend");
+  });
+
   it("zeigt im Hochzählmodus vor dem Start und nach dem Reset null", () => {
     render(<LiveApp />);
     emitUpdate({

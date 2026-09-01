@@ -45,6 +45,40 @@ describe("Challenge-Quelle-Wire", () => {
     expect(parseChallengeUpdate(update())).toEqual(update());
   });
 
+  it("akzeptiert 24 Stunden nur für den globalen Timer", () => {
+    const current = update();
+    const challenge = current.challenges[0];
+    if (challenge === undefined) throw new Error("Test-Challenge fehlt.");
+    const globalTimerUpdate = {
+      ...current,
+      settings: {
+        ...current.settings,
+        globalTimer: {
+          totalMs: 86_400_000,
+          endsAt: null,
+          pausedRemainMs: 86_400_000,
+        },
+      },
+      challenges: [{ ...challenge, timerTotalMs: 21_600_000 }],
+    };
+    expect(parseChallengeUpdate(globalTimerUpdate)).toEqual(globalTimerUpdate);
+    expect(parseChallengeUpdate({
+      ...globalTimerUpdate,
+      challenges: [{ ...challenge, timerTotalMs: 21_600_001 }],
+    })).toBeNull();
+    expect(parseChallengeUpdate({
+      ...globalTimerUpdate,
+      settings: {
+        ...globalTimerUpdate.settings,
+        globalTimer: {
+          totalMs: 86_400_001,
+          endsAt: null,
+          pausedRemainMs: null,
+        },
+      },
+    })).toBeNull();
+  });
+
   it("weist das entfernte Beschreibungsfeld als unbekannten Wire-Key zurück", () => {
     const current = update();
     const challenge = current.challenges[0];
