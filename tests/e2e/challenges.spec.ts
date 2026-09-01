@@ -92,24 +92,46 @@ const readDockToken = async (page: Page): Promise<string | null> => {
 const ensureOverlayToken = async (page: Page): Promise<string> => {
   const currentToken = await readOverlayToken(page);
   if (currentToken !== null) return currentToken;
+
+  // Dialog öffnen, falls Token nicht existiert
+  await page.getByRole("button", { name: "OBS-Einrichtung öffnen" }).click();
+  await expect(page.locator(".challenge-setup__source--hud")).toBeVisible();
+
   const source = page.locator(".challenge-setup__source--hud");
   const button = source.getByRole("button", { name: /OBS-Link erzeugen|Token ersetzen/ });
   await button.click();
   await expect.poll(() => readOverlayToken(page)).not.toBeNull();
+
   const token = await readOverlayToken(page);
   if (token === null) throw new Error("Overlay-Token fehlt trotz erfolgreicher Erzeugung.");
+
+  // Dialog schließen
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".challenge-setup__source--hud")).toBeHidden();
+
   return token;
 };
 
 const ensureDockToken = async (page: Page): Promise<string> => {
   const currentToken = await readDockToken(page);
   if (currentToken !== null) return currentToken;
+
+  // Dialog öffnen, falls Token nicht existiert
+  await page.getByRole("button", { name: "OBS-Einrichtung öffnen" }).click();
+  await expect(page.locator(".challenge-setup__source--live")).toBeVisible();
+
   const source = page.locator(".challenge-setup__source--live");
   const button = source.getByRole("button", { name: /Dock-Link erzeugen|Token ersetzen/ });
   await button.click();
   await expect.poll(() => readDockToken(page)).not.toBeNull();
+
   const token = await readDockToken(page);
   if (token === null) throw new Error("Dock-Token fehlt trotz erfolgreicher Erzeugung.");
+
+  // Dialog schließen
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".challenge-setup__source--live")).toBeHidden();
+
   return token;
 };
 
