@@ -228,6 +228,28 @@ export function applyStopTimer(
   };
 }
 
+export function applyResetTimer(
+  challenge: Challenge,
+  now: DomainNow,
+): ChallengeTransition {
+  if (challenge.state === "done") return { challenge, event: null };
+  if (deriveChallengeTimerState(challenge, now) === "idle") return { challenge, event: null };
+  return {
+    challenge: {
+      ...challenge,
+      state: "pending",
+      timerEndsAt: null,
+      timerRemainMs: null,
+      ...withChallengeTimestamp(now),
+    },
+    event: {
+      scope: "challenge",
+      type: "timer_stopped",
+      challengeId: challenge.id,
+    },
+  };
+}
+
 const globalEvent = (type: GlobalTimerEvent["type"]): GlobalTimerEvent => ({
   scope: "global",
   type,

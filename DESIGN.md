@@ -94,6 +94,7 @@ den Konturschatten für Text, Haarlinien, Fortschrittsbalken und den kritischen 
 Die Live-Bedienseite unter `/live/challenges` ist keine Ausgabequelle, sondern eine per
 Dock-Token authentifizierte Bedienfläche. Beide Interaktionsflächen übernehmen dieselben
 Touch-Ziele: `44 px` für `+` und `−`, `38 px` für alle übrigen Steuerelemente.
+Timer werden in Live- und Admin-Bedienflächen als gemeinsame Icon-Gruppe für Start/Pause und Reset bedient.
 
 ### Challenge-Stile
 

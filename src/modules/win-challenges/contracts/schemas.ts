@@ -221,6 +221,7 @@ export const commandSchema = z.union([
       z.literal("reopen"),
       z.literal("startTimer"),
       z.literal("stopTimer"),
+      z.literal("resetTimer"),
     ]),
   }),
   z.strictObject({

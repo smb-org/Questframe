@@ -253,7 +253,7 @@ describe("Live-Bedienseite", () => {
     }), { status: 422, headers: { "content-type": "application/json" } }));
     render(<LiveApp />);
     emitUpdate();
-    await user.click(screen.getByRole("button", { name: "Offene Challenge Timer starten" }));
+    await user.click(screen.getByRole("button", { name: "Offene Challenge starten" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Für diese Challenge ist kein Timer eingerichtet."));
     expect(screen.getByText("3 / 10")).toBeInTheDocument();
   });
@@ -284,7 +284,7 @@ describe("Live-Bedienseite", () => {
       expect(time).toHaveAttribute("data-state", "running");
       expect(time).toHaveAttribute("data-critical", "true");
       expect(time).toHaveAttribute("aria-label", "Restzeit 0:45");
-      expect(screen.getByRole("button", { name: "Offene Challenge Timer pausieren" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Offene Challenge pausieren" })).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
@@ -319,7 +319,7 @@ describe("Live-Bedienseite", () => {
     const pausedTime = document.querySelector(".live-page__challenge-time");
     expect(pausedTime).toHaveTextContent("Ⅱ 3:12");
     expect(pausedTime).toHaveAttribute("data-state", "paused");
-    expect(screen.getByRole("button", { name: "Offene Challenge Timer starten" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Offene Challenge starten" })).toBeInTheDocument();
 
     emitUpdate({
       ...message(),
@@ -335,13 +335,34 @@ describe("Live-Bedienseite", () => {
     expect(doneTime).toHaveTextContent("0:00");
     expect(doneTime).toHaveAttribute("data-state", "done");
     expect(doneTime).toHaveAttribute("aria-label", "Rest bei Abschluss 0:00");
-    expect(screen.queryByRole("button", { name: "Offene Challenge Timer starten" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Offene Challenge starten" })).not.toBeInTheDocument();
+  });
+
+  it("setzt einen Challenge-Timer per Icon zurück und deaktiviert Reset im Idle-Zustand", async () => {
+    const user = userEvent.setup();
+    render(<LiveApp />);
+    emitUpdate();
+
+    const idleReset = screen.getByRole("button", { name: "Offene Challenge zurücksetzen" });
+    expect(idleReset).toBeDisabled();
+
+    emitUpdate({
+      ...message(),
+      challenges: [{ ...challenge(), state: "active", timerEndsAt: new Date(Date.now() + 30_000).toISOString() }],
+    });
+    const reset = screen.getByRole("button", { name: "Offene Challenge zurücksetzen" });
+    expect(reset).toBeEnabled();
+    await user.click(reset);
+
+    const requestInit = vi.mocked(fetch).mock.calls.at(-1)?.[1];
+    expect(requestInit?.body).toEqual(expect.stringContaining('"type":"resetTimer"'));
+    expect(requestInit?.body).toEqual(expect.stringContaining('"challengeId":"challenge-1"'));
   });
 
   it("bietet keinen Reset des globalen Timers an", () => {
     render(<LiveApp />);
     emitUpdate();
-    expect(screen.queryByRole("button", { name: /reset|zurücksetzen/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Globaler Timer zurücksetzen" })).not.toBeInTheDocument();
   });
 
   it("lässt unter 280 Pixeln nur die gepinnte Challenge mit Zähler im DOM", () => {

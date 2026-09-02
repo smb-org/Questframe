@@ -51,6 +51,7 @@ import {
 import { GLOBAL_TIMER_UP_CAP_MS } from "../modules/win-challenges/contracts/predicates";
 import { ChallengeBoard, type ChallengeBoardApi, type ChallengeBoardSaveHandle } from "../modules/win-challenges/ui/ChallengeBoard";
 import { ChallengeLog } from "../modules/win-challenges/ui/ChallengeLog";
+import { TimerControls } from "../modules/win-challenges/ui/TimerControls";
 import { deriveTimerState, type TimerState } from "../modules/win-challenges/domain/timers";
 import { displayedMsFor, formatRemaining, remainingFor } from "../modules/win-challenges/ui/timer";
 import type { AdminWorkspace as AdminWorkspaceId } from "../routing";
@@ -277,16 +278,16 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
       : Number(minutes) * 60_000;
     updateSettings({ globalTimerMinutes: minutes, globalTimerTotalMs: totalMs });
   };
-  const resetGlobalTimer = async () => {
-    if (api.sendChallengeCommand === undefined || resetting || !online || liveStatus.state === "idle") return;
+  const runGlobalTimerCommand = async (type: "startGlobalTimer" | "pauseGlobalTimer" | "resetGlobalTimer", successMessage: string) => {
+    if (api.sendChallengeCommand === undefined || resetting || !online || challengeUpdate?.settings.globalTimer === null || challengeUpdate?.settings.globalTimer === undefined) return;
     setResetting(true);
     setError("");
     setMessage("");
     try {
-      await api.sendChallengeCommand({ commandId: crypto.randomUUID(), scope: "global", type: "resetGlobalTimer" });
-      setMessage("Globaler Timer zurückgesetzt.");
+      await api.sendChallengeCommand({ commandId: crypto.randomUUID(), scope: "global", type });
+      setMessage(successMessage);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Globaler Timer konnte nicht zurückgesetzt werden.");
+      setError(caught instanceof Error ? caught.message : "Globaler Timer konnte nicht geändert werden.");
     } finally {
       setResetting(false);
     }
@@ -360,7 +361,13 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
         <label className="challenge-effects-toggle"><input aria-label="Zeremonien und Töne aktiv" checked={settingsDraft.effectsEnabled} disabled={disabled} onChange={(event) => updateSettings({ effectsEnabled: event.target.checked })} type="checkbox" /><span><strong>Zeremonien und Töne aktiv</strong><small>Der Schalter gilt für alle Styles und alle OBS-Quellen.</small></span></label>
         <div className="challenge-timer-actions">
           <small className={`challenge-timer-status challenge-timer-status--${liveStatus.state}`}>{liveStatus.label}</small>
-          <button className="button button--quiet" disabled={disabled || resetting || api.sendChallengeCommand === undefined || liveStatus.state === "idle"} onClick={() => void resetGlobalTimer()} type="button">{resetting ? "Wird zurückgesetzt …" : "Zurücksetzen"}</button>
+          <TimerControls
+            disabled={disabled || resetting || api.sendChallengeCommand === undefined || challengeUpdate?.settings.globalTimer === null || challengeUpdate?.settings.globalTimer === undefined}
+            labelPrefix="Globaler Timer"
+            onReset={() => void runGlobalTimerCommand("resetGlobalTimer", "Globaler Timer zurückgesetzt.")}
+            onToggle={() => void runGlobalTimerCommand(liveStatus.state === "running" ? "pauseGlobalTimer" : "startGlobalTimer", liveStatus.state === "running" ? "Globaler Timer pausiert." : "Globaler Timer gestartet.")}
+            state={liveStatus.state}
+          />
         </div>
       </>}
       <div className="placement-grid"><label><span>X</span><input disabled={loading || saving || !online || effectivePlacement === null} max={384} min={0} type="number" value={fallbackPlacement.x} onChange={(event) => updatePlacement({ ...fallbackPlacement, x: Number(event.target.value) })} /></label><label><span>Y</span><input disabled={loading || saving || !online || effectivePlacement === null} max={216} min={0} type="number" value={fallbackPlacement.y} onChange={(event) => updatePlacement({ ...fallbackPlacement, y: Number(event.target.value) })} /></label><label><span>Skalierung</span><select disabled={loading || saving || !online || effectivePlacement === null} value={fallbackPlacement.scale} onChange={(event) => updatePlacement({ ...fallbackPlacement, scale: Number(event.target.value) })}>{[0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2].map((scale) => <option key={scale} value={scale}>{Math.round(scale * 100)}%</option>)}</select></label></div>

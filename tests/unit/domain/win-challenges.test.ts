@@ -8,6 +8,7 @@ import {
   applyStartGlobal,
   applyStartTimer,
   applyPauseGlobal,
+  applyResetTimer,
   applyResetGlobal,
   applyStopTimer,
   deriveTimerState,
@@ -175,6 +176,18 @@ describe("Win-Challenges-Domain", () => {
     expect(stopped.challenge.timerRemainMs).toBe(7_000);
     expect(stopped.event?.type).toBe("timer_stopped");
     expect(applyStopTimer(makeChallenge(), now).event).toBeNull();
+    for (const timer of [
+      { state: "active" as const, timerEndsAt: "2026-08-30T12:00:01.000Z", timerRemainMs: null },
+      { state: "pending" as const, timerEndsAt: null, timerRemainMs: 3_120 },
+      { state: "active" as const, timerEndsAt: "2026-08-30T11:59:59.000Z", timerRemainMs: null },
+    ]) {
+      const reset = applyResetTimer(makeChallenge(timer), now);
+      expect(reset.challenge).toMatchObject({ state: "pending", timerEndsAt: null, timerRemainMs: null, updatedAt: now });
+      expect(reset.event).toEqual({ scope: "challenge", type: "timer_stopped", challengeId: "challenge-1" });
+    }
+    const done = makeChallenge({ state: "done", timerRemainMs: 1_000 });
+    expect(applyResetTimer(done, now)).toEqual({ challenge: done, event: null });
+    expect(applyResetTimer(makeChallenge(), now)).toEqual({ challenge: makeChallenge(), event: null });
     expect(applyStartTimer(makeChallenge({ timerTotalMs: null }), now).error)
       .toBe("challenge_timer_not_configured");
   });

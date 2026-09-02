@@ -307,6 +307,12 @@ describe("Win-Challenges-Verträge", () => {
     })).toMatchObject({ scope: "challenge", type: "complete" });
     expect(commandSchema.parse({
       commandId: "dc95708a-645a-4bc0-9ca3-7ffbd42e6662",
+      scope: "challenge",
+      type: "resetTimer",
+      challengeId: "challenge-1",
+    })).toMatchObject({ scope: "challenge", type: "resetTimer" });
+    expect(commandSchema.parse({
+      commandId: "dc95708a-645a-4bc0-9ca3-7ffbd42e6662",
       scope: "global",
       type: "startGlobalTimer",
     })).toMatchObject({ scope: "global", type: "startGlobalTimer" });

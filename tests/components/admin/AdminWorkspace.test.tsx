@@ -293,7 +293,7 @@ describe("Admin workspace shell", () => {
     };
 
     render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="challenges" />);
-    const reset = await screen.findByRole("button", { name: "Zurücksetzen" });
+    const reset = await screen.findByRole("button", { name: "Globaler Timer zurücksetzen" });
     expect(reset).toBeEnabled();
     await user.click(reset);
 
@@ -302,6 +302,53 @@ describe("Admin workspace shell", () => {
     const [command] = commandCall;
     expect(command.commandId).toMatch(/^[0-9a-f-]{36}$/i);
     expect(command).toMatchObject({ scope: "global", type: "resetGlobalTimer" });
+  });
+
+  it("bietet im Darstellungs-Panel globale Start- und Pause-Kommandos an", async () => {
+    const user = userEvent.setup();
+    const runningSnapshot: ChallengeBoardSnapshot = {
+      eventSeq: 3,
+      boardRevision: 1,
+      settingsRevision: 1,
+      settings: {
+        styleId: "plain-list", themeMode: "inherit", surfaceMode: "surface", headerTitle: "CHALLENGES", effectsEnabled: true,
+        maxVisible: 5, overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        globalTimer: { totalMs: 60_000, endsAt: new Date(Date.now() + 30_000).toISOString(), pausedRemainMs: null }, placement: { x: 300, y: 8, scale: 1 },
+      },
+      challenges: [],
+    };
+    const sendChallengeCommand = vi.fn((command: Command) => {
+      void command;
+      return Promise.resolve({ eventSeq: 4, replayed: false, settings: runningSnapshot.settings });
+    });
+    const api: AdminApi = {
+      save: vi.fn(), setVisibility: vi.fn(), getChallengeBoard: vi.fn(() => Promise.resolve(runningSnapshot)),
+      saveChallengeBoard: vi.fn(), saveChallengeSettings: vi.fn(), sendChallengeCommand,
+    };
+
+    const { unmount } = render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="challenges" />);
+    const pause = await screen.findByRole("button", { name: "Globaler Timer pausieren" });
+    await user.click(pause);
+    expect(sendChallengeCommand).toHaveBeenLastCalledWith(expect.objectContaining({ scope: "global", type: "pauseGlobalTimer" }));
+    unmount();
+    cleanup();
+
+    const idleSnapshot: ChallengeBoardSnapshot = {
+      ...runningSnapshot,
+      settings: { ...runningSnapshot.settings, globalTimer: { totalMs: 60_000, endsAt: null, pausedRemainMs: null } },
+    };
+    const startCommand = vi.fn((command: Command) => {
+      void command;
+      return Promise.resolve({ eventSeq: 4, replayed: false, settings: idleSnapshot.settings });
+    });
+    const startApi: AdminApi = {
+      save: vi.fn(), setVisibility: vi.fn(), getChallengeBoard: vi.fn(() => Promise.resolve(idleSnapshot)),
+      saveChallengeBoard: vi.fn(), saveChallengeSettings: vi.fn(), sendChallengeCommand: startCommand,
+    };
+    render(<AdminWorkspace api={startApi} initialBootstrap={bootstrap()} workspace="challenges" />);
+    const start = await screen.findByRole("button", { name: "Globaler Timer starten" });
+    await user.click(start);
+    expect(startCommand).toHaveBeenLastCalledWith(expect.objectContaining({ scope: "global", type: "startGlobalTimer" }));
   });
 
   it("blendet beim Hochzählen die Dauer aus und speichert die 24-Stunden-Kappe", async () => {
@@ -336,7 +383,7 @@ describe("Admin workspace shell", () => {
     const panel = within(await screen.findByRole("region", { name: "Darstellung" }));
     const minutes = panel.getByRole("spinbutton", { name: "Dauer" });
     expect(minutes).toBeDisabled();
-    expect(panel.getByRole("button", { name: "Zurücksetzen" })).toBeDisabled();
+    expect(panel.getByRole("button", { name: "Globaler Timer zurücksetzen" })).toBeDisabled();
     expect(panel.getByText("bereit")).toBeInTheDocument();
 
     fireEvent.change(panel.getByRole("combobox", { name: "Globaler Timer" }), { target: { value: "up" } });

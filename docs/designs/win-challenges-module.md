@@ -201,6 +201,7 @@ Maximal 30 Challenges. Mehrere gleichzeitig `active` sind erlaubt.
 |---|---|---|---|
 | `pending` | `startTimer` | `active` | `timer_ends_at = now + timer_total_ms`, Event `timer_started` |
 | `active` | `stopTimer` | `pending` | Restzeit in `timer_remain_ms` einfrieren, `timer_ends_at = NULL`, Event `timer_stopped` |
+| `pending` \| `active` (nicht idle) | `resetTimer` | `pending` | `timer_ends_at = NULL`, `timer_remain_ms = NULL`, Event `timer_stopped` |
 | `pending` \| `active` | `complete` | `done` | Restzeit einfrieren/erhalten, `completed_at`, Event `completed` |
 | `pending` \| `active` | `increment` | unverändert, außer Auto-Complete | Event `progressed` |
 | `done` | `reopen` | `pending` | `timer_remain_ms` erhalten, `completed_at = NULL`, Event `reopened` |
@@ -216,7 +217,7 @@ Maximal 30 Challenges. Mehrere gleichzeitig `active` sind erlaubt.
 
 ### Kommandomodell: alle Mutationen sind dedupliziert
 
-Die frühere Annahme, `complete`, `reopen`, `startTimer` und `stopTimer` seien "von Natur
+Die frühere Annahme, `complete`, `reopen`, `startTimer`, `stopTimer` und `resetTimer` seien "von Natur
 aus idempotent", ist falsch. Zielzustandsoperationen sind nur idempotent, solange dazwischen
 nichts passiert. Die realen Gegenbeispiele:
 
@@ -365,7 +366,7 @@ kann das DTO sie nicht verlangen:
 type Command =
   | { commandId: string, scope: "challenge", type: "increment", challengeId: string, delta: number }
   | { commandId: string, scope: "challenge",
-      type: "complete" | "reopen" | "startTimer" | "stopTimer", challengeId: string }
+      type: "complete" | "reopen" | "startTimer" | "stopTimer" | "resetTimer", challengeId: string }
   | { commandId: string, scope: "global",
       type: "startGlobalTimer" | "pauseGlobalTimer" | "resetGlobalTimer" };
 ```
@@ -617,7 +618,7 @@ und kein Alarm, dieselbe Ableitung wie bei den Challenge-Timern:
 | zurückgesetzt | `NULL` | `NULL` | `idle` |
 
 Fortsetzen ist `ends_at = jetzt + paused_remain_ms`. Drei Kommandos, `startGlobalTimer`,
-`pauseGlobalTimer`, `resetGlobalTimer`, alle mit `commandId`-Dedupe wie die übrigen fünf.
+`pauseGlobalTimer`, `resetGlobalTimer`, alle mit `commandId`-Dedupe wie die übrigen sechs.
 
 **Der Zielzustand wird gegen den abgeleiteten Zustand geprüft, nicht gegen die Spalte.**
 Das ist keine Feinheit: `ends_at IS NOT NULL` als "läuft" zu lesen sperrt einen
@@ -906,7 +907,7 @@ CODE PATHS                                                  USER FLOWS
   └── normalizeSortOrder() lückenlos 0..N-1                 [+] Aussehen
                                                               ├── plain-list / -bullets / quest-log
 [+] service/commands.ts                                       └── effects_enabled aus → keine Zeremonie,
-  ├── CRITICAL Dedupe für ALLE fünf Mutationen:                      kein Sound, reduced-motion respektiert
+  ├── CRITICAL Dedupe für ALLE sechs Mutationen:                     kein Sound, reduced-motion respektiert
   │        complete→reopen→complete-Retry vollendet
   │        NICHT erneut; startTimer→stopTimer→
   │        startTimer-Retry startet KEINEN neuen Timer

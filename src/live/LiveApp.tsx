@@ -11,6 +11,7 @@ import {
   remainingFor,
   timerIsCritical,
 } from "../modules/win-challenges/ui/timer";
+import { TimerControls } from "../modules/win-challenges/ui/TimerControls";
 import { parseChallengeMessage, tokenFromLocation } from "../challenges/wire";
 import { nextReconnectDelayMs } from "../shared/reconnect";
 import "./live.css";
@@ -78,7 +79,7 @@ const sendCommand = async (token: string, command: Command): Promise<void> => {
 const commandId = (): string => crypto.randomUUID();
 
 const challengeCommand = (
-  type: "complete" | "reopen" | "startTimer" | "stopTimer",
+  type: "complete" | "reopen" | "startTimer" | "stopTimer" | "resetTimer",
   challengeId: string,
 ): Command => ({
   commandId: commandId(),
@@ -165,6 +166,10 @@ const optimisticPatchFor = (
       timerRemainMs: null,
     };
   }
+  if (command.type === "resetTimer") {
+    if (challenge.state === "done" || deriveChallengeTimerState(challenge, Date.now()) === "idle") return null;
+    return { state: "pending", timerEndsAt: null, timerRemainMs: null };
+  }
   if (challenge.state !== "active") return null;
   const timerState = deriveChallengeTimerState(challenge, Date.now());
   if (timerState !== "running" && timerState !== "expired") return null;
@@ -214,7 +219,6 @@ const ChallengeRow = ({
   const done = challenge.state === "done";
   const hasTimer = challenge.timerTotalMs !== null;
   const timerState = hasTimer ? deriveChallengeTimerState(challenge, now) : "idle";
-  const timerRunning = timerState === "running";
   const remainingMs = remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, now);
   const timerCritical = timerIsCritical(timerState, remainingMs);
   const timeText = timerState === "expired"
@@ -290,13 +294,15 @@ const ChallengeRow = ({
             >Rückgängig</button>
           )}
           {hasTimer && !done && (
-            <button
-              aria-label={`${challenge.title} ${timerRunning ? "Timer pausieren" : "Timer starten"}`}
-              className="live-control"
-              disabled={pending}
-              onClick={() => onCommand(challengeCommand(timerRunning ? "stopTimer" : "startTimer", challenge.id), challenge.id)}
-              type="button"
-            >{timerRunning ? "Timer pausieren" : "Timer starten"}</button>
+            <div className="live-page__challenge-timer-controls">
+              <TimerControls
+                labelPrefix={challenge.title}
+                onReset={() => onCommand(challengeCommand("resetTimer", challenge.id), challenge.id)}
+                onToggle={() => onCommand(challengeCommand(timerState === "running" ? "stopTimer" : "startTimer", challenge.id), challenge.id)}
+                state={timerState}
+                disabled={pending}
+              />
+            </div>
           )}
         </div>
       )}
@@ -325,11 +331,6 @@ const GlobalTimerControl = ({
   const remainingMs = timer === null ? 0 : remainingFor(timer.endsAt, timer.pausedRemainMs, state, now);
   const critical = timer !== null && timerIsCritical(state, remainingMs, mode);
   const displayedMs = timer === null || state === "idle" ? 0 : displayedMsFor(mode, timer.totalMs, remainingMs);
-  const label = timer === null
-    ? "Globaler Timer ist nicht eingerichtet"
-    : state === "running"
-      ? "Globalen Timer pausieren"
-      : "Globalen Timer starten";
   return (
     <section className="live-page__global" aria-label="Globaler Timer">
       <div
@@ -344,12 +345,13 @@ const GlobalTimerControl = ({
         {state === "paused" && <span>pausiert</span>}
         {state === "expired" && mode === "down" && <span>abgelaufen</span>}
       </div>
-      <button
-        className="live-control live-page__global-toggle"
+      <TimerControls
+        labelPrefix="Globaler Timer"
+        onToggle={() => onCommand(globalCommand(state === "running" ? "pauseGlobalTimer" : "startGlobalTimer"))}
+        showReset={false}
+        state={state}
         disabled={timer === null || pending}
-        onClick={() => onCommand(globalCommand(state === "running" ? "pauseGlobalTimer" : "startGlobalTimer"))}
-        type="button"
-      >{label}</button>
+      />
       {error !== null && <p className="live-page__global-error" role="alert">{error}</p>}
     </section>
   );

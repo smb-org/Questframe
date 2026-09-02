@@ -740,6 +740,18 @@ describe("Win-Challenges-Sockets", () => {
         body: JSON.stringify({ commandId: commandId(), scope: "challenge", type: "increment", challengeId, delta: 1 }),
       });
       expect(command.status).toBe(200);
+      const startChallengeTimer = await fetchWorker("/api/challenges/commands", {
+        method: "POST",
+        headers: { authorization: `Bearer ${dockToken}`, origin, "content-type": "application/json" },
+        body: JSON.stringify({ commandId: commandId(), scope: "challenge", type: "startTimer", challengeId }),
+      });
+      expect(startChallengeTimer.status).toBe(200);
+      const resetChallengeTimer = await fetchWorker("/api/challenges/commands", {
+        method: "POST",
+        headers: { authorization: `Bearer ${dockToken}`, origin, "content-type": "application/json" },
+        body: JSON.stringify({ commandId: commandId(), scope: "challenge", type: "resetTimer", challengeId }),
+      });
+      expect(resetChallengeTimer.status).toBe(200);
 
       const settings = await fetchWorker("/api/challenges/settings", {
         method: "PUT",

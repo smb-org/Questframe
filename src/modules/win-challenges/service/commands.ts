@@ -6,6 +6,7 @@ import {
   applyIncrement,
   applyPauseGlobal,
   applyReopen,
+  applyResetTimer,
   applyResetGlobal,
   applyStartGlobal,
   applyStartTimer,
@@ -148,7 +149,9 @@ const challengeMutation = (
       ? applyReopen(current, now)
       : command.type === "startTimer"
         ? applyStartTimer(current, now)
-        : applyStopTimer(current, now);
+        : command.type === "stopTimer"
+          ? applyStopTimer(current, now)
+          : applyResetTimer(current, now);
   if (transition.error !== undefined) {
     throw new ValidationError(DOMAIN_ERROR_MESSAGES[transition.error], transition.error);
   }

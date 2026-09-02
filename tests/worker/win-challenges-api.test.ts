@@ -103,7 +103,7 @@ describe("Win-Challenges-API", () => {
     await refreshCsrf();
   });
 
-  it("führt alle acht Mutationen über den Service mit dem HTTP-Vertrag aus", async () => {
+  it("führt alle neun Mutationen über den Service mit dem HTTP-Vertrag aus", async () => {
     const board = await saveBoard([definition()]);
     expect(board.status).toBe(200);
     const boardBody = await board.json<{
@@ -168,6 +168,14 @@ describe("Win-Challenges-API", () => {
     }, ["eventSeq", "replayed", "challenge"]);
     expect(stopTimer.challenge?.state).toBe("pending");
 
+    const resetTimer = await run({
+      commandId: commandId(),
+      scope: "challenge",
+      type: "resetTimer",
+      challengeId: challenge.id,
+    }, ["eventSeq", "replayed", "challenge"]);
+    expect(resetTimer.challenge).toMatchObject({ state: "pending", timerEndsAt: null, timerRemainMs: null });
+
     const settingsResponse = await fetchWorker("/api/challenges/settings", {
       method: "PUT",
       headers: authenticatedHeaders(),
@@ -226,7 +234,7 @@ describe("Win-Challenges-API", () => {
       endsAt: null,
       pausedRemainMs: null,
     });
-    expect(resetGlobalTimer.eventSeq).toBe(8);
+    expect(resetGlobalTimer.eventSeq).toBe(9);
   });
 
   it("liefert Replay und Idempotenz-Mismatch ohne zweite Mutation", async () => {

@@ -135,13 +135,17 @@ const ensureDockToken = async (page: Page): Promise<string> => {
   return token;
 };
 
-const createChallenge = async (page: Page, title: string, targetCount?: number): Promise<void> => {
+const createChallenge = async (page: Page, title: string, targetCount?: number, timerSeconds?: number): Promise<void> => {
   await page.getByRole("button", { name: "Challenge anlegen" }).click();
   const row = page.locator(".challenge-board-row").last();
   await row.getByRole("textbox", { name: "Challenge", exact: true }).fill(title);
   if (targetCount !== undefined) {
     await row.getByRole("checkbox", { name: `${title} mit Zielwert` }).check();
     await row.getByRole("spinbutton", { name: `${title} Zielwert` }).fill(String(targetCount));
+  }
+  if (timerSeconds !== undefined) {
+    await row.getByRole("checkbox", { name: `${title} mit Timer` }).check();
+    await row.getByRole("spinbutton", { name: `${title} Timerdauer in Sekunden` }).fill(String(timerSeconds));
   }
   // Kein modul-eigener Save-Button mehr: die globale Speicherleiste ist der einzige Trigger.
   await page.getByRole("button", { name: "Alle speichern" }).click();
@@ -332,6 +336,33 @@ test("ein Live-Plus erhöht den Stand in der Challenge-Quelle", async ({ page, c
   await expect(challengeRow(source, title).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
   await disposePage(live);
   await disposePage(source);
+  await disposePage(page);
+});
+
+test("ein Live-Timer lässt sich starten, pausieren und zurücksetzen", async ({ page, context }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "Desktop-Live-Challenge-Timer");
+  await openChallengeAdmin(page);
+  const dockToken = await ensureDockToken(page);
+  const title = "E2E Live Timer";
+  await createChallenge(page, title, undefined, 10);
+
+  const live = await context.newPage();
+  await live.goto(`/live/challenges#token=${dockToken}`);
+  const start = live.getByRole("button", { name: `${title} starten` });
+  const reset = live.getByRole("button", { name: `${title} zurücksetzen` });
+  await expect(start).toBeVisible();
+  await expect(reset).toBeDisabled();
+
+  await start.click();
+  await expect(live.getByRole("button", { name: `${title} pausieren` })).toBeVisible();
+  await expect(reset).toBeEnabled();
+
+  await live.getByRole("button", { name: `${title} pausieren` }).click();
+  await expect(live.getByRole("button", { name: `${title} starten` })).toBeVisible();
+  await reset.click();
+  await expect(reset).toBeDisabled();
+  await expect(live.locator(".live-page__challenge-time")).toHaveCount(0);
+  await disposePage(live);
   await disposePage(page);
 });
 
