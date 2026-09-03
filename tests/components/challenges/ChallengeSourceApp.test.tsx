@@ -63,6 +63,16 @@ const challenge = (id: string, title: string, state: "pending" | "done", sortOrd
   updatedAt: new Date().toISOString(),
 });
 
+const timedChallenge = (
+  id: string,
+  overrides: Partial<ChallengeUpdate["challenges"][number]> = {},
+): ChallengeUpdate["challenges"][number] => ({
+  ...challenge(id, id, "pending", 0),
+  targetCount: null,
+  timerTotalMs: 120_000,
+  ...overrides,
+});
+
 const message = (): ChallengeUpdate => ({
   eventSeq: 0,
   boardRevision: 1,
@@ -786,6 +796,126 @@ describe("ChallengeSourceApp", () => {
     expect(doneTime).toHaveTextContent("0:00");
     expect(doneTime).toHaveAttribute("data-state", "done");
     expect(doneTime).toHaveAttribute("aria-label", "Rest bei Abschluss 0:00");
+  });
+
+  it("setzt Zeitleisten-Zustand und Variablen für jeden Challenge-Timer-Zustand", () => {
+    vi.useFakeTimers({ now: fixedNow });
+    try {
+      const running = timedChallenge("running", {
+        timerEndsAt: new Date(fixedNow + 120_000).toISOString(),
+      });
+      const paused = timedChallenge("paused", {
+        timerRemainMs: 45_000,
+      });
+      const expired = timedChallenge("expired", {
+        timerEndsAt: new Date(fixedNow - 1_000).toISOString(),
+      });
+      const done = timedChallenge("done", {
+        state: "done",
+        timerRemainMs: 45_000,
+        completedAt: new Date(fixedNow).toISOString(),
+      });
+      const withoutTimer = challenge("without-timer", "without-timer", "pending", 0);
+
+      render(<ChallengeLog now={fixedNow} update={sourceUpdate({ challenges: [running, paused, expired, done, withoutTimer] })} />);
+
+      const row = (id: string): HTMLElement => {
+        const element = document.querySelector<HTMLElement>(`[data-challenge-id="${id}"]`);
+        if (element === null) throw new Error(`Zeile ${id} fehlt`);
+        return element;
+      };
+      const runningRow = row("running");
+      expect(runningRow).toHaveAttribute("data-timer-state", "running");
+      expect(runningRow).not.toHaveAttribute("data-timer-critical");
+      expect(runningRow.style.getPropertyValue("--wc-timer-total")).toBe("120000ms");
+      expect(runningRow.style.getPropertyValue("--wc-timer-delay")).toBe("-0ms");
+      expect(runningRow.style.getPropertyValue("--wc-timer-scale")).toBe("1");
+      expect(runningRow.querySelector(".challenge-source__time")).toBeInTheDocument();
+      expect(runningRow.querySelector(".challenge-source__progress")).toBeNull();
+
+      const pausedRow = row("paused");
+      expect(pausedRow).toHaveAttribute("data-timer-state", "paused");
+      expect(pausedRow).not.toHaveAttribute("data-timer-critical");
+      expect(pausedRow.style.getPropertyValue("--wc-timer-total")).toBe("120000ms");
+      expect(pausedRow.style.getPropertyValue("--wc-timer-delay")).toBe("-75000ms");
+      expect(pausedRow.style.getPropertyValue("--wc-timer-scale")).toBe("0.375");
+
+      const expiredRow = row("expired");
+      expect(expiredRow).toHaveAttribute("data-timer-state", "expired");
+      expect(expiredRow).not.toHaveAttribute("data-timer-critical");
+      expect(expiredRow.style.getPropertyValue("--wc-timer-total")).toBe("120000ms");
+      expect(expiredRow.style.getPropertyValue("--wc-timer-delay")).toBe("-120000ms");
+      expect(expiredRow.style.getPropertyValue("--wc-timer-scale")).toBe("0");
+
+      const doneRow = row("done");
+      expect(doneRow).not.toHaveAttribute("data-timer-state");
+      expect(doneRow).not.toHaveAttribute("data-timer-critical");
+      expect(doneRow.style.getPropertyValue("--wc-timer-total")).toBe("120000ms");
+      expect(doneRow.style.getPropertyValue("--wc-timer-delay")).toBe("-75000ms");
+      expect(doneRow.style.getPropertyValue("--wc-timer-scale")).toBe("0.375");
+
+      const withoutTimerRow = row("without-timer");
+      expect(withoutTimerRow).not.toHaveAttribute("data-timer-state");
+      expect(withoutTimerRow).not.toHaveAttribute("data-timer-critical");
+      expect(withoutTimerRow.style.getPropertyValue("--wc-timer-total")).toBe("");
+      expect(withoutTimerRow.style.getPropertyValue("--wc-timer-delay")).toBe("");
+      expect(withoutTimerRow.style.getPropertyValue("--wc-timer-scale")).toBe("0");
+      expect(withoutTimerRow.querySelector(".challenge-source__time")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("setzt die kritische Zeitleiste erst unter 30 Sekunden und nur im Lauf", () => {
+    vi.useFakeTimers({ now: fixedNow });
+    try {
+      const view = render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+        challenges: [timedChallenge("critical", {
+          timerEndsAt: new Date(fixedNow + 29_999).toISOString(),
+        })],
+      })} />);
+      const row = document.querySelector<HTMLElement>('[data-challenge-id="critical"]');
+      expect(row).toHaveAttribute("data-timer-state", "running");
+      expect(row).toHaveAttribute("data-timer-critical", "true");
+
+      view.rerender(<ChallengeLog now={fixedNow} update={sourceUpdate({
+        challenges: [timedChallenge("critical", {
+          timerEndsAt: new Date(fixedNow + 30_000).toISOString(),
+        })],
+      })} />);
+      expect(row).not.toHaveAttribute("data-timer-critical");
+
+      view.rerender(<ChallengeLog now={fixedNow} update={sourceUpdate({
+        challenges: [timedChallenge("critical", { timerRemainMs: 1_000 })],
+      })} />);
+      expect(row).toHaveAttribute("data-timer-state", "paused");
+      expect(row).not.toHaveAttribute("data-timer-critical");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("hält Dauer und Verzögerung über Sekundenticks stabil", () => {
+    vi.useFakeTimers({ now: fixedNow });
+    try {
+      const challengeWithTimer = timedChallenge("long", {
+        timerEndsAt: new Date(fixedNow + 120_000).toISOString(),
+      });
+      const view = render(<ChallengeLog now={fixedNow} update={sourceUpdate({ challenges: [challengeWithTimer] })} />);
+      const row = document.querySelector<HTMLElement>('[data-challenge-id="long"]');
+      if (row === null) throw new Error("Timer-Zeile fehlt");
+      const totalBefore = row.style.getPropertyValue("--wc-timer-total");
+      const delayBefore = row.style.getPropertyValue("--wc-timer-delay");
+      const scaleBefore = row.style.getPropertyValue("--wc-timer-scale");
+
+      view.rerender(<ChallengeLog now={fixedNow + 2_000} update={sourceUpdate({ challenges: [challengeWithTimer] })} />);
+
+      expect(row.style.getPropertyValue("--wc-timer-total")).toBe(totalBefore);
+      expect(row.style.getPropertyValue("--wc-timer-delay")).toBe(delayBefore);
+      expect(row.style.getPropertyValue("--wc-timer-scale")).not.toBe(scaleBefore);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("zeigt bei offenen Challenges ohne laufenden oder pausierten Timer keine Restzeit", () => {

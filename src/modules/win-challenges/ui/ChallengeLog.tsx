@@ -1,4 +1,4 @@
-import type { CSSProperties, KeyboardEventHandler, PointerEventHandler } from "react";
+import { useMemo, type CSSProperties, type KeyboardEventHandler, type PointerEventHandler } from "react";
 
 import type {
   Challenge,
@@ -83,6 +83,21 @@ const ChallengeRow = ({
   const done = challenge.state === "done";
   const timerState = deriveChallengeTimerState(challenge, now);
   const remainingMs = remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, now);
+  const drain = useMemo(() => {
+    if (challenge.timerTotalMs === null) return null;
+    // eslint-disable-next-line react-hooks/purity -- Der Snapshot darf nur bei einem Timerwechsel neu berechnet werden.
+    const snapshotNow = Date.now();
+    const restMs = challenge.timerEndsAt !== null
+      ? Math.max(0, Date.parse(challenge.timerEndsAt) - snapshotNow)
+      : challenge.timerRemainMs ?? 0;
+    return {
+      "--wc-timer-total": `${String(challenge.timerTotalMs)}ms`,
+      "--wc-timer-delay": `-${String(challenge.timerTotalMs - restMs)}ms`,
+    };
+    // Absicht: kein now in den Abhängigkeiten. Die Werte werden genau dann neu
+    // berechnet, wenn der Timer wirklich wechselt (Start, Pause, Fortsetzen, Reset).
+  }, [challenge.timerEndsAt, challenge.timerRemainMs, challenge.timerTotalMs]);
+  const timerScale = challenge.timerTotalMs === null ? 0 : remainingMs / challenge.timerTotalMs;
   const showTime = done
     ? challenge.timerRemainMs !== null
     : timerState === "running" || timerState === "paused" || timerState === "expired";
@@ -103,6 +118,12 @@ const ChallengeRow = ({
       data-challenge-id={challenge.id}
       data-ceremony-target={ceremonyTargetId === challenge.id ? "true" : undefined}
       data-state={challenge.state}
+      data-timer-critical={!done && timerState === "running" && remainingMs < 30_000 ? "true" : undefined}
+      data-timer-state={done || timerState === "idle" ? undefined : timerState}
+      style={{
+        ...drain,
+        "--wc-timer-scale": String(timerScale),
+      } as CSSProperties}
     >
       <span className="challenge-source__row-inner" key={ceremonyKey}>
         <span aria-hidden="true" className="challenge-source__mark" key={ceremonyKey}>{numbered ? number ?? "" : done ? "✓" : ""}</span>

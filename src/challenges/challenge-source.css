@@ -168,6 +168,70 @@
   pointer-events: none;
 }
 
+@keyframes wc-timer-drain {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+/* Die Zeitleiste liegt auf der Haarlinie und verdeckt sie, solange sie reicht. */
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__row[data-timer-state]::before {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  content: "";
+  pointer-events: none;
+  z-index: 1;
+  background: var(--wc-accent);
+  box-shadow: var(--wc-bare-shadow);
+  transform-origin: left;
+  animation-name: wc-timer-drain;
+  animation-duration: var(--wc-timer-total);
+  animation-timing-function: linear;
+  animation-delay: var(--wc-timer-delay);
+  animation-fill-mode: forwards;
+  animation-iteration-count: 1;
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__row[data-timer-state="paused"]::before {
+  animation-play-state: paused;
+  opacity: .55;
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__row[data-timer-critical="true"]::before {
+  background: var(--wc-critical);
+  animation-name: wc-timer-drain, challenge-source-pulse;
+  animation-duration: var(--wc-timer-total), 1.35s;
+  animation-timing-function: linear, ease-in-out;
+  animation-delay: var(--wc-timer-delay), 0s;
+  animation-fill-mode: forwards, none;
+  animation-iteration-count: 1, infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(
+    .challenge-source[data-style="plain-list"],
+    .challenge-source[data-style="plain-bullets"],
+    .challenge-source[data-style="quest-log"]
+  ) .challenge-source__row[data-timer-state]::before {
+    animation-name: none;
+    transform: scaleX(var(--wc-timer-scale, 1));
+  }
+}
+
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
