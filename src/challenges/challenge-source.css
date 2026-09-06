@@ -260,7 +260,6 @@
   font-weight: var(--wc-title-weight);
   letter-spacing: 0.08em;
   text-overflow: ellipsis;
-  text-transform: uppercase;
   white-space: nowrap;
 }
 
