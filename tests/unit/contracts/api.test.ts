@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MAX_OVERLAY_SOCKETS,
   bootstrapResponseSchema,
   createApiError,
   overlayTokenMutationRequestSchema,
@@ -204,7 +205,12 @@ describe("API contracts", () => {
       debug: true,
     })).toThrow();
     expect(() =>
-      serverMessageSchema.parse({ type: "overlay_presence", connectedSockets: 11 }),
+      // Aus der Konstante abgeleitet, damit der Fall beim Anheben der Grenze
+      // nicht still zu einem gültigen Wert wird.
+      serverMessageSchema.parse({
+        type: "overlay_presence",
+        connectedSockets: MAX_OVERLAY_SOCKETS + 1,
+      }),
     ).toThrow();
     expect(() => serverMessageSchema.parse({ type: "secret_debug", value: 1 })).toThrow();
   });

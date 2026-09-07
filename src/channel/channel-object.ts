@@ -9,6 +9,7 @@ import {
   MAX_COMPOSITE_SOCKETS,
   MAX_CHALLENGE_SOCKETS,
   MAX_DOCK_SOCKETS,
+  MAX_EDITOR_SOCKETS,
   MAX_OVERLAY_SOCKETS,
   overlayTokenMutationRequestSchema,
   overlayTokenResponseSchema,
@@ -129,7 +130,7 @@ type SocketAttachment =
 const limits = {
   maxGuests: 5,
   maxActiveEffects: 8,
-  maxEditorSockets: 10,
+  maxEditorSockets: MAX_EDITOR_SOCKETS,
   maxOverlaySockets: MAX_OVERLAY_SOCKETS,
   maxCompositeSockets: MAX_COMPOSITE_SOCKETS,
   maxChallengeSockets: MAX_CHALLENGE_SOCKETS,
@@ -1237,45 +1238,30 @@ export class ChannelObject extends DurableObject<AppEnv> {
   }
 
   /**
-   * Gibt belegte Socket-Plätze wieder frei und liefert die verbleibende Belegung.
+   * Räumt tote Socket-Plätze ab und liefert die verbleibende Belegung.
    *
    * Hibernierende WebSockets verschwinden nur, wenn der Client sauber schließt.
-   * Eine abgestürzte OBS-Browserquelle, ein harter Reload oder ein Overlay-Host,
-   * der das iframe neu einhängt, hinterlassen deshalb einen toten Socket — bei
-   * MAX_CHALLENGE_SOCKETS = 2 sperrt sich die Quelle so nach zwei Störungen
-   * dauerhaft selbst aus. Zuerst werden alle nicht mehr offenen Sockets
-   * aussortiert; ist danach immer noch kein Platz frei, weicht bei `evictOldest`
-   * die älteste Verbindung. Für eine Anzeigefläche ist das die richtige
-   * Semantik: die jüngste Quelle ist die, die jemand gerade sehen will.
+   * Eine abgestürzte OBS-Browserquelle oder ein neu eingehängtes Widget-iframe
+   * hinterlässt deshalb einen Socket, der nicht mehr offen ist, aber weiter einen
+   * Platz belegt.
+   *
+   * Bewusst wird NUR aussortiert, was nicht mehr offen ist. Eine ältere, lebende
+   * Verbindung zu verdrängen klingt naheliegend, erzeugt aber ein Karussell:
+   * sobald mehr Quellen verbunden sein wollen als Plätze da sind, wirft jede neue
+   * die älteste hinaus, die sofort neu verbindet und die nächste hinauswirft — die
+   * Anzeige verschwindet dann im Sekundentakt. Wer mehr gleichzeitige Quellen
+   * braucht, bekommt mehr Plätze, keine Rotation.
    */
   private reclaimSocketSlots(
     tag: "editor" | "overlay" | "composite" | "challenge" | "dock",
-    socketLimit: number,
-    evictOldest: boolean,
   ): number {
-    let sockets = this.ctx.getWebSockets(tag);
-    for (const socket of sockets) {
+    for (const socket of this.ctx.getWebSockets(tag)) {
       if (socket.readyState === WebSocket.OPEN) continue;
       try {
         socket.close(4004, "stale_socket");
       } catch {
         // Ein bereits geschlossener Socket wirft hier; er zählt ohnehin nicht mehr.
       }
-    }
-    sockets = this.ctx.getWebSockets(tag).filter((s) => s.readyState === WebSocket.OPEN);
-    if (!evictOldest || sockets.length < socketLimit) return sockets.length;
-
-    const connectedAtOf = (socket: WebSocket): number => {
-      const attachment = this.readAttachment(socket);
-      const at = attachment === null ? Number.NaN : Date.parse(attachment.connectedAt);
-      // Ohne verwertbaren Zeitstempel gilt der Socket als ältester Kandidat.
-      return Number.isFinite(at) ? at : 0;
-    };
-    const oldest = sockets.reduce((a, b) => (connectedAtOf(a) <= connectedAtOf(b) ? a : b));
-    try {
-      oldest.close(4005, "socket_evicted");
-    } catch {
-      // Siehe oben: ein nicht schließbarer Socket ist bereits weg.
     }
     return this.activeSocketCount(tag);
   }
@@ -1284,10 +1270,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
     }
-    // Editor-Tabs sind menschlich bedient: tote Sockets aussortieren, aber keinen
-    // lebenden Tab verdrängen.
-    if (this.reclaimSocketSlots("editor", limits.maxEditorSockets, false)
-      >= limits.maxEditorSockets) {
+    if (this.reclaimSocketSlots("editor") >= limits.maxEditorSockets) {
       throw new RequestError(429, "socket_limit", "Zu viele Editor-Verbindungen.");
     }
     const session = this.requireSession(request);
@@ -1322,9 +1305,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
     }
-    // Overlay und Composite haben zehn Plätze; dort genügt das Aussortieren toter
-    // Sockets, eine lebende Quelle darf keine andere verdrängen.
-    if (this.reclaimSocketSlots(tag, socketLimit, false) >= socketLimit) {
+    if (this.reclaimSocketSlots(tag) >= socketLimit) {
       throw new RequestError(429, "socket_limit", limitErrorMessage);
     }
     const token = request.headers.get("x-overlay-token");
@@ -1391,8 +1372,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
     }
-    if (this.reclaimSocketSlots("challenge", limits.maxChallengeSockets, true)
-      >= limits.maxChallengeSockets) {
+    if (this.reclaimSocketSlots("challenge") >= limits.maxChallengeSockets) {
       throw new RequestError(429, "socket_limit", "Zu viele Challenge-Verbindungen.");
     }
     const token = request.headers.get("x-overlay-token");
@@ -1432,10 +1412,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
     }
-    // Das Dock ist menschlich bedient: tote Sockets aussortieren, aber kein
-    // laufendes Bedienpanel verdrängen.
-    if (this.reclaimSocketSlots("dock", limits.maxDockSockets, false)
-      >= limits.maxDockSockets) {
+    if (this.reclaimSocketSlots("dock") >= limits.maxDockSockets) {
       throw new RequestError(429, "socket_limit", "Zu viele Dock-Verbindungen.");
     }
     const row = await this.requireDockToken(request);

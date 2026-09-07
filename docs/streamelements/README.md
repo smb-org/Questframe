@@ -52,10 +52,15 @@ Daraus folgen zwei Dinge, die die Overlay-Auslieferung berücksichtigen muss:
 
 ## Socket-Plätze
 
-Die Challenge-Quelle hat zwei Socket-Plätze (`MAX_CHALLENGE_SOCKETS`).
+Die Challenge-Quelle hat zehn Socket-Plätze (`MAX_CHALLENGE_SOCKETS`).
 Hibernierende WebSockets verschwinden nur bei sauberem Schließen, eine
 abgestürzte Quelle oder ein neu eingehängtes Widget-iframe hinterlässt also
-einen belegten Platz. Deshalb sortiert das Durable Object beim Verbinden tote
-Sockets aus und verdrängt notfalls die älteste Verbindung (Close-Code 4005) —
-die jüngste Quelle ist die, die jemand gerade sehen will. Overlay, Composite,
-Dock und Editor verdrängen nicht, dort werden nur tote Sockets abgeräumt.
+einen belegten Platz. Deshalb sortiert das Durable Object beim Verbinden alle
+nicht mehr offenen Sockets aus (Close-Code 4004).
+
+Eine ältere, lebende Verbindung wird dabei bewusst **nicht** verdrängt. Das war
+kurzzeitig anders und erzeugte ein Karussell: sobald mehr Quellen verbinden
+wollten als Plätze da waren, warf jede neue die älteste hinaus, die sofort neu
+verband und die nächste hinauswarf — die Anzeige verschwand im Sekundentakt.
+Über dem Limit wird deshalb abgewiesen; wer mehr Quellen braucht, bekommt mehr
+Plätze.

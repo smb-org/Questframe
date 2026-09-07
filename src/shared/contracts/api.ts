@@ -60,21 +60,28 @@ export const createApiError = (
   details: ApiErrorDetails = {},
 ): ApiError => apiErrorSchema.parse({ error: { code, message, ...details } });
 
-export const MAX_OVERLAY_SOCKETS = 10 as const;
-export const MAX_COMPOSITE_SOCKETS = 10 as const;
-export const MAX_CHALLENGE_SOCKETS = 2 as const;
-export const MAX_DOCK_SOCKETS = 2 as const;
+// Alle Socket-Grenzen liegen bei 15. Eine Fläche läuft realistisch mehrfach
+// gleichzeitig (StreamElements-Widget, OBS-Browserquelle, Kontrollfenster,
+// mehrere Streamer), und ein hibernierender Socket belegt seinen Platz nach
+// einem Absturz noch eine Weile. Reichlich Luft kostet hier wenig; zu wenig
+// Plätze kostet eine Anzeige, die mitten im Stream nicht mehr verbindet.
+export const MAX_EDITOR_SOCKETS = 15 as const;
+export const MAX_OVERLAY_SOCKETS = 15 as const;
+export const MAX_COMPOSITE_SOCKETS = 15 as const;
+export const MAX_CHALLENGE_SOCKETS = 15 as const;
+export const MAX_DOCK_SOCKETS = 15 as const;
 
 export const limitsSchema = z.strictObject({
   maxGuests: z.literal(5),
   maxActiveEffects: z.literal(8),
-  maxEditorSockets: z.literal(10),
-  // Ein bereits laufender DO-Isolate kann während eines Deployments kurz noch
-  // den bisherigen Wert liefern. Neue Server erzeugen ausschließlich 10.
-  maxOverlaySockets: z.union([z.literal(2), z.literal(MAX_OVERLAY_SOCKETS)]),
-  maxCompositeSockets: z.literal(MAX_COMPOSITE_SOCKETS).optional(),
-  maxChallengeSockets: z.literal(MAX_CHALLENGE_SOCKETS).optional(),
-  maxDockSockets: z.literal(MAX_DOCK_SOCKETS).optional(),
+  // Ein bereits laufender DO-Isolate kann während eines Deployments kurz noch den
+  // bisherigen Wert liefern; deshalb bleiben die alten Grenzen hier gültig. Neue
+  // Server erzeugen ausschließlich den aktuellen Wert.
+  maxEditorSockets: z.union([z.literal(10), z.literal(MAX_EDITOR_SOCKETS)]),
+  maxOverlaySockets: z.union([z.literal(2), z.literal(10), z.literal(MAX_OVERLAY_SOCKETS)]),
+  maxCompositeSockets: z.union([z.literal(10), z.literal(MAX_COMPOSITE_SOCKETS)]).optional(),
+  maxChallengeSockets: z.union([z.literal(2), z.literal(10), z.literal(MAX_CHALLENGE_SOCKETS)]).optional(),
+  maxDockSockets: z.union([z.literal(2), z.literal(MAX_DOCK_SOCKETS)]).optional(),
   maxMediaBytes: z.literal(8_388_608),
 });
 

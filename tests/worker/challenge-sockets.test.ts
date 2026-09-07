@@ -3,6 +3,7 @@ import { runInDurableObject } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  MAX_COMPOSITE_SOCKETS,
   bootstrapResponseSchema,
   dockTokenResponseSchema,
   overlayTokenResponseSchema,
@@ -30,6 +31,12 @@ const authenticatedHeaders = (): HeadersInit => ({
 });
 
 const commandId = (): string => crypto.randomUUID();
+
+// Spiegel der Budgets aus wrangler.jsonc. workerd hat kein Dateisystem, die
+// Datei lässt sich hier also nicht lesen; dass Config und diese Zahlen
+// zusammenpassen und genug Luft lassen, prüft tests/unit/config/wrangler.test.ts.
+const ipLimit = 100;
+const capsuleLimit = 300;
 
 // Modulo hält den Präfix immer bei zwei Ziffern (43 Zeichen gesamt), auch wenn
 // eine Rate-Limit-Schleife weit über 99 Versuche hinaus zählt.
@@ -447,15 +454,21 @@ describe("Win-Challenges-Sockets", () => {
     }
   });
 
-  it("begrenzt Composite-Sockets auf zehn Verbindungen", async () => {
+  it("begrenzt Composite-Sockets auf das konfigurierte Limit", async () => {
     const overlayToken = await createOverlayToken();
     const sockets: WebSocket[] = [];
+    // Eigene cf-connecting-ip: dieser Fall öffnet MAX_COMPOSITE_SOCKETS + 1
+    // Verbindungen und würde sonst den Eimer der übrigen Fälle leeren.
+    const clientIp = { "cf-connecting-ip": "198.51.100.91" };
     try {
-      for (let index = 0; index < 10; index += 1) {
-        sockets.push(await openSocket("/ws/composite", OVERLAY_SOCKET_PROTOCOL, overlayToken));
+      for (let index = 0; index < MAX_COMPOSITE_SOCKETS; index += 1) {
+        sockets.push(
+          await openSocket("/ws/composite", OVERLAY_SOCKET_PROTOCOL, overlayToken, clientIp),
+        );
       }
       const rejected = await fetchWorker("/ws/composite", {
         headers: {
+          ...clientIp,
           upgrade: "websocket",
           "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, ${overlayToken}`,
         },
@@ -467,29 +480,24 @@ describe("Win-Challenges-Sockets", () => {
     }
   });
 
-  it("lässt eine dritte Challenge-Quelle zu und verdrängt dafür die älteste", async () => {
-    // Hibernierende Sockets verschwinden nur bei sauberem Schließen. Ohne
-    // Verdrängung sperrt eine abgestürzte Browserquelle die Challenge-Quelle bei
-    // zwei Plätzen dauerhaft aus; die jüngste Verbindung ist die gewollte.
+  it("verdrängt beim Verbinden keine lebende Challenge-Quelle", async () => {
+    // Verdrängung erzeugte ein Karussell: die hinausgeworfene Quelle verbindet
+    // sofort neu und wirft die nächste hinaus — die Anzeige verschwand im
+    // Sekundentakt. Drei Verbindungen genügen als Nachweis; mehr würden den
+    // IP-Eimer für die übrigen Fälle aufbrauchen.
     const overlayToken = await createOverlayToken();
-    const first = await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken);
-    const second = await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken);
+    const sockets: WebSocket[] = [];
     try {
-      const closed = new Promise<number>((resolve) => {
-        first.addEventListener("close", (event) => { resolve(event.code); });
-      });
-      const third = await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken);
-      try {
-        expect(await closed).toBe(4005);
-        await runInDurableObject(stub, (instance: unknown) => {
-          const ctx = (instance as { ctx: DurableObjectState }).ctx;
-          expect(ctx.getWebSockets("challenge").length).toBe(2);
-        });
-      } finally {
-        third.close();
+      const closes: number[] = [];
+      for (let index = 0; index < 3; index += 1) {
+        const socket = await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken);
+        socket.addEventListener("close", (event) => { closes.push(event.code); });
+        sockets.push(socket);
       }
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(closes, "keine bestehende Quelle darf beim Verbinden geschlossen werden").toEqual([]);
     } finally {
-      second.close();
+      for (const socket of sockets) socket.close();
     }
   });
 
@@ -904,12 +912,11 @@ describe("Win-Challenges-Sockets", () => {
     // Die Formprüfung lässt jedes zufällige 43-Zeichen-Token durch die Tür; die
     // eigentliche Gültigkeitsprüfung passiert erst im Durable Object. Ohne
     // eigenen IP-Eimer würde eine Flut falsch geformter-aber-gültig-aussehender
-    // Token den kapselweiten OVERLAY_CAPSULE_LIMITER (60/10s) leerräumen, bevor
-    // je ein gültiges Token im Spiel war. Der IP-Eimer (30/10s) muss deshalb
-    // zuerst greifen — und deutlich unter 60 Versuchen.
+    // Token den kapselweiten OVERLAY_CAPSULE_LIMITER leerräumen, bevor je ein
+    // gültiges Token im Spiel war. Der IP-Eimer muss deshalb zuerst greifen.
     let limited: Response | null = null;
     let attempts = 0;
-    for (let index = 0; index < 120; index += 1) {
+    for (let index = 0; index < capsuleLimit; index += 1) {
       attempts = index + 1;
       const response = await fetchWorker("/ws/overlay", {
         headers: {
@@ -926,10 +933,13 @@ describe("Win-Challenges-Sockets", () => {
     expect(limited).not.toBeNull();
     if (limited === null) throw new Error("Overlay-Socket-Upgrade wurde nicht rate-limited.");
     expect((await limited.json<{ error: { code: string } }>()).error.code).toBe("rate_limited");
-    // Muss am eigenen Eimer (30/10s, plus etwas Toleranz für einen möglichen
-    // Fenster-Rollover) greifen, klar unterhalb des kapselweiten Eimers
-    // (60/10s) -- sonst hätte die Flut bereits den globalen Eimer verbraucht.
-    expect(attempts).toBeLessThanOrEqual(45);
+    // Muss am eigenen Eimer greifen (plus Toleranz für einen möglichen
+    // Fenster-Rollover), klar unterhalb des kapselweiten Eimers -- sonst hätte
+    // die Flut bereits den globalen Eimer verbraucht. Die Budgets kommen aus
+    // wrangler.jsonc, damit hier die Beziehung geprüft wird und nicht alte Zahlen.
+    const tolerated = Math.floor(ipLimit * 1.5);
+    expect(tolerated, "der IP-Eimer muss klar unter dem Kapsel-Eimer liegen").toBeLessThan(capsuleLimit);
+    expect(attempts).toBeLessThanOrEqual(tolerated);
 
     // Der eigentliche Prüfzweck: die Flut von EINER IP darf eine legitime
     // Verbindung von einer ANDEREN IP nicht aussperren.

@@ -3,6 +3,7 @@ import { runInDurableObject } from "cloudflare:test";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
+  MAX_OVERLAY_SOCKETS,
   bootstrapResponseSchema,
   overlayTokenResponseSchema,
   renewMediaLeasesResponseSchema,
@@ -1042,18 +1043,20 @@ describe("channel worker", () => {
     }
   });
 
-  it("keeps ten overlay slots available through a full reload burst", async () => {
+  it("frees every overlay slot again after a full reload burst", async () => {
     let overlayToken = "";
     const sockets: WebSocket[] = [];
-    // Eigene cf-connecting-ip: dieser Test öffnet allein schon 30 Verbindungen
-    // und würde sich sonst den "unknown"-Fallback-Eimer des neuen
-    // OVERLAY_IP_LIMITER (30/10s) mit anderen Overlay-Tests dieser Datei teilen.
-    const connect = () =>
+    // Eigene cf-connecting-ip je Phase: der OVERLAY_IP_LIMITER lässt 30 Upgrades
+    // pro 10s und Adresse zu, dieser Test öffnet aber drei Wellen von je
+    // MAX_OVERLAY_SOCKETS. Mit einem gemeinsamen Eimer würde er sich ab einer
+    // Grenze von 15 selbst ausbremsen — und den anderen Overlay-Tests dieser
+    // Datei den "unknown"-Fallback-Eimer wegnehmen.
+    const connect = (clientIp: string) =>
       fetchWorker("http://localhost/ws/overlay", {
         headers: {
           upgrade: "websocket",
           "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, ${overlayToken}`,
-          "cf-connecting-ip": "198.51.100.81",
+          "cf-connecting-ip": clientIp,
         },
       });
     const stub = env.CHANNEL.get(env.CHANNEL.idFromName(`channel:${env.BROADCASTER_ID}`));
@@ -1090,7 +1093,10 @@ describe("channel worker", () => {
       expect(rotated).toMatchObject({ generation: 3 });
       overlayToken = rotated.token;
 
-      const upgrades = await Promise.all(Array.from({ length: 10 }, () => connect()));
+      const fill = MAX_OVERLAY_SOCKETS;
+      const upgrades = await Promise.all(
+        Array.from({ length: fill }, () => connect("198.51.100.81")),
+      );
       for (const upgrade of upgrades) {
         const socket = upgrade.webSocket;
         if (socket !== null) {
@@ -1098,10 +1104,15 @@ describe("channel worker", () => {
           sockets.push(socket);
         }
       }
-      expect(upgrades.map((upgrade) => upgrade.status)).toEqual(Array(10).fill(101));
-      expect(await overlaySocketCount()).toBe(10);
+      expect(upgrades.map((upgrade) => upgrade.status)).toEqual(Array(fill).fill(101));
+      expect(await overlaySocketCount()).toBe(fill);
 
-      const reloadOverlaps = await Promise.all(Array.from({ length: 10 }, () => connect()));
+      // Drei Versuche genügen als Nachweis. Eine volle Welle würde zusammen mit
+      // den anderen Phasen den OVERLAY_CAPSULE_LIMITER sprengen (60/10s, testweit
+      // geteilt, weil er auf die CAPSULE_ID schlüsselt).
+      const reloadOverlaps = await Promise.all(
+        Array.from({ length: 3 }, () => connect("198.51.100.82")),
+      );
       for (const response of reloadOverlaps) {
         expect(response.status).toBe(429);
         expect((await response.json<{ error: { code: string } }>()).error.code).toBe("socket_limit");
@@ -1110,7 +1121,12 @@ describe("channel worker", () => {
       for (const socket of sockets.splice(0)) socket.close();
       await waitForSocketCount(0);
 
-      const replacements = await Promise.all(Array.from({ length: 10 }, () => connect()));
+      // Wieder klein gehalten: entscheidend ist, dass nach dem Schließen erneut
+      // verbunden werden kann, nicht die Zahl der Nachrücker. Der geteilte
+      // Kapsel-Eimer lässt keine zweite volle Welle zu.
+      const replacements = await Promise.all(
+        Array.from({ length: 3 }, () => connect("198.51.100.83")),
+      );
       for (const replacement of replacements) {
         const socket = replacement.webSocket;
         if (socket !== null) {
@@ -1118,15 +1134,19 @@ describe("channel worker", () => {
           sockets.push(socket);
         }
       }
-      expect(replacements.map((replacement) => replacement.status)).toEqual(Array(10).fill(101));
-      expect(await overlaySocketCount()).toBe(10);
+      expect(replacements.map((replacement) => replacement.status)).toEqual(Array(3).fill(101));
+      expect(await overlaySocketCount()).toBe(3);
     } finally {
       for (const socket of sockets) socket.close();
       await waitForSocketCount(0);
     }
   });
 
-  it("admits only ten overlays when eleven HMAC checks finish together", async () => {
+  it("admits only the overlay limit when one more HMAC check finishes together", async () => {
+    // Zahlen aus der Konstante: der Fall soll beim Anheben der Grenze weiter
+    // genau die Kante treffen. Er ruft connectOverlay direkt am Durable Object
+    // auf, der IP-Limiter des Workers spielt hier also nicht mit.
+    const overCapacity = MAX_OVERLAY_SOCKETS + 1;
     const bootstrap = bootstrapResponseSchema.parse(
       await (
         await fetchWorker("http://localhost/api/editor/bootstrap", {
@@ -1148,7 +1168,7 @@ describe("channel worker", () => {
     let startedHmacs = 0;
     const signSpy = vi.spyOn(crypto.subtle, "sign").mockImplementation(async (...args) => {
       startedHmacs += 1;
-      if (startedHmacs === 11) markAllHmacsStarted();
+      if (startedHmacs === overCapacity) markAllHmacsStarted();
       await hmacRelease;
       return originalSign(...args);
     });
@@ -1161,7 +1181,7 @@ describe("channel worker", () => {
             connectOverlay(request: Request): Promise<Response>;
           }
         ).connectOverlay.bind(instance);
-        const attempts = Array.from({ length: 11 }, async () => {
+        const attempts = Array.from({ length: overCapacity }, async () => {
           try {
             const response = await connectOverlay(
               new Request("https://channel.internal/ws/overlay", {
@@ -1187,9 +1207,9 @@ describe("channel worker", () => {
           connectedSockets: state.getWebSockets("overlay").length,
         };
       });
-      expect(result.outcomes.filter(({ status }) => status === 101)).toHaveLength(10);
+      expect(result.outcomes.filter(({ status }) => status === 101)).toHaveLength(MAX_OVERLAY_SOCKETS);
       expect(result.outcomes.filter(({ errorCode }) => errorCode === "socket_limit")).toHaveLength(1);
-      expect(result.connectedSockets).toBe(10);
+      expect(result.connectedSockets).toBe(MAX_OVERLAY_SOCKETS);
     } finally {
       releaseHmacs();
       signSpy.mockRestore();
