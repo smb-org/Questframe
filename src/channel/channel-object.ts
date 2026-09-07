@@ -1224,11 +1224,70 @@ export class ChannelObject extends DurableObject<AppEnv> {
     });
   }
 
+  /**
+   * Zählt nur Sockets, die tatsächlich noch Daten annehmen. Ein gerade
+   * geschlossener Socket steht kurzzeitig weiter in getWebSockets(), darf einen
+   * Platz aber nicht mehr blockieren.
+   */
+  private activeSocketCount(
+    tag: "editor" | "overlay" | "composite" | "challenge" | "dock",
+  ): number {
+    return this.ctx.getWebSockets(tag)
+      .filter((socket) => socket.readyState === WebSocket.OPEN).length;
+  }
+
+  /**
+   * Gibt belegte Socket-Plätze wieder frei und liefert die verbleibende Belegung.
+   *
+   * Hibernierende WebSockets verschwinden nur, wenn der Client sauber schließt.
+   * Eine abgestürzte OBS-Browserquelle, ein harter Reload oder ein Overlay-Host,
+   * der das iframe neu einhängt, hinterlassen deshalb einen toten Socket — bei
+   * MAX_CHALLENGE_SOCKETS = 2 sperrt sich die Quelle so nach zwei Störungen
+   * dauerhaft selbst aus. Zuerst werden alle nicht mehr offenen Sockets
+   * aussortiert; ist danach immer noch kein Platz frei, weicht bei `evictOldest`
+   * die älteste Verbindung. Für eine Anzeigefläche ist das die richtige
+   * Semantik: die jüngste Quelle ist die, die jemand gerade sehen will.
+   */
+  private reclaimSocketSlots(
+    tag: "editor" | "overlay" | "composite" | "challenge" | "dock",
+    socketLimit: number,
+    evictOldest: boolean,
+  ): number {
+    let sockets = this.ctx.getWebSockets(tag);
+    for (const socket of sockets) {
+      if (socket.readyState === WebSocket.OPEN) continue;
+      try {
+        socket.close(4004, "stale_socket");
+      } catch {
+        // Ein bereits geschlossener Socket wirft hier; er zählt ohnehin nicht mehr.
+      }
+    }
+    sockets = this.ctx.getWebSockets(tag).filter((s) => s.readyState === WebSocket.OPEN);
+    if (!evictOldest || sockets.length < socketLimit) return sockets.length;
+
+    const connectedAtOf = (socket: WebSocket): number => {
+      const attachment = this.readAttachment(socket);
+      const at = attachment === null ? Number.NaN : Date.parse(attachment.connectedAt);
+      // Ohne verwertbaren Zeitstempel gilt der Socket als ältester Kandidat.
+      return Number.isFinite(at) ? at : 0;
+    };
+    const oldest = sockets.reduce((a, b) => (connectedAtOf(a) <= connectedAtOf(b) ? a : b));
+    try {
+      oldest.close(4005, "socket_evicted");
+    } catch {
+      // Siehe oben: ein nicht schließbarer Socket ist bereits weg.
+    }
+    return this.activeSocketCount(tag);
+  }
+
   private connectEditor(request: Request): Response {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
     }
-    if (this.ctx.getWebSockets("editor").length >= limits.maxEditorSockets) {
+    // Editor-Tabs sind menschlich bedient: tote Sockets aussortieren, aber keinen
+    // lebenden Tab verdrängen.
+    if (this.reclaimSocketSlots("editor", limits.maxEditorSockets, false)
+      >= limits.maxEditorSockets) {
       throw new RequestError(429, "socket_limit", "Zu viele Editor-Verbindungen.");
     }
     const session = this.requireSession(request);
@@ -1263,7 +1322,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
     }
-    if (this.ctx.getWebSockets(tag).length >= socketLimit) {
+    // Overlay und Composite haben zehn Plätze; dort genügt das Aussortieren toter
+    // Sockets, eine lebende Quelle darf keine andere verdrängen.
+    if (this.reclaimSocketSlots(tag, socketLimit, false) >= socketLimit) {
       throw new RequestError(429, "socket_limit", limitErrorMessage);
     }
     const token = request.headers.get("x-overlay-token");
@@ -1280,7 +1341,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
-    if (this.ctx.getWebSockets(tag).length >= socketLimit) {
+    if (this.activeSocketCount(tag) >= socketLimit) {
       throw new RequestError(429, "socket_limit", limitErrorMessage);
     }
     this.ctx.acceptWebSocket(server, [tag]);
@@ -1330,7 +1391,8 @@ export class ChannelObject extends DurableObject<AppEnv> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
     }
-    if (this.ctx.getWebSockets("challenge").length >= limits.maxChallengeSockets) {
+    if (this.reclaimSocketSlots("challenge", limits.maxChallengeSockets, true)
+      >= limits.maxChallengeSockets) {
       throw new RequestError(429, "socket_limit", "Zu viele Challenge-Verbindungen.");
     }
     const token = request.headers.get("x-overlay-token");
@@ -1347,7 +1409,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
-    if (this.ctx.getWebSockets("challenge").length >= limits.maxChallengeSockets) {
+    if (this.activeSocketCount("challenge") >= limits.maxChallengeSockets) {
       throw new RequestError(429, "socket_limit", "Zu viele Challenge-Verbindungen.");
     }
     this.ctx.acceptWebSocket(server, ["challenge"]);
@@ -1370,14 +1432,17 @@ export class ChannelObject extends DurableObject<AppEnv> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
     }
-    if (this.ctx.getWebSockets("dock").length >= limits.maxDockSockets) {
+    // Das Dock ist menschlich bedient: tote Sockets aussortieren, aber kein
+    // laufendes Bedienpanel verdrängen.
+    if (this.reclaimSocketSlots("dock", limits.maxDockSockets, false)
+      >= limits.maxDockSockets) {
       throw new RequestError(429, "socket_limit", "Zu viele Dock-Verbindungen.");
     }
     const row = await this.requireDockToken(request);
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
-    if (this.ctx.getWebSockets("dock").length >= limits.maxDockSockets) {
+    if (this.activeSocketCount("dock") >= limits.maxDockSockets) {
       throw new RequestError(429, "socket_limit", "Zu viele Dock-Verbindungen.");
     }
     this.ctx.acceptWebSocket(server, ["dock"]);

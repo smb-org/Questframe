@@ -467,6 +467,32 @@ describe("Win-Challenges-Sockets", () => {
     }
   });
 
+  it("lässt eine dritte Challenge-Quelle zu und verdrängt dafür die älteste", async () => {
+    // Hibernierende Sockets verschwinden nur bei sauberem Schließen. Ohne
+    // Verdrängung sperrt eine abgestürzte Browserquelle die Challenge-Quelle bei
+    // zwei Plätzen dauerhaft aus; die jüngste Verbindung ist die gewollte.
+    const overlayToken = await createOverlayToken();
+    const first = await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken);
+    const second = await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken);
+    try {
+      const closed = new Promise<number>((resolve) => {
+        first.addEventListener("close", (event) => { resolve(event.code); });
+      });
+      const third = await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken);
+      try {
+        expect(await closed).toBe(4005);
+        await runInDurableObject(stub, (instance: unknown) => {
+          const ctx = (instance as { ctx: DurableObjectState }).ctx;
+          expect(ctx.getWebSockets("challenge").length).toBe(2);
+        });
+      } finally {
+        third.close();
+      }
+    } finally {
+      second.close();
+    }
+  });
+
   it("schließt Overlay- und Challenge-Sockets bei Overlay-Token-Rotation", async () => {
     const overlayToken = await createOverlayToken();
     const challenge = await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken);

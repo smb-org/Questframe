@@ -190,6 +190,20 @@ describe("Worker gateway failure boundaries", () => {
     expect(await errorCode(bare)).toBe("forbidden");
   });
 
+  it("answers the media preflight without loosening the mutation routes", async () => {
+    // Das Overlay in einem sandboxed iframe hat einen opaken Origin; sein
+    // fetch mit Bearer-Token ist damit preflight-pflichtig.
+    const preflight = await fetchWorker(`/api/media/${"a".repeat(64)}`, { method: "OPTIONS" });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe("*");
+    expect(preflight.headers.get("access-control-allow-headers")).toBe("authorization");
+    expect(preflight.headers.get("access-control-allow-methods")).not.toContain("POST");
+
+    // Die schreibenden Routen bleiben Same-Origin-pflichtig, ohne CORS-Freigabe.
+    const mutation = await fetchWorker("/api/media", { method: "OPTIONS" });
+    expect(mutation.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
   it("protects media reads and clears a same-origin logout cookie", async () => {
     const missing = await fetchWorker(`/api/media/${"a".repeat(64)}`);
     expect(missing.status).toBe(403);

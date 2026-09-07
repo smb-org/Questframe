@@ -39,6 +39,16 @@ import {
 
 export type ChallengeMessage = ChallengeUpdate | { type: "token_revoked" };
 
+/**
+ * Liest `placement=origin` aus dem Hash. Damit rendert die Quelle das Element in
+ * der linken oberen Ecke statt an der Position aus der Komposition — gedacht für
+ * Hosts, die selbst positionieren (StreamElements-Widget, eigene Browserquelle
+ * nur für die Challenge). Die konfigurierte Skalierung bleibt erhalten, die
+ * Größe der Quelle bestimmt also weiterhin das Admin-Interface.
+ */
+export const placementAtOriginFromLocation = (): boolean =>
+  new URLSearchParams(window.location.hash.replace(/^#/, "")).get("placement") === "origin";
+
 export const tokenFromLocation = (): string | null => {
   const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
   const token = params.get("token");

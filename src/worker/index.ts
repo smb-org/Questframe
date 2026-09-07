@@ -613,18 +613,41 @@ const worker = {
       return proxyToChannel(request, env, "/ws/editor", { "x-editor-tab": tabId });
     }
 
+    // Die HUD-Fläche lädt ihre Medien per fetch mit Bearer-Token. Läuft das
+    // Overlay in einem sandboxed iframe (StreamElements), ist ihr Origin opak und
+    // der Request damit cross-origin samt Preflight. Freigegeben wird bewusst nur
+    // das Lesen: ACAO "*" schließt Credentials per Spec aus, es fließt also nie
+    // eine Session mit, und ohne gültigen Overlay-Token liefert die Route weiter
+    // 403. Die Mutations-Routen bleiben Same-Origin-pflichtig.
+    if (request.method === "OPTIONS" && url.pathname.startsWith("/api/media/")) {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          "access-control-allow-origin": "*",
+          "access-control-allow-methods": "GET, OPTIONS",
+          "access-control-allow-headers": "authorization",
+          "access-control-max-age": "86400",
+        },
+      });
+    }
+
     if (request.method === "GET" && url.pathname.startsWith("/api/media/")) {
       const authorization = request.headers.get("authorization");
       const extra = new Headers();
       if (authorization?.startsWith("Bearer ") === true) {
         extra.set("x-overlay-token", authorization.slice("Bearer ".length));
       }
-      return proxyToChannel(
+      const response = await proxyToChannel(
         request,
         env,
         `/media/${url.pathname.slice("/api/media/".length)}`,
         extra,
       );
+      // Gleicher Grund wie beim Preflight oben: ohne diesen Header darf das
+      // sandboxed Overlay die Antwort nicht lesen.
+      const withCors = new Response(response.body, response);
+      withCors.headers.set("access-control-allow-origin", "*");
+      return withCors;
     }
 
     if (request.method === "GET" && (url.pathname === "/ws/overlay" || url.pathname === "/ws/composite" || url.pathname === "/ws/challenge")) {

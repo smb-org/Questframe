@@ -4,6 +4,7 @@ import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challeng
 import {
   accountForChallengeUpdate,
   parseChallengeUpdate,
+  placementAtOriginFromLocation,
 } from "../../../src/challenges/wire";
 
 const update = (): ChallengeUpdate => ({
@@ -188,5 +189,24 @@ describe("Challenge-Quelle-Wire", () => {
     expect(afterFirst.shouldFire).toBe(true);
     expect(afterSecond.shouldFire).toBe(false);
     expect(afterSecond.lastSeen).toBe(first.eventSeq);
+  });
+});
+
+describe("placementAtOriginFromLocation", () => {
+  const withHash = (hash: string): boolean => {
+    window.location.hash = hash;
+    return placementAtOriginFromLocation();
+  };
+
+  it("erkennt placement=origin neben dem Token", () => {
+    expect(withHash("#token=abc&placement=origin")).toBe(true);
+  });
+
+  it("bleibt ohne das Flag bei der Kompositionsposition", () => {
+    expect(withHash("#token=abc")).toBe(false);
+  });
+
+  it("akzeptiert keinen anderen Wert", () => {
+    expect(withHash("#placement=center")).toBe(false);
   });
 });

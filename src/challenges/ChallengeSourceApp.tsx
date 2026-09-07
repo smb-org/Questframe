@@ -11,6 +11,7 @@ import {
 import { ChallengeCeremonyStage } from "./ChallengeCeremonyStage";
 import {
   parseChallengeMessage,
+  placementAtOriginFromLocation,
   tokenFromLocation,
 } from "./wire";
 import { loadChallengeStyle, type ChallengeStyleLoader } from "./style-loader";
@@ -46,6 +47,8 @@ export const ChallengeSourceApp = ({
   reloadPage = reloadWindow,
 }: ChallengeSourceAppProps = {}) => {
   const [update, setUpdate] = useState<ChallengeUpdate | null>(null);
+  // Der Hash ändert sich zur Laufzeit nicht; einmal beim Mount auslesen genügt.
+  const [placementAtOrigin] = useState(placementAtOriginFromLocation);
   const presentation = useChallengePresentation({ update, loadStyle, loadTheme });
   const { acceptUpdate } = presentation;
 
@@ -113,5 +116,11 @@ export const ChallengeSourceApp = ({
   }, [acceptUpdate, reloadPage]);
 
   if (!presentation.ready || update === null) return null;
-  return <ChallengeCeremonyStage presentation={presentation} update={update} />;
+  return (
+    <ChallengeCeremonyStage
+      placementAtOrigin={placementAtOrigin}
+      presentation={presentation}
+      update={update}
+    />
+  );
 };

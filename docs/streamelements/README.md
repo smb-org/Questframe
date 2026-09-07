@@ -8,11 +8,18 @@ Diese Dateien sind für den Fall, dass nur StreamElements zur Verfügung steht.
 2. Die Tabs füllen: `widget.html` → HTML, `widget.js` → JS, `fields.json` → Fields.
    Der CSS-Tab bleibt leer, die Styles stehen im HTML.
 3. Im Feld *Overlay-URL* die echte URL samt Overlay-Token eintragen — den vollen
-   Pfad `/overlay/challenges#token=…`, **nicht** nur die Domain. Der Token steht im
-   Hash, nicht in der Query (`tokenFromLocation` in `src/challenges/wire.ts` liest
-   ausschließlich `location.hash`). Die Wurzel `/` rendert die Admin-App und ist
-   bewusst nicht einbettbar.
-4. Widget-Box auf die gewünschte Größe ziehen; das Overlay skaliert mit dem Rahmen.
+   Pfad `/overlay/challenges#token=…&placement=origin`, **nicht** nur die Domain.
+   Der Token steht im Hash, nicht in der Query (`tokenFromLocation` in
+   `src/challenges/wire.ts` liest ausschließlich `location.hash`). Die Wurzel `/`
+   rendert die Admin-App und ist bewusst nicht einbettbar.
+4. Widget-Box auf die Größe des Elements ziehen und im SE-Editor positionieren.
+
+`placement=origin` setzt die Quelle in die linke obere Ecke, statt sie an die im
+Admin gesetzte Kompositionsposition zu rücken. Ohne das Flag lägen zwei
+Positionierungssysteme übereinander: das Element säße irgendwo in einer
+1920×1080-Fläche, die man in SE dann als Ganzes verschieben müsste. Die
+konfigurierte Skalierung bleibt erhalten, die Größe steuert weiterhin das
+Admin-Interface.
 
 Nach `/admin` → Token rotieren muss die URL im Widget neu eingetragen werden.
 
@@ -34,10 +41,21 @@ Daraus folgen zwei Dinge, die die Overlay-Auslieferung berücksichtigen muss:
 - **`/_app/*` und `/fonts/*` senden `Access-Control-Allow-Origin: *`**, weil sie aus
   dem opaken Origin zu Cross-Origin-Requests werden. Das sind gebaute Artefakte
   ohne Geheimnisse; HTML, `/api/*` und `/admin` bleiben unangetastet.
+- **`GET /api/media/*` beantwortet einen OPTIONS-Preflight und sendet ACAO `*`**,
+  damit auch die HUD-Fläche `/overlay` ihre Medien aus dem opaken Origin laden
+  kann. Die Route ist token-, nicht cookie-authentifiziert; ACAO `*` schließt
+  Credentials per Spec aus, es fließt also nie eine Session mit, und ohne
+  gültigen Overlay-Token bleibt es bei 403. Die schreibenden Medien-Routen
+  bleiben Same-Origin-pflichtig.
 
 `tests/unit/deployment/headers.test.ts` hält diese Zusagen fest.
 
-**Nur `/overlay/challenges` trägt in StreamElements.** Die HUD-Oberfläche
-`/overlay` lädt ihre Medien per `fetch` von `/api/media/*` mit einem
-`Authorization`-Header; das bräuchte aus dem opaken Origin zusätzlich eine
-OPTIONS-Preflight-Behandlung im Worker, die es bewusst noch nicht gibt.
+## Socket-Plätze
+
+Die Challenge-Quelle hat zwei Socket-Plätze (`MAX_CHALLENGE_SOCKETS`).
+Hibernierende WebSockets verschwinden nur bei sauberem Schließen, eine
+abgestürzte Quelle oder ein neu eingehängtes Widget-iframe hinterlässt also
+einen belegten Platz. Deshalb sortiert das Durable Object beim Verbinden tote
+Sockets aus und verdrängt notfalls die älteste Verbindung (Close-Code 4005) —
+die jüngste Quelle ist die, die jemand gerade sehen will. Overlay, Composite,
+Dock und Editor verdrängen nicht, dort werden nur tote Sockets abgeräumt.
