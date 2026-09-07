@@ -20,12 +20,27 @@
   X-Frame-Options: SAMEORIGIN
   Content-Security-Policy: default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'
 
-/overlay*
+# Die Overlay-Quellen dürfen bewusst überall eingebettet werden (OBS-Browserquelle,
+# StreamElements-Custom-Widget). Deshalb zwei Regeln statt "/overlay*": der
+# Prefix-Glob würde auch "/overlay-x" treffen, und das rendert über den
+# SPA-Fallback die Admin-App.
+/overlay
   Cache-Control: no-cache
   Referrer-Policy: no-referrer
   X-Content-Type-Options: nosniff
-  Content-Security-Policy: default-src 'self'; connect-src 'self' wss: ws:; img-src 'self' blob: data: https://static-cdn.jtvnw.net; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors * https: http:
+  Content-Security-Policy: default-src 'self'; connect-src 'self' wss: ws:; img-src 'self' blob: data: https://static-cdn.jtvnw.net; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors * https: http: blob: data:
 
+/overlay/*
+  Cache-Control: no-cache
+  Referrer-Policy: no-referrer
+  X-Content-Type-Options: nosniff
+  Content-Security-Policy: default-src 'self'; connect-src 'self' wss: ws:; img-src 'self' blob: data: https://static-cdn.jtvnw.net; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors * https: http: blob: data:
+
+# Catch-all. Achtung: In Cloudflares _headers greifen ALLE passenden Regeln, und
+# der Browser erzwingt bei mehreren CSP-Headern die Schnittmenge. Hier deshalb
+# NIE "frame-ancestors" setzen -- das würde die Overlay-Einbettung still killen.
+# Unbekannte Pfade rendern über den SPA-Fallback die Admin-App unter genau dieser
+# Policy; Framing-Schutz dort bewusst nur über SameSite=Lax am Session-Cookie.
 /*
   Referrer-Policy: no-referrer
   X-Content-Type-Options: nosniff

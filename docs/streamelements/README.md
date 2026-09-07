@@ -9,9 +9,13 @@ im SE-Editor).
 1. In StreamElements: Overlay öffnen → *Add Widget* → *Static/Custom* → *Custom Widget*.
 2. Die Tabs füllen: `widget.html` → HTML, `widget.js` → JS, `fields.json` → Fields.
    Der CSS-Tab bleibt leer, die Styles stehen im HTML.
-3. Im Feld *Overlay-URL* die echte URL samt Overlay-Token eintragen.
+3. Im Feld *Overlay-URL* die echte URL samt Overlay-Token eintragen — den vollen
+   Pfad `/overlay/challenges?token=…`, **nicht** nur die Domain. Die Wurzel `/`
+   rendert die Admin-App und ist bewusst nicht einbettbar.
 4. Widget-Box auf die gewünschte Größe ziehen; das Overlay skaliert mit dem Rahmen.
 
 Nach `/admin` → Token rotieren muss die URL im Widget neu eingetragen werden.
-Der Overlay-Pfad erlaubt Framing bewusst (`frame-ancestors * https: http:` in
-`public/_headers`); `/admin` und `/login` tun das nicht.
+Der Overlay-Pfad erlaubt Framing bewusst (`frame-ancestors * https: http: blob: data:`
+in `public/_headers`); `/admin` und `/login` tun das nicht. `blob:` steht dort, weil
+StreamElements jedes Widget in einem `blob:`-iframe rendert und `*` laut CSP-Spec nur
+Netzwerk-Schemata abdeckt.

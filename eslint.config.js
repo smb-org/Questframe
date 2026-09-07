@@ -14,6 +14,8 @@ export default defineConfig(
     "playwright-report/**",
     "test-results/**",
     "worker-configuration.d.ts",
+    // Kein Projektcode, sondern Copy-Paste-Vorlagen für die StreamElements-Editor-Tabs.
+    "docs/streamelements/**",
   ]),
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked.map((config) => ({
