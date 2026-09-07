@@ -28,6 +28,7 @@ import {
   type SettingsSaveResponse,
 } from "../modules/win-challenges/contracts/schemas";
 import { parseChallengeUpdate } from "../challenges/wire";
+import { startSocketHeartbeat } from "../shared/reconnect";
 import type { AdminApi } from "./AdminWorkspace";
 
 export class AdminApiError extends Error {
@@ -192,6 +193,7 @@ export class BrowserAdminApi implements AdminApi {
   }): () => void {
     let disposed = false;
     let socket: WebSocket | null = null;
+    let stopHeartbeat: (() => void) | null = null;
     let timer: number | null = null;
     let attempt = 0;
     const connect = () => {
@@ -201,6 +203,8 @@ export class BrowserAdminApi implements AdminApi {
         `${protocol}//${window.location.host}/ws/editor?tab=${encodeURIComponent(this.tabId)}`,
       );
       socket.addEventListener("open", () => {
+        stopHeartbeat?.();
+        stopHeartbeat = startSocketHeartbeat(socket as WebSocket);
         attempt = 0;
         callbacks.onOnlineChange(true);
       });
@@ -230,6 +234,8 @@ export class BrowserAdminApi implements AdminApi {
         }
       });
       socket.addEventListener("close", () => {
+        stopHeartbeat?.();
+        stopHeartbeat = null;
         if (disposed) return;
         callbacks.onOnlineChange(false);
         const delay = Math.min(30_000, 750 * 2 ** attempt);
@@ -240,6 +246,8 @@ export class BrowserAdminApi implements AdminApi {
     connect();
     return () => {
       disposed = true;
+      stopHeartbeat?.();
+      stopHeartbeat = null;
       if (timer !== null) window.clearTimeout(timer);
       socket?.close();
     };

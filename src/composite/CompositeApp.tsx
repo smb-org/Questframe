@@ -9,6 +9,7 @@ import {
   markWatchdogReload,
   nextReconnectDelayMs,
   reloadWindow,
+  startSocketHeartbeat,
 } from "../shared/reconnect";
 import { ChallengeCeremonyStage } from "../challenges/ChallengeCeremonyStage";
 import { loadChallengeStyle } from "../challenges/style-loader";
@@ -86,6 +87,7 @@ export const CompositeApp = ({
     if (token === null) return;
     let disposed = false;
     let socket: WebSocket | null = null;
+    let stopHeartbeat: (() => void) | null = null;
     let retryTimer: number | null = null;
     let retry = 0;
     let fingerprint = "";
@@ -158,6 +160,8 @@ export const CompositeApp = ({
         token,
       ]);
       socket.addEventListener("open", () => {
+        stopHeartbeat?.();
+        stopHeartbeat = startSocketHeartbeat(socket as WebSocket);
         retry = 0;
         hudParseFailedRef.current = false;
         challengeParseFailedRef.current = false;
@@ -217,6 +221,8 @@ export const CompositeApp = ({
         setChallengeUpdate(discriminated.message);
       });
       socket.addEventListener("close", () => {
+        stopHeartbeat?.();
+        stopHeartbeat = null;
         if (disposed || revoked) return;
         const delay = nextReconnectDelayMs(retry);
         retry += 1;
@@ -244,6 +250,8 @@ export const CompositeApp = ({
 
     return () => {
       disposed = true;
+      stopHeartbeat?.();
+      stopHeartbeat = null;
       if (retryTimer !== null) window.clearTimeout(retryTimer);
       clearWatchdogTimer(watchdogTimerRef);
       clearWatchdogTimer(hudSustainedTimerRef);

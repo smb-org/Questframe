@@ -8,6 +8,7 @@ import {
   markWatchdogReload,
   nextReconnectDelayMs,
   reloadWindow,
+  startSocketHeartbeat,
 } from "../shared/reconnect";
 import {
   fingerprintOverlayToken,
@@ -53,6 +54,7 @@ export const OverlayApp = ({ reloadPage = reloadWindow }: { reloadPage?: () => v
     if (token === null || !/^[A-Za-z0-9_-]{43}$/.test(token)) return;
     let disposed = false;
     let socket: WebSocket | null = null;
+    let stopHeartbeat: (() => void) | null = null;
     let retryTimer: number | null = null;
     let retry = 0;
     let fingerprint = "";
@@ -81,6 +83,8 @@ export const OverlayApp = ({ reloadPage = reloadWindow }: { reloadPage?: () => v
         token,
       ]);
       socket.addEventListener("open", () => {
+        stopHeartbeat?.();
+        stopHeartbeat = startSocketHeartbeat(socket as WebSocket);
         retry = 0;
       });
       socket.addEventListener("message", (event) => {
@@ -114,6 +118,8 @@ export const OverlayApp = ({ reloadPage = reloadWindow }: { reloadPage?: () => v
         }
       });
       socket.addEventListener("close", () => {
+        stopHeartbeat?.();
+        stopHeartbeat = null;
         if (disposed || revoked) return;
         const delay = nextReconnectDelayMs(retry);
         retry += 1;
@@ -137,6 +143,8 @@ export const OverlayApp = ({ reloadPage = reloadWindow }: { reloadPage?: () => v
 
     return () => {
       disposed = true;
+      stopHeartbeat?.();
+      stopHeartbeat = null;
       cancelWatchdog();
       if (retryTimer !== null) window.clearTimeout(retryTimer);
       socket?.close();

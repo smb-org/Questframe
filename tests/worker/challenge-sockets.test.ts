@@ -1,6 +1,6 @@
 import { env, exports } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   MAX_CHALLENGE_SOCKETS,
@@ -522,6 +522,112 @@ describe("Win-Challenges-Sockets", () => {
       );
     } finally {
       for (const socket of sockets) socket.close();
+    }
+  });
+
+  it("gibt einen Socket mit altem Heartbeat beim nächsten Verbinden frei", async () => {
+    const overlayToken = await createOverlayToken();
+    const sockets: WebSocket[] = [];
+    const clientIp = { "cf-connecting-ip": "198.51.100.93" };
+    const closeCodes: number[] = [];
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      for (let index = 0; index < MAX_CHALLENGE_SOCKETS; index += 1) {
+        const socket = await openSocket(
+          "/ws/challenge",
+          OVERLAY_SOCKET_PROTOCOL,
+          overlayToken,
+          clientIp,
+        );
+        socket.addEventListener("close", (event) => { closeCodes.push(event.code); });
+        sockets.push(socket);
+      }
+      sockets[0]?.send("ping");
+      const pingTimestamp = await runInDurableObject(stub, (_instance, state) => {
+        const socket = state.getWebSockets("challenge")[0];
+        if (socket === undefined) throw new Error("Heartbeat-Socket fehlt.");
+        return state.getWebSocketAutoResponseTimestamp(socket)?.getTime() ?? null;
+      });
+      expect(pingTimestamp).not.toBeNull();
+      if (pingTimestamp === null) throw new Error("Heartbeat-Zeitstempel fehlt.");
+      vi.setSystemTime(pingTimestamp + 70_001);
+
+      const replacement = await openSocket(
+        "/ws/challenge",
+        OVERLAY_SOCKET_PROTOCOL,
+        overlayToken,
+        clientIp,
+      );
+      sockets.push(replacement);
+
+      await vi.waitFor(() => { expect(closeCodes).toContain(4006); });
+      expect(closeCodes).toContain(4006);
+    } finally {
+      vi.useRealTimers();
+      for (const socket of sockets) socket.close();
+    }
+  });
+
+  it("schließt einen Socket ohne Heartbeat-Zeitstempel niemals aus", async () => {
+    const overlayToken = await createOverlayToken();
+    const sockets: WebSocket[] = [];
+    const clientIp = { "cf-connecting-ip": "198.51.100.94" };
+    const closeCodes: number[] = [];
+    try {
+      for (let index = 0; index < MAX_CHALLENGE_SOCKETS; index += 1) {
+        const socket = await openSocket(
+          "/ws/challenge",
+          OVERLAY_SOCKET_PROTOCOL,
+          overlayToken,
+          clientIp,
+        );
+        socket.addEventListener("close", (event) => { closeCodes.push(event.code); });
+        sockets.push(socket);
+      }
+      const autoResponse = await runInDurableObject(stub, (_instance, state) => {
+        const socket = state.getWebSockets("challenge")[0];
+        if (socket === undefined) throw new Error("Socket fehlt.");
+        const pair = state.getWebSocketAutoResponse();
+        return {
+          request: pair?.request ?? null,
+          response: pair?.response ?? null,
+          timestamp: state.getWebSocketAutoResponseTimestamp(socket),
+        };
+      });
+      expect(autoResponse).toMatchObject({ request: "ping", response: "pong", timestamp: null });
+
+      const rejected = await fetchWorker("/ws/challenge", {
+        headers: {
+          ...clientIp,
+          upgrade: "websocket",
+          "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, ${overlayToken}`,
+        },
+      });
+
+      expect(rejected.status).toBe(429);
+      expect((await rejected.json<{ error: { code: string } }>()).error.code).toBe("socket_limit");
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(closeCodes).toEqual([]);
+    } finally {
+      for (const socket of sockets) socket.close();
+    }
+  });
+
+  it("ignoriert einen reinen Ping-Text und schließt den Socket nicht", async () => {
+    const overlayToken = await createOverlayToken();
+    const socket = await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken);
+    const closeCodes: number[] = [];
+    socket.addEventListener("close", (event) => { closeCodes.push(event.code); });
+    try {
+      await runInDurableObject(stub, (instance, state) => {
+        const acceptedSocket = state.getWebSockets("challenge")[0];
+        if (acceptedSocket === undefined) throw new Error("Challenge-Socket fehlt.");
+        instance.webSocketMessage(acceptedSocket, "ping");
+      });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(closeCodes).toEqual([]);
+    } finally {
+      socket.close();
     }
   });
 

@@ -13,7 +13,7 @@ import {
 } from "../modules/win-challenges/ui/timer";
 import { TimerControls } from "../modules/win-challenges/ui/TimerControls";
 import { parseChallengeMessage, tokenFromLocation } from "../challenges/wire";
-import { nextReconnectDelayMs } from "../shared/reconnect";
+import { nextReconnectDelayMs, startSocketHeartbeat } from "../shared/reconnect";
 import "./live.css";
 
 const ERROR_VISIBLE_MS = 3_000;
@@ -395,6 +395,7 @@ export const LiveApp = () => {
     let disposed = false;
     let revoked = false;
     let socket: WebSocket | null = null;
+    let stopHeartbeat: (() => void) | null = null;
     let retryTimer: number | null = null;
     let retry = 0;
 
@@ -403,6 +404,8 @@ export const LiveApp = () => {
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       socket = new WebSocket(`${protocol}//${window.location.host}/ws/dock`, [DOCK_SOCKET_PROTOCOL, token]);
       socket.addEventListener("open", () => {
+        stopHeartbeat?.();
+        stopHeartbeat = startSocketHeartbeat(socket as WebSocket);
         retry = 0;
         setConnection("connected");
       });
@@ -431,6 +434,8 @@ export const LiveApp = () => {
         setGlobalPending(false);
       });
       socket.addEventListener("close", () => {
+        stopHeartbeat?.();
+        stopHeartbeat = null;
         if (disposed || revoked) return;
         setConnection("offline");
         const delay = nextReconnectDelayMs(retry);
@@ -442,6 +447,8 @@ export const LiveApp = () => {
     connect();
     return () => {
       disposed = true;
+      stopHeartbeat?.();
+      stopHeartbeat = null;
       if (retryTimer !== null) window.clearTimeout(retryTimer);
       socket?.close();
     };

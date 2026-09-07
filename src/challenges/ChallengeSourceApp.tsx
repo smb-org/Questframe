@@ -7,6 +7,7 @@ import {
   markWatchdogReload,
   nextReconnectDelayMs,
   reloadWindow,
+  startSocketHeartbeat,
 } from "../shared/reconnect";
 import { ChallengeCeremonyStage } from "./ChallengeCeremonyStage";
 import {
@@ -59,6 +60,7 @@ export const ChallengeSourceApp = ({
     let disposed = false;
     let revoked = false;
     let socket: WebSocket | null = null;
+    let stopHeartbeat: (() => void) | null = null;
     let retryTimer: number | null = null;
     let retry = 0;
 
@@ -70,6 +72,8 @@ export const ChallengeSourceApp = ({
         token,
       ]);
       socket.addEventListener("open", () => {
+        stopHeartbeat?.();
+        stopHeartbeat = startSocketHeartbeat(socket as WebSocket);
         retry = 0;
       });
       socket.addEventListener("message", (message) => {
@@ -99,6 +103,8 @@ export const ChallengeSourceApp = ({
         setUpdate(parsed);
       });
       socket.addEventListener("close", () => {
+        stopHeartbeat?.();
+        stopHeartbeat = null;
         if (disposed || revoked) return;
         setUpdate(null);
         const delay = nextReconnectDelayMs(retry);
@@ -110,6 +116,8 @@ export const ChallengeSourceApp = ({
     connect();
     return () => {
       disposed = true;
+      stopHeartbeat?.();
+      stopHeartbeat = null;
       if (retryTimer !== null) window.clearTimeout(retryTimer);
       socket?.close();
     };

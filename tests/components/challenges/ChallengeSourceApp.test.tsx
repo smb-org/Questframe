@@ -174,6 +174,25 @@ describe("ChallengeSourceApp", () => {
     expect(rows.map((row) => row.textContent)).toEqual(["Offene Challenge3 / 10", "✓Erledigt unten1 / 1"]);
   });
 
+  it("zeigt ohne Ziel die blanke Zahl, ab dem ersten Schritt", async () => {
+    // Ohne Zaehler waeren die Plus-/Minus-Knoepfe unsichtbar: es zaehlt hoch, es
+    // klingt, zu sehen ist nichts. Bei 0 bleibt die Zeile aber bewusst leer.
+    render(<ChallengeSourceApp />);
+    const socket = FakeWebSocket.instances[0];
+    await deliver(socket, sourceUpdate({
+      challenges: [
+        { ...timedChallenge("gezaehlt"), title: "Ohne Ziel", currentCount: 4 },
+        { ...timedChallenge("frisch"), title: "Noch nichts", currentCount: 0 },
+      ],
+    }));
+
+    await waitFor(() => expect(screen.getByText("Ohne Ziel")).toBeInTheDocument());
+    expect(screen.getByText("4")).toBeInTheDocument();
+    expect(screen.queryByText("4 / null")).not.toBeInTheDocument();
+    const rows = [...document.querySelectorAll(".challenge-source__row")];
+    expect(rows.map((row) => row.textContent)).toEqual(["Ohne Ziel4", "Noch nichts"]);
+  });
+
   it("feuert eine Zeremonie nur für ein neues Ereignis nach dem letzten Stand", async () => {
     render(<ChallengeSourceApp />);
     const socket = FakeWebSocket.instances[0];

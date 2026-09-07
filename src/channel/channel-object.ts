@@ -138,6 +138,9 @@ const limits = {
   maxMediaBytes: 8_388_608,
 } as const;
 const maxMediaBlobs = 32;
+// Der Client-Heartbeat liegt bei SOCKET_PING_INTERVAL_MS in shared/reconnect.ts
+// (20s); drei ausgefallene Pings dürfen vergehen, bevor ein Socket stale ist.
+const SOCKET_STALE_AFTER_MS = 70_000;
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -216,6 +219,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
   constructor(ctx: DurableObjectState, env: AppEnv) {
     super(ctx, env);
     runMigrations(ctx.storage.sql, "v1");
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -1245,18 +1249,35 @@ export class ChannelObject extends DurableObject<AppEnv> {
    * hinterlässt deshalb einen Socket, der nicht mehr offen ist, aber weiter einen
    * Platz belegt.
    *
-   * Bewusst wird NUR aussortiert, was nicht mehr offen ist. Eine ältere, lebende
-   * Verbindung zu verdrängen klingt naheliegend, erzeugt aber ein Karussell:
-   * sobald mehr Quellen verbunden sein wollen als Plätze da sind, wirft jede neue
-   * die älteste hinaus, die sofort neu verbindet und die nächste hinauswirft — die
-   * Anzeige verschwindet dann im Sekundentakt. Wer mehr gleichzeitige Quellen
-   * braucht, bekommt mehr Plätze, keine Rotation.
+   * Eine offene Verbindung gilt nur dann als stale, wenn ihr automatisch gepflegter
+   * Heartbeat-Zeitstempel zu alt ist. Eine ältere, noch heartbeatende Verbindung
+   * zu verdrängen würde ein Karussell erzeugen: sobald mehr Quellen verbunden sein
+   * wollen als Plätze da sind, wirft jede neue die älteste hinaus, die sofort neu
+   * verbindet und die nächste hinauswirft — die Anzeige verschwindet dann im
+   * Sekundentakt. Wer mehr gleichzeitige Quellen braucht, bekommt mehr Plätze,
+   * keine Rotation.
    */
   private reclaimSocketSlots(
     tag: "editor" | "overlay" | "composite" | "challenge" | "dock",
   ): number {
     for (const socket of this.ctx.getWebSockets(tag)) {
-      if (socket.readyState === WebSocket.OPEN) continue;
+      if (socket.readyState === WebSocket.OPEN) {
+        const lastHeartbeatAt = this.ctx.getWebSocketAutoResponseTimestamp(socket);
+        // null bedeutet: Dieser Socket hat noch nie gepingt. Ein offenes altes
+        // Bundle nach einem Deploy darf deshalb nicht geschlossen werden — es
+        // pingt nie, verbindet sich nach dem Rauswurf sofort neu und erzeugt
+        // genau das Karussell, das die Bereinigung verhindern soll.
+        if (
+          lastHeartbeatAt === null
+          || Date.now() - lastHeartbeatAt.getTime() <= SOCKET_STALE_AFTER_MS
+        ) continue;
+        try {
+          socket.close(4006, "stale_heartbeat");
+        } catch {
+          // Ein bereits geschlossener Socket darf die übrigen Plätze nicht blockieren.
+        }
+        continue;
+      }
       try {
         socket.close(4004, "stale_socket");
       } catch {
@@ -1454,6 +1475,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
         ? new TextEncoder().encode(message).byteLength
         : message.byteLength;
     if (byteLength > 98_304) return;
+    if (message === "ping") return;
     try {
       const parsed = clientMessageSchema.safeParse(
         JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message)),

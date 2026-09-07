@@ -144,8 +144,15 @@ const ChallengeRow = ({
           )}
         </span>
         <span className="challenge-source__meta">
-          {challenge.targetCount !== null && (
-            <span className="challenge-source__count" key={ceremonyKey}>{challenge.currentCount} / {challenge.targetCount}</span>
+          {/* Ohne Ziel bleibt der Zaehler ab dem ersten Schritt trotzdem sichtbar: sonst
+              zaehlen die Plus-/Minus-Knoepfe hoch, es klingt, und zu sehen ist nichts.
+              Bei 0 und ohne Ziel bleibt die Zeile bewusst leer. */}
+          {(challenge.targetCount !== null || challenge.currentCount > 0) && (
+            <span className="challenge-source__count" key={ceremonyKey}>
+              {challenge.targetCount === null
+                ? challenge.currentCount
+                : `${String(challenge.currentCount)} / ${String(challenge.targetCount)}`}
+            </span>
           )}
           {showTime && (
             <span

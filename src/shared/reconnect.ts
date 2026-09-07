@@ -14,6 +14,27 @@
 const RETRY_BASE_MS = 750;
 const RETRY_MAX_MS = 30_000;
 
+// Der Server lässt 70s ohne Ping zu (siehe SOCKET_STALE_AFTER_MS im Durable
+// Object); drei ausgefallene 20s-Intervalle bleiben damit ohne Fehlalarm erlaubt.
+export const SOCKET_PING_INTERVAL_MS = 20_000;
+
+export const startSocketHeartbeat = (
+  socket: WebSocket,
+  intervalMs = SOCKET_PING_INTERVAL_MS,
+): (() => void) => {
+  const timer = window.setInterval(() => {
+    if (socket.readyState !== WebSocket.OPEN) return;
+    try {
+      socket.send("ping");
+    } catch {
+      // Ein einzelner Sendefehler darf den Heartbeat-Timer nicht beenden.
+    }
+  }, intervalMs);
+  return () => {
+    window.clearInterval(timer);
+  };
+};
+
 /** Reconnect-Backoff mit Jitter: min(30s, 750ms * 2^retry) + Zufallsanteil. */
 export const nextReconnectDelayMs = (retry: number): number =>
   Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** retry) + Math.floor(Math.random() * 400);

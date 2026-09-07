@@ -79,6 +79,13 @@ sendet `token_revoked` und schließt die betroffenen Sockets aktiv. `overlay`, `
 dieses Tokens schließt darum alle drei Tag-Gruppen gemeinsam, während der Dock-Token
 ausschließlich `dock`-Sockets betrifft.
 
+Jede Client-Fläche sendet auf einem offenen Socket alle 20 Sekunden den Text `ping`; das
+Durable Object beantwortet ihn per Auto-Pong, ohne dafür aufzuwachen. Beim nächsten Upgrade
+werden offene Sockets mit einem Heartbeat-Zeitstempel älter als 70 Sekunden mit 4006
+(`stale_heartbeat`) geschlossen und geben ihren Platz frei. Sockets ohne Zeitstempel werden
+bewusst nie aussortiert: Ein altes Bundle nach einem Deploy kann noch ohne Heartbeat laufen,
+und sein Schließen würde eine sofortige Reconnect-Schleife erzeugen.
+
 ## Flächen und Routenauflösung
 
 Die Routentabelle in `src/routing.ts` löst fünf Flächen auf: `admin`, `overlay`,
