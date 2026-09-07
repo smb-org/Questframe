@@ -204,6 +204,22 @@ describe("Worker gateway failure boundaries", () => {
     expect(mutation.headers.get("access-control-allow-origin")).toBeNull();
   });
 
+  it("gibt Medien nur auf dem Token-Weg für CORS frei", async () => {
+    // Dieselbe Route authentifiziert per Token ODER per Session-Cookie. Die
+    // Cookie-Antwort liegt einen Tag im privaten Cache; mit ACAO "*" darin
+    // könnte eine Schwester-Subdomain sie später ohne Zugangsdaten auslesen.
+    const path = `/api/media/${"a".repeat(64)}`;
+    const viaToken = await fetchWorker(path, {
+      headers: { authorization: `Bearer ${"A".repeat(43)}` },
+    });
+    expect(viaToken.headers.get("access-control-allow-origin")).toBe("*");
+    expect(viaToken.headers.get("vary")).toBe("Authorization");
+
+    const viaCookie = await fetchWorker(path, { headers: { cookie } });
+    expect(viaCookie.headers.get("access-control-allow-origin")).toBeNull();
+    expect(viaCookie.headers.get("vary")).toBe("Authorization");
+  });
+
   it("protects media reads and clears a same-origin logout cookie", async () => {
     const missing = await fetchWorker(`/api/media/${"a".repeat(64)}`);
     expect(missing.status).toBe(403);

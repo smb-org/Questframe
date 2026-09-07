@@ -6,6 +6,7 @@ const challengeGraphemeSegmenter = new Intl.Segmenter("de", {
 
 export const MAX_CHALLENGES = 30 as const;
 export const MAX_COUNT = 999 as const;
+export const MAX_VISIBLE_ROWS = 20 as const;
 export const GLOBAL_TIMER_UP_CAP_MS = 24 * 60 * 60 * 1000;
 
 export const DEFAULT_CHALLENGE_PLACEMENT = {
@@ -105,7 +106,7 @@ export const isSortOrder = (value: unknown): value is number =>
   value < MAX_CHALLENGES;
 
 export const isMaxVisible = (value: unknown): value is number =>
-  typeof value === "number" && Number.isSafeInteger(value) && value >= 3 && value <= 10;
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 3 && value <= MAX_VISIBLE_ROWS;
 
 export const isOverflowMode = (value: unknown): value is "cut" | "page" | "scroll" =>
   value === "cut" || value === "page" || value === "scroll";

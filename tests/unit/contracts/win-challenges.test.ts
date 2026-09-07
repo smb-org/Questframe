@@ -20,6 +20,7 @@ import {
   isHeaderTitle,
   isInstant,
   isGlobalTimerTotalMs,
+  isMaxVisible,
   isNumbered,
   isOverflowMode,
   isOverflowTempo,
@@ -150,6 +151,13 @@ describe("Win-Challenges-Verträge", () => {
       timerEndsAt: "2026-08-30T12:01:00.000Z",
       timerRemainMs: 1_000,
     }).success).toBe(false);
+  });
+
+  it("akzeptiert 20 sichtbare Zeilen und lehnt 21 ab", () => {
+    expect(isMaxVisible(20)).toBe(true);
+    expect(settingsSchema.safeParse({ ...settings, maxVisible: 20 }).success).toBe(true);
+    expect(isMaxVisible(21)).toBe(false);
+    expect(settingsSchema.safeParse({ ...settings, maxVisible: 21 }).success).toBe(false);
   });
 
   it("hält alle Feldprädikate und die darüber gebauten Schemas gekoppelt", () => {

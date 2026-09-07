@@ -33,6 +33,8 @@
   --wc-accent: #d5aa57;
   /* --wc-surface ist halbtransparent und waere auf der Akzentflaeche als Text matschig. */
   --wc-header-ink: #0d1013;
+  /* Alarmzustand in der invertierten Kopfzeile: --wc-critical ist zu hell fuer die Akzentflaeche. */
+  --wc-header-ink-critical: #7a1220;
   --wc-ok: #5ed08a;
   --wc-font-ui: "Atkinson Hyperlegible Next", sans-serif;
   --wc-font-display: Georgia, serif;
@@ -301,22 +303,32 @@
   background: var(--wc-accent);
 }
 
+/* Ausschliesslich Nachfahren der Kopfzeile: .challenge-source__count steht auch in
+   den Challenge-Zeilen und wuerde dort dunkel auf dunklem Grund landen. */
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
   .challenge-source[data-style="quest-log"]
-)[data-header-style="inverted"] .challenge-source__title,
-:is(
-  .challenge-source[data-style="plain-list"],
-  .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="quest-log"]
-)[data-header-style="inverted"] .challenge-source__stand,
-:is(
-  .challenge-source[data-style="plain-list"],
-  .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="quest-log"]
-)[data-header-style="inverted"] .challenge-source__count {
+)[data-header-style="inverted"] .challenge-source__header :is(
+  .challenge-source__title,
+  .challenge-source__stand,
+  .challenge-source__page,
+  .challenge-source__timer
+) {
   color: var(--wc-header-ink);
+}
+
+/* Der Alarmzustand behaelt eine eigene Farbe, sonst geht die Bedeutung verloren --
+   das helle Rot waere auf der Akzentflaeche aber kaum lesbar. */
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+)[data-header-style="inverted"] .challenge-source__header :is(
+  .challenge-source__timer--expired,
+  .challenge-source__timer--critical
+) {
+  color: var(--wc-header-ink-critical);
 }
 
 :is(

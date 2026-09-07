@@ -7,6 +7,7 @@ import {
   DEFAULT_CHALLENGE_PLACEMENT,
   MAX_CHALLENGES,
   MAX_COUNT,
+  MAX_VISIBLE_ROWS,
   isChallengeId,
   isChallengeState,
   isChallengeStyleId,
@@ -81,7 +82,10 @@ const requiredGlobalTimerTotalMsSchema = custom(
 const deltaSchema = custom(isDelta, "Delta muss zwischen -99 und 99 liegen.");
 const instantSchema = custom(isInstant, "Zeitpunkt muss ein ISO-Instant sein.");
 const sortOrderSchema = custom(isSortOrder, "Sortierung muss 0–29 sein.");
-const maxVisibleSchema = custom(isMaxVisible, "Maximal sichtbar müssen 3–10 Einträge sein.");
+const maxVisibleSchema = custom(
+  isMaxVisible,
+  `Maximal sichtbar müssen 3–${String(MAX_VISIBLE_ROWS)} Einträge sein.`,
+);
 const placementXSchema = custom(isPlacementX, "X-Position muss eine Ganzzahl von 0–384 sein.");
 const placementYSchema = custom(isPlacementY, "Y-Position muss eine Ganzzahl von 0–216 sein.");
 const placementScaleSchema = custom(isPlacementScale, "Skalierung muss 0,75–2,00 in 0,01-Schritten sein.");

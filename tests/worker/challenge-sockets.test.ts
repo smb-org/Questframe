@@ -3,6 +3,7 @@ import { runInDurableObject } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  MAX_CHALLENGE_SOCKETS,
   MAX_COMPOSITE_SOCKETS,
   bootstrapResponseSchema,
   dockTokenResponseSchema,
@@ -480,22 +481,45 @@ describe("Win-Challenges-Sockets", () => {
     }
   });
 
-  it("verdrängt beim Verbinden keine lebende Challenge-Quelle", async () => {
-    // Verdrängung erzeugte ein Karussell: die hinausgeworfene Quelle verbindet
-    // sofort neu und wirft die nächste hinaus — die Anzeige verschwand im
-    // Sekundentakt. Drei Verbindungen genügen als Nachweis; mehr würden den
-    // IP-Eimer für die übrigen Fälle aufbrauchen.
+  it("weist über dem Limit ab, statt eine lebende Quelle zu verdrängen", async () => {
+    // Die zwischenzeitliche Verdrängung erzeugte ein Karussell: die
+    // hinausgeworfene Quelle verband sofort neu und warf die nächste hinaus, die
+    // Anzeige verschwand im Sekundentakt. Der Fall muss deshalb das Limit
+    // tatsächlich erreichen — darunter greift die Verdrängung gar nicht und ein
+    // kleinerer Test wäre auch gegen den fehlerhaften Stand grün.
     const overlayToken = await createOverlayToken();
     const sockets: WebSocket[] = [];
+    // Eigene cf-connecting-ip, damit die Füllung den Eimer der Nachbarfälle nicht leert.
+    const clientIp = { "cf-connecting-ip": "198.51.100.92" };
     try {
       const closes: number[] = [];
-      for (let index = 0; index < 3; index += 1) {
-        const socket = await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken);
+      for (let index = 0; index < MAX_CHALLENGE_SOCKETS; index += 1) {
+        const socket = await openSocket(
+          "/ws/challenge",
+          OVERLAY_SOCKET_PROTOCOL,
+          overlayToken,
+          clientIp,
+        );
         socket.addEventListener("close", (event) => { closes.push(event.code); });
         sockets.push(socket);
       }
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      expect(closes, "keine bestehende Quelle darf beim Verbinden geschlossen werden").toEqual([]);
+      const rejected = await fetchWorker("/ws/challenge", {
+        headers: {
+          ...clientIp,
+          upgrade: "websocket",
+          "sec-websocket-protocol": `${OVERLAY_SOCKET_PROTOCOL}, ${overlayToken}`,
+        },
+      });
+      expect(rejected.status).toBe(429);
+      expect((await rejected.json<{ error: { code: string } }>()).error.code).toBe("socket_limit");
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(closes, "keine bestehende Quelle darf verdrängt werden").toEqual([]);
+
+      // Ein sauber geschlossener Platz wird wieder frei.
+      sockets.pop()?.close();
+      sockets.push(
+        await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken, clientIp),
+      );
     } finally {
       for (const socket of sockets) socket.close();
     }

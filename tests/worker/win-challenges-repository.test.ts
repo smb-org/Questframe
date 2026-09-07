@@ -15,6 +15,7 @@ const testChannelId = `win-challenges-step-2-${crypto.randomUUID()}`;
 const stub = env.CHANNEL.get(env.CHANNEL.idFromName(testChannelId));
 const legacyStub = env.CHANNEL.get(env.CHANNEL.idFromName(`win-challenges-legacy-${crypto.randomUUID()}`));
 const migrationNineStub = env.CHANNEL.get(env.CHANNEL.idFromName(`win-challenges-migration-nine-${crypto.randomUUID()}`));
+const migrationElevenStub = env.CHANNEL.get(env.CHANNEL.idFromName(`win-challenges-migration-eleven-${crypto.randomUUID()}`));
 
 type GlobalTimerRow = {
   global_timer_total_ms: number | null;
@@ -154,6 +155,7 @@ describe("win-challenges repository and migration", () => {
     expect(result.versions).toContain(8);
     expect(result.versions).toContain(9);
     expect(result.versions).toContain(10);
+    expect(result.versions).toContain(11);
     expect(result.tables).toEqual([
       "wc_challenges",
       "wc_commands",
@@ -283,6 +285,130 @@ describe("win-challenges repository and migration", () => {
     const columns = await runInDurableObject(legacyStub, (_instance, state) => state.storage.sql.exec<{ name: string }>("PRAGMA table_info(wc_meta)").toArray().map(({ name }) => name));
     expect(columns).toContain("max_visible");
     expect(columns).toContain("header_style");
+  });
+
+  it("baut die alte max_visible-Tabelle um und erhält alle übrigen Meta-Werte", async () => {
+    const result = await runInDurableObject(migrationElevenStub, (_instance, state) => {
+      state.storage.sql.exec(`
+        DROP TABLE IF EXISTS wc_meta;
+        DROP TABLE IF EXISTS _sql_schema_migrations;
+        CREATE TABLE _sql_schema_migrations (
+          version INTEGER PRIMARY KEY,
+          build_id TEXT NOT NULL,
+          applied_at TEXT NOT NULL
+        );
+        CREATE TABLE wc_meta (
+          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+          event_seq INTEGER NOT NULL,
+          board_revision INTEGER NOT NULL,
+          settings_revision INTEGER NOT NULL,
+          style_id TEXT NOT NULL,
+          theme_mode TEXT NOT NULL CHECK (theme_mode IN ('inherit', 'own')),
+          surface_mode TEXT NOT NULL CHECK (surface_mode IN ('surface', 'bare')),
+          header_style TEXT NOT NULL DEFAULT 'default' CHECK (header_style IN ('default','inverted')),
+          header_title TEXT NOT NULL,
+          effects_enabled INTEGER NOT NULL CHECK (effects_enabled IN (0, 1)),
+          max_visible INTEGER NOT NULL DEFAULT 5 CHECK (max_visible BETWEEN 3 AND 10),
+          overflow_mode TEXT NOT NULL DEFAULT 'cut' CHECK (overflow_mode IN ('cut', 'page', 'scroll')),
+          overflow_tempo TEXT NOT NULL DEFAULT 'medium' CHECK (overflow_tempo IN ('slow', 'medium', 'fast')),
+          numbered INTEGER NOT NULL DEFAULT 0 CHECK (numbered IN (0, 1)),
+          done_order TEXT NOT NULL DEFAULT 'end' CHECK (done_order IN ('end', 'keep')),
+          global_timer_mode TEXT NOT NULL DEFAULT 'down' CHECK (global_timer_mode IN ('down', 'up')),
+          placement_x INTEGER NOT NULL DEFAULT 300 CHECK (placement_x BETWEEN 0 AND 384),
+          placement_y INTEGER NOT NULL DEFAULT 8 CHECK (placement_y BETWEEN 0 AND 216),
+          placement_scale REAL NOT NULL DEFAULT 1 CHECK (placement_scale BETWEEN 0.75 AND 2),
+          global_timer_total_ms INTEGER,
+          global_timer_ends_at TEXT,
+          global_timer_paused_remain_ms INTEGER,
+          CHECK (global_timer_ends_at IS NULL OR global_timer_paused_remain_ms IS NULL),
+          CHECK (
+            global_timer_total_ms IS NOT NULL
+            OR (global_timer_ends_at IS NULL AND global_timer_paused_remain_ms IS NULL)
+          )
+        );
+        INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES
+          (1, 'legacy', '2026-08-30T12:00:00.000Z'),
+          (2, 'legacy', '2026-08-30T12:00:00.000Z'),
+          (3, 'legacy', '2026-08-30T12:00:00.000Z'),
+          (4, 'legacy', '2026-08-30T12:00:00.000Z'),
+          (5, 'legacy', '2026-08-30T12:00:00.000Z'),
+          (6, 'legacy', '2026-08-30T12:00:00.000Z'),
+          (7, 'legacy', '2026-08-30T12:00:00.000Z'),
+          (8, 'legacy', '2026-08-30T12:00:00.000Z'),
+          (9, 'legacy', '2026-08-30T12:00:00.000Z'),
+          (10, 'legacy', '2026-08-30T12:00:00.000Z');
+        INSERT INTO wc_meta(
+          singleton, event_seq, board_revision, settings_revision, style_id,
+          theme_mode, surface_mode, header_style, header_title, effects_enabled,
+          max_visible, overflow_mode, overflow_tempo, numbered, done_order,
+          global_timer_mode, placement_x, placement_y, placement_scale,
+          global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms
+        ) VALUES (
+          1, 42, 7, 8, 'quest-log', 'own', 'bare', 'inverted', 'Legacy', 0,
+          10, 'scroll', 'fast', 1, 'keep', 'up', 123, 45, 1.25,
+          100000, NULL, NULL
+        );
+      `);
+      runMigrations(state.storage.sql, "worker-test-migration-11");
+      state.storage.sql.exec("UPDATE wc_meta SET max_visible = 20 WHERE singleton = 1");
+      runMigrations(state.storage.sql, "worker-test-migration-11-second-run");
+      return {
+        versions: state.storage.sql
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .toArray()
+          .map(({ version }) => version),
+        meta: state.storage.sql.exec<{
+          singleton: number;
+          event_seq: number;
+          board_revision: number;
+          settings_revision: number;
+          style_id: string;
+          theme_mode: string;
+          surface_mode: string;
+          header_style: string;
+          header_title: string;
+          effects_enabled: number;
+          max_visible: number;
+          overflow_mode: string;
+          overflow_tempo: string;
+          numbered: number;
+          done_order: string;
+          global_timer_mode: string;
+          placement_x: number;
+          placement_y: number;
+          placement_scale: number;
+          global_timer_total_ms: number | null;
+          global_timer_ends_at: string | null;
+          global_timer_paused_remain_ms: number | null;
+        }>("SELECT singleton, event_seq, board_revision, settings_revision, style_id, theme_mode, surface_mode, header_style, header_title, effects_enabled, max_visible, overflow_mode, overflow_tempo, numbered, done_order, global_timer_mode, placement_x, placement_y, placement_scale, global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms FROM wc_meta WHERE singleton = 1").toArray()[0],
+      };
+    });
+
+    expect(result.versions).toContain(11);
+    expect(result.meta).toEqual({
+      singleton: 1,
+      event_seq: 42,
+      board_revision: 7,
+      settings_revision: 8,
+      style_id: "quest-log",
+      theme_mode: "own",
+      surface_mode: "bare",
+      header_style: "inverted",
+      header_title: "Legacy",
+      effects_enabled: 0,
+      max_visible: 20,
+      overflow_mode: "scroll",
+      overflow_tempo: "fast",
+      numbered: 1,
+      done_order: "keep",
+      global_timer_mode: "up",
+      placement_x: 123,
+      placement_y: 45,
+      placement_scale: 1.25,
+      global_timer_total_ms: 100000,
+      global_timer_ends_at: null,
+      global_timer_paused_remain_ms: null,
+    });
   });
 
   it("enforces both global timer CHECK constraints", async () => {

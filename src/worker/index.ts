@@ -643,10 +643,16 @@ const worker = {
         `/media/${url.pathname.slice("/api/media/".length)}`,
         extra,
       );
-      // Gleicher Grund wie beim Preflight oben: ohne diesen Header darf das
-      // sandboxed Overlay die Antwort nicht lesen.
       const withCors = new Response(response.body, response);
-      withCors.headers.set("access-control-allow-origin", "*");
+      // Nur der Token-Weg bekommt die CORS-Freigabe. Dieselbe Route
+      // authentifiziert auch per Session-Cookie; eine solche Antwort liegt
+      // einen Tag im privaten Browser-Cache, und mit ACAO "*" darin könnte eine
+      // Schwester-Subdomain in derselben Cache-Partition sie später ohne
+      // Zugangsdaten auslesen. "Vary" hält die beiden Wege zusätzlich getrennt.
+      withCors.headers.set("vary", "Authorization");
+      if (authorization?.startsWith("Bearer ") === true) {
+        withCors.headers.set("access-control-allow-origin", "*");
+      }
       return withCors;
     }
 

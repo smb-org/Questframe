@@ -1046,11 +1046,10 @@ describe("channel worker", () => {
   it("frees every overlay slot again after a full reload burst", async () => {
     let overlayToken = "";
     const sockets: WebSocket[] = [];
-    // Eigene cf-connecting-ip je Phase: der OVERLAY_IP_LIMITER lässt 30 Upgrades
-    // pro 10s und Adresse zu, dieser Test öffnet aber drei Wellen von je
-    // MAX_OVERLAY_SOCKETS. Mit einem gemeinsamen Eimer würde er sich ab einer
-    // Grenze von 15 selbst ausbremsen — und den anderen Overlay-Tests dieser
-    // Datei den "unknown"-Fallback-Eimer wegnehmen.
+    // Eigene cf-connecting-ip je Phase: der OVERLAY_IP_LIMITER schlüsselt auf die
+    // Adresse, dieser Test öffnet drei volle Wellen von je MAX_OVERLAY_SOCKETS.
+    // Mit einem gemeinsamen Eimer würde er sich selbst ausbremsen — und den
+    // anderen Overlay-Tests dieser Datei den "unknown"-Eimer wegnehmen.
     const connect = (clientIp: string) =>
       fetchWorker("http://localhost/ws/overlay", {
         headers: {
@@ -1107,11 +1106,8 @@ describe("channel worker", () => {
       expect(upgrades.map((upgrade) => upgrade.status)).toEqual(Array(fill).fill(101));
       expect(await overlaySocketCount()).toBe(fill);
 
-      // Drei Versuche genügen als Nachweis. Eine volle Welle würde zusammen mit
-      // den anderen Phasen den OVERLAY_CAPSULE_LIMITER sprengen (60/10s, testweit
-      // geteilt, weil er auf die CAPSULE_ID schlüsselt).
       const reloadOverlaps = await Promise.all(
-        Array.from({ length: 3 }, () => connect("198.51.100.82")),
+        Array.from({ length: fill }, () => connect("198.51.100.82")),
       );
       for (const response of reloadOverlaps) {
         expect(response.status).toBe(429);
@@ -1121,11 +1117,8 @@ describe("channel worker", () => {
       for (const socket of sockets.splice(0)) socket.close();
       await waitForSocketCount(0);
 
-      // Wieder klein gehalten: entscheidend ist, dass nach dem Schließen erneut
-      // verbunden werden kann, nicht die Zahl der Nachrücker. Der geteilte
-      // Kapsel-Eimer lässt keine zweite volle Welle zu.
       const replacements = await Promise.all(
-        Array.from({ length: 3 }, () => connect("198.51.100.83")),
+        Array.from({ length: fill }, () => connect("198.51.100.83")),
       );
       for (const replacement of replacements) {
         const socket = replacement.webSocket;
@@ -1134,8 +1127,8 @@ describe("channel worker", () => {
           sockets.push(socket);
         }
       }
-      expect(replacements.map((replacement) => replacement.status)).toEqual(Array(3).fill(101));
-      expect(await overlaySocketCount()).toBe(3);
+      expect(replacements.map((replacement) => replacement.status)).toEqual(Array(fill).fill(101));
+      expect(await overlaySocketCount()).toBe(fill);
     } finally {
       for (const socket of sockets) socket.close();
       await waitForSocketCount(0);

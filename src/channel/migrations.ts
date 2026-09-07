@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS wc_meta (
   header_style TEXT NOT NULL DEFAULT 'default' CHECK (header_style IN ('default','inverted')),
   header_title TEXT NOT NULL,
   effects_enabled INTEGER NOT NULL CHECK (effects_enabled IN (0, 1)),
-  max_visible INTEGER NOT NULL DEFAULT 5 CHECK (max_visible BETWEEN 3 AND 10),
+  max_visible INTEGER NOT NULL DEFAULT 5 CHECK (max_visible BETWEEN 3 AND 20),
   overflow_mode TEXT NOT NULL DEFAULT 'cut' CHECK (overflow_mode IN ('cut', 'page', 'scroll')),
   overflow_tempo TEXT NOT NULL DEFAULT 'medium' CHECK (overflow_tempo IN ('slow', 'medium', 'fast')),
   numbered INTEGER NOT NULL DEFAULT 0 CHECK (numbered IN (0, 1)),
@@ -237,6 +237,63 @@ ALTER TABLE wc_challenges ADD COLUMN timer_remain_ms INTEGER CHECK (timer_remain
 `;
 
 const MIGRATION_10_HEADER_STYLE = "ALTER TABLE wc_meta ADD COLUMN header_style TEXT NOT NULL DEFAULT 'default' CHECK (header_style IN ('default','inverted'));";
+
+const MIGRATION_11_WC_META_REBUILD = `
+CREATE TABLE wc_meta_migration_11 (
+  singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+  event_seq INTEGER NOT NULL,
+  board_revision INTEGER NOT NULL,
+  settings_revision INTEGER NOT NULL,
+  style_id TEXT NOT NULL,
+  theme_mode TEXT NOT NULL CHECK (theme_mode IN ('inherit', 'own')),
+  surface_mode TEXT NOT NULL CHECK (surface_mode IN ('surface', 'bare')),
+  header_style TEXT NOT NULL DEFAULT 'default' CHECK (header_style IN ('default','inverted')),
+  header_title TEXT NOT NULL,
+  effects_enabled INTEGER NOT NULL CHECK (effects_enabled IN (0, 1)),
+  max_visible INTEGER NOT NULL DEFAULT 5 CHECK (max_visible BETWEEN 3 AND 20),
+  overflow_mode TEXT NOT NULL DEFAULT 'cut' CHECK (overflow_mode IN ('cut', 'page', 'scroll')),
+  overflow_tempo TEXT NOT NULL DEFAULT 'medium' CHECK (overflow_tempo IN ('slow', 'medium', 'fast')),
+  numbered INTEGER NOT NULL DEFAULT 0 CHECK (numbered IN (0, 1)),
+  done_order TEXT NOT NULL DEFAULT 'end' CHECK (done_order IN ('end', 'keep')),
+  global_timer_mode TEXT NOT NULL DEFAULT 'down' CHECK (global_timer_mode IN ('down', 'up')),
+  placement_x INTEGER NOT NULL DEFAULT 300 CHECK (placement_x BETWEEN 0 AND 384),
+  placement_y INTEGER NOT NULL DEFAULT 8 CHECK (placement_y BETWEEN 0 AND 216),
+  placement_scale REAL NOT NULL DEFAULT 1 CHECK (placement_scale BETWEEN 0.75 AND 2),
+  global_timer_total_ms INTEGER,
+  global_timer_ends_at TEXT,
+  global_timer_paused_remain_ms INTEGER,
+  CHECK (global_timer_ends_at IS NULL OR global_timer_paused_remain_ms IS NULL),
+  CHECK (
+    global_timer_total_ms IS NOT NULL
+    OR (global_timer_ends_at IS NULL AND global_timer_paused_remain_ms IS NULL)
+  )
+);
+INSERT INTO wc_meta_migration_11(
+  singleton, event_seq, board_revision, settings_revision, style_id,
+  theme_mode, surface_mode, header_style, header_title, effects_enabled,
+  max_visible, overflow_mode, overflow_tempo, numbered, done_order,
+  global_timer_mode, placement_x, placement_y, placement_scale,
+  global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms
+)
+SELECT
+  singleton, event_seq, board_revision, settings_revision, style_id,
+  theme_mode, surface_mode, header_style, header_title, effects_enabled,
+  max_visible, overflow_mode, overflow_tempo, numbered, done_order,
+  global_timer_mode, placement_x, placement_y, placement_scale,
+  global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms
+FROM wc_meta;
+DROP TABLE wc_meta;
+ALTER TABLE wc_meta_migration_11 RENAME TO wc_meta;
+`;
+
+const hasMaxVisibleRowsCheck = (sql: SqlStorage): boolean => {
+  const tableSql = sql
+    .exec<{ sql: string | null }>(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'wc_meta'",
+    )
+    .toArray()[0]?.sql;
+  return tableSql !== null && tableSql !== undefined && /max_visible\s+between\s+3\s+and\s+20/i.test(tableSql);
+};
 
 const hasChallengeTimerRemain = (sql: SqlStorage): boolean =>
   sql
@@ -370,6 +427,18 @@ export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
     sql.exec(
       "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
       10,
+      buildId,
+      new Date().toISOString(),
+    );
+  }
+  const versionElevenWasApplied = sql
+    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 11")
+    .toArray().length > 0;
+  if (!versionElevenWasApplied) {
+    if (!hasMaxVisibleRowsCheck(sql)) sql.exec(MIGRATION_11_WC_META_REBUILD);
+    sql.exec(
+      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
+      11,
       buildId,
       new Date().toISOString(),
     );
