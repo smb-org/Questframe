@@ -27,6 +27,8 @@ export type ObsSetupSource = {
   size: string;
   purpose: string;
   tokenKind?: ObsTokenKind;
+  /** Zusätzliche Hash-Parameter hinter dem Token, z.B. "&placement=origin". */
+  hashSuffix?: string;
   stageNote?: string;
   instructions?: ReadonlyArray<{
     title: string;
@@ -39,13 +41,20 @@ export type ObsSetupSource = {
   };
 };
 
-export const buildTokenUrl = (origin: string, path: string, token: string | null): string =>
-  token === null ? "" : `${origin}${path}#token=${token}`;
+export const buildTokenUrl = (
+  origin: string,
+  path: string,
+  token: string | null,
+  hashSuffix = "",
+): string => token === null ? "" : `${origin}${path}#token=${token}${hashSuffix}`;
 
-export const maskTokenUrl = (origin: string, source: Pick<ObsSetupSource, "path" | "url">): string =>
+export const maskTokenUrl = (
+  origin: string,
+  source: Pick<ObsSetupSource, "path" | "url" | "hashSuffix">,
+): string =>
   source.url === ""
     ? `${origin}${source.path} · Token noch nicht erzeugt`
-    : `${origin}${source.path}#token=••••••`;
+    : `${origin}${source.path}#token=••••••${source.hashSuffix ?? ""}`;
 
 export const copyObsUrl = async (url: string): Promise<void> => {
   if (url === "") return;
@@ -136,6 +145,15 @@ export const createChallengeObsSources = (
     url: buildTokenUrl(origin, "/overlay/challenges", overlayToken.token),
     size: "1920 × 1080 px",
     purpose: "Wird vollflächig in OBS eingebunden; die Position und Skalierung des Challenge-Logs stellst du im Admin ein.",
+  },
+  {
+    id: "log-standalone",
+    name: "Challenge-Log, fremd positioniert",
+    path: "/overlay/challenges",
+    url: buildTokenUrl(origin, "/overlay/challenges", overlayToken.token, "&placement=origin"),
+    hashSuffix: "&placement=origin",
+    size: "so breit wie das Element (Grundbreite 340 px × Skalierung); Höhe nach Inhalt",
+    purpose: "Für Hosts, die selbst positionieren — StreamElements-Widget oder eine eigene Browserquelle nur für das Challenge-Log. Das Element sitzt in der linken oberen Ecke, die Position stellst du im Host ein statt im Admin. Nicht zusätzlich zur vollflächigen Variante einbinden.",
   },
   {
     id: "live",

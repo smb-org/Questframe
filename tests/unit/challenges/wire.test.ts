@@ -193,10 +193,13 @@ describe("Challenge-Quelle-Wire", () => {
 });
 
 describe("placementAtOriginFromLocation", () => {
-  const withHash = (hash: string): boolean => {
-    window.location.hash = hash;
+  // jsdom navigiert bei einem Schreibzugriff auf location.search nicht; die
+  // History-API setzt Query und Hash zuverlässig gemeinsam.
+  const at = (relativeUrl: string): boolean => {
+    window.history.replaceState({}, "", relativeUrl);
     return placementAtOriginFromLocation();
   };
+  const withHash = (hash: string): boolean => at(`/overlay/challenges${hash}`);
 
   it("erkennt placement=origin neben dem Token", () => {
     expect(withHash("#token=abc&placement=origin")).toBe(true);
@@ -208,5 +211,10 @@ describe("placementAtOriginFromLocation", () => {
 
   it("akzeptiert keinen anderen Wert", () => {
     expect(withHash("#placement=center")).toBe(false);
+  });
+
+  it("nimmt das Flag auch aus der Query", () => {
+    // Kein Geheimnis, und beim Zusammenbauen einer URL landet es leicht dort.
+    expect(at("/overlay/challenges?placement=origin#token=abc")).toBe(true);
   });
 });
