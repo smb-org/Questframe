@@ -39,11 +39,9 @@ describe("public/_headers", () => {
     expect(cspOf("/*")).not.toContain("frame-ancestors");
   });
 
-  it("erlaubt Framing für beide Overlay-Regeln, inklusive blob:", () => {
+  it("erlaubt Framing für beide Overlay-Regeln", () => {
     for (const rule of ["/overlay", "/overlay/*"]) {
-      // StreamElements rendert jedes Widget in einem blob:-iframe. "*" deckt laut
-      // CSP-Spec nur Netzwerk-Schemata ab, blob: muss deshalb explizit dastehen.
-      expect(cspOf(rule)).toContain("frame-ancestors * https: http: blob: data:");
+      expect(cspOf(rule)).toContain("frame-ancestors * https: http:");
     }
   });
 

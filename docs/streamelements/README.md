@@ -15,7 +15,11 @@ im SE-Editor).
 4. Widget-Box auf die gewünschte Größe ziehen; das Overlay skaliert mit dem Rahmen.
 
 Nach `/admin` → Token rotieren muss die URL im Widget neu eingetragen werden.
-Der Overlay-Pfad erlaubt Framing bewusst (`frame-ancestors * https: http: blob: data:`
-in `public/_headers`); `/admin` und `/login` tun das nicht. `blob:` steht dort, weil
-StreamElements jedes Widget in einem `blob:`-iframe rendert und `*` laut CSP-Spec nur
-Netzwerk-Schemata abdeckt.
+**Achtung, das Custom Widget funktioniert derzeit nicht.** StreamElements rendert
+jedes Widget in einem `<iframe sandbox="allow-scripts">` ohne `allow-same-origin`.
+Das Dokument hat damit einen opaken Origin (`null`), und daran scheitert dreierlei:
+`frame-ancestors *` schließt opake Origins per CSP-Spec aus, alle Subresourcen
+(`/_app/*`, `/fonts/*`) werden zu Cross-Origin-Requests ohne `Access-Control-Allow-Origin`,
+und `'self'` in der eigenen CSP passt auf keinen Origin mehr. Der unterstützte Weg
+ist deshalb die eigene OBS-Browserquelle. Der Overlay-Pfad erlaubt Framing weiterhin
+(`frame-ancestors * https: http:`); `/admin` und `/login` tun das nicht.
