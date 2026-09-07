@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BootstrapResponse } from "../../../src/shared/contracts/api";
 import type { ChallengeBoardSnapshot } from "../../../src/modules/win-challenges/contracts/schemas";
 import { createDefaultState, getReleaseCapabilities, twitchUserIdSchema } from "../../../src/shared/contracts/state";
+import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
 import { AdminWorkspace, type AdminApi } from "../../../src/admin/AdminWorkspace";
 
 const actor = { twitchUserId: twitchUserIdSchema.parse("123"), displayName: "Moderator" };
@@ -30,7 +31,7 @@ const challengeSnapshot = (): ChallengeBoardSnapshot => ({
   eventSeq: 0,
   boardRevision: 1,
   settingsRevision: 1,
-  settings: { styleId: "plain-list", themeMode: "inherit", surfaceMode: "surface", headerTitle: "CHALLENGES", effectsEnabled: true, maxVisible: 5, overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down", globalTimer: null, placement: { x: 300, y: 8, scale: 1 } },
+  settings: { styleId: "plain-list", themeMode: "inherit", surfaceMode: "surface", headerStyle: "default", headerTitle: "CHALLENGES", effectsEnabled: true, maxVisible: 5, overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down", globalTimer: null, placement: { x: 300, y: 8, scale: 1 } },
   challenges: [{ id: "challenge-1", title: "Wasser trinken", targetCount: null, timerTotalMs: null, sortOrder: 0, hidden: false, currentCount: 0, state: "pending", timerEndsAt: null, timerRemainMs: null, completedAt: null, createdAt: "2026-08-29T12:00:00.000Z", updatedAt: "2026-08-29T12:00:00.000Z" }],
 });
 
@@ -56,6 +57,42 @@ const challengesPanel = () => within(document.querySelector("#admin-composition-
 const hudPanel = () => within(document.querySelector("#admin-composition-panel-hud") as HTMLElement);
 
 describe("Kompositions-Workspace", () => {
+  it("zeigt einen Hinweis, wenn das Challenge-Board in der Sitzung fehlt", () => {
+    render(<AdminWorkspace api={{ save: vi.fn(), setVisibility: vi.fn() }} initialBootstrap={bootstrap()} workspace="challenges" />);
+
+    expect(screen.getByText("Challenge-Board ist in dieser Sitzung nicht verfügbar.")).toBeInTheDocument();
+  });
+
+  it("spiegelt einen frühen Socket-Stand inklusive invertierter Kopfzeile in die Vorschau", async () => {
+    let onChallengeUpdate: ((update: ChallengeUpdate) => void) | undefined;
+    const snapshot = challengeSnapshot();
+    const api: AdminApi = {
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      getChallengeBoard: vi.fn(() => new Promise<ChallengeBoardSnapshot>(() => undefined)),
+      saveChallengeBoard: vi.fn(),
+      saveChallengeSettings: vi.fn(() => Promise.resolve({ snapshot })),
+      subscribe: (callbacks) => {
+        onChallengeUpdate = callbacks.onChallengeUpdate;
+        return () => undefined;
+      },
+    };
+
+    render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} />);
+    act(() => onChallengeUpdate?.({
+      eventSeq: 1,
+      boardRevision: 1,
+      settingsRevision: 1,
+      settings: { ...snapshot.settings, themeId: "trail-wood", headerStyle: "inverted" },
+      challenges: snapshot.challenges,
+      event: null,
+    }));
+
+    await userEvent.setup().click(screen.getByRole("tab", { name: "Challenges" }));
+    await screen.findByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" });
+    expect(document.querySelector(".challenge-source")).toHaveAttribute("data-header-style", "inverted");
+  });
+
   it("schaltet nur die rechte Rail per Tabs und lässt die Bühne stehen", async () => {
     const user = userEvent.setup();
     const { container } = render(<AdminWorkspace api={createCompositionApi(challengeSnapshot())} initialBootstrap={bootstrap()} />);

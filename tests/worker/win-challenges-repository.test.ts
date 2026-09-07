@@ -119,6 +119,7 @@ describe("win-challenges repository and migration", () => {
           style_id: string;
           theme_mode: string;
           surface_mode: string;
+          header_style: string;
           header_title: string;
           effects_enabled: number;
           max_visible: number;
@@ -152,6 +153,7 @@ describe("win-challenges repository and migration", () => {
     expect(result.versions).toContain(7);
     expect(result.versions).toContain(8);
     expect(result.versions).toContain(9);
+    expect(result.versions).toContain(10);
     expect(result.tables).toEqual([
       "wc_challenges",
       "wc_commands",
@@ -166,6 +168,7 @@ describe("win-challenges repository and migration", () => {
       "style_id",
       "theme_mode",
       "surface_mode",
+      "header_style",
       "header_title",
       "effects_enabled",
       "max_visible",
@@ -203,6 +206,7 @@ describe("win-challenges repository and migration", () => {
       style_id: "plain-list",
       theme_mode: "inherit",
       surface_mode: "surface",
+      header_style: "default",
       header_title: "CHALLENGES",
       effects_enabled: 1,
       max_visible: 5,
@@ -267,14 +271,18 @@ describe("win-challenges repository and migration", () => {
           placement_scale: number;
           global_timer_mode: string;
         }>("SELECT style_id, numbered, placement_x, placement_y, placement_scale, global_timer_mode FROM wc_meta WHERE singleton = 1").toArray()[0],
+        headerStyle: state.storage.sql.exec<{ header_style: string }>("SELECT header_style FROM wc_meta WHERE singleton = 1").toArray()[0]?.header_style,
         versions: state.storage.sql.exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version").toArray().map(({ version }) => version),
       };
     });
 
     expect(placement.placement).toEqual({ style_id: "plain-list", numbered: 1, placement_x: 300, placement_y: 8, placement_scale: 1, global_timer_mode: "down" });
     expect(placement.versions).toContain(8);
+    expect(placement.versions).toContain(10);
+    expect(placement.headerStyle).toBe("default");
     const columns = await runInDurableObject(legacyStub, (_instance, state) => state.storage.sql.exec<{ name: string }>("PRAGMA table_info(wc_meta)").toArray().map(({ name }) => name));
     expect(columns).toContain("max_visible");
+    expect(columns).toContain("header_style");
   });
 
   it("enforces both global timer CHECK constraints", async () => {
@@ -520,6 +528,7 @@ describe("win-challenges repository and migration", () => {
         styleId: "plain-list",
         themeMode: "own",
         surfaceMode: "bare",
+        headerStyle: "inverted",
         headerTitle: "RUN",
         effectsEnabled: false,
         maxVisible: 8,
@@ -538,6 +547,7 @@ describe("win-challenges repository and migration", () => {
       styleId: "plain-list",
       themeMode: "own",
       surfaceMode: "bare",
+      headerStyle: "inverted",
       headerTitle: "RUN",
       effectsEnabled: false,
       overflowMode: "page",
@@ -566,6 +576,7 @@ describe("win-challenges repository and migration", () => {
         styleId: "plain-list",
         themeMode: "inherit",
         surfaceMode: "surface",
+        headerStyle: "default",
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
@@ -601,6 +612,7 @@ describe("win-challenges repository and migration", () => {
         styleId: "plain-list",
         themeMode: "inherit",
         surfaceMode: "surface",
+        headerStyle: "default",
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
@@ -754,6 +766,7 @@ describe("win-challenges repository and migration", () => {
         styleId: "plain-list",
         themeMode: "inherit",
         surfaceMode: "surface",
+        headerStyle: "default",
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
@@ -899,6 +912,7 @@ describe("win-challenges repository and migration", () => {
           styleId: "plain-list",
           themeMode: "inherit",
           surfaceMode: "surface",
+          headerStyle: "default",
           headerTitle: "CHALLENGES",
           effectsEnabled: true,
           maxVisible: 5,

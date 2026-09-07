@@ -16,6 +16,7 @@ import {
   isDoneOrder,
   isDelta,
   isGlobalTimerMode,
+  isHeaderStyle,
   isHeaderTitle,
   isInstant,
   isGlobalTimerTotalMs,
@@ -60,6 +61,7 @@ const settings = {
   styleId: "plain-list" as const,
   themeMode: "inherit" as const,
   surfaceMode: "surface" as const,
+  headerStyle: "default" as const,
   headerTitle: "CHALLENGES",
   effectsEnabled: true,
   maxVisible: 5,
@@ -275,6 +277,16 @@ describe("Win-Challenges-Verträge", () => {
           { value: "e\u0301", accepted: true },
           { value: "x".repeat(24), accepted: true },
           { value: "x".repeat(25), accepted: false },
+        ],
+      },
+      {
+        name: "headerStyle",
+        predicate: isHeaderStyle,
+        schema: (value: unknown) => settingsSchema.safeParse({ ...settings, headerStyle: value }).success,
+        values: [
+          { value: "default", accepted: true },
+          { value: "inverted", accepted: true },
+          { value: "unknown", accepted: false },
         ],
       },
       {

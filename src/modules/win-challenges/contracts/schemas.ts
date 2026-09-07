@@ -19,6 +19,7 @@ import {
   isEventSeq,
   isGlobalTimerTotalMs,
   isGlobalTimerMode,
+  isHeaderStyle,
   isHeaderTitle,
   isHidden,
   isInstant,
@@ -114,6 +115,7 @@ const themeIdSchema = custom(
 );
 const themeModeSchema = custom(isThemeMode, "Theme-Modus ist ungültig.");
 const surfaceModeSchema = custom(isSurfaceMode, "Flächenmodus ist ungültig.");
+const headerStyleSchema = custom(isHeaderStyle, "Kopfzeilen-Stil ist ungültig.");
 const overflowModeSchema = custom(isOverflowMode, "Überlaufmodus ist ungültig.");
 const overflowTempoSchema = custom(isOverflowTempo, "Überlauf-Tempo ist ungültig.");
 const doneOrderSchema = custom(isDoneOrder, "Erledigt-Reihenfolge ist ungültig.");
@@ -187,6 +189,7 @@ export const settingsSchema = z.strictObject({
   styleId: styleIdSchema,
   themeMode: themeModeSchema,
   surfaceMode: surfaceModeSchema,
+  headerStyle: headerStyleSchema,
   headerTitle: headerTitleSchema,
   effectsEnabled: z.boolean(),
   maxVisible: maxVisibleSchema,
@@ -269,6 +272,7 @@ export const settingsSaveRequestSchema = z.strictObject({
   styleId: styleIdSchema,
   themeMode: themeModeSchema,
   surfaceMode: surfaceModeSchema,
+  headerStyle: headerStyleSchema,
   headerTitle: headerTitleSchema,
   effectsEnabled: z.boolean(),
   maxVisible: maxVisibleSchema,

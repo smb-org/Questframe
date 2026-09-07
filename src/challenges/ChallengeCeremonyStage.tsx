@@ -24,6 +24,7 @@ export const ChallengeCeremonyStage = ({
     data-ceremony-motion={presentation.activeCeremony === null ? undefined : presentation.reducedMotion ? "static" : "animated"}
     data-ceremony-type={presentation.activeCeremony?.visual}
     data-style={update.settings.styleId}
+    data-header-style={update.settings.headerStyle}
   >
     <ChallengeLog
       ceremonySeq={presentation.activeCeremony?.eventSeq}

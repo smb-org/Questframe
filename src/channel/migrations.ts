@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS wc_meta (
   style_id TEXT NOT NULL,
   theme_mode TEXT NOT NULL CHECK (theme_mode IN ('inherit', 'own')),
   surface_mode TEXT NOT NULL CHECK (surface_mode IN ('surface', 'bare')),
+  header_style TEXT NOT NULL DEFAULT 'default' CHECK (header_style IN ('default','inverted')),
   header_title TEXT NOT NULL,
   effects_enabled INTEGER NOT NULL CHECK (effects_enabled IN (0, 1)),
   max_visible INTEGER NOT NULL DEFAULT 5 CHECK (max_visible BETWEEN 3 AND 10),
@@ -235,6 +236,8 @@ const MIGRATION_9_CHALLENGE_TIMER_REMAIN = `
 ALTER TABLE wc_challenges ADD COLUMN timer_remain_ms INTEGER CHECK (timer_remain_ms BETWEEN 0 AND 21600000);
 `;
 
+const MIGRATION_10_HEADER_STYLE = "ALTER TABLE wc_meta ADD COLUMN header_style TEXT NOT NULL DEFAULT 'default' CHECK (header_style IN ('default','inverted'));";
+
 const hasChallengeTimerRemain = (sql: SqlStorage): boolean =>
   sql
     .exec<{ name: string }>("PRAGMA table_info(wc_challenges)")
@@ -355,6 +358,18 @@ export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
     sql.exec(
       "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
       9,
+      buildId,
+      new Date().toISOString(),
+    );
+  }
+  const versionTenWasApplied = sql
+    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 10")
+    .toArray().length > 0;
+  if (!versionTenWasApplied) {
+    if (!hasChallengeMetaColumn(sql, "header_style")) sql.exec(MIGRATION_10_HEADER_STYLE);
+    sql.exec(
+      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
+      10,
       buildId,
       new Date().toISOString(),
     );

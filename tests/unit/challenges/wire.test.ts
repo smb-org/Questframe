@@ -15,6 +15,7 @@ const update = (): ChallengeUpdate => ({
     styleId: "plain-list",
     themeMode: "inherit",
     surfaceMode: "surface",
+    headerStyle: "default",
     headerTitle: "CHALLENGES",
     effectsEnabled: true,
     maxVisible: 5,
@@ -157,6 +158,13 @@ describe("Challenge-Quelle-Wire", () => {
     };
     expect(parseChallengeUpdate(update())).toEqual(update());
     expect(parseChallengeUpdate(withoutMode)).toBeNull();
+  });
+
+  it("weist einen unbekannten Kopfzeilen-Stil zurück", () => {
+    expect(parseChallengeUpdate({
+      ...update(),
+      settings: { ...update().settings, headerStyle: "unknown" },
+    })).toBeNull();
   });
 
   it("verlangt auch im Placement exakte Keys", () => {

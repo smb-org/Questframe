@@ -61,6 +61,7 @@ const update: ChallengeUpdate = {
     styleId: "plain-list",
     themeMode: "inherit",
     surfaceMode: "surface",
+    headerStyle: "default",
     headerTitle: "CHALLENGES",
     effectsEnabled: true,
     maxVisible: 5,

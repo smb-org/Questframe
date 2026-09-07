@@ -50,6 +50,7 @@ export type ChallengeSettings = {
   styleId: ChallengeStyleId;
   themeMode: "inherit" | "own";
   surfaceMode: "surface" | "bare";
+  headerStyle: "default" | "inverted";
   headerTitle: string;
   effectsEnabled: boolean;
   maxVisible: number;

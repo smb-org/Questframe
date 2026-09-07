@@ -167,6 +167,18 @@ describe("AdminApp authentication shell", () => {
       await vi.advanceTimersByTimeAsync(55 * 60 * 1_000);
     });
     expect(apiMocks.revalidate).toHaveBeenCalledTimes(1);
+
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(apiMocks.revalidate).toHaveBeenCalledTimes(1);
+
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(apiMocks.revalidate).toHaveBeenCalledTimes(2);
   });
 
   it("renders the explicit login route error without making a bootstrap request", () => {

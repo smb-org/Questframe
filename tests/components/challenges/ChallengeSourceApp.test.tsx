@@ -81,6 +81,7 @@ const message = (): ChallengeUpdate => ({
     styleId: "plain-list",
     themeMode: "inherit",
     surfaceMode: "surface",
+    headerStyle: "default",
     headerTitle: "CHALLENGES",
     effectsEnabled: true,
     maxVisible: 5,
@@ -657,6 +658,14 @@ describe("ChallengeSourceApp", () => {
 
       view.unmount();
     }
+  });
+
+  it("trägt den invertierten Kopfzeilen-Stil am Wurzelelement", () => {
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      settings: { ...message().settings, headerStyle: "inverted" },
+    })} />);
+
+    expect(document.querySelector(".challenge-source")).toHaveAttribute("data-header-style", "inverted");
   });
 
   it("blendet das Log bei einem Verbindungsabbruch aus", () => {

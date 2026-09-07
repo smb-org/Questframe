@@ -44,6 +44,7 @@ type MetaRow = {
   style_id: string;
   theme_mode: string;
   surface_mode: string;
+  header_style: string;
   header_title: string;
   effects_enabled: number;
   max_visible: number;
@@ -103,6 +104,7 @@ const metaRowSchema = z.strictObject({
   style_id: z.string(),
   theme_mode: z.string(),
   surface_mode: z.string(),
+  header_style: z.string(),
   header_title: z.string(),
   effects_enabled: z.number().int(),
   max_visible: z.number().int(),
@@ -193,6 +195,7 @@ const parseMeta = (row: MetaRow): ChallengeSnapshot["settings"] &
     styleId: parsedRow.style_id,
     themeMode: parsedRow.theme_mode,
     surfaceMode: parsedRow.surface_mode,
+    headerStyle: parsedRow.header_style,
     headerTitle: parsedRow.header_title,
     effectsEnabled: parseBooleanInteger(parsedRow.effects_enabled),
     maxVisible: parsedRow.max_visible,
@@ -383,7 +386,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       const nextSettings = this.parseSettingsInput(input, current.settings);
       this.execute<MetaRow>(
         `UPDATE ${this.table("meta")} SET
-          style_id = ?, theme_mode = ?, surface_mode = ?, header_title = ?,
+          style_id = ?, theme_mode = ?, surface_mode = ?, header_style = ?, header_title = ?,
           effects_enabled = ?, max_visible = ?, overflow_mode = ?, overflow_tempo = ?, numbered = ?, done_order = ?,
           global_timer_mode = ?, global_timer_total_ms = ?, global_timer_ends_at = ?, global_timer_paused_remain_ms = ?,
           placement_x = ?, placement_y = ?, placement_scale = ?,
@@ -392,6 +395,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         nextSettings.styleId,
         nextSettings.themeMode,
         nextSettings.surfaceMode,
+        nextSettings.headerStyle,
         nextSettings.headerTitle,
         nextSettings.effectsEnabled ? 1 : 0,
         nextSettings.maxVisible,
@@ -548,6 +552,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         styleId: parsedMeta.styleId,
         themeMode: parsedMeta.themeMode,
         surfaceMode: parsedMeta.surfaceMode,
+        headerStyle: parsedMeta.headerStyle,
         headerTitle: parsedMeta.headerTitle,
         effectsEnabled: parsedMeta.effectsEnabled,
         maxVisible: parsedMeta.maxVisible,
@@ -724,6 +729,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       styleId: input.styleId,
       themeMode: input.themeMode,
       surfaceMode: input.surfaceMode,
+      headerStyle: input.headerStyle,
       headerTitle: input.headerTitle,
       effectsEnabled: input.effectsEnabled,
       maxVisible: input.maxVisible,

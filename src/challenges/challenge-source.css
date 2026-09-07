@@ -31,6 +31,8 @@
   --wc-text: #eef1ef;
   --wc-muted: #929da3;
   --wc-accent: #d5aa57;
+  /* --wc-surface ist halbtransparent und waere auf der Akzentflaeche als Text matschig. */
+  --wc-header-ink: #0d1013;
   --wc-ok: #5ed08a;
   --wc-font-ui: "Atkinson Hyperlegible Next", sans-serif;
   --wc-font-display: Georgia, serif;
@@ -289,6 +291,40 @@
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__stand {
   color: var(--wc-muted);
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+)[data-header-style="inverted"] .challenge-source__header {
+  background: var(--wc-accent);
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+)[data-header-style="inverted"] .challenge-source__title,
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+)[data-header-style="inverted"] .challenge-source__stand,
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+)[data-header-style="inverted"] .challenge-source__count {
+  color: var(--wc-header-ink);
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+)[data-header-style="inverted"] .challenge-source__header::after {
+  background: var(--wc-header-ink);
 }
 
 :is(

@@ -175,6 +175,9 @@ export const isThemeMode = (value: unknown): value is "inherit" | "own" =>
 export const isSurfaceMode = (value: unknown): value is "surface" | "bare" =>
   value === "surface" || value === "bare";
 
+export const isHeaderStyle = (value: unknown): value is "default" | "inverted" =>
+  value === "default" || value === "inverted";
+
 export const isPausedRemainMs = (value: unknown): value is number | null =>
   value === null ||
   (typeof value === "number" &&

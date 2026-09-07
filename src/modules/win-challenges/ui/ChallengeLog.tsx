@@ -284,6 +284,7 @@ export const ChallengeLog = ({
       data-overflow-mode={effectiveMode}
       data-numbered={update.settings.numbered ? "true" : "false"}
       data-surface-mode={update.settings.surfaceMode}
+      data-header-style={update.settings.headerStyle}
       data-theme-mode={update.settings.themeMode}
       data-theme-id={update.settings.themeId}
       onPointerDown={onPointerDown}

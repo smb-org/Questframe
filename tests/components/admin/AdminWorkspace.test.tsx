@@ -124,6 +124,7 @@ describe("Admin workspace shell", () => {
         styleId: "plain-list",
         themeMode: "inherit",
         surfaceMode: "surface",
+        headerStyle: "default",
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
@@ -161,6 +162,7 @@ describe("Admin workspace shell", () => {
         styleId: "plain-list",
         themeMode: "inherit",
         surfaceMode: "surface",
+        headerStyle: "default",
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
@@ -191,7 +193,9 @@ describe("Admin workspace shell", () => {
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Liste" }), { target: { value: "quest-log" } });
     fireEvent.change(challengesPanel.getByLabelText("Kopfzeile"), { target: { value: "RUN" } });
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Fläche" }), { target: { value: "bare" } });
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Kopfzeilen-Stil" }), { target: { value: "inverted" } });
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Zeilen" }), { target: { value: "8" } });
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Globaler Timer" }), { target: { value: "off" } });
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Globaler Timer" }), { target: { value: "down" } });
     fireEvent.change(challengesPanel.getByRole("spinbutton", { name: "Dauer" }), { target: { value: "45" } });
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Erledigte" }), { target: { value: "keep" } });
@@ -208,6 +212,7 @@ describe("Admin workspace shell", () => {
       effectsEnabled: false,
       styleId: "quest-log",
       surfaceMode: "bare",
+      headerStyle: "inverted",
       headerTitle: "RUN",
       maxVisible: 8,
       overflowMode: "page",
@@ -218,6 +223,11 @@ describe("Admin workspace shell", () => {
       globalTimerTotalMs: 2_700_000,
       placement: { x: 250, y: 12, scale: 1.25 },
     }));
+
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Globaler Timer" }), { target: { value: "down" } });
+    fireEvent.change(challengesPanel.getByRole("spinbutton", { name: "Dauer" }), { target: { value: "" } });
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
+    expect(await screen.findByText("Für den Modus ‚runterzählen‘ ist eine Dauer erforderlich.")).toBeInTheDocument();
   });
 
   it("verwirft in der Vorschau alte Globaltimer-Laufzeit bei geänderter Dauer", async () => {
@@ -229,6 +239,7 @@ describe("Admin workspace shell", () => {
         styleId: "plain-list",
         themeMode: "inherit",
         surfaceMode: "surface",
+        headerStyle: "default",
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
@@ -266,6 +277,7 @@ describe("Admin workspace shell", () => {
         styleId: "plain-list",
         themeMode: "inherit",
         surfaceMode: "surface",
+        headerStyle: "default",
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
@@ -311,7 +323,7 @@ describe("Admin workspace shell", () => {
       boardRevision: 1,
       settingsRevision: 1,
       settings: {
-        styleId: "plain-list", themeMode: "inherit", surfaceMode: "surface", headerTitle: "CHALLENGES", effectsEnabled: true,
+        styleId: "plain-list", themeMode: "inherit", surfaceMode: "surface", headerStyle: "default", headerTitle: "CHALLENGES", effectsEnabled: true,
         maxVisible: 5, overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: { totalMs: 60_000, endsAt: new Date(Date.now() + 30_000).toISOString(), pausedRemainMs: null }, placement: { x: 300, y: 8, scale: 1 },
       },
@@ -361,6 +373,7 @@ describe("Admin workspace shell", () => {
         styleId: "plain-list",
         themeMode: "inherit",
         surfaceMode: "surface",
+        headerStyle: "default",
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
@@ -406,6 +419,7 @@ describe("Admin workspace shell", () => {
         styleId: "plain-list",
         themeMode: "inherit",
         surfaceMode: "surface",
+        headerStyle: "default",
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
@@ -454,6 +468,7 @@ describe("Admin workspace shell", () => {
         styleId: "plain-list",
         themeMode: "inherit",
         surfaceMode: "surface",
+        headerStyle: "default",
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
@@ -510,6 +525,7 @@ describe("Admin workspace shell", () => {
         styleId: "plain-list",
         themeMode: "inherit",
         surfaceMode: "surface",
+        headerStyle: "default",
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
@@ -526,7 +542,8 @@ describe("Admin workspace shell", () => {
     };
     const saveChallengeSettings = vi.fn()
       .mockRejectedValueOnce({ code: "revision_conflict", currentSnapshot })
-      .mockResolvedValueOnce({ snapshot: { ...currentSnapshot, settingsRevision: 8, settings: { ...currentSnapshot.settings, effectsEnabled: false } } });
+      .mockResolvedValueOnce({ snapshot: { ...currentSnapshot, settingsRevision: 8, settings: { ...currentSnapshot.settings, effectsEnabled: false } } })
+      .mockRejectedValueOnce("Speichern kaputt");
     const api: AdminApi = {
       save: vi.fn(),
       setVisibility: vi.fn(),
@@ -549,6 +566,10 @@ describe("Admin workspace shell", () => {
     expect(saveChallengeSettings).toHaveBeenLastCalledWith(expect.objectContaining({
       baseSettingsRevision: 7,
     }));
+
+    await user.click(screen.getByRole("checkbox", { name: "Zeremonien und Töne aktiv" }));
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Challenge-Einstellungen konnten nicht gespeichert werden.");
   });
 
   it("zeigt bei einem Board-Konflikt über die globale Speicherleiste die modul-eigene Konflikt-UI mit Serverstand", async () => {
@@ -562,6 +583,7 @@ describe("Admin workspace shell", () => {
         styleId: "plain-list",
         themeMode: "inherit",
         surfaceMode: "surface",
+        headerStyle: "default",
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
@@ -610,6 +632,7 @@ describe("Admin workspace shell", () => {
         styleId: "plain-list",
         themeMode: "inherit",
         surfaceMode: "surface",
+        headerStyle: "default",
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
@@ -643,23 +666,62 @@ describe("Admin workspace shell", () => {
         eventSeq: 1,
         boardRevision: 1,
         settingsRevision: 4,
-        settings: { ...challengeSnapshot.settings, themeId: "trail-wood", effectsEnabled: false },
+        settings: {
+          ...challengeSnapshot.settings,
+          themeId: "trail-wood",
+          effectsEnabled: false,
+          globalTimer: { totalMs: 60_000, endsAt: "2000-01-01T00:00:00.000Z", pausedRemainMs: null },
+        },
         challenges: [],
         event: null,
       });
     });
+    expect(await screen.findByText("abgelaufen")).toBeInTheDocument();
+
+    act(() => {
+      onChallengeUpdate?.({
+        eventSeq: 2,
+        boardRevision: 1,
+        settingsRevision: 5,
+        settings: {
+          ...challengeSnapshot.settings,
+          themeId: "trail-wood",
+          globalTimer: { totalMs: 60_000, endsAt: null, pausedRemainMs: 30_000 },
+        },
+        challenges: [],
+        event: null,
+      });
+    });
+    expect(await screen.findByText(/pausiert/)).toBeInTheDocument();
+
+    act(() => {
+      onChallengeUpdate?.({
+        eventSeq: 3,
+        boardRevision: 1,
+        settingsRevision: 6,
+        settings: {
+          ...challengeSnapshot.settings,
+          themeId: "trail-wood",
+          globalTimerMode: "up",
+          globalTimer: { totalMs: 60_000, endsAt: "2000-01-01T00:00:00.000Z", pausedRemainMs: null },
+        },
+        challenges: [],
+        event: null,
+      });
+    });
+    expect(await screen.findByText("1:00")).toBeInTheDocument();
 
     // Jetzt kommt die verspätete Antwort für unseren (jetzt veralteten) Request rein –
     // mit einer niedrigeren Revision als der bereits bekannte Socket-Stand.
     resolveSave?.({ snapshot: { ...challengeSnapshot, settingsRevision: 2, settings: { ...challengeSnapshot.settings, effectsEnabled: false } } });
     expect(await screen.findByText("Einstellung veröffentlicht.")).toBeInTheDocument();
 
-    // Der nächste Save muss auf der neueren (per Socket erhaltenen) Revision 4 aufsetzen,
+    // Der nächste Save muss auf der neueren (per Socket erhaltenen) Revision 6 aufsetzen,
     // nicht auf der veralteten Revision 2 aus der verspäteten Antwort.
     await user.click(toggle);
     await user.click(screen.getByRole("button", { name: "Alle speichern" }));
     await waitFor(() => expect(saveChallengeSettings).toHaveBeenCalledTimes(2));
-    expect(saveChallengeSettings).toHaveBeenLastCalledWith(expect.objectContaining({ baseSettingsRevision: 4 }));
+    expect(saveChallengeSettings).toHaveBeenLastCalledWith(expect.objectContaining({ baseSettingsRevision: 6 }));
   });
 });
 
@@ -696,6 +758,7 @@ describe("Admin workspace setup", () => {
         styleId: "plain-list",
         themeMode: "inherit",
         surfaceMode: "surface",
+        headerStyle: "default",
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
