@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { parseEnv } from "node:util";
+import { publicOriginFor } from "./lib/headers.mjs";
 
 const projectRoot = path.resolve(import.meta.dirname, "..");
 const deploymentBindings = [
@@ -70,6 +71,25 @@ const validateGeneratedBuild = async (environment, generatedFile) => {
         const missingRequired = deploymentBindings.filter((name) => !required.has(name));
         if (missingRequired.length > 0) {
           failures.push(`Erforderliche Secret-Bindings fehlen: ${missingRequired.join(", ")}`);
+        }
+
+        // Die CSP nennt den Origin ausgeschrieben, damit sie auch im opaken Origin
+        // eines sandboxed iframes greift (StreamElements). Wird render-headers.mjs
+        // vergessen oder mit der falschen Umgebung aufgerufen, ginge sonst still
+        // eine localhost- oder Platzhalter-Policy nach Production.
+        const { origin } = publicOriginFor(source, environment);
+        const rendered = await readFile(
+          path.join(projectRoot, "dist/client/_headers"),
+          "utf8",
+        );
+        if (rendered.includes("__PUBLIC_")) {
+          failures.push("dist/client/_headers enthält noch Platzhalter — render-headers.mjs lief nicht.");
+        }
+        if (!rendered.includes(origin)) {
+          failures.push(`dist/client/_headers nennt nicht den Origin ${origin} der Umgebung ${environment}.`);
+        }
+        if (rendered.includes("localhost")) {
+          failures.push("dist/client/_headers enthält localhost — render-headers.mjs lief ohne Umgebung.");
         }
       }
     }

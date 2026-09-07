@@ -1,48 +1,69 @@
+# Gebaute JS/CSS/Font-Artefakte ohne Geheimnisse. StreamElements sandboxt sein
+# Widget-iframe ohne "allow-same-origin", das Dokument hat dort einen opaken
+# Origin -- damit werden diese Dateien zu Cross-Origin-Requests. Vite setzt
+# crossorigin auf script und link, also greift CORS auch bei CSS; Fonts laden
+# ohnehin immer im CORS-Modus.
 /_app/*
   Cache-Control: public, max-age=31536000, immutable
   X-Content-Type-Options: nosniff
+  Access-Control-Allow-Origin: *
+
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+  X-Content-Type-Options: nosniff
+  Access-Control-Allow-Origin: *
 
 /assets/*
   Cache-Control: public, max-age=0, must-revalidate
   X-Content-Type-Options: nosniff
 
+# __PUBLIC_ORIGIN__ und __PUBLIC_HOST__ setzt scripts/render-headers.mjs nach dem
+# Vite-Build ein. Der ausgeschriebene Origin ist bei einer normal geladenen Seite
+# exakt so streng wie 'self' -- aber 'self' matcht in einem sandboxed iframe mit
+# opakem Origin gar nichts mehr, der ausgeschriebene Origin schon.
 /admin*
   Cache-Control: no-cache
   Referrer-Policy: no-referrer
   X-Content-Type-Options: nosniff
   X-Frame-Options: SAMEORIGIN
-  Content-Security-Policy: default-src 'self'; connect-src 'self' wss: ws:; img-src 'self' blob: data: https://static-cdn.jtvnw.net; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'
+  Content-Security-Policy: default-src __PUBLIC_ORIGIN__; connect-src __PUBLIC_ORIGIN__ wss://__PUBLIC_HOST__; img-src __PUBLIC_ORIGIN__ blob: data: https://static-cdn.jtvnw.net; style-src __PUBLIC_ORIGIN__ 'unsafe-inline'; font-src __PUBLIC_ORIGIN__; script-src __PUBLIC_ORIGIN__; object-src 'none'; base-uri 'none'; frame-ancestors __PUBLIC_ORIGIN__
 
 /login*
   Cache-Control: no-cache
   Referrer-Policy: no-referrer
   X-Content-Type-Options: nosniff
   X-Frame-Options: SAMEORIGIN
-  Content-Security-Policy: default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'
+  Content-Security-Policy: default-src __PUBLIC_ORIGIN__; connect-src __PUBLIC_ORIGIN__; img-src __PUBLIC_ORIGIN__ data:; style-src __PUBLIC_ORIGIN__ 'unsafe-inline'; font-src __PUBLIC_ORIGIN__; script-src __PUBLIC_ORIGIN__; object-src 'none'; base-uri 'none'; frame-ancestors __PUBLIC_ORIGIN__
 
 # Die Overlay-Quellen dürfen bewusst überall eingebettet werden (OBS-Browserquelle,
 # StreamElements-Custom-Widget). Deshalb zwei Regeln statt "/overlay*": der
 # Prefix-Glob würde auch "/overlay-x" treffen, und das rendert über den
 # SPA-Fallback die Admin-App.
+#
+# Hier steht ABSICHTLICH kein frame-ancestors. Weglassen erlaubt jeden Einbetter;
+# ein "frame-ancestors *" täte das gerade NICHT, weil "*" laut CSP-Spec nur
+# Netzwerk-Schemata abdeckt und den opaken Origin des StreamElements-Widgets
+# ausschließt. Die Direktive hier zu ergänzen bricht die Einbettung still.
 /overlay
   Cache-Control: no-cache
   Referrer-Policy: no-referrer
   X-Content-Type-Options: nosniff
-  Content-Security-Policy: default-src 'self'; connect-src 'self' wss: ws:; img-src 'self' blob: data: https://static-cdn.jtvnw.net; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors * https: http:
+  Content-Security-Policy: default-src __PUBLIC_ORIGIN__; connect-src __PUBLIC_ORIGIN__ wss://__PUBLIC_HOST__; img-src __PUBLIC_ORIGIN__ blob: data: https://static-cdn.jtvnw.net; style-src __PUBLIC_ORIGIN__ 'unsafe-inline'; font-src __PUBLIC_ORIGIN__; script-src __PUBLIC_ORIGIN__; object-src 'none'; base-uri 'none'
 
 /overlay/*
   Cache-Control: no-cache
   Referrer-Policy: no-referrer
   X-Content-Type-Options: nosniff
-  Content-Security-Policy: default-src 'self'; connect-src 'self' wss: ws:; img-src 'self' blob: data: https://static-cdn.jtvnw.net; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors * https: http:
+  Content-Security-Policy: default-src __PUBLIC_ORIGIN__; connect-src __PUBLIC_ORIGIN__ wss://__PUBLIC_HOST__; img-src __PUBLIC_ORIGIN__ blob: data: https://static-cdn.jtvnw.net; style-src __PUBLIC_ORIGIN__ 'unsafe-inline'; font-src __PUBLIC_ORIGIN__; script-src __PUBLIC_ORIGIN__; object-src 'none'; base-uri 'none'
 
 # Catch-all. Achtung: In Cloudflares _headers greifen ALLE passenden Regeln, und
-# der Browser erzwingt bei mehreren CSP-Headern die Schnittmenge. Hier deshalb
-# NIE "frame-ancestors" setzen -- das würde die Overlay-Einbettung still killen.
+# der Browser erzwingt bei mehreren CSP-Headern die Schnittmenge. Deshalb darf
+# diese Policy weder "frame-ancestors" setzen (killt die Overlay-Einbettung still)
+# noch 'self' benutzen (matcht im opaken Origin nichts, blockiert das Overlay).
 # Unbekannte Pfade rendern über den SPA-Fallback die Admin-App unter genau dieser
 # Policy; Framing-Schutz dort bewusst nur über SameSite=Lax am Session-Cookie.
 /*
   Referrer-Policy: no-referrer
   X-Content-Type-Options: nosniff
-  Content-Security-Policy: default-src 'self'; connect-src 'self' wss: ws:; img-src 'self' blob: data: https://static-cdn.jtvnw.net; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'
+  Content-Security-Policy: default-src __PUBLIC_ORIGIN__; connect-src __PUBLIC_ORIGIN__ wss://__PUBLIC_HOST__; img-src __PUBLIC_ORIGIN__ blob: data: https://static-cdn.jtvnw.net; style-src __PUBLIC_ORIGIN__ 'unsafe-inline'; font-src __PUBLIC_ORIGIN__; script-src __PUBLIC_ORIGIN__; object-src 'none'; base-uri 'none'
   Permissions-Policy: camera=(), microphone=(), geolocation=()
