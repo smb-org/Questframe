@@ -1,0 +1,8 @@
+{
+  "overlayUrl": {
+    "type": "text",
+    "label": "Overlay-URL (inkl. ?token=…)",
+    "value": "https://hud.example.invalid/overlay/challenges?token=DEIN_TOKEN",
+    "group": "🏁 Win-Challenge"
+  }
+}
