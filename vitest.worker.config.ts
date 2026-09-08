@@ -30,6 +30,11 @@ export default defineConfig({
   ],
   test: {
     include: ["tests/worker/**/*.test.ts", "tests/unit/auth/**/*.test.ts"],
+    // Die Rate-Limiter-Tests setzen bewusst 240 sequenzielle Worker-Anfragen ab,
+    // damit ein Fenster-Rollover die Prüfabsicht nicht verwässert. Auf einem
+    // GitHub-Runner reicht Vitests Standard von 5s dafür nicht zuverlässig; lokal
+    // schon. Der Wert betrifft nur die Wartezeit, keine Zusicherung.
+    testTimeout: 30_000,
     // tests/worker/configured-environment.test.ts asserts the app behaves as
     // CORRECTLY configured (see vitest.worker-configured.config.ts); it must
     // not also run here, where every binding is an intentional placeholder.
