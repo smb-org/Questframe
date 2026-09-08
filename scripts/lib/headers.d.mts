@@ -5,13 +5,9 @@ export type PublicOrigin = {
   host: string;
 };
 
-export type WranglerConfig = {
-  env?: Record<string, { routes?: Array<{ pattern?: string }> } | undefined>;
-};
-
 export declare const publicOriginFor: (
-  config: WranglerConfig,
   environment: string | undefined,
+  publicOrigin: string | undefined,
 ) => PublicOrigin;
 
 export declare const renderHeaders: (source: string, origin: PublicOrigin) => string;

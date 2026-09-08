@@ -15,8 +15,8 @@
     "twitch:id": "node scripts/resolve-broadcaster-id.mjs",
     "dev": "cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log vite",
     "build": "cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log vite build && node scripts/render-headers.mjs",
-    "build:staging": "cross-env CLOUDFLARE_ENV=staging WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log vite build --mode cloudflare-staging && node scripts/render-headers.mjs staging && node scripts/verify-deployment-config.mjs validate-build staging",
-    "build:production": "cross-env CLOUDFLARE_ENV=production WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log vite build --mode cloudflare-production && node scripts/render-headers.mjs production && node scripts/verify-deployment-config.mjs validate-build production",
+    "build:staging": "cross-env CLOUDFLARE_ENV=staging WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log node --env-file-if-exists=.env.staging ./node_modules/vite/bin/vite.js build --mode cloudflare-staging && node --env-file-if-exists=.env.staging scripts/render-headers.mjs staging && node --env-file-if-exists=.env.staging scripts/verify-deployment-config.mjs validate-build staging",
+    "build:production": "cross-env CLOUDFLARE_ENV=production WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log node --env-file-if-exists=.env.production ./node_modules/vite/bin/vite.js build --mode cloudflare-production && node --env-file-if-exists=.env.production scripts/render-headers.mjs production && node --env-file-if-exists=.env.production scripts/verify-deployment-config.mjs validate-build production",
     "preview": "cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
@@ -33,8 +33,8 @@
     "check:startup": "node scripts/check-startup-budget.mjs",
     "build:budgets": "pnpm run build && node scripts/check-build-budgets.mjs",
     "check": "pnpm run config:verify && pnpm run assets:verify && pnpm run types:check && pnpm run typecheck && pnpm run lint && pnpm run test:coverage && pnpm run test:e2e && pnpm run build:budgets && pnpm run check:startup",
-    "deploy:staging": "node scripts/verify-deployment-config.mjs validate-env staging .env.staging && pnpm run check && pnpm run build:staging && cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log wrangler deploy --secrets-file .env.staging",
-    "deploy:production": "node scripts/verify-deployment-config.mjs validate-env production .env.production && pnpm run check && pnpm run build:production && cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log wrangler deploy --secrets-file .env.production"
+    "deploy:staging": "node --env-file=.env.staging scripts/verify-deployment-config.mjs validate-env staging .env.staging && pnpm run check && pnpm run build:staging && cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log wrangler deploy --secrets-file .env.staging --domains \"$(node --env-file=.env.staging -e 'process.stdout.write(new URL(process.env.PUBLIC_ORIGIN).host)')\"",
+    "deploy:production": "node --env-file=.env.production scripts/verify-deployment-config.mjs validate-env production .env.production && pnpm run check && pnpm run build:production && cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log wrangler deploy --secrets-file .env.production --domains \"$(node --env-file=.env.production -e 'process.stdout.write(new URL(process.env.PUBLIC_ORIGIN).host)')\""
   },
   "dependencies": {
     "@js-temporal/polyfill": "^0.5.1",

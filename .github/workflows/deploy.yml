@@ -33,8 +33,11 @@ jobs:
       - run: pnpm run check
       - name: Build selected Cloudflare environment
         run: pnpm run "build:${{ inputs.target }}"
+        env:
+          PUBLIC_ORIGIN: ${{ secrets.PUBLIC_ORIGIN }}
       - name: Deploy exact tested commit
-        run: pnpm exec wrangler deploy
+        run: pnpm exec wrangler deploy --domains "$(node -e 'process.stdout.write(new URL(process.env.PUBLIC_ORIGIN).host)')"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PUBLIC_ORIGIN: ${{ secrets.PUBLIC_ORIGIN }}

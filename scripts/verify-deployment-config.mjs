@@ -77,7 +77,7 @@ const validateGeneratedBuild = async (environment, generatedFile) => {
         // eines sandboxed iframes greift (StreamElements). Wird render-headers.mjs
         // vergessen oder mit der falschen Umgebung aufgerufen, ginge sonst still
         // eine localhost- oder Platzhalter-Policy nach Production.
-        const { origin } = publicOriginFor(source, environment);
+        const { origin } = publicOriginFor(environment, process.env.PUBLIC_ORIGIN);
         const rendered = await readFile(
           path.join(projectRoot, "dist/client/_headers"),
           "utf8",

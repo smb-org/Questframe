@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import {
-  publicOriginFor,
-  renderHeaders,
-  type WranglerConfig,
-} from "../../../scripts/lib/headers.mjs";
+import { publicOriginFor, renderHeaders } from "../../../scripts/lib/headers.mjs";
 
 // Cloudflares _headers wendet ALLE passenden Regeln an; der Browser erzwingt bei
 // mehreren CSP-Headern die Schnittmenge. Ein "frame-ancestors" im Catch-all würde
@@ -42,10 +38,6 @@ const cspOf = (rule: string): string => {
   expect(csp, `Regel ${rule} hat keine CSP`).toBeDefined();
   return csp ?? "";
 };
-
-const wranglerConfig = JSON.parse(
-  readFileSync(path.join(process.cwd(), "wrangler.jsonc"), "utf8"),
-) as WranglerConfig;
 
 describe("public/_headers", () => {
   it("hält frame-ancestors aus dem Catch-all heraus", () => {
@@ -94,27 +86,28 @@ describe("public/_headers", () => {
 });
 
 describe("scripts/render-headers.mjs", () => {
-  it("leitet den Origin je Umgebung aus den Wrangler-Routen ab", () => {
-    expect(publicOriginFor(wranglerConfig, "staging")).toEqual({
-      origin: "https://staging.hud.example.invalid",
-      host: "staging.hud.example.invalid",
+  it("leitet Origin und Host aus PUBLIC_ORIGIN ab", () => {
+    expect(publicOriginFor("staging", "https://hud.example.invalid/")).toEqual({
+      origin: "https://hud.example.invalid",
+      host: "hud.example.invalid",
     });
-    expect(publicOriginFor(wranglerConfig, "production")).toEqual({
+    expect(publicOriginFor("production", "https://hud.example.invalid")).toEqual({
       origin: "https://hud.example.invalid",
       host: "hud.example.invalid",
     });
   });
 
   it("fällt ohne Umgebung auf den lokalen Origin zurück", () => {
-    expect(publicOriginFor(wranglerConfig, undefined).host).toBe("localhost:5173");
+    expect(publicOriginFor(undefined, undefined).host).toBe("localhost:5173");
   });
 
-  it("scheitert, wenn eine Umgebung keine Route hat", () => {
-    expect(() => publicOriginFor({ env: { staging: {} } }, "staging")).toThrow(/routes/);
+  it("scheitert ohne PUBLIC_ORIGIN oder bei einer unsicheren URL", () => {
+    expect(() => publicOriginFor("staging", undefined)).toThrow(/PUBLIC_ORIGIN/);
+    expect(() => publicOriginFor("staging", "http://hud.example.invalid")).toThrow(/HTTPS/);
   });
 
   it("ersetzt beide Platzhalter in der echten Datei", () => {
-    const rendered = renderHeaders(source, publicOriginFor(wranglerConfig, "production"));
+    const rendered = renderHeaders(source, publicOriginFor("production", "https://hud.example.invalid"));
     expect(rendered).toContain("https://hud.example.invalid");
     expect(rendered).toContain("wss://hud.example.invalid");
     expect(rendered).not.toContain("__PUBLIC_");
@@ -122,8 +115,8 @@ describe("scripts/render-headers.mjs", () => {
 
   it("scheitert bei einem übrig gebliebenen Platzhalter", () => {
     expect(() => renderHeaders("Content-Security-Policy: __PUBLIC_UNKNOWN__", {
-      origin: "https://example.test",
-      host: "example.test",
+      origin: "https://hud.example.invalid",
+      host: "hud.example.invalid",
     })).toThrow(/Platzhalter/);
   });
 });

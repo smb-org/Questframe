@@ -69,7 +69,6 @@
   "env": {
     "staging": {
       "name": "irl-stream-hud-staging",
-      "routes": [{ "pattern": "staging.hud.example.invalid", "custom_domain": true }],
       "workers_dev": false,
       "preview_urls": false,
       "assets": {
@@ -129,7 +128,6 @@
     },
     "production": {
       "name": "irl-stream-hud",
-      "routes": [{ "pattern": "hud.example.invalid", "custom_domain": true }],
       "workers_dev": false,
       "preview_urls": false,
       "assets": {

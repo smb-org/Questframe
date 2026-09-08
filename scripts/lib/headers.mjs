@@ -3,21 +3,43 @@
 // (StreamElements-Custom-Widget) auf nichts mehr passt, der ausgeschriebene Origin
 // dagegen schon.
 
-// Der lokale "pnpm run build" kennt keine Umgebung und damit keine Route.
+// Der lokale "pnpm run build" kennt keine Umgebung und braucht deshalb keinen
+// öffentlichen Origin.
 const LOCAL_HOST = "localhost:5173";
 
-export const publicOriginFor = (config, environment) => {
+export const publicOriginFor = (environment, publicOrigin) => {
   if (environment === undefined || environment === "") {
     return { origin: `http://${LOCAL_HOST}`, host: LOCAL_HOST };
   }
-  const routes = config.env?.[environment]?.routes;
-  const pattern = Array.isArray(routes) ? routes[0]?.pattern : undefined;
-  if (typeof pattern !== "string" || pattern === "") {
+
+  if (typeof publicOrigin !== "string" || publicOrigin.trim() === "") {
     throw new Error(
-      `wrangler.jsonc: env.${environment}.routes[0].pattern fehlt — ohne Custom Domain lässt sich der Origin nicht bestimmen.`,
+      `PUBLIC_ORIGIN fehlt für die Umgebung ${environment} — für den Build muss ein öffentlicher HTTPS-Origin gesetzt sein.`,
     );
   }
-  return { origin: `https://${pattern}`, host: pattern };
+
+  let parsed;
+  try {
+    parsed = new URL(publicOrigin);
+  } catch {
+    throw new Error(
+      "PUBLIC_ORIGIN muss eine gültige HTTPS-URL ohne Pfad oder Zugangsdaten sein.",
+    );
+  }
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.username !== "" ||
+    parsed.password !== "" ||
+    parsed.pathname !== "/" ||
+    parsed.search !== "" ||
+    parsed.hash !== ""
+  ) {
+    throw new Error(
+      "PUBLIC_ORIGIN muss eine gültige HTTPS-URL ohne Pfad oder Zugangsdaten sein.",
+    );
+  }
+
+  return { origin: parsed.origin, host: parsed.host };
 };
 
 export const renderHeaders = (source, { origin, host }) => {
