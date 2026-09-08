@@ -71,6 +71,14 @@ export const MAX_COMPOSITE_SOCKETS = 15 as const;
 export const MAX_CHALLENGE_SOCKETS = 15 as const;
 export const MAX_DOCK_SOCKETS = 15 as const;
 
+// Ab wann eine Verbindung ohne Heartbeat als verwaist gilt. Großzügig bemessen,
+// und zwar aus einem konkreten Grund: Browser drosseln Timer in Hintergrund-Tabs
+// auf etwa einen Aufruf pro Minute (der Client pingt sonst alle 20s, siehe
+// SOCKET_PING_INTERVAL_MS). Bei einer engen Grenze sieht ein bloß gedrosselter
+// Client tot aus, wird geschlossen — und verbindet, weil seine Timer gedrosselt
+// sind, auch nur zögerlich neu. Die Anzeige verschwindet dann minutenlang.
+export const SOCKET_STALE_AFTER_MS = 300_000;
+
 export const limitsSchema = z.strictObject({
   maxGuests: z.literal(5),
   maxActiveEffects: z.literal(8),

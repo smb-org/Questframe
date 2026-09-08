@@ -4,6 +4,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   MAX_CHALLENGE_SOCKETS,
+  SOCKET_STALE_AFTER_MS,
   MAX_COMPOSITE_SOCKETS,
   bootstrapResponseSchema,
   dockTokenResponseSchema,
@@ -607,7 +608,9 @@ describe("Win-Challenges-Sockets", () => {
       });
       expect(pingTimestamp).not.toBeNull();
       if (pingTimestamp === null) throw new Error("Heartbeat-Zeitstempel fehlt.");
-      vi.setSystemTime(pingTimestamp + 70_001);
+      // Aus der Serverkonstante abgeleitet: die Grenze ist bewusst großzügig,
+      // damit ein gedrosselter Hintergrund-Tab nicht als verwaist gilt.
+      vi.setSystemTime(pingTimestamp + SOCKET_STALE_AFTER_MS + 1);
 
       const replacement = await openSocket(
         "/ws/challenge",

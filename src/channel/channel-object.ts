@@ -10,6 +10,7 @@ import {
   MAX_COMPOSITE_SOCKETS,
   MAX_CHALLENGE_SOCKETS,
   MAX_DOCK_SOCKETS,
+  SOCKET_STALE_AFTER_MS,
   MAX_EDITOR_SOCKETS,
   MAX_OVERLAY_SOCKETS,
   overlayTokenMutationRequestSchema,
@@ -139,9 +140,6 @@ const limits = {
   maxMediaBytes: 8_388_608,
 } as const;
 const maxMediaBlobs = 32;
-// Der Client-Heartbeat liegt bei SOCKET_PING_INTERVAL_MS in shared/reconnect.ts
-// (20s); drei ausgefallene Pings dürfen vergehen, bevor ein Socket stale ist.
-const SOCKET_STALE_AFTER_MS = 70_000;
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -1488,6 +1486,11 @@ export class ChannelObject extends DurableObject<AppEnv> {
   }
 
   override webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): void {
+    // Vor allem anderen: Ein Heartbeat braucht kein Attachment. Der Client pingt
+    // sofort beim Öffnen, das Attachment wird aber erst nach acceptWebSocket
+    // gesetzt — käme der Ping dazwischen, würde die Verbindung als "ohne
+    // Attachment" geschlossen und der Client verbände endlos neu.
+    if (message === "ping") return;
     const attachment = this.readAttachment(socket);
     if (attachment === null) {
       socket.close(1011, "invalid_attachment");
@@ -1503,7 +1506,6 @@ export class ChannelObject extends DurableObject<AppEnv> {
         ? new TextEncoder().encode(message).byteLength
         : message.byteLength;
     if (byteLength > 98_304) return;
-    if (message === "ping") return;
     try {
       const parsed = clientMessageSchema.safeParse(
         JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message)),

@@ -18,20 +18,42 @@ const RETRY_MAX_MS = 30_000;
 // Object); drei ausgefallene 20s-Intervalle bleiben damit ohne Fehlalarm erlaubt.
 export const SOCKET_PING_INTERVAL_MS = 20_000;
 
+/**
+ * Sendet regelmäßig "ping", damit das Durable Object verwaiste Verbindungen von
+ * lebenden unterscheiden kann. Die Laufzeit beantwortet den Ping selbst, das
+ * Objekt wacht dafür nicht auf.
+ *
+ * Hintergrund-Tabs drosseln setInterval auf etwa einen Aufruf pro Minute, und ein
+ * zurückgeholter Tab soll nicht erst das nächste Intervall abwarten — deshalb der
+ * zusätzliche Ping bei jedem Sichtbarwerden. Die Verfallsgrenze im Durable Object
+ * (SOCKET_STALE_AFTER_MS) ist entsprechend großzügig bemessen.
+ *
+ * Bewusst wird NICHT sofort beim Start gepingt: ein Ping, der direkt auf das
+ * "open"-Ereignis folgt, trifft das Durable Object, bevor es die Verbindung
+ * fertig eingerichtet hat, und die Quelle blieb daraufhin leer (in den e2e-Tests
+ * reproduzierbar). Nötig ist er auch nicht — eine Verbindung ohne Zeitstempel
+ * gilt nie als verwaist, das erste Intervall ist also gedeckt.
+ */
 export const startSocketHeartbeat = (
   socket: WebSocket,
   intervalMs = SOCKET_PING_INTERVAL_MS,
 ): (() => void) => {
-  const timer = window.setInterval(() => {
+  const ping = () => {
     if (socket.readyState !== WebSocket.OPEN) return;
     try {
       socket.send("ping");
     } catch {
       // Ein einzelner Sendefehler darf den Heartbeat-Timer nicht beenden.
     }
-  }, intervalMs);
+  };
+  const timer = window.setInterval(ping, intervalMs);
+  const onVisible = () => {
+    if (document.visibilityState === "visible") ping();
+  };
+  document.addEventListener("visibilitychange", onVisible);
   return () => {
     window.clearInterval(timer);
+    document.removeEventListener("visibilitychange", onVisible);
   };
 };
 
