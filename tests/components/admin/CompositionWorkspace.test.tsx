@@ -7,6 +7,7 @@ import type { ChallengeBoardSnapshot } from "../../../src/modules/win-challenges
 import { createDefaultState, getReleaseCapabilities, twitchUserIdSchema } from "../../../src/shared/contracts/state";
 import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
 import { AdminWorkspace, type AdminApi } from "../../../src/admin/AdminWorkspace";
+import { PreviewPanel } from "../../../src/admin/ui/PreviewPanel";
 
 const actor = { twitchUserId: twitchUserIdSchema.parse("123"), displayName: "Moderator" };
 
@@ -57,6 +58,12 @@ const challengesPanel = () => within(document.querySelector("#admin-composition-
 const hudPanel = () => within(document.querySelector("#admin-composition-panel-hud") as HTMLElement);
 
 describe("Kompositions-Workspace", () => {
+  it("markiert den HUD-Wrapper auch ohne Interaktions-Prop als gedämpft", () => {
+    const { container } = render(<PreviewPanel hudMuted mediaUrls={new Map<string, string>()} state={bootstrap().state} />);
+
+    expect(container.querySelector(".preview-hud-wrap .hud-stage")).toHaveClass("is-module-muted");
+  });
+
   it("zeigt einen Hinweis, wenn das Challenge-Board in der Sitzung fehlt", () => {
     render(<AdminWorkspace api={{ save: vi.fn(), setVisibility: vi.fn() }} initialBootstrap={bootstrap()} workspace="challenges" />);
 
@@ -146,10 +153,13 @@ describe("Kompositions-Workspace", () => {
     expect(challengesTab).toHaveAttribute("aria-selected", "false");
   });
 
-  it("bietet die Modul-Schalter in der Vorschau-Kopfzeile an, blendet HUD und Challenges aus und macht den Save aktiv", async () => {
+  it("bietet die Modul-Schalter an und markiert ausgeschaltete Module in der Vorschau", async () => {
     const user = userEvent.setup();
     const { container } = render(<AdminWorkspace api={createCompositionApi(challengeSnapshot())} initialBootstrap={bootstrap()} />);
-    await screen.findByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" });
+    const challenge = await screen.findByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" });
+    const hud = await screen.findByLabelText("HUD-Modul verschieben, Pfeiltasten");
+    expect(challenge).not.toHaveClass("is-module-muted");
+    expect(hud).not.toHaveClass("is-module-muted");
     // Bug 5: die Schalter sitzen in der Vorschau-Kopfzeile, links vom Zoom-Regler.
     const heading = container.querySelector(".preview-panel .panel-heading");
     if (heading === null) throw new Error("Vorschau-Kopfzeile fehlt.");
@@ -159,11 +169,13 @@ describe("Kompositions-Workspace", () => {
 
     await user.click(hudToggle);
     expect(hudToggle).toHaveAttribute("aria-checked", "false");
-    expect(container.querySelector(".preview-canvas .hud-root")).not.toBeInTheDocument();
+    expect(hud).toBeInTheDocument();
+    expect(hud).toHaveClass("is-module-muted");
 
     await user.click(challengesToggle);
     expect(challengesToggle).toHaveAttribute("aria-checked", "false");
-    expect(screen.queryByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" })).not.toBeInTheDocument();
+    expect(challenge).toBeInTheDocument();
+    expect(challenge).toHaveClass("is-module-muted");
     expect(screen.getByRole("button", { name: "Alle speichern" })).toBeEnabled();
   });
 

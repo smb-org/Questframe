@@ -24,7 +24,7 @@ export const PreviewPanel = ({
   zoom,
   onZoomChange,
   hudInteraction,
-  showHud = true,
+  hudMuted = false,
   headingControls,
 }: {
   state: ChannelState;
@@ -34,7 +34,7 @@ export const PreviewPanel = ({
   themeLabel?: string;
   zoom?: number;
   onZoomChange?: (zoom: number) => void;
-  showHud?: boolean;
+  hudMuted?: boolean;
   hudInteraction?: Pick<ComponentProps<typeof HudRenderer>, "className" | "ariaLabel" | "onPointerDown" | "onPointerMove" | "onPointerUp" | "onPointerCancel" | "onLostPointerCapture" | "onKeyDown"> | undefined;
   // Optionale Steuerelemente links vom Zoom-Regler (z.B. Modul-Schalter der Komposition);
   // andere Aufrufer (reiner HUD-Modus) lassen dieses Prop einfach weg.
@@ -43,6 +43,7 @@ export const PreviewPanel = ({
   const [internalZoom, setInternalZoom] = useState(100);
   const previewZoom = zoom ?? internalZoom;
   const setPreviewZoom = onZoomChange ?? setInternalZoom;
+  const hudClassName = hudMuted ? `${hudInteraction?.className ?? ""} is-module-muted`.trim() : hudInteraction?.className;
 
   return (
     <section className="preview-panel">
@@ -78,13 +79,14 @@ export const PreviewPanel = ({
           <div className="preview-canvas">
             <div className="preview-safe-area" />
             <div className="preview-hud-wrap">
-              {showHud && <TickingPreview
-                  forceVisible
-                  mediaUrls={mediaUrls}
-                  previewOverlay={previewOverlay}
-                  state={state}
-                  {...hudInteraction}
-                />}
+              <TickingPreview
+                forceVisible
+                mediaUrls={mediaUrls}
+                previewOverlay={previewOverlay}
+                state={state}
+                {...hudInteraction}
+                {...(hudClassName === undefined ? {} : { className: hudClassName })}
+              />
               {children}
             </div>
           </div>

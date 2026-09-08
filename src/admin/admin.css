@@ -185,6 +185,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .composition-draggable-module:hover { outline-color: var(--accent-bright); }
 .composition-draggable-module.is-dragging { cursor: grabbing !important; outline: 2px solid var(--accent-bright); filter: drop-shadow(0 0 10px rgba(240, 206, 131, 0.45)); }
 .composition-draggable-module--challenge { z-index: 4; }
+.is-module-muted { opacity: 0.38; outline: 1px dashed var(--muted); outline-offset: 5px; pointer-events: auto !important; }
+.is-module-muted::after { content: "Nicht im Sammel-Overlay"; position: absolute; z-index: 2; top: 4px; right: 4px; padding: 3px 6px; border: 1px solid var(--muted); border-radius: 3px; background: var(--surface-2); color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: 0.03em; line-height: 1.1; pointer-events: none; white-space: nowrap; }
 
 /* Kompakte Modul-Schalter in der Vorschau-Kopfzeile, links vom Zoom-Regler (Bug 5). */
 .preview-module-toggles { display: flex; flex-wrap: wrap; gap: 6px; }
