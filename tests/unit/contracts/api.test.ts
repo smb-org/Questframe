@@ -102,7 +102,7 @@ describe("API contracts", () => {
     const envelope = {
       capsule: {
         id: "irl-stream-hud",
-        name: "IRL Stream HUD",
+        name: "Beispielkanal",
         timezone: "Europe/Berlin",
         limits: {
           maxGuests: 5,

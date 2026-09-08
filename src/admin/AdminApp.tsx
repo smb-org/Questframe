@@ -8,8 +8,8 @@ import { AdminApiError, BrowserAdminApi } from "./api";
 const LoginCard = ({ denied = false }: { denied?: boolean }) => (
   <main className="login-page">
     <section className="login-card">
-      <div className="login-mark">I</div>
-      <span className="eyebrow">IRL Stream HUD</span>
+      <div className="login-mark">Q</div>
+      <span className="eyebrow">Questframe</span>
       <h1>{denied ? "Kein Editor-Zugriff" : "Live-Regie öffnen"}</h1>
       <p>
         {denied

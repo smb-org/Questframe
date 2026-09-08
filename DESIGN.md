@@ -1,4 +1,4 @@
-# IRL Stream HUD — Designsystem
+# Questframe — Designsystem
 
 Dieses Dokument ist die verbindliche visuelle Referenz für Admin-Konsole und OBS-Overlay. Ausgangspunkt ist der freigegebene [Modern-Broadcast-Entwurf](docs/design/irl-stream-hud-wireframe-v4.html); das Produkt übersetzt die Lesbarkeit eines modernen Broadcast-Tools in ein eigenständiges, nur lose von klassischen Fantasy-Unitframes inspiriertes HUD.
 

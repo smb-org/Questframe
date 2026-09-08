@@ -14,7 +14,7 @@ const actor = { twitchUserId: twitchUserIdSchema.parse("123"), displayName: "Mod
 const bootstrap = (): BootstrapResponse => ({
   capsule: {
     id: "irl-stream-hud",
-    name: "IRL Stream HUD",
+    name: "Beispielkanal",
     timezone: "Europe/Berlin",
     limits: { maxGuests: 5, maxActiveEffects: 8, maxEditorSockets: 10, maxOverlaySockets: 10, maxMediaBytes: 8_388_608 },
     overlayToken: { exists: false, generation: 0, createdAt: null, lastUsedAt: null, connectedSockets: 0, token: null },

@@ -37,7 +37,7 @@ const actor = {
 const bootstrap = (): BootstrapResponse => ({
   capsule: {
     id: "irl-stream-hud",
-    name: "IRL Stream HUD",
+    name: "Beispielkanal",
     timezone: "Europe/Berlin",
     limits: {
       maxGuests: 5,
@@ -184,7 +184,7 @@ describe("AdminApp authentication shell", () => {
   it("renders the explicit login route error without making a bootstrap request", () => {
     window.history.replaceState({}, "", "/login?error=not_editor");
     render(<LoginApp />);
-    expect(screen.getByText("IRL Stream HUD")).toBeInTheDocument();
+    expect(screen.getByText("Questframe")).toBeInTheDocument();
     expect(screen.getByText(/Broadcaster und aktuell eingetragene Twitch-Moderator:innen/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Kein Editor-Zugriff" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Mit Twitch anmelden" })).toBeInTheDocument();

@@ -1,4 +1,4 @@
-# IRL HUD in StreamElements
+# Questframe in StreamElements
 
 Das Widget bettet eine der drei Overlay-Flächen per iframe ein. Wenn OBS erreichbar
 ist, ist eine eigene **Browserquelle** der einfachere Weg; diese Dateien sind für den

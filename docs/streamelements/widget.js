@@ -11,7 +11,7 @@ window.addEventListener('onWidgetLoad', function (event) {
   if (url.indexOf('https://') !== 0) {
     frame.style.display = 'none';
     error.style.display = 'block';
-    console.error('[irl-hud] Ungültige Overlay-URL:', url);
+    console.error('[questframe] Ungültige Overlay-URL:', url);
     return;
   }
 

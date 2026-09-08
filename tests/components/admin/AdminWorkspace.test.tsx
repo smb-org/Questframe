@@ -21,7 +21,7 @@ const actor = { twitchUserId: twitchUserIdSchema.parse("123"), displayName: "Mod
 const bootstrap = (): BootstrapResponse => ({
   capsule: {
     id: "irl-stream-hud",
-    name: "IRL Stream HUD",
+    name: "Beispielkanal",
     timezone: "Europe/Berlin",
     limits: {
       maxGuests: 5,
@@ -1107,7 +1107,7 @@ describe("Admin workspace publication boundary", () => {
     const api = { save, setVisibility } as AdminApi;
     render(<AdminWorkspace initialBootstrap={initial} api={api} />);
 
-    expect(screen.getByText("IRL Stream HUD")).toBeInTheDocument();
+    expect(screen.getByText("Beispielkanal")).toBeInTheDocument();
 
     const hp = screen.getByRole("slider", { name: "Gesundheit" });
     fireEvent.change(hp, { target: { value: "42" } });

@@ -18,7 +18,7 @@ const state = () => createDefaultState(actor, now);
 const bootstrap = () => ({
   capsule: {
     id: "irl-stream-hud",
-    name: "IRL Stream HUD",
+    name: "Beispielkanal",
     timezone: "Europe/Berlin",
     limits: {
       maxGuests: 5 as const,
