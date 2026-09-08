@@ -34,8 +34,8 @@
     "check:startup": "node scripts/check-startup-budget.mjs",
     "build:budgets": "pnpm run build && node scripts/check-build-budgets.mjs",
     "check": "pnpm run config:verify && pnpm run assets:verify && pnpm run types:check && pnpm run typecheck && pnpm run lint && pnpm run test:coverage && pnpm run test:e2e && pnpm run build:budgets && pnpm run check:startup",
-    "deploy:staging": "node --env-file=.env.staging scripts/verify-deployment-config.mjs validate-env staging .env.staging && pnpm run check && pnpm run build:staging && cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log wrangler deploy --secrets-file .env.staging --domains \"$(node --env-file=.env.staging -e 'process.stdout.write(new URL(process.env.PUBLIC_ORIGIN).host)')\"",
-    "deploy:production": "node --env-file=.env.production scripts/verify-deployment-config.mjs validate-env production .env.production && pnpm run check && pnpm run build:production && cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log wrangler deploy --secrets-file .env.production --domains \"$(node --env-file=.env.production -e 'process.stdout.write(new URL(process.env.PUBLIC_ORIGIN).host)')\""
+    "deploy:staging": "node --env-file=.env.staging scripts/verify-deployment-config.mjs validate-env staging .env.staging && pnpm run check && pnpm run build:staging && DEPLOY_HOST=\"$(node --env-file=.env.staging -e 'process.stdout.write(new URL(process.env.PUBLIC_ORIGIN).host)')\" && cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log wrangler deploy --secrets-file .env.staging --domains \"$DEPLOY_HOST\"",
+    "deploy:production": "node --env-file=.env.production scripts/verify-deployment-config.mjs validate-env production .env.production && pnpm run check && pnpm run build:production && DEPLOY_HOST=\"$(node --env-file=.env.production -e 'process.stdout.write(new URL(process.env.PUBLIC_ORIGIN).host)')\" && cross-env WRANGLER_LOG_PATH=.wrangler/logs/wrangler.log wrangler deploy --secrets-file .env.production --domains \"$DEPLOY_HOST\""
   },
   "dependencies": {
     "@js-temporal/polyfill": "^0.5.1",

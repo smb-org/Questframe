@@ -36,7 +36,12 @@ jobs:
         env:
           PUBLIC_ORIGIN: ${{ secrets.PUBLIC_ORIGIN }}
       - name: Deploy exact tested commit
-        run: pnpm exec wrangler deploy --domains "$(node -e 'process.stdout.write(new URL(process.env.PUBLIC_ORIGIN).host)')"
+        # Der Host steht bewusst in einer eigenen Zuweisung: in
+        # `--domains "$(…)"` verschluckt die Kommandosubstitution einen
+        # Fehler, und ein leerer Wert ginge gegen den laufenden Worker.
+        run: |
+          DEPLOY_HOST="$(node -e 'process.stdout.write(new URL(process.env.PUBLIC_ORIGIN).host)')"
+          pnpm exec wrangler deploy --domains "$DEPLOY_HOST"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
