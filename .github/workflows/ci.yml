@@ -21,6 +21,21 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
+      # Die E2E-Tests brauchen einen lokalen Dev-Server, und der liest .dev.vars.
+      # Die Datei ist ignoriert und existiert auf dem Runner nicht; ohne sie
+      # antwortet /auth/dev mit 422 und jeder Test scheitert am fehlenden Login.
+      # Erzeugt wird sie aus der Vorlage: nur die vier Platzhalter werden ersetzt,
+      # TWITCH_CLIENT_ID, BROADCASTER_ID und PUBLIC_ORIGIN sind dort schon gueltig.
+      # Die Werte sind Wegwerfwerte fuer APP_ENV=local; /auth/dev ist synthetisch
+      # und ruft Twitch nie auf.
+      - name: Lokale Testkonfiguration erzeugen
+        run: |
+          key() { openssl rand -base64 32 | tr '+/' '-_' | tr -d '='; }
+          sed -e "s|^TWITCH_CLIENT_SECRET=.*|TWITCH_CLIENT_SECRET=local-twitch-client-secret|" \
+              -e "s|^SESSION_ENCRYPTION_KEYS=.*|SESSION_ENCRYPTION_KEYS={\"active\":{\"id\":\"ci-v1\",\"key\":\"$(key)\"}}|" \
+              -e "s|^SESSION_COOKIE_KEYS=.*|SESSION_COOKIE_KEYS={\"active\":{\"id\":\"ci-v1\",\"key\":\"$(key)\"}}|" \
+              -e "s|^OVERLAY_TOKEN_PEPPER=.*|OVERLAY_TOKEN_PEPPER=$(key)|" \
+              .dev.vars.example > .dev.vars
       - run: pnpm run check
       - name: Upload browser artifacts
         if: always()
