@@ -20,7 +20,10 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
+      # Das Projekt "chromium-mobile" nutzt devices["iPhone 13"], und dessen
+      # defaultBrowserType ist webkit — der Name sagt etwas anderes, als der
+      # Lauf tut. Ohne webkit scheitern alle mobilen Specs am fehlenden Binary.
+      - run: pnpm exec playwright install --with-deps chromium webkit
       # Die E2E-Tests brauchen einen lokalen Dev-Server, und der liest .dev.vars.
       # Die Datei ist ignoriert und existiert auf dem Runner nicht; ohne sie
       # antwortet /auth/dev mit 422 und jeder Test scheitert am fehlenden Login.
