@@ -96,7 +96,9 @@ Für StreamElements statt OBS liegt ein fertiges Custom Widget samt Anleitung un
 
 Die Deploy-Skripte wählen die Cloudflare-Umgebung bereits beim Vite-Build über `CLOUDFLARE_ENV`, prüfen die daraus erzeugte Wrangler-Konfiguration und deployen anschließend genau diesen Build. `wrangler deploy --env …` darf hier nicht nachträglich verwendet werden: Die Vite-Integration erzeugt beim Build eine bereits auf eine Umgebung reduzierte Konfiguration.
 
-Den öffentlichen Origin liefert `PUBLIC_ORIGIN`. Lokal laden die `build:*`- und `deploy:*`-Skripte dafür die ignorierte `.env.<umgebung>` über `node --env-file`; in CI kommt derselbe Wert aus dem gleichnamigen GitHub-Environment-Secret, das je Umgebung einmalig angelegt werden muss. Daraus rendert `scripts/render-headers.mjs` die Content-Security-Policy in `dist/client/_headers`, und `wrangler deploy --domains` bindet die Custom Domain an. In `wrangler.jsonc` steht deshalb bewusst keine Route: Der Hostname liegt sonst ein zweites Mal im Repository.
+Den öffentlichen Origin liefert `PUBLIC_ORIGIN` aus der ignorierten `.env.<umgebung>`, die die `build:*`- und `deploy:*`-Skripte über `node --env-file` laden. Daraus rendert `scripts/render-headers.mjs` die Content-Security-Policy in `dist/client/_headers`, und `wrangler deploy --domains` bindet die Custom Domain an. In `wrangler.jsonc` steht deshalb bewusst keine Route: Der Hostname liegt sonst ein zweites Mal im Repository.
+
+**Deployt wird ausschließlich lokal.** Ein Deploy über GitHub Actions ist nicht eingerichtet; die Vorlage dafür liegt als `.github/workflows/deploy.yml.disabled` bereit und ist für GitHub kein Workflow, taucht also nicht in der Actions-Oberfläche auf. Was zum Aktivieren nötig wäre, steht im Kopf der Datei.
 
 Broadcaster und aktuell eingetragene Twitch-Moderator:innen erhalten dieselbe Editor-Rolle. Die App fordert keine Chat-, E-Mail- oder OBS-Berechtigungen an. Staging und Production müssen eigene Twitch-Anwendungen, Origins, Secrets, Overlay-Tokens und Durable-Object-Namensräume verwenden.
 

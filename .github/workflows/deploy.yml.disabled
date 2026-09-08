@@ -1,3 +1,18 @@
+# NICHT EINGERICHTET — dieser Workflow ist absichtlich deaktiviert.
+#
+# GitHub liest in .github/workflows/ ausschliesslich .yml und .yaml. Durch die
+# Endung .disabled ist diese Datei kein Workflow: sie taucht in der
+# Actions-Oberflaeche nicht auf und laesst sich weder automatisch noch von Hand
+# starten. Deployt wird ausschliesslich lokal ueber `pnpm run deploy:staging`
+# beziehungsweise `pnpm run deploy:production`.
+#
+# Zum Aktivieren: Datei nach deploy.yml umbenennen und VORHER je Environment
+# (staging, production) diese Secrets hinterlegen:
+#   PUBLIC_ORIGIN          vollstaendiger https-Origin der Umgebung
+#   CLOUDFLARE_API_TOKEN   Token mit Deploy-Rechten fuer den Worker
+#   CLOUDFLARE_ACCOUNT_ID  Cloudflare-Account-ID
+# Fehlt PUBLIC_ORIGIN, bricht der Build-Schritt ab, bevor etwas deployt wird.
+
 name: Deploy
 
 on:

@@ -41,11 +41,11 @@ Token gültig und keine URL muss geändert werden.
 
 ## Deployment-Bindings
 
-`wrangler.jsonc` enthält für Staging und Production nur die bewusst versionierten Schalter `APP_ENV` und `RELEASE_STAGE`; öffentliche Domains werden nicht dort als Route hinterlegt. Alle installationsspezifischen Werte sind verpflichtende Cloudflare-Secrets. `PUBLIC_ORIGIN` steht lokal in der ignorierten `.env.<umgebung>` und in CI als GitHub-Environment-Secret. Das erste Deployment einer Umgebung muss lokal mit der passenden Datei erfolgen; dabei lädt `--secrets-file` alle zehn Werte gemeinsam hoch und `--domains` wird aus dem Host von `PUBLIC_ORIGIN` abgeleitet. Danach bleiben die Cloudflare-Secrets bei gewöhnlichen Wrangler-Deployments erhalten, sodass der GitHub-Workflow keine Klartext-Konfiguration erzeugen muss.
+`wrangler.jsonc` enthält für Staging und Production nur die bewusst versionierten Schalter `APP_ENV` und `RELEASE_STAGE`; öffentliche Domains werden nicht dort als Route hinterlegt. Alle installationsspezifischen Werte sind verpflichtende Cloudflare-Secrets. `PUBLIC_ORIGIN` steht in der ignorierten `.env.<umgebung>`. Das erste Deployment einer Umgebung muss lokal mit der passenden Datei erfolgen; dabei lädt `--secrets-file` alle zehn Werte gemeinsam hoch und `--domains` wird aus dem Host von `PUBLIC_ORIGIN` abgeleitet. Danach bleiben die Cloudflare-Secrets bei gewöhnlichen Wrangler-Deployments erhalten. Ein Deploy über GitHub Actions ist nicht eingerichtet: die Vorlage liegt als `.github/workflows/deploy.yml.disabled` und ist für GitHub kein Workflow.
 
 Für eine Rotation oder Konfigurationsänderung die private Datei aktualisieren und das jeweilige `pnpm run deploy:*` erneut ausführen. Weil Cloudflare Secret-Werte nach dem Setzen nicht wieder anzeigt, müssen `CAPSULE_ID`, `BROADCASTER_ID`, Origins und Schlüssel in einem sicheren Betreiber-Passwortmanager gesichert bleiben. `CAPSULE_ID` oder `BROADCASTER_ID` nicht als gewöhnliche Rotation behandeln.
 
-Die Vite-Cloudflare-Integration wählt Staging oder Production beim Build, nicht bei einem nachträglichen Wrangler-Aufruf. Deshalb immer die projektspezifischen `deploy:*`- beziehungsweise `build:*`-Skripte benutzen. Deren getrennte Vite-Modusnamen sorgen dafür, dass lokal die passende `.env.staging` oder `.env.production` über Node geladen wird; in CI kommt `PUBLIC_ORIGIN` aus dem GitHub-Environment. Der Build-Preflight vergleicht Worker-Name, `APP_ENV`, `RELEASE_STAGE`, `PUBLIC_ORIGIN` und alle erforderlichen Secret-Bindings mit der gewählten Umgebung; erst danach läuft `wrangler deploy` ohne `--env` und mit dem aus `PUBLIC_ORIGIN` abgeleiteten `--domains` gegen die generierte, abgeflachte Konfiguration.
+Die Vite-Cloudflare-Integration wählt Staging oder Production beim Build, nicht bei einem nachträglichen Wrangler-Aufruf. Deshalb immer die projektspezifischen `deploy:*`- beziehungsweise `build:*`-Skripte benutzen. Deren getrennte Vite-Modusnamen sorgen dafür, dass die passende `.env.staging` oder `.env.production` über Node geladen wird. Der Build-Preflight vergleicht Worker-Name, `APP_ENV`, `RELEASE_STAGE`, `PUBLIC_ORIGIN` und alle erforderlichen Secret-Bindings mit der gewählten Umgebung; erst danach läuft `wrangler deploy` ohne `--env` und mit dem aus `PUBLIC_ORIGIN` abgeleiteten `--domains` gegen die generierte, abgeflachte Konfiguration.
 
 ## 30-Minuten-Rehearsal
 
@@ -68,7 +68,7 @@ Jede Unsicherheit wird mit Uhrzeit, Browser, Revision und beobachtetem Verhalten
 
 Production nutzt bis zum bestandenen V1a-Rehearsal `RELEASE_STAGE=v1a`. Erst danach darf der Wert in `wrangler.jsonc` bewusst auf `v1b` wechseln und der vollständige V1b-Rehearsal-Teil durchlaufen werden.
 
-1. Production bei der ersten Einrichtung lokal mit `pnpm run deploy:production` initialisieren. Danach die geschützte GitHub-Umgebung `production` freigeben oder erneut lokal deployen.
+1. Production bei der ersten Einrichtung lokal mit `pnpm run deploy:production` initialisieren. Weitere Aktualisierungen laufen ebenfalls lokal.
 2. `/healthz`, Twitch-Login, Bootstrap und eine unkritische Sichtbarkeitsmutation prüfen.
 3. OBS-Quelle verbinden und vollständigen Snapshot abwarten.
 4. Release-Report abschließen. Eine tatsächliche Cloudflare-Deployment-ID und der menschliche Rehearsal-Ausgang dürfen niemals vorab erfunden werden.
