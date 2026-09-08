@@ -1,14 +1,22 @@
-# Win-Challenge in StreamElements
+# IRL HUD in StreamElements
 
-Wenn OBS erreichbar ist, ist eine eigene **Browserquelle** auf
-`https://hud.example.invalid/overlay/challenges#token=…` der einfachere Weg.
-Diese Dateien sind für den Fall, dass nur StreamElements zur Verfügung steht.
+Das Widget bettet eine der drei Overlay-Flächen per iframe ein. Wenn OBS erreichbar
+ist, ist eine eigene **Browserquelle** der einfachere Weg; diese Dateien sind für den
+Fall gedacht, dass nur StreamElements zur Verfügung steht.
+
+## Browserquellen-URL
+
+Im Feld *Overlay-URL* darf jede der folgenden URLs stehen:
+
+- HUD: `https://hud.example.invalid/overlay#token=…` — zeigt ausschließlich das veröffentlichte HUD.
+- Challenges: `https://hud.example.invalid/overlay/challenges#token=…&placement=origin` — zeigt ausschließlich das Challenge-Log und überlässt die Positionierung dem Widget.
+- Kombi: `https://hud.example.invalid/overlay/all#token=…` — zeigt HUD und Challenge-Log gemeinsam als Sammelquelle.
 
 1. In StreamElements: Overlay öffnen → *Add Widget* → *Static/Custom* → *Custom Widget*.
 2. Die Tabs füllen: `widget.html` → HTML, `widget.js` → JS, `fields.json` → Fields.
    Der CSS-Tab bleibt leer, die Styles stehen im HTML.
-3. Im Feld *Overlay-URL* die echte URL samt Overlay-Token eintragen — den vollen
-   Pfad `/overlay/challenges#token=…&placement=origin`, **nicht** nur die Domain.
+3. Im Feld *Overlay-URL* eine der drei vollständigen URLs samt Overlay-Token eintragen,
+   **nicht** nur die Domain.
    Der Token steht im Hash, nicht in der Query (`tokenFromLocation` in
    `src/challenges/wire.ts` liest ausschließlich `location.hash`). Die Wurzel `/`
    rendert die Admin-App und ist bewusst nicht einbettbar.
@@ -37,7 +45,7 @@ Daraus folgen zwei Dinge, die die Overlay-Auslieferung berücksichtigen muss:
   opakem Origin auf nichts, wodurch die Seite ihr eigenes JS, CSS und ihre Fonts
   nicht mehr laden dürfte. Bei normalem Aufruf ist der ausgeschriebene Origin
   exakt gleich streng. `scripts/render-headers.mjs` setzt ihn beim Build je
-  Umgebung aus `wrangler.jsonc` ein.
+  Umgebung aus `PUBLIC_ORIGIN` ein.
 - **`/_app/*` und `/fonts/*` senden `Access-Control-Allow-Origin: *`**, weil sie aus
   dem opaken Origin zu Cross-Origin-Requests werden. Das sind gebaute Artefakte
   ohne Geheimnisse; HTML, `/api/*` und `/admin` bleiben unangetastet.

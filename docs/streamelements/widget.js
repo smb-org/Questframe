@@ -2,8 +2,8 @@
 // OBS-CEF-Versionen das Skript parsen.
 window.addEventListener('onWidgetLoad', function (event) {
   var data = event.detail.fieldData;
-  var frame = document.getElementById('wcFrame');
-  var error = document.getElementById('wcError');
+  var frame = document.getElementById('hudFrame');
+  var error = document.getElementById('hudError');
   var url = String(data.overlayUrl || '').trim();
 
   // Nur https zulassen: eine Tippfehler-URL soll nicht als relativer Pfad
@@ -11,7 +11,7 @@ window.addEventListener('onWidgetLoad', function (event) {
   if (url.indexOf('https://') !== 0) {
     frame.style.display = 'none';
     error.style.display = 'block';
-    console.error('[win-challenge] Ungültige Overlay-URL:', url);
+    console.error('[irl-hud] Ungültige Overlay-URL:', url);
     return;
   }
 
