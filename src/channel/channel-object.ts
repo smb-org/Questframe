@@ -1275,39 +1275,53 @@ export class ChannelObject extends DurableObject<AppEnv> {
    * hinterlässt deshalb einen Socket, der nicht mehr offen ist, aber weiter einen
    * Platz belegt.
    *
-   * Eine offene Verbindung gilt nur dann als stale, wenn ihr automatisch gepflegter
-   * Heartbeat-Zeitstempel zu alt ist. Eine ältere, noch heartbeatende Verbindung
-   * zu verdrängen würde ein Karussell erzeugen: sobald mehr Quellen verbunden sein
-   * wollen als Plätze da sind, wirft jede neue die älteste hinaus, die sofort neu
-   * verbindet und die nächste hinauswirft — die Anzeige verschwindet dann im
-   * Sekundentakt. Wer mehr gleichzeitige Quellen braucht, bekommt mehr Plätze,
-   * keine Rotation.
+   * Eine offene Verbindung wird nur angefasst, wenn ALLE Plätze belegt sind und ihr
+   * Heartbeat-Zeitstempel zu alt ist. Bei fünfzehn Plätzen passiert im Normalbetrieb
+   * also nichts — die Bereinigung ist ein Notventil gegen die Selbstsperre, kein
+   * laufender Dienst.
+   *
+   * Eine ältere, noch heartbeatende Verbindung wird auch dann nicht verdrängt. Das
+   * erzeugte ein Karussell: jede neue Quelle warf die älteste hinaus, die sofort neu
+   * verband und die nächste hinauswarf — die Anzeige verschwand im Sekundentakt. Wer
+   * mehr gleichzeitige Quellen braucht, bekommt mehr Plätze, keine Rotation.
    */
   private reclaimSocketSlots(
     tag: "editor" | "overlay" | "composite" | "challenge" | "dock",
+    socketLimit: number,
   ): number {
+    // Nicht mehr offene Sockets sind zweifelsfrei weg und werden immer abgeräumt.
     for (const socket of this.ctx.getWebSockets(tag)) {
-      if (socket.readyState === WebSocket.OPEN) {
-        const lastHeartbeatAt = this.ctx.getWebSocketAutoResponseTimestamp(socket);
-        // null bedeutet: Dieser Socket hat noch nie gepingt. Ein offenes altes
-        // Bundle nach einem Deploy darf deshalb nicht geschlossen werden — es
-        // pingt nie, verbindet sich nach dem Rauswurf sofort neu und erzeugt
-        // genau das Karussell, das die Bereinigung verhindern soll.
-        if (
-          lastHeartbeatAt === null
-          || Date.now() - lastHeartbeatAt.getTime() <= SOCKET_STALE_AFTER_MS
-        ) continue;
-        try {
-          socket.close(4006, "stale_heartbeat");
-        } catch {
-          // Ein bereits geschlossener Socket darf die übrigen Plätze nicht blockieren.
-        }
-        continue;
-      }
+      if (socket.readyState === WebSocket.OPEN) continue;
       try {
         socket.close(4004, "stale_socket");
       } catch {
         // Ein bereits geschlossener Socket wirft hier; er zählt ohnehin nicht mehr.
+      }
+    }
+
+    const active = this.activeSocketCount(tag);
+    // Solange ein Platz frei ist, wird keine offene Verbindung angefasst. Für eine
+    // stille Verbindung gibt es keine sichere Frist: eine eingefrorene Seite
+    // (Ruhezustand, Tab-Freeze, Netzausfall) sieht beliebig lange tot aus und lebt
+    // trotzdem. Sie zu schließen, obwohl niemand ihren Platz braucht, ist Schaden
+    // ohne Nutzen — genau daran ist die Anzeige zweimal verschwunden.
+    if (active < socketLimit) return active;
+
+    for (const socket of this.ctx.getWebSockets(tag)) {
+      if (socket.readyState !== WebSocket.OPEN) continue;
+      const lastHeartbeatAt = this.ctx.getWebSocketAutoResponseTimestamp(socket);
+      // null bedeutet: Dieser Socket hat noch nie gepingt. Ein offenes altes
+      // Bundle nach einem Deploy darf deshalb nicht geschlossen werden — es
+      // pingt nie, verbindet sich nach dem Rauswurf sofort neu und erzeugt
+      // genau das Karussell, das die Bereinigung verhindern soll.
+      if (
+        lastHeartbeatAt === null
+        || Date.now() - lastHeartbeatAt.getTime() <= SOCKET_STALE_AFTER_MS
+      ) continue;
+      try {
+        socket.close(4006, "stale_heartbeat");
+      } catch {
+        // Ein bereits geschlossener Socket darf die übrigen Plätze nicht blockieren.
       }
     }
     return this.activeSocketCount(tag);
@@ -1317,7 +1331,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
     }
-    if (this.reclaimSocketSlots("editor") >= limits.maxEditorSockets) {
+    if (this.reclaimSocketSlots("editor", limits.maxEditorSockets) >= limits.maxEditorSockets) {
       throw new RequestError(429, "socket_limit", "Zu viele Editor-Verbindungen.");
     }
     const session = this.requireSession(request);
@@ -1352,7 +1366,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
     }
-    if (this.reclaimSocketSlots(tag) >= socketLimit) {
+    if (this.reclaimSocketSlots(tag, socketLimit) >= socketLimit) {
       throw new RequestError(429, "socket_limit", limitErrorMessage);
     }
     const token = request.headers.get("x-overlay-token");
@@ -1419,7 +1433,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
     }
-    if (this.reclaimSocketSlots("challenge") >= limits.maxChallengeSockets) {
+    if (this.reclaimSocketSlots("challenge", limits.maxChallengeSockets) >= limits.maxChallengeSockets) {
       throw new RequestError(429, "socket_limit", "Zu viele Challenge-Verbindungen.");
     }
     const token = request.headers.get("x-overlay-token");
@@ -1459,7 +1473,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
     }
-    if (this.reclaimSocketSlots("dock") >= limits.maxDockSockets) {
+    if (this.reclaimSocketSlots("dock", limits.maxDockSockets) >= limits.maxDockSockets) {
       throw new RequestError(429, "socket_limit", "Zu viele Dock-Verbindungen.");
     }
     const row = await this.requireDockToken(request);

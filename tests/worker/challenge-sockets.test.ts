@@ -628,6 +628,42 @@ describe("Win-Challenges-Sockets", () => {
     }
   });
 
+  it("lässt eine stille Verbindung in Ruhe, solange ein Platz frei ist", async () => {
+    // Für eine stille Verbindung gibt es keine sichere Frist: eine eingefrorene
+    // Seite sieht beliebig lange tot aus und lebt trotzdem. Solange niemand ihren
+    // Platz braucht, wird sie deshalb nicht angefasst.
+    const overlayToken = await createOverlayToken();
+    const clientIp = { "cf-connecting-ip": "198.51.100.94" };
+    const sockets: WebSocket[] = [];
+    const closeCodes: number[] = [];
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const still = await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken, clientIp);
+      still.addEventListener("close", (event) => { closeCodes.push(event.code); });
+      sockets.push(still);
+      still.send("ping");
+      const pingTimestamp = await runInDurableObject(stub, (_instance, state) => {
+        const socket = state.getWebSockets("challenge")[0];
+        if (socket === undefined) throw new Error("Heartbeat-Socket fehlt.");
+        return state.getWebSocketAutoResponseTimestamp(socket)?.getTime() ?? null;
+      });
+      if (pingTimestamp === null) throw new Error("Heartbeat-Zeitstempel fehlt.");
+      vi.setSystemTime(pingTimestamp + SOCKET_STALE_AFTER_MS * 10);
+
+      // Ein weiterer Verbindungsaufbau löst die Bereinigung aus — es sind aber
+      // noch reichlich Plätze frei.
+      sockets.push(
+        await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken, clientIp),
+      );
+      vi.useRealTimers();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(closeCodes, "bei freien Plätzen darf nichts geschlossen werden").toEqual([]);
+    } finally {
+      vi.useRealTimers();
+      for (const socket of sockets) socket.close();
+    }
+  });
+
   it("schließt einen Socket ohne Heartbeat-Zeitstempel niemals aus", async () => {
     const overlayToken = await createOverlayToken();
     const sockets: WebSocket[] = [];
