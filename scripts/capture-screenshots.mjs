@@ -27,6 +27,60 @@ const ensureDevServer = async () => {
   }
 };
 
+// Siehe tests/e2e/support/socket-lifecycle.ts (installSocketLifecycle) fuer das
+// Original samt Begruendung. Hier dupliziert, weil dieses Skript plain .mjs ist
+// und nicht gegen @playwright/test-Typen laeuft; Verhalten muss identisch bleiben.
+const installSocketLifecycle = async (context) => {
+  await context.addInitScript(() => {
+    const originalWebSocket = globalThis.WebSocket;
+    const sockets = new Set();
+    const immediateCloses = new WeakMap();
+    const trackedWebSocket = function (url, protocols) {
+      const socket = new originalWebSocket(url, protocols);
+      sockets.add(socket);
+      const closeSocket = socket.close.bind(socket);
+      immediateCloses.set(socket, closeSocket);
+      // React StrictMode entsorgt den ersten Effekt oft noch waehrend CONNECTING.
+      // Workerd sieht den Socket zuverlaessig als geschlossen, wenn der Handshake
+      // erst beendet und danach der native Close gesendet wird.
+      socket.close = (...args) => {
+        if (socket.readyState === WebSocket.CONNECTING) {
+          socket.addEventListener("open", () => { closeSocket(...args); }, { once: true });
+          return;
+        }
+        closeSocket(...args);
+      };
+      socket.addEventListener("close", () => sockets.delete(socket), { once: true });
+      return socket;
+    };
+    trackedWebSocket.prototype = originalWebSocket.prototype;
+    Object.setPrototypeOf(trackedWebSocket, originalWebSocket);
+    const closeSockets = () => {
+      for (const socket of sockets) {
+        try {
+          immediateCloses.get(socket)?.();
+        } catch {
+          // Ein bereits geschlossener Socket darf die restliche Bereinigung nicht blockieren.
+        }
+      }
+    };
+    globalThis.e2eSockets = sockets;
+    globalThis.addEventListener("pagehide", closeSockets, { once: true });
+    globalThis.WebSocket = trackedWebSocket;
+  });
+};
+
+// Siehe tests/e2e/support/socket-lifecycle.ts (releaseTrackedSockets): hartes
+// close() ohne vorheriges about:blank laesst hibernierende WebSockets im
+// Durable Object haengen, bis MAX_EDITOR_SOCKETS erschoepft ist.
+const releaseTrackedSockets = async (context) => {
+  const pages = context.pages().filter((page) => !page.isClosed());
+  await Promise.all(pages.map((page) =>
+    page.goto("about:blank", { waitUntil: "commit", timeout: 5_000 }).catch(() => null)
+  ));
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+};
+
 const randomUuid = () => crypto.randomUUID();
 
 const api = async (page, pathname, options = {}) => {
@@ -322,6 +376,10 @@ const publishChallengeBoard = async (page, tabId, csrfToken) => {
 };
 
 // Kommentar: Der Challenge-Log steht im Sammelbild rechts neben dem HUD.
+// Gibt die vorherigen Settings zurueck, damit run() sie danach wiederherstellen
+// kann - /api/challenges/settings ist geteilter, dauerhaft gespeicherter
+// Server-Zustand, kein Wegwerf-State dieses Skripts (analog zum Socket-Leak:
+// das Skript darf keine dauerhaften Spuren im lokalen Durable Object hinterlassen).
 const configureChallengeView = async (page, tabId, csrfToken) => {
   const current = await api(page, "/api/challenges", {
     headers: { "x-editor-tab": tabId },
@@ -345,6 +403,34 @@ const configureChallengeView = async (page, tabId, csrfToken) => {
       globalTimerMode: "down",
       globalTimerTotalMs: null,
       placement: { x: 134, y: 12, scale: 1 },
+    }),
+  });
+  return current.settings;
+};
+
+const restoreChallengeSettings = async (page, tabId, csrfToken, previousSettings) => {
+  const current = await api(page, "/api/challenges", {
+    headers: { "x-editor-tab": tabId },
+  });
+  await api(page, "/api/challenges/settings", {
+    method: "PUT",
+    headers: editorHeaders(tabId, csrfToken),
+    body: JSON.stringify({
+      baseSettingsRevision: current.settingsRevision,
+      styleId: previousSettings.styleId,
+      themeMode: previousSettings.themeMode,
+      surfaceMode: previousSettings.surfaceMode,
+      headerStyle: previousSettings.headerStyle,
+      headerTitle: previousSettings.headerTitle,
+      effectsEnabled: previousSettings.effectsEnabled,
+      maxVisible: previousSettings.maxVisible,
+      overflowMode: previousSettings.overflowMode,
+      overflowTempo: previousSettings.overflowTempo,
+      numbered: previousSettings.numbered,
+      doneOrder: previousSettings.doneOrder,
+      globalTimerMode: previousSettings.globalTimerMode,
+      globalTimerTotalMs: previousSettings.globalTimer?.totalMs ?? null,
+      placement: previousSettings.placement,
     }),
   });
 };
@@ -440,11 +526,14 @@ const run = async () => {
   await mkdir(OUTPUT_DIR, { recursive: true });
 
   const browser = await chromium.launch({ headless: true });
+  let context = null;
+  let restoreSettings = null;
   try {
-    const context = await browser.newContext({
+    context = await browser.newContext({
       viewport: VIEWPORT,
       deviceScaleFactor: 2,
     });
+    await installSocketLifecycle(context);
     const adminPage = await context.newPage();
     await adminPage.goto(`${BASE_URL}/auth/dev`, { waitUntil: "commit" });
     await adminPage.waitForURL(/\/admin$/);
@@ -453,7 +542,8 @@ const run = async () => {
     const { bootstrap, tabId } = await readEditorContext(adminPage);
     await publishHudState(adminPage, bootstrap, tabId);
     await publishChallengeBoard(adminPage, tabId, bootstrap.csrfToken);
-    await configureChallengeView(adminPage, tabId, bootstrap.csrfToken);
+    const previousChallengeSettings = await configureChallengeView(adminPage, tabId, bootstrap.csrfToken);
+    restoreSettings = () => restoreChallengeSettings(adminPage, tabId, bootstrap.csrfToken, previousChallengeSettings);
     const overlayToken = await createOverlayToken(adminPage, bootstrap, tabId);
 
     const capturePage = await context.newPage();
@@ -474,16 +564,22 @@ const run = async () => {
     await injectPresentationBackground(capturePage);
     files.push(await capture(capturePage, "overlay-all.png", [".hud-stage", ".challenge-source"]));
 
-    await capturePage.close();
-    await adminPage.close();
-    await context.close();
-
     console.log("Geschriebene Dateien:");
     for (const filePath of files) {
       const file = await stat(filePath);
       console.log(`- ${path.relative(process.cwd(), filePath)} (${(file.size / 1024).toFixed(1)} KB)`);
     }
   } finally {
+    if (restoreSettings !== null) {
+      // Darf einen Fehler aus dem try-Block nicht verdecken; best effort.
+      await restoreSettings().catch((error) => {
+        console.error(`Wiederherstellen der Challenge-Settings fehlgeschlagen: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
+    if (context !== null) {
+      await releaseTrackedSockets(context);
+      await context.close();
+    }
     await browser.close();
   }
 };
