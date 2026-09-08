@@ -1486,11 +1486,6 @@ export class ChannelObject extends DurableObject<AppEnv> {
   }
 
   override webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): void {
-    // Vor allem anderen: Ein Heartbeat braucht kein Attachment. Der Client pingt
-    // sofort beim Öffnen, das Attachment wird aber erst nach acceptWebSocket
-    // gesetzt — käme der Ping dazwischen, würde die Verbindung als "ohne
-    // Attachment" geschlossen und der Client verbände endlos neu.
-    if (message === "ping") return;
     const attachment = this.readAttachment(socket);
     if (attachment === null) {
       socket.close(1011, "invalid_attachment");

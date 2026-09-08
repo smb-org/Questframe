@@ -673,18 +673,22 @@ describe("Win-Challenges-Sockets", () => {
     }
   });
 
-  it("ignoriert einen reinen Ping-Text und schließt den Socket nicht", async () => {
+  it("beantwortet einen Ping mit pong, ohne den Socket zu schließen", async () => {
+    // Über den echten Weg der Laufzeit, nicht per direktem Handler-Aufruf: die
+    // Auto-Antwort ist genau das, was den Client erreicht — als nackter Text, den
+    // jeder Nachrichten-Handler vor dem Parsen aussortieren muss.
     const overlayToken = await createOverlayToken();
     const socket = await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken);
     const closeCodes: number[] = [];
+    const texts: string[] = [];
     socket.addEventListener("close", (event) => { closeCodes.push(event.code); });
+    socket.addEventListener("message", (event) => {
+      if (typeof event.data === "string") texts.push(event.data);
+    });
     try {
-      await runInDurableObject(stub, (instance, state) => {
-        const acceptedSocket = state.getWebSockets("challenge")[0];
-        if (acceptedSocket === undefined) throw new Error("Challenge-Socket fehlt.");
-        instance.webSocketMessage(acceptedSocket, "ping");
-      });
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      socket.send("ping");
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(texts).toContain("pong");
       expect(closeCodes).toEqual([]);
     } finally {
       socket.close();

@@ -7,6 +7,7 @@ import {
   markWatchdogReload,
   nextReconnectDelayMs,
   reloadWindow,
+  SOCKET_PONG_MESSAGE,
   startSocketHeartbeat,
 } from "../shared/reconnect";
 import { ChallengeCeremonyStage } from "./ChallengeCeremonyStage";
@@ -78,6 +79,10 @@ export const ChallengeSourceApp = ({
       });
       socket.addEventListener("message", (message) => {
         if (typeof message.data !== "string") return;
+        // Die automatische Antwort auf unseren Heartbeat ist kein JSON. Ohne diese
+        // Zeile landet sie im Fehlerpfad für ein kaputtes Draht-Format: die Quelle
+        // wird geleert und lädt neu — 20s nach jedem Verbinden.
+        if (message.data === SOCKET_PONG_MESSAGE) return;
         let input: unknown;
         try {
           input = JSON.parse(message.data) as unknown;

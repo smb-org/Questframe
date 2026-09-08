@@ -193,6 +193,26 @@ describe("ChallengeSourceApp", () => {
     expect(rows.map((row) => row.textContent)).toEqual(["Ohne Ziel4", "Noch nichts"]);
   });
 
+  it("übersteht die automatische Pong-Antwort auf den Heartbeat", async () => {
+    // Das Durable Object beantwortet unseren Ping mit einem nackten "pong". Ohne
+    // Sonderbehandlung landet das im Fehlerpfad für ein kaputtes Draht-Format:
+    // die Quelle leert sich und lädt neu, 20s nach jedem Verbinden. Genau so ist
+    // die Anzeige in Produktion verschwunden, bei weiterhin offenem Socket.
+    const reloadPage = vi.fn();
+    render(<ChallengeSourceApp reloadPage={reloadPage} />);
+    const socket = FakeWebSocket.instances[0];
+    await deliver(socket, message());
+    await waitFor(() => expect(screen.getByText("CHALLENGES")).toBeInTheDocument());
+
+    await act(async () => {
+      socket?.emit("message", "pong");
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("CHALLENGES")).toBeInTheDocument();
+    expect(reloadPage).not.toHaveBeenCalled();
+  });
+
   it("feuert eine Zeremonie nur für ein neues Ereignis nach dem letzten Stand", async () => {
     render(<ChallengeSourceApp />);
     const socket = FakeWebSocket.instances[0];

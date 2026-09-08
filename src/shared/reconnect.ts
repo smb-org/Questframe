@@ -14,9 +14,17 @@
 const RETRY_BASE_MS = 750;
 const RETRY_MAX_MS = 30_000;
 
-// Der Server lässt 70s ohne Ping zu (siehe SOCKET_STALE_AFTER_MS im Durable
-// Object); drei ausgefallene 20s-Intervalle bleiben damit ohne Fehlalarm erlaubt.
+// Der Server lässt SOCKET_STALE_AFTER_MS ohne Ping zu (fünf Minuten, siehe
+// src/shared/contracts/api.ts). Bei 20s-Intervallen bleibt damit auch ein auf
+// einen Aufruf pro Minute gedrosselter Hintergrund-Tab weit im grünen Bereich.
 export const SOCKET_PING_INTERVAL_MS = 20_000;
+
+/**
+ * Die Antwort, die das Durable Object automatisch auf einen Ping schickt. Sie
+ * kommt als nackter Text an, nicht als JSON — jeder Nachrichten-Handler muss sie
+ * vor dem Parsen aussortieren, sonst hält er sie für ein kaputtes Draht-Format.
+ */
+export const SOCKET_PONG_MESSAGE = "pong";
 
 /**
  * Sendet regelmäßig "ping", damit das Durable Object verwaiste Verbindungen von
@@ -28,11 +36,10 @@ export const SOCKET_PING_INTERVAL_MS = 20_000;
  * zusätzliche Ping bei jedem Sichtbarwerden. Die Verfallsgrenze im Durable Object
  * (SOCKET_STALE_AFTER_MS) ist entsprechend großzügig bemessen.
  *
- * Bewusst wird NICHT sofort beim Start gepingt: ein Ping, der direkt auf das
- * "open"-Ereignis folgt, trifft das Durable Object, bevor es die Verbindung
- * fertig eingerichtet hat, und die Quelle blieb daraufhin leer (in den e2e-Tests
- * reproduzierbar). Nötig ist er auch nicht — eine Verbindung ohne Zeitstempel
- * gilt nie als verwaist, das erste Intervall ist also gedeckt.
+ * Bewusst wird NICHT sofort beim Start gepingt. Jeder Ping zieht ein "pong" nach
+ * sich, und ein Ping direkt nach dem Öffnen schickt es dem Client mitten in die
+ * Verarbeitung des ersten Snapshots. Nötig ist er ohnehin nicht: eine Verbindung
+ * ohne Zeitstempel gilt nie als verwaist, das erste Intervall ist gedeckt.
  */
 export const startSocketHeartbeat = (
   socket: WebSocket,
