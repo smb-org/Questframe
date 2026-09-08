@@ -77,6 +77,7 @@ describe("Worker gateway failure boundaries", () => {
       "/api/overlay-visibility",
       "/api/overlay-token",
       "/api/overlay-token/rotate",
+      "/api/sockets/flush",
       "/api/media",
       "/api/media/leases/renew",
       "/auth/logout",

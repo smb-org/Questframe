@@ -205,6 +205,10 @@ export const overlayTokenResponseSchema = z.strictObject({
   token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
 });
 
+export const flushDisplaySocketsResponseSchema = z.strictObject({
+  closed: z.number().int().min(0),
+});
+
 export const dockTokenResponseSchema = z.strictObject({
   requestId: z.uuid(),
   generation: z.number().int().min(1),
@@ -298,4 +302,5 @@ export type UndoTarget = z.infer<typeof undoTargetSchema>;
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 export type OverlayTokenResponse = z.infer<typeof overlayTokenResponseSchema>;
+export type FlushDisplaySocketsResponse = z.infer<typeof flushDisplaySocketsResponseSchema>;
 export type DockTokenResponse = z.infer<typeof dockTokenResponseSchema>;

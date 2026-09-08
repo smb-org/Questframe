@@ -7,6 +7,7 @@ import {
   MAX_COMPOSITE_SOCKETS,
   bootstrapResponseSchema,
   dockTokenResponseSchema,
+  flushDisplaySocketsResponseSchema,
   overlayTokenResponseSchema,
   saveResponseSchema,
   type BootstrapResponse,
@@ -270,6 +271,62 @@ describe("Win-Challenges-Sockets", () => {
   beforeEach(async () => {
     await resetTables();
     await refreshCsrf();
+  });
+
+  it("trennt Anzeige-Sockets, lässt den Editor aber offen", async () => {
+    const overlayToken = await createOverlayToken();
+    const overlay = await openSocket("/ws/overlay", OVERLAY_SOCKET_PROTOCOL, overlayToken);
+    const secondOverlay = await openSocket("/ws/overlay", OVERLAY_SOCKET_PROTOCOL, overlayToken);
+    const challenge = await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken);
+    const secondChallenge = await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken);
+    const editor = await openEditorSocket();
+    const displaySockets = [overlay, secondOverlay, challenge, secondChallenge] as const;
+
+    try {
+      await Promise.all([
+        requireMessage(overlay, (data) => data.type === "snapshot", "Overlay-Snapshot-1"),
+        requireMessage(secondOverlay, (data) => data.type === "snapshot", "Overlay-Snapshot-2"),
+        requireMessage(challenge, (data) => data.event === null, "Challenge-Snapshot-1"),
+        requireMessage(secondChallenge, (data) => data.event === null, "Challenge-Snapshot-2"),
+        requireMessage(editor, (data) => data.type === "snapshot", "Editor-Snapshot"),
+      ]);
+      const closed = Promise.all(displaySockets.map((socket) => expectClose(socket, 4007, "sockets_flushed")));
+      const response = await fetchWorker("/api/sockets/flush", {
+        method: "POST",
+        headers: authenticatedHeaders(),
+        body: "{}",
+      });
+      expect(response.status).toBe(200);
+      expect(flushDisplaySocketsResponseSchema.parse(await response.json())).toEqual({ closed: 4 });
+      await closed;
+
+      expect(editor.readyState).toBe(WebSocket.OPEN);
+      const timeSync = requireMessage(editor, (data) => data.type === "time_sync", "Editor-Time-Sync");
+      editor.send(JSON.stringify({ type: "time_sync_request", clientTimestamp: 7 }));
+      expect(await timeSync).toEqual(expect.objectContaining({ type: "time_sync", clientTimestamp: 7 }));
+    } finally {
+      for (const socket of [...displaySockets, editor]) socket.close();
+    }
+  });
+
+  it("lehnt Socket-Flush ohne Sitzung oder CSRF-Token ab", async () => {
+    const withoutSession = await fetchWorker("/api/sockets/flush", {
+      method: "POST",
+      headers: { origin, "x-editor-tab": tabId, "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(withoutSession.status).toBe(401);
+
+    await refreshCsrf();
+    const withoutCsrfHeaders = new Headers(authenticatedHeaders());
+    withoutCsrfHeaders.delete("x-csrf-token");
+    const withoutCsrf = await fetchWorker("/api/sockets/flush", {
+      method: "POST",
+      headers: withoutCsrfHeaders,
+      body: "{}",
+    });
+    expect(withoutCsrf.status).toBe(403);
+    expect((await withoutCsrf.json<{ error: { code: string } }>()).error.code).toBe("csrf_invalid");
   });
 
   it("trennt HUD-State, liefert fünf Attachments und broadcastet Updates gezielt", async () => {

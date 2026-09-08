@@ -34,6 +34,11 @@ Watchdog-Ablaufsteuerung bleibt in jeder App:
 Falls eine Quelle danach weiter eingefroren wirkt, die OBS-Browserquelle einmal
 manuell aktualisieren.
 
+Den Button **Verbindungen trennen** im OBS-Einrichtungsfenster nutzt du, wenn die
+Plätze voll sind oder eine Anzeigequelle nicht mehr verbindet. Alle Anzeigequellen
+verbinden sich danach selbst neu; anders als bei der Token-Rotation bleibt der
+Token gültig und keine URL muss geändert werden.
+
 ## Deployment-Bindings
 
 `wrangler.jsonc` enthält für Staging und Production nur die bewusst versionierten Schalter `APP_ENV` und `RELEASE_STAGE`. Alle installationsspezifischen Werte sind verpflichtende Cloudflare-Secrets. Das erste Deployment einer Umgebung muss lokal mit der passenden ignorierten `.env.<umgebung>` erfolgen; dabei lädt `--secrets-file` alle zehn Werte gemeinsam hoch. Danach bleiben sie bei gewöhnlichen Wrangler-Deployments erhalten, sodass der GitHub-Workflow keine Klartext-Konfiguration erzeugen muss.

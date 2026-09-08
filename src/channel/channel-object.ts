@@ -6,6 +6,7 @@ import {
   bootstrapResponseSchema,
   clientMessageSchema,
   dockTokenResponseSchema,
+  flushDisplaySocketsResponseSchema,
   MAX_COMPOSITE_SOCKETS,
   MAX_CHALLENGE_SOCKETS,
   MAX_DOCK_SOCKETS,
@@ -284,6 +285,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
       }
       if (request.method === "POST" && url.pathname === "/overlay-token/rotate") {
         return await this.mutateOverlayToken(request, true);
+      }
+      if (request.method === "POST" && url.pathname === "/sockets/flush") {
+        return await this.flushDisplaySockets(request);
       }
       if (request.method === "POST" && url.pathname === "/media") {
         return await this.uploadMedia(request);
@@ -988,6 +992,30 @@ export class ChannelObject extends DurableObject<AppEnv> {
         token,
       }),
     );
+  }
+
+  /**
+   * Trennt alle Anzeige-Sockets, aber bewusst keine Editor-Sockets, damit das
+   * Admin-Fenster, das die Notbremse auslöst, verbunden bleibt. Die Anzeige-
+   * Clients verbinden sich nach dem kurzen Blink selbst wieder.
+   */
+  private async flushDisplaySockets(request: Request): Promise<Response> {
+    const session = this.requireSession(request);
+    await this.requireCsrf(request, session);
+    const displayTags = ["overlay", "composite", "challenge", "dock"] as const;
+    let closed = 0;
+    for (const tag of displayTags) {
+      for (const socket of this.ctx.getWebSockets(tag)) {
+        const wasOpen = socket.readyState === WebSocket.OPEN;
+        try {
+          socket.close(4007, "sockets_flushed");
+          if (wasOpen) closed += 1;
+        } catch {
+          // Ein bereits geschlossener Socket darf die übrigen nicht blockieren.
+        }
+      }
+    }
+    return jsonResponse(flushDisplaySocketsResponseSchema.parse({ closed }));
   }
 
   private async readOverlayToken(row: OverlayTokenRow | null): Promise<string | null> {

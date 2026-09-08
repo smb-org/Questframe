@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import type { FlushDisplaySocketsResponse } from "../../shared/contracts/api";
 import {
   applyDockTokenResponse,
   applyOverlayTokenResponse,
@@ -18,6 +19,10 @@ import {
   type ObsSetupSource,
   type OverlayTokenStatus,
 } from "./obsSetup";
+
+type ObsSetupPanelApi = ObsSetupApi & {
+  flushDisplaySockets?: () => Promise<FlushDisplaySocketsResponse>;
+};
 
 const SetupQrCode = ({ value, label }: { value: string; label: string }) => {
   const [source, setSource] = useState<string | null>(null);
@@ -64,7 +69,7 @@ export const ObsSetupPanel = ({
   overlayToken,
   sources,
 }: {
-  api: ObsSetupApi;
+  api: ObsSetupPanelApi;
   dockToken: DockTokenStatus;
   online: boolean;
   onDockToken: (token: DockTokenStatus) => void;
@@ -77,11 +82,16 @@ export const ObsSetupPanel = ({
   const [copyError, setCopyError] = useState("");
   const [tokenError, setTokenError] = useState("");
   const [busyToken, setBusyToken] = useState<string | null>(null);
+  const [flushBusy, setFlushBusy] = useState(false);
+  const [flushMessage, setFlushMessage] = useState("");
+  const [flushError, setFlushError] = useState("");
   const copiedTimer = useRef<number | null>(null);
+  const flushTimer = useRef<number | null>(null);
   const origin = window.location.origin;
 
   useEffect(() => () => {
     if (copiedTimer.current !== null) window.clearTimeout(copiedTimer.current);
+    if (flushTimer.current !== null) window.clearTimeout(flushTimer.current);
   }, []);
 
   const copyUrl = async (source: ObsSetupSource) => {
@@ -132,6 +142,26 @@ export const ObsSetupPanel = ({
     }
   };
 
+  const flushSockets = async () => {
+    if (api.flushDisplaySockets === undefined || flushBusy || !online) return;
+    setFlushBusy(true);
+    setFlushMessage("");
+    setFlushError("");
+    try {
+      const result = await api.flushDisplaySockets();
+      setFlushMessage(`${String(result.closed)} Verbindungen getrennt.`);
+      if (flushTimer.current !== null) window.clearTimeout(flushTimer.current);
+      flushTimer.current = window.setTimeout(() => {
+        setFlushMessage("");
+        flushTimer.current = null;
+      }, 3_000);
+    } catch (caught) {
+      setFlushError(caught instanceof Error ? caught.message : "Verbindungen konnten nicht getrennt werden.");
+    } finally {
+      setFlushBusy(false);
+    }
+  };
+
   return (
     <section aria-labelledby="obs-setup-heading" className="challenge-setup-panel">
       <header className="challenge-setup-heading">
@@ -152,6 +182,21 @@ export const ObsSetupPanel = ({
       </header>
       {copyError !== "" && <p className="challenge-board-error" role="alert">{copyError}</p>}
       {tokenError !== "" && <p className="challenge-board-error" role="alert">{tokenError}</p>}
+      <div className="challenge-setup__socket-action">
+        <button
+          aria-describedby="obs-sockets-flush-help"
+          className="button button--primary challenge-setup__token-action"
+          disabled={flushBusy || !online || api.flushDisplaySockets === undefined}
+          onClick={() => void flushSockets()}
+          type="button"
+        >
+          {flushBusy && <RotateCw aria-hidden="true" className="spin" size={15} />}
+          {flushBusy ? "Verbindungen werden getrennt …" : "Verbindungen trennen"}
+        </button>
+        <p id="obs-sockets-flush-help" className="challenge-setup__privacy">Alle Quellen verbinden sich kurz neu; die Anzeige blinkt dabei einmal. Der Token bleibt gültig – anders als bei einer Token-Rotation.</p>
+      </div>
+      {flushError !== "" && <p className="challenge-board-error" role="alert">{flushError}</p>}
+      {flushMessage !== "" && <p aria-live="polite" className="challenge-setup__privacy">{flushMessage}</p>}
       <div className="challenge-setup__sources">
         {sources.map((source) => {
           const canCopy = source.url !== "";

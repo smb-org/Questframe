@@ -2,6 +2,7 @@ import {
   apiErrorSchema,
   bootstrapResponseSchema,
   dockTokenResponseSchema,
+  flushDisplaySocketsResponseSchema,
   overlayTokenResponseSchema,
   renewMediaLeasesResponseSchema,
   saveResponseSchema,
@@ -152,6 +153,11 @@ export class BrowserAdminApi implements AdminApi {
       input,
     );
     return dockTokenResponseSchema.parse(await response.json());
+  }
+
+  async flushDisplaySockets() {
+    const response = await this.requestJson("/api/sockets/flush", "POST", {});
+    return flushDisplaySocketsResponseSchema.parse(await response.json());
   }
 
   async uploadPortrait(blob: Blob) {

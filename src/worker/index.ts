@@ -594,6 +594,7 @@ const worker = {
       "/api/overlay-visibility": "/overlay-visibility",
       "/api/overlay-token": "/overlay-token",
       "/api/overlay-token/rotate": "/overlay-token/rotate",
+      "/api/sockets/flush": "/sockets/flush",
       "/api/media": "/media",
       "/api/media/leases/renew": "/media/leases/renew",
     };
