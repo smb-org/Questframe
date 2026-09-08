@@ -1,13 +1,32 @@
-# IRL Stream HUD
+# Questframe
 
 Ein WoW-inspiriertes, transparentes OBS-HUD für IRL-Streams. Twitch-Moderator:innen und der Broadcaster bearbeiten einen lokalen Entwurf in einer Web-Konsole; erst **Änderungen speichern** veröffentlicht einen vollständigen, atomaren Stand. Das Overlay erhält neue Revisionen über eine hibernierende Durable-Object-WebSocket-Verbindung und zählt absolute Effektzeiten im Browser herunter.
 
-Enthalten sind:
+Questframe besteht aus zwei Modulen, die einzeln oder gemeinsam als OBS-Quelle laufen: dem **HUD** mit Unitframe, Pet, Gästen und Effekten, und den **Win-Challenges**, einer abhakbaren Aufgabenliste mit Timern.
+
+## Wie es aussieht
+
+Das HUD: Spieler-Unitframe mit Portrait, Level, Lebens- und Ressourcenbalken, Effektleiste mit ausgeklappter Beschreibung, Pet und bis zu fünf Gäste. Der dritte Gast ist über Twitch aufgelöst und trägt deshalb das Twitch-Zeichen.
+
+![Das Questframe-HUD mit Spieler-Unitframe, Effektleiste, Pet und drei Gästen](docs/images/hud.png)
+
+Die Win-Challenges als eigene Quelle: nummerierte Liste, laufender Timer, Fortschrittszähler, erledigte Einträge durchgestrichen und ans Ende sortiert.
+
+![Die Win-Challenge-Liste mit Timer, Fortschritt und einem erledigten Eintrag](docs/images/win-challenge.png)
+
+Beides zusammen als Sammelquelle `/overlay/all`, wenn nur eine Browserquelle zur Verfügung steht:
+
+![HUD und Win-Challenges gemeinsam in einer Quelle](docs/images/overlay-all.png)
+
+Die Bilder zeigen erfundene Beispieldaten auf einem gestellten dunklen Hintergrund; im Stream ist die Fläche transparent. Sie entstehen reproduzierbar aus einem leeren lokalen Zustand, siehe [Screenshots erzeugen](#screenshots-erzeugen).
+
+## Was drin ist
 
 - frei konfigurierbares Spieler-Unitframe mit HP, Ressource, Name, Titel, Level und Portrait;
-- Classic Remix (Standard), Modern Compact und Modern Minimal;
+- sechs Unitframe-Varianten: Trail Wood (Standard), Field Journal und Forged Compass mit generierter Rahmengrafik, Classic Simple, Modern Compact und Modern Minimal rein aus CSS;
 - 20 Buffs und 20 Debuffs, zeitlos oder mit absolutem Ablauf, davon höchstens eine sichtbare Beschreibung;
 - optionales Pet und bis zu fünf kompakte Gäste, einschließlich Twitch-Portraits;
+- Win-Challenges mit Einzel- und Gesamttimer, Fortschrittszählern und drei Listenstilen;
 - sofortiger globaler Overlay-Schalter, auch in der mobilen Notfallansicht;
 - Audit-Log, Undo, konfliktgeschütztes Speichern und widerrufbare OBS-Tokens.
 
@@ -38,6 +57,16 @@ openssl rand -base64 32 | tr '+/' '-_' | tr -d '='
 }
 ```
 
+## Win-Challenges
+
+Das Challenge-Board wird unter `/admin` gepflegt und läuft als eigene Fläche unter `/overlay/challenges`. Jede Challenge hat wahlweise einen Zielzähler, einen eigenen Timer oder beides; darüber liegt ein optionaler Gesamttimer, der hoch- oder herunterzählen kann.
+
+Drei Listenstile stehen zur Wahl: **Liste** (schlicht, in den Screenshots oben), **Aufzählung** und **Quest-Log**. Erledigte Einträge lassen sich ans Ende sortieren oder an Ort und Stelle belassen. Passt die Liste nicht in die Box, entscheidet der Überlaufmodus zwischen Abschneiden, Blättern und Scrollen.
+
+Die Fläche hat eigene Socket-Plätze und einen eigenen Token, ist also unabhängig vom HUD widerrufbar. Wer nur eine einzige Browserquelle einrichten will, nimmt stattdessen die Sammelquelle `/overlay/all`.
+
+Für StreamElements statt OBS liegt ein fertiges Custom Widget samt Anleitung unter [docs/streamelements/](docs/streamelements/README.md).
+
 ## Twitch und Cloudflare einrichten
 
 1. In der Twitch Developer Console eine Anwendung anlegen. OAuth-Callback ist je Umgebung exakt `https://DEINE-DOMAIN/auth/twitch/callback`.
@@ -65,7 +94,9 @@ openssl rand -base64 32 | tr '+/' '-_' | tr -d '='
 
 `.env.staging`, `.env.production`, `.env*` und `.dev.vars*` sind durch `.gitignore` geschützt; ausschließlich die wertfreien `*.example`-Vorlagen werden versioniert. `wrangler.jsonc` deklariert alle zehn Namen über `secrets.required`, sodass ein Erst-Deployment ohne vollständig hinterlegte Bindings hart fehlschlägt.
 
-Die Deploy-Skripte wählen die Cloudflare-Umgebung bereits beim Vite-Build über `CLOUDFLARE_ENV`, prüfen die daraus erzeugte Wrangler-Konfiguration und deployen anschließend genau diesen Build. Eigene Vite-Modusnamen verhindern dabei, dass Vite die privaten `.env.<umgebung>`-Dateien automatisch in den Build-Prozess lädt; nur Wrangler liest sie anschließend über `--secrets-file`. `wrangler deploy --env …` darf hier nicht nachträglich verwendet werden: Die Vite-Integration erzeugt beim Build eine bereits auf eine Umgebung reduzierte Konfiguration.
+Die Deploy-Skripte wählen die Cloudflare-Umgebung bereits beim Vite-Build über `CLOUDFLARE_ENV`, prüfen die daraus erzeugte Wrangler-Konfiguration und deployen anschließend genau diesen Build. `wrangler deploy --env …` darf hier nicht nachträglich verwendet werden: Die Vite-Integration erzeugt beim Build eine bereits auf eine Umgebung reduzierte Konfiguration.
+
+Den öffentlichen Origin liefert `PUBLIC_ORIGIN`. Lokal laden die `build:*`- und `deploy:*`-Skripte dafür die ignorierte `.env.<umgebung>` über `node --env-file`; in CI kommt derselbe Wert aus dem gleichnamigen GitHub-Environment-Secret, das je Umgebung einmalig angelegt werden muss. Daraus rendert `scripts/render-headers.mjs` die Content-Security-Policy in `dist/client/_headers`, und `wrangler deploy --domains` bindet die Custom Domain an. In `wrangler.jsonc` steht deshalb bewusst keine Route: Der Hostname liegt sonst ein zweites Mal im Repository.
 
 Broadcaster und aktuell eingetragene Twitch-Moderator:innen erhalten dieselbe Editor-Rolle. Die App fordert keine Chat-, E-Mail- oder OBS-Berechtigungen an. Staging und Production müssen eigene Twitch-Anwendungen, Origins, Secrets, Overlay-Tokens und Durable-Object-Namensräume verwenden.
 
@@ -88,6 +119,19 @@ pnpm run check
 
 Das Gate prüft die externe Deployment-Konfiguration, Assets, Wrangler-Typen, TypeScript, ESLint, Coverage, Worker-Integration, Playwright, Bundle-/Transferbudgets und den lokalen Wrangler-Startup-Profiler. Die getestete Browserbasis ist der im Lockfile gepinnte Playwright-Chromium; OBS/CEF kann davon abweichen und wird deshalb zusätzlich im Stream-Rehearsal geprüft.
 
+### Screenshots erzeugen
+
+Die Bilder oben werden nicht von Hand gepflegt. Bei laufendem Dev-Server:
+
+```bash
+pnpm run dev          # in einem zweiten Terminal
+pnpm run screenshots
+```
+
+Das Skript meldet sich über `/auth/dev` an, lädt die beiden Beispielportraits aus `scripts/screenshot-assets/` hoch, veröffentlicht einen vorzeigbaren HUD-Zustand samt Challenge-Board und nimmt die drei Flächen auf. Es ist bewusst nicht Teil von `pnpm run check`.
+
+**Achtung:** Der Lauf überschreibt den lokalen Kanalzustand mit den Beispieldaten. Er berührt ausschließlich die lokale Umgebung, niemals Staging oder Production.
+
 ## Cloudflare Free Tier
 
 Die Architektur benötigt nur Workers Static Assets und ein SQLite Durable Object; R2, D1, KV und kostenpflichtige Cloudflare-Dienste sind nicht erforderlich. Die vorgesehene Nutzung ist auf konservative Grenzen ausgelegt (ein Kanal, zehn Overlay- und zehn Editor-Verbindungen, fünf Gäste, acht Effekte, begrenzte Historie). Das ist bewusst **keine** Zusage unbegrenzter dynamischer Nutzung: Cloudflare kann Quoten ändern, und ungewöhnlich hoher oder missbräuchlicher Traffic kann Limits erreichen. Statische, fingerprinted App-Bundles werden am CDN langfristig gecacht; HUD-Grafiken revalidieren über ETags.
@@ -97,6 +141,7 @@ Die Architektur benötigt nur Workers Static Assets und ein SQLite Durable Objec
 - [Designsystem](DESIGN.md)
 - [Architektur](docs/ARCHITECTURE.md)
 - [Betrieb, Rehearsal und Rollback](docs/OPERATIONS.md)
+- [StreamElements-Widget](docs/streamelements/README.md)
 - [Release-Report-Vorlage](docs/RELEASE_REPORT.md)
 - [Visual-Asset-Provenienz](src/assets/provenance/README.md)
 - [Vollständige Produktspezifikation](docs/superpowers/specs/2026-08-28-irl-stream-hud-design.md)
@@ -104,3 +149,5 @@ Die Architektur benötigt nur Workers Static Assets und ein SQLite Durable Objec
 ## Lizenz
 
 Code und eigens erzeugte HUD-Grafiken stehen unter der [MIT-Lizenz](LICENSE). Atkinson Hyperlegible Next steht unter der mitgelieferten [SIL Open Font License](public/fonts/OFL.txt). Hochgeladene oder Twitch-gelieferte Portraits bleiben Inhalte ihrer jeweiligen Rechteinhaber und sind nicht Teil der Repository-Lizenz.
+
+Die beiden Beispielportraits in `scripts/screenshot-assets/` sind bildgenerierte, frei erfundene Figuren ohne reale Vorlage. Sie dienen ausschließlich den Screenshots und stellen keine echten Personen dar.
