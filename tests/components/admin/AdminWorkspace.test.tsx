@@ -154,7 +154,7 @@ describe("Admin workspace shell", () => {
     expect(screen.getByRole("tab", { name: "Challenges" })).toHaveAttribute("aria-selected", "true");
   });
 
-  it("macht den globalen Zeremonie-Schalter bedienbar und speichert ihn", async () => {
+  it("macht den Schalter für Animationen und Töne bedienbar und speichert ihn", async () => {
     const user = userEvent.setup();
     const challengeSnapshot: ChallengeBoardSnapshot = {
       eventSeq: 0,
@@ -187,28 +187,30 @@ describe("Admin workspace shell", () => {
 
     render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="challenges" />);
 
-    const toggle = await screen.findByRole("checkbox", { name: "Zeremonien und Töne aktiv" });
+    const toggle = await screen.findByRole("checkbox", { name: "Animationen und Töne" });
     expect(toggle).toBeChecked();
     await user.click(toggle);
     // Die HUD-Rail ist ebenfalls dauerhaft gemountet und hat eigene X/Y/Skalierung-Felder;
     // hier gezielt im sichtbaren Challenge-Tabpanel suchen.
     const challengesPanel = within(document.querySelector("#admin-composition-panel-challenges") as HTMLElement);
-    expect(challengesPanel.getByRole("combobox", { name: "Tempo" })).toBeDisabled();
-    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Liste" }), { target: { value: "quest-log" } });
-    fireEvent.change(challengesPanel.getByLabelText("Kopfzeile"), { target: { value: "RUN" } });
-    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Fläche" }), { target: { value: "0" } });
-    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Kopfzeilen-Stil" }), { target: { value: "inverted" } });
-    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Zeilen" }), { target: { value: "8" } });
-    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Globaler Timer" }), { target: { value: "off" } });
-    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Globaler Timer" }), { target: { value: "down" } });
+    expect(challengesPanel.getByRole("combobox", { name: "Wechseltempo" })).toBeDisabled();
+    expect(challengesPanel.getByText("nur bei Blättern und Durchlaufen")).toBeInTheDocument();
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Listenart" }), { target: { value: "quest-log" } });
+    fireEvent.change(challengesPanel.getByLabelText("Titel"), { target: { value: "RUN" } });
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Hintergrund" }), { target: { value: "0" } });
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Stil" }), { target: { value: "inverted" } });
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Sichtbare Einträge" }), { target: { value: "8" } });
+    expect(challengesPanel.getByRole("combobox", { name: "Bei mehr als 8 Einträgen" })).toBeInTheDocument();
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Modus" }), { target: { value: "off" } });
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Modus" }), { target: { value: "down" } });
     fireEvent.change(challengesPanel.getByRole("spinbutton", { name: "Dauer" }), { target: { value: "45" } });
-    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Erledigte" }), { target: { value: "keep" } });
-    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Überlauf" }), { target: { value: "page" } });
-    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Tempo" }), { target: { value: "fast" } });
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Erledigte Einträge" }), { target: { value: "keep" } });
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Bei mehr als 8 Einträgen" }), { target: { value: "page" } });
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Wechseltempo" }), { target: { value: "fast" } });
     await user.click(challengesPanel.getByRole("checkbox", { name: "Nummerierung" }));
     fireEvent.change(challengesPanel.getByLabelText("X"), { target: { value: "250" } });
     fireEvent.change(challengesPanel.getByLabelText("Y"), { target: { value: "12" } });
-    fireEvent.change(challengesPanel.getByLabelText("Skalierung"), { target: { value: "1.25" } });
+    fireEvent.change(challengesPanel.getByLabelText("Größe"), { target: { value: "1.25" } });
     await user.click(screen.getByRole("button", { name: "Alle speichern" }));
 
     expect(saveChallengeSettings).toHaveBeenCalledWith(expect.objectContaining({
@@ -228,10 +230,40 @@ describe("Admin workspace shell", () => {
       placement: { x: 250, y: 12, scale: 1.25 },
     }));
 
-    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Globaler Timer" }), { target: { value: "down" } });
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Modus" }), { target: { value: "down" } });
     fireEvent.change(challengesPanel.getByRole("spinbutton", { name: "Dauer" }), { target: { value: "" } });
     await user.click(screen.getByRole("button", { name: "Alle speichern" }));
     expect(await screen.findByText("Für den Modus ‚runterzählen‘ ist eine Dauer erforderlich.")).toBeInTheDocument();
+  });
+
+  it("findet alle sechs Darstellungsgruppen über ihre Legende", async () => {
+    const challengeSnapshot: ChallengeBoardSnapshot = {
+      eventSeq: 0,
+      boardRevision: 1,
+      settingsRevision: 1,
+      settings: {
+        styleId: "plain-list", themeMode: "inherit", surfaceOpacity: 100, headerStyle: "default", headerTitle: "CHALLENGES", effectsEnabled: true,
+        fontFamily: "theme", fontScale: 1,
+        maxVisible: 8, overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        globalTimer: null, placement: { x: 300, y: 8, scale: 1 },
+      },
+      challenges: [],
+    };
+    const api: AdminApi = {
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      getChallengeBoard: vi.fn(() => Promise.resolve(challengeSnapshot)),
+      saveChallengeBoard: vi.fn(),
+      saveChallengeSettings: vi.fn(),
+    };
+
+    render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="challenges" />);
+
+    const panel = within(await screen.findByRole("region", { name: "Darstellung" }));
+    for (const name of ["Aussehen", "Kopfzeile", "Einträge", "Timer", "Position im Stream", "Ereignisse"]) {
+      expect(panel.getByRole("group", { name })).toBeInTheDocument();
+    }
+    expect(panel.getByText("Die Vorschau links zeigt den Entwurf.")).toBeInTheDocument();
   });
 
   it("verwirft in der Vorschau alte Globaltimer-Laufzeit bei geänderter Dauer", async () => {
@@ -372,7 +404,7 @@ describe("Admin workspace shell", () => {
     expect(startCommand).toHaveBeenLastCalledWith(expect.objectContaining({ scope: "global", type: "startGlobalTimer" }));
   });
 
-  it("blendet beim Hochzählen die Dauer aus und speichert die 24-Stunden-Kappe", async () => {
+  it("zeigt beim Hochzählen die Dauer deaktiviert und speichert die 24-Stunden-Kappe", async () => {
     const user = userEvent.setup();
     const challengeSnapshot: ChallengeBoardSnapshot = {
       eventSeq: 0,
@@ -410,8 +442,9 @@ describe("Admin workspace shell", () => {
     expect(panel.getByRole("button", { name: "Globaler Timer zurücksetzen" })).toBeDisabled();
     expect(panel.getByText("bereit")).toBeInTheDocument();
 
-    fireEvent.change(panel.getByRole("combobox", { name: "Globaler Timer" }), { target: { value: "up" } });
-    expect(panel.queryByRole("spinbutton", { name: "Dauer" })).not.toBeInTheDocument();
+    fireEvent.change(panel.getByRole("combobox", { name: "Modus" }), { target: { value: "up" } });
+    expect(panel.getByRole("spinbutton", { name: "Dauer" })).toBeDisabled();
+    expect(panel.getByText("nur beim Runterzählen")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Alle speichern" }));
 
     expect(saveChallengeSettings).toHaveBeenCalledWith(expect.objectContaining({
@@ -455,7 +488,7 @@ describe("Admin workspace shell", () => {
     };
 
     render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="challenges" />);
-    const toggle = await screen.findByRole("checkbox", { name: "Zeremonien und Töne aktiv" });
+    const toggle = await screen.findByRole("checkbox", { name: "Animationen und Töne" });
 
     act(() => {
       onChallengeUpdate?.({
@@ -511,7 +544,7 @@ describe("Admin workspace shell", () => {
 
     render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="challenges" />);
 
-    const toggle = await screen.findByRole("checkbox", { name: "Zeremonien und Töne aktiv" });
+    const toggle = await screen.findByRole("checkbox", { name: "Animationen und Töne" });
     await user.click(toggle);
     await user.click(screen.getByRole("button", { name: "Alle speichern" }));
     // Die Meldung erscheint sowohl im Modul selbst als auch (mit Modulnamen versehen) in
@@ -571,7 +604,7 @@ describe("Admin workspace shell", () => {
 
     render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} />);
     await user.click(screen.getByRole("tab", { name: "Challenges" }));
-    const toggle = await screen.findByRole("checkbox", { name: "Zeremonien und Töne aktiv" });
+    const toggle = await screen.findByRole("checkbox", { name: "Animationen und Töne" });
     await user.click(toggle);
     await user.click(screen.getByRole("tab", { name: "HUD" }));
 
@@ -584,7 +617,7 @@ describe("Admin workspace shell", () => {
       baseSettingsRevision: 7,
     }));
 
-    await user.click(screen.getByRole("checkbox", { name: "Zeremonien und Töne aktiv" }));
+    await user.click(screen.getByRole("checkbox", { name: "Animationen und Töne" }));
     await user.click(screen.getByRole("button", { name: "Alle speichern" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Challenge-Einstellungen konnten nicht gespeichert werden.");
   });
@@ -675,7 +708,7 @@ describe("Admin workspace shell", () => {
     };
 
     render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="challenges" />);
-    const toggle = await screen.findByRole("checkbox", { name: "Zeremonien und Töne aktiv" });
+    const toggle = await screen.findByRole("checkbox", { name: "Animationen und Töne" });
     await user.click(toggle);
     await user.click(screen.getByRole("button", { name: "Alle speichern" }));
     await waitFor(() => expect(saveChallengeSettings).toHaveBeenCalledTimes(1));
