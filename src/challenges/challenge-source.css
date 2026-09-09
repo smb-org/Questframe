@@ -262,6 +262,11 @@
   align-items: baseline;
   gap: var(--wc-gap);
   min-width: 0;
+  /* Die Luecke setzt die Fusszeile als eigenen Block ab: die Flaechenebene endet
+     mit der letzten Zeile und beginnt hier neu, statt eine durchgehende Flaeche zu
+     bilden. Zusammen mit der kraeftigen Oberkante hebt sich die Strafe damit auch
+     dann ab, wenn der Hintergrund auf 0 % steht. */
+  margin-top: var(--wc-gap);
   padding: calc(var(--wc-gap) / 2) var(--wc-inline-padding) var(--wc-gap);
 }
 
@@ -272,6 +277,10 @@
 ) .challenge-source__penalty::after {
   top: 0;
   bottom: auto;
+  /* Kraeftiger als die Haarlinien der Zeilen und in der Warnfarbe statt im
+     Gold-Akzent: die Strafe ist eine Konsequenz, kein weiterer Akzent. */
+  height: 2px;
+  background: var(--wc-critical);
 }
 
 :is(
@@ -280,9 +289,11 @@
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__penalty-label {
   flex: 0 0 auto;
-  color: var(--wc-muted);
+  color: var(--wc-critical);
   font-size: var(--wc-meta-size);
-  font-weight: var(--wc-label-weight);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 :is(
