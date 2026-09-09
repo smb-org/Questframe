@@ -1,4 +1,4 @@
-import type { ChallengePlacement } from "../../../shared/contracts/win-challenges";
+import type { ChallengeFontFamily, ChallengePlacement } from "../../../shared/contracts/win-challenges";
 
 const challengeGraphemeSegmenter = new Intl.Segmenter("de", {
   granularity: "grapheme",
@@ -29,6 +29,14 @@ export const CHALLENGE_THEME_IDS = [
   "modern-compact",
   "modern-minimal",
 ] as const;
+
+export const CHALLENGE_FONT_FAMILIES = [
+  "theme",
+  "atkinson",
+  "serif",
+  "sans",
+  "mono",
+] as const satisfies readonly ChallengeFontFamily[];
 
 const graphemeLength = (value: string): number =>
   [...challengeGraphemeSegmenter.segment(value)].length;
@@ -178,6 +186,18 @@ export const isSurfaceMode = (value: unknown): value is "surface" | "bare" =>
 
 export const isHeaderStyle = (value: unknown): value is "default" | "inverted" =>
   value === "default" || value === "inverted";
+
+export const isChallengeFontFamily = (value: unknown): value is ChallengeFontFamily =>
+  typeof value === "string" &&
+  (CHALLENGE_FONT_FAMILIES as readonly string[]).includes(value);
+
+export const isChallengeFontScale = (value: unknown): value is number =>
+  typeof value === "number" &&
+  Number.isFinite(value) &&
+  value >= 0.75 &&
+  value <= 2 &&
+  Math.abs(value * 100 - Math.round(value * 100)) < 1e-6 &&
+  Math.abs(value * 20 - Math.round(value * 20)) < 1e-6;
 
 export const isPausedRemainMs = (value: unknown): value is number | null =>
   value === null ||

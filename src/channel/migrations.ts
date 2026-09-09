@@ -106,6 +106,8 @@ CREATE TABLE IF NOT EXISTS wc_meta (
   theme_mode TEXT NOT NULL CHECK (theme_mode IN ('inherit', 'own')),
   surface_mode TEXT NOT NULL CHECK (surface_mode IN ('surface', 'bare')),
   header_style TEXT NOT NULL DEFAULT 'default' CHECK (header_style IN ('default','inverted')),
+  font_family TEXT NOT NULL DEFAULT 'theme' CHECK (font_family IN ('theme','atkinson','serif','sans','mono')),
+  font_scale REAL NOT NULL DEFAULT 1 CHECK (font_scale BETWEEN 0.75 AND 2),
   header_title TEXT NOT NULL,
   effects_enabled INTEGER NOT NULL CHECK (effects_enabled IN (0, 1)),
   max_visible INTEGER NOT NULL DEFAULT 5 CHECK (max_visible BETWEEN 3 AND 20),
@@ -238,6 +240,9 @@ ALTER TABLE wc_challenges ADD COLUMN timer_remain_ms INTEGER CHECK (timer_remain
 
 const MIGRATION_10_HEADER_STYLE = "ALTER TABLE wc_meta ADD COLUMN header_style TEXT NOT NULL DEFAULT 'default' CHECK (header_style IN ('default','inverted'));";
 
+const MIGRATION_12_FONT_FAMILY = "ALTER TABLE wc_meta ADD COLUMN font_family TEXT NOT NULL DEFAULT 'theme' CHECK (font_family IN ('theme','atkinson','serif','sans','mono'));";
+const MIGRATION_12_FONT_SCALE = "ALTER TABLE wc_meta ADD COLUMN font_scale REAL NOT NULL DEFAULT 1 CHECK (font_scale BETWEEN 0.75 AND 2);";
+
 const MIGRATION_11_WC_META_REBUILD = `
 CREATE TABLE wc_meta_migration_11 (
   singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -248,6 +253,8 @@ CREATE TABLE wc_meta_migration_11 (
   theme_mode TEXT NOT NULL CHECK (theme_mode IN ('inherit', 'own')),
   surface_mode TEXT NOT NULL CHECK (surface_mode IN ('surface', 'bare')),
   header_style TEXT NOT NULL DEFAULT 'default' CHECK (header_style IN ('default','inverted')),
+  font_family TEXT NOT NULL DEFAULT 'theme' CHECK (font_family IN ('theme','atkinson','serif','sans','mono')),
+  font_scale REAL NOT NULL DEFAULT 1 CHECK (font_scale BETWEEN 0.75 AND 2),
   header_title TEXT NOT NULL,
   effects_enabled INTEGER NOT NULL CHECK (effects_enabled IN (0, 1)),
   max_visible INTEGER NOT NULL DEFAULT 5 CHECK (max_visible BETWEEN 3 AND 20),
@@ -439,6 +446,19 @@ export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
     sql.exec(
       "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
       11,
+      buildId,
+      new Date().toISOString(),
+    );
+  }
+  const versionTwelveWasApplied = sql
+    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 12")
+    .toArray().length > 0;
+  if (!versionTwelveWasApplied) {
+    if (!hasChallengeMetaColumn(sql, "font_family")) sql.exec(MIGRATION_12_FONT_FAMILY);
+    if (!hasChallengeMetaColumn(sql, "font_scale")) sql.exec(MIGRATION_12_FONT_SCALE);
+    sql.exec(
+      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
+      12,
       buildId,
       new Date().toISOString(),
     );

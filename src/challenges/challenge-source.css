@@ -12,18 +12,19 @@
   --wc-x: 0px;
   --wc-y: 0px;
   --wc-scale: 1;
+  --wc-font-scale: 1;
   --wc-header-height: 30px;
   --wc-overflow-height: 20px;
   --wc-inline-padding: 10px;
   --wc-gap: 8px;
-  --wc-font-size: 12px;
-  --wc-bare-font-size: 14px;
-  --wc-title-size: 13px;
-  --wc-bare-title-size: 15px;
-  --wc-timer-size: 16px;
-  --wc-bare-timer-size: 18px;
-  --wc-meta-size: 11px;
-  --wc-bare-meta-size: 13px;
+  --wc-font-size: calc(12px * var(--wc-font-scale));
+  --wc-bare-font-size: calc(14px * var(--wc-font-scale));
+  --wc-title-size: calc(13px * var(--wc-font-scale));
+  --wc-bare-title-size: calc(15px * var(--wc-font-scale));
+  --wc-timer-size: calc(16px * var(--wc-font-scale));
+  --wc-bare-timer-size: calc(18px * var(--wc-font-scale));
+  --wc-meta-size: calc(11px * var(--wc-font-scale));
+  --wc-bare-meta-size: calc(13px * var(--wc-font-scale));
 
   /* Der eigene Vertrag: ohne HUD sind diese Werte vollstaendig. */
   --wc-surface: rgba(13, 16, 19, 0.88);
@@ -37,7 +38,7 @@
   --wc-header-ink-critical: #7a1220;
   --wc-ok: #5ed08a;
   --wc-font-ui: "Atkinson Hyperlegible Next", sans-serif;
-  --wc-font-display: Georgia, serif;
+  --wc-font-display: Georgia, "Times New Roman", serif;
   --wc-row-height: 33px;
 
   /* Interne Darstellungswerte, nicht Teil des externen Tokenvertrags. */
@@ -106,7 +107,7 @@
   --wc-accent: var(--hud-name-color, #d5aa57);
   --wc-ok: var(--hud-health-healthy, #5ed08a);
   --wc-font-ui: var(--hud-font-ui, "Atkinson Hyperlegible Next", sans-serif);
-  --wc-font-display: var(--hud-name-font, Georgia, serif);
+  --wc-font-display: var(--hud-name-font, Georgia, "Times New Roman", serif);
   --wc-row-height: var(--hud-row-height, 33px);
   --wc-progress-track: var(--hud-trough-bg, rgba(146, 157, 163, 0.24));
 }
@@ -122,7 +123,7 @@
   .challenge-source[data-style="quest-log"]
 )[data-theme-mode][data-surface-mode="bare"] {
   --wc-surface: transparent;
-  --wc-font-size: 14px;
+  --wc-font-size: var(--wc-bare-font-size);
   --wc-title-size: var(--wc-bare-title-size);
   --wc-timer-size: var(--wc-bare-timer-size);
   --wc-meta-size: var(--wc-bare-meta-size);
@@ -132,6 +133,45 @@
   --wc-label-weight: 700;
   font-weight: 700;
   text-shadow: var(--wc-bare-shadow);
+}
+
+/* Schriftstacks kommen ausschließlich vom eigenen Origin; es gibt keinen
+ * Google-Fonts-Import und keine externe Font-URL. Theme lässt die HUD-Werte
+ * unverändert und erhält damit das bisherige Verhalten. */
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+)[data-theme-mode][data-font-family="atkinson"] {
+  --wc-font-ui: "Atkinson Hyperlegible Next", sans-serif;
+  --wc-font-display: "Atkinson Hyperlegible Next", sans-serif;
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+)[data-theme-mode][data-font-family="serif"] {
+  --wc-font-ui: Georgia, "Times New Roman", serif;
+  --wc-font-display: Georgia, "Times New Roman", serif;
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+)[data-theme-mode][data-font-family="sans"] {
+  --wc-font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --wc-font-display: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+)[data-theme-mode][data-font-family="mono"] {
+  --wc-font-ui: ui-monospace, "SF Mono", Menlo, monospace;
+  --wc-font-display: ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 :is(

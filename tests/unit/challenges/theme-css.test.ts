@@ -112,7 +112,7 @@ describe("Challenge-Quelle-CSS", () => {
       /\[data-theme-mode\]\[data-surface-mode="bare"\]\s*\{([^}]*)\}/,
     )?.[1] ?? "";
     expect(bareBlock).toContain("--wc-surface: transparent;");
-    expect(bareBlock).toContain("--wc-font-size: 14px;");
+    expect(bareBlock).toContain("--wc-font-size: var(--wc-bare-font-size);");
     expect(bareBlock).toContain("--wc-title-size: var(--wc-bare-title-size);");
     expect(bareBlock).toContain("--wc-timer-size: var(--wc-bare-timer-size);");
     expect(bareBlock).toContain("--wc-meta-size: var(--wc-bare-meta-size);");

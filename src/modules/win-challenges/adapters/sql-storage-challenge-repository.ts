@@ -45,6 +45,8 @@ type MetaRow = {
   theme_mode: string;
   surface_mode: string;
   header_style: string;
+  font_family: string;
+  font_scale: number;
   header_title: string;
   effects_enabled: number;
   max_visible: number;
@@ -105,6 +107,8 @@ const metaRowSchema = z.strictObject({
   theme_mode: z.string(),
   surface_mode: z.string(),
   header_style: z.string(),
+  font_family: z.string(),
+  font_scale: z.number(),
   header_title: z.string(),
   effects_enabled: z.number().int(),
   max_visible: z.number().int(),
@@ -196,6 +200,8 @@ const parseMeta = (row: MetaRow): ChallengeSnapshot["settings"] &
     themeMode: parsedRow.theme_mode,
     surfaceMode: parsedRow.surface_mode,
     headerStyle: parsedRow.header_style,
+    fontFamily: parsedRow.font_family,
+    fontScale: parsedRow.font_scale,
     headerTitle: parsedRow.header_title,
     effectsEnabled: parseBooleanInteger(parsedRow.effects_enabled),
     maxVisible: parsedRow.max_visible,
@@ -386,7 +392,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       const nextSettings = this.parseSettingsInput(input, current.settings);
       this.execute<MetaRow>(
         `UPDATE ${this.table("meta")} SET
-          style_id = ?, theme_mode = ?, surface_mode = ?, header_style = ?, header_title = ?,
+          style_id = ?, theme_mode = ?, surface_mode = ?, header_style = ?, font_family = ?, font_scale = ?, header_title = ?,
           effects_enabled = ?, max_visible = ?, overflow_mode = ?, overflow_tempo = ?, numbered = ?, done_order = ?,
           global_timer_mode = ?, global_timer_total_ms = ?, global_timer_ends_at = ?, global_timer_paused_remain_ms = ?,
           placement_x = ?, placement_y = ?, placement_scale = ?,
@@ -396,6 +402,8 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         nextSettings.themeMode,
         nextSettings.surfaceMode,
         nextSettings.headerStyle,
+        nextSettings.fontFamily,
+        nextSettings.fontScale,
         nextSettings.headerTitle,
         nextSettings.effectsEnabled ? 1 : 0,
         nextSettings.maxVisible,
@@ -553,6 +561,8 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         themeMode: parsedMeta.themeMode,
         surfaceMode: parsedMeta.surfaceMode,
         headerStyle: parsedMeta.headerStyle,
+        fontFamily: parsedMeta.fontFamily,
+        fontScale: parsedMeta.fontScale,
         headerTitle: parsedMeta.headerTitle,
         effectsEnabled: parsedMeta.effectsEnabled,
         maxVisible: parsedMeta.maxVisible,
@@ -730,6 +740,8 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       themeMode: input.themeMode,
       surfaceMode: input.surfaceMode,
       headerStyle: input.headerStyle,
+      fontFamily: input.fontFamily,
+      fontScale: input.fontScale,
       headerTitle: input.headerTitle,
       effectsEnabled: input.effectsEnabled,
       maxVisible: input.maxVisible,

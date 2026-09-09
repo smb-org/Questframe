@@ -44,6 +44,7 @@ const resetModuleTables = async (): Promise<void> => {
       `UPDATE wc_meta SET
         event_seq = 0, board_revision = 1, settings_revision = 1,
         style_id = 'plain-list', theme_mode = 'inherit', surface_mode = 'surface',
+        font_family = 'theme', font_scale = 1,
         header_title = 'CHALLENGES', effects_enabled = 1, max_visible = 5,
         overflow_mode = 'cut', overflow_tempo = 'medium', numbered = 0, done_order = 'end',
         placement_x = 300, placement_y = 8, placement_scale = 1,
@@ -121,6 +122,8 @@ describe("win-challenges repository and migration", () => {
           theme_mode: string;
           surface_mode: string;
           header_style: string;
+          font_family: string;
+          font_scale: number;
           header_title: string;
           effects_enabled: number;
           max_visible: number;
@@ -156,6 +159,7 @@ describe("win-challenges repository and migration", () => {
     expect(result.versions).toContain(9);
     expect(result.versions).toContain(10);
     expect(result.versions).toContain(11);
+    expect(result.versions).toContain(12);
     expect(result.tables).toEqual([
       "wc_challenges",
       "wc_commands",
@@ -171,6 +175,8 @@ describe("win-challenges repository and migration", () => {
       "theme_mode",
       "surface_mode",
       "header_style",
+      "font_family",
+      "font_scale",
       "header_title",
       "effects_enabled",
       "max_visible",
@@ -209,6 +215,8 @@ describe("win-challenges repository and migration", () => {
       theme_mode: "inherit",
       surface_mode: "surface",
       header_style: "default",
+      font_family: "theme",
+      font_scale: 1,
       header_title: "CHALLENGES",
       effects_enabled: 1,
       max_visible: 5,
@@ -274,6 +282,7 @@ describe("win-challenges repository and migration", () => {
           global_timer_mode: string;
         }>("SELECT style_id, numbered, placement_x, placement_y, placement_scale, global_timer_mode FROM wc_meta WHERE singleton = 1").toArray()[0],
         headerStyle: state.storage.sql.exec<{ header_style: string }>("SELECT header_style FROM wc_meta WHERE singleton = 1").toArray()[0]?.header_style,
+        fontSettings: state.storage.sql.exec<{ font_family: string; font_scale: number }>("SELECT font_family, font_scale FROM wc_meta WHERE singleton = 1").toArray()[0],
         versions: state.storage.sql.exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version").toArray().map(({ version }) => version),
       };
     });
@@ -281,10 +290,14 @@ describe("win-challenges repository and migration", () => {
     expect(placement.placement).toEqual({ style_id: "plain-list", numbered: 1, placement_x: 300, placement_y: 8, placement_scale: 1, global_timer_mode: "down" });
     expect(placement.versions).toContain(8);
     expect(placement.versions).toContain(10);
+    expect(placement.versions).toContain(12);
     expect(placement.headerStyle).toBe("default");
+    expect(placement.fontSettings).toEqual({ font_family: "theme", font_scale: 1 });
     const columns = await runInDurableObject(legacyStub, (_instance, state) => state.storage.sql.exec<{ name: string }>("PRAGMA table_info(wc_meta)").toArray().map(({ name }) => name));
     expect(columns).toContain("max_visible");
     expect(columns).toContain("header_style");
+    expect(columns).toContain("font_family");
+    expect(columns).toContain("font_scale");
   });
 
   it("baut die alte max_visible-Tabelle um und erhält alle übrigen Meta-Werte", async () => {
@@ -366,6 +379,8 @@ describe("win-challenges repository and migration", () => {
           theme_mode: string;
           surface_mode: string;
           header_style: string;
+          font_family: string;
+          font_scale: number;
           header_title: string;
           effects_enabled: number;
           max_visible: number;
@@ -380,11 +395,12 @@ describe("win-challenges repository and migration", () => {
           global_timer_total_ms: number | null;
           global_timer_ends_at: string | null;
           global_timer_paused_remain_ms: number | null;
-        }>("SELECT singleton, event_seq, board_revision, settings_revision, style_id, theme_mode, surface_mode, header_style, header_title, effects_enabled, max_visible, overflow_mode, overflow_tempo, numbered, done_order, global_timer_mode, placement_x, placement_y, placement_scale, global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms FROM wc_meta WHERE singleton = 1").toArray()[0],
+        }>("SELECT singleton, event_seq, board_revision, settings_revision, style_id, theme_mode, surface_mode, header_style, font_family, font_scale, header_title, effects_enabled, max_visible, overflow_mode, overflow_tempo, numbered, done_order, global_timer_mode, placement_x, placement_y, placement_scale, global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms FROM wc_meta WHERE singleton = 1").toArray()[0],
       };
     });
 
     expect(result.versions).toContain(11);
+    expect(result.versions).toContain(12);
     expect(result.meta).toEqual({
       singleton: 1,
       event_seq: 42,
@@ -394,6 +410,8 @@ describe("win-challenges repository and migration", () => {
       theme_mode: "own",
       surface_mode: "bare",
       header_style: "inverted",
+      font_family: "theme",
+      font_scale: 1,
       header_title: "Legacy",
       effects_enabled: 0,
       max_visible: 20,
@@ -655,6 +673,8 @@ describe("win-challenges repository and migration", () => {
         themeMode: "own",
         surfaceMode: "bare",
         headerStyle: "inverted",
+        fontFamily: "mono",
+        fontScale: 1.5,
         headerTitle: "RUN",
         effectsEnabled: false,
         maxVisible: 8,
@@ -674,6 +694,8 @@ describe("win-challenges repository and migration", () => {
       themeMode: "own",
       surfaceMode: "bare",
       headerStyle: "inverted",
+      fontFamily: "mono",
+      fontScale: 1.5,
       headerTitle: "RUN",
       effectsEnabled: false,
       overflowMode: "page",
@@ -684,6 +706,8 @@ describe("win-challenges repository and migration", () => {
       globalTimer: { totalMs: 86_400_000, endsAt: null, pausedRemainMs: null },
       globalTimerMode: "up",
     });
+    const reloaded = await inRepository((repository) => repository.readSnapshot());
+    expect(reloaded.settings).toMatchObject({ fontFamily: "mono", fontScale: 1.5 });
     expect((await readGlobalTimerRow()).global_timer_mode).toBe("up");
   });
 
@@ -703,6 +727,8 @@ describe("win-challenges repository and migration", () => {
         themeMode: "inherit",
         surfaceMode: "surface",
         headerStyle: "default",
+        fontFamily: "theme",
+        fontScale: 1,
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
@@ -739,6 +765,8 @@ describe("win-challenges repository and migration", () => {
         themeMode: "inherit",
         surfaceMode: "surface",
         headerStyle: "default",
+        fontFamily: "theme",
+        fontScale: 1,
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
@@ -893,6 +921,8 @@ describe("win-challenges repository and migration", () => {
         themeMode: "inherit",
         surfaceMode: "surface",
         headerStyle: "default",
+        fontFamily: "theme",
+        fontScale: 1,
         headerTitle: "CHALLENGES",
         effectsEnabled: true,
         maxVisible: 5,
@@ -1039,6 +1069,8 @@ describe("win-challenges repository and migration", () => {
           themeMode: "inherit",
           surfaceMode: "surface",
           headerStyle: "default",
+          fontFamily: "theme",
+          fontScale: 1,
           headerTitle: "CHALLENGES",
           effectsEnabled: true,
           maxVisible: 5,
@@ -1062,7 +1094,7 @@ describe("win-challenges repository and migration", () => {
     });
     expect(mutation).toMatchObject({ rowsWritten: 4, rowsRead: 5 });
     expect(board).toMatchObject({ rowsWritten: 7, rowsRead: 15 });
-    expect(settings).toMatchObject({ rowsWritten: 1, rowsRead: 17 });
+    expect(settings).toMatchObject({ rowsWritten: 1, rowsRead: 18 });
     expect(snapshot).toMatchObject({ rowsWritten: 0, rowsRead: 7 });
   });
 });

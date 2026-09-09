@@ -20,6 +20,8 @@ import {
   isEventSeq,
   isGlobalTimerTotalMs,
   isGlobalTimerMode,
+  isChallengeFontFamily,
+  isChallengeFontScale,
   isHeaderStyle,
   isHeaderTitle,
   isHidden,
@@ -120,6 +122,8 @@ const themeIdSchema = custom(
 const themeModeSchema = custom(isThemeMode, "Theme-Modus ist ungültig.");
 const surfaceModeSchema = custom(isSurfaceMode, "Flächenmodus ist ungültig.");
 const headerStyleSchema = custom(isHeaderStyle, "Kopfzeilen-Stil ist ungültig.");
+const fontFamilySchema = custom(isChallengeFontFamily, "Schriftart ist ungültig.");
+const fontScaleSchema = custom(isChallengeFontScale, "Schriftgröße muss 0,75–2,00 in 0,05-Schritten sein.");
 const overflowModeSchema = custom(isOverflowMode, "Überlaufmodus ist ungültig.");
 const overflowTempoSchema = custom(isOverflowTempo, "Überlauf-Tempo ist ungültig.");
 const doneOrderSchema = custom(isDoneOrder, "Erledigt-Reihenfolge ist ungültig.");
@@ -194,6 +198,8 @@ export const settingsSchema = z.strictObject({
   themeMode: themeModeSchema,
   surfaceMode: surfaceModeSchema,
   headerStyle: headerStyleSchema,
+  fontFamily: fontFamilySchema,
+  fontScale: fontScaleSchema,
   headerTitle: headerTitleSchema,
   effectsEnabled: z.boolean(),
   maxVisible: maxVisibleSchema,
@@ -277,6 +283,8 @@ export const settingsSaveRequestSchema = z.strictObject({
   themeMode: themeModeSchema,
   surfaceMode: surfaceModeSchema,
   headerStyle: headerStyleSchema,
+  fontFamily: fontFamilySchema,
+  fontScale: fontScaleSchema,
   headerTitle: headerTitleSchema,
   effectsEnabled: z.boolean(),
   maxVisible: maxVisibleSchema,

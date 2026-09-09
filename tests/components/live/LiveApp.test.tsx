@@ -59,6 +59,8 @@ const message = (currentCount = 3): ChallengeUpdate => ({
     themeMode: "inherit",
     surfaceMode: "surface",
     headerStyle: "default",
+    fontFamily: "theme",
+    fontScale: 1,
     headerTitle: "CHALLENGES",
     effectsEnabled: true,
     maxVisible: 5,

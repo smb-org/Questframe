@@ -7,6 +7,7 @@ export type ChallengeOverflowMode = "cut" | "page" | "scroll";
 export type ChallengeOverflowTempo = "slow" | "medium" | "fast";
 export type ChallengeDoneOrder = "end" | "keep";
 export type GlobalTimerMode = "down" | "up";
+export type ChallengeFontFamily = "theme" | "atkinson" | "serif" | "sans" | "mono";
 
 export type ChallengeThemeId =
   | "trail-wood"
@@ -51,6 +52,8 @@ export type ChallengeSettings = {
   themeMode: "inherit" | "own";
   surfaceMode: "surface" | "bare";
   headerStyle: "default" | "inverted";
+  fontFamily: ChallengeFontFamily;
+  fontScale: number;
   headerTitle: string;
   effectsEnabled: boolean;
   maxVisible: number;

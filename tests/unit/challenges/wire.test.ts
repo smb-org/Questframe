@@ -16,6 +16,8 @@ const update = (): ChallengeUpdate => ({
     themeMode: "inherit",
     surfaceMode: "surface",
     headerStyle: "default",
+    fontFamily: "theme",
+    fontScale: 1,
     headerTitle: "CHALLENGES",
     effectsEnabled: true,
     maxVisible: 5,
@@ -164,6 +166,20 @@ describe("Challenge-Quelle-Wire", () => {
     expect(parseChallengeUpdate({
       ...update(),
       settings: { ...update().settings, headerStyle: "unknown" },
+    })).toBeNull();
+  });
+
+  it("weist eine unbekannte Schriftart zurück", () => {
+    expect(parseChallengeUpdate({
+      ...update(),
+      settings: { ...update().settings, fontFamily: "unknown" },
+    })).toBeNull();
+  });
+
+  it("weist eine Schriftgröße außerhalb der Grenzen zurück", () => {
+    expect(parseChallengeUpdate({
+      ...update(),
+      settings: { ...update().settings, fontScale: 2.05 },
     })).toBeNull();
   });
 

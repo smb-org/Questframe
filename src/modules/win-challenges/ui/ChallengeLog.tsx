@@ -279,6 +279,7 @@ export const ChallengeLog = ({
     "--wc-x": `${String((placement ?? update.settings.placement).x * 5)}px`,
     "--wc-y": `${String((placement ?? update.settings.placement).y * 5)}px`,
     "--wc-scale": String((placement ?? update.settings.placement).scale),
+    "--wc-font-scale": String(update.settings.fontScale),
     "--wc-scroll-visible-rows": String(pageSize),
   } as CSSProperties;
   const Root = rootTag ?? "main";
@@ -292,6 +293,7 @@ export const ChallengeLog = ({
       data-numbered={update.settings.numbered ? "true" : "false"}
       data-surface-mode={update.settings.surfaceMode}
       data-header-style={update.settings.headerStyle}
+      data-font-family={update.settings.fontFamily}
       data-theme-mode={update.settings.themeMode}
       data-theme-id={update.settings.themeId}
       onPointerDown={onPointerDown}

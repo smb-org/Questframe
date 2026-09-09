@@ -82,6 +82,8 @@ const message = (): ChallengeUpdate => ({
     themeMode: "inherit",
     surfaceMode: "surface",
     headerStyle: "default",
+    fontFamily: "theme",
+    fontScale: 1,
     headerTitle: "CHALLENGES",
     effectsEnabled: true,
     maxVisible: 5,
@@ -705,6 +707,16 @@ describe("ChallengeSourceApp", () => {
     })} />);
 
     expect(document.querySelector(".challenge-source")).toHaveAttribute("data-header-style", "inverted");
+  });
+
+  it("trägt Schriftart und Schriftgrößenfaktor am Wurzelelement", () => {
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      settings: { ...message().settings, fontFamily: "mono", fontScale: 1.5 },
+    })} />);
+
+    const source = document.querySelector(".challenge-source");
+    expect(source).toHaveAttribute("data-font-family", "mono");
+    expect(source).toHaveStyle("--wc-font-scale: 1.5");
   });
 
   it("blendet das Log bei einem Verbindungsabbruch aus", () => {

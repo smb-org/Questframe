@@ -17,6 +17,8 @@ import {
   isEventSeq,
   isGlobalTimerTotalMs,
   isGlobalTimerMode,
+  isChallengeFontFamily,
+  isChallengeFontScale,
   isHeaderStyle,
   isHeaderTitle,
   isHidden,
@@ -90,6 +92,8 @@ const parseSettings = (input: unknown): ChallengeSettings | null => {
       "themeMode",
       "surfaceMode",
       "headerStyle",
+      "fontFamily",
+      "fontScale",
       "headerTitle",
       "effectsEnabled",
       "maxVisible",
@@ -106,6 +110,8 @@ const parseSettings = (input: unknown): ChallengeSettings | null => {
     !isThemeMode(input.themeMode) ||
     !isSurfaceMode(input.surfaceMode) ||
     !isHeaderStyle(input.headerStyle) ||
+    !isChallengeFontFamily(input.fontFamily) ||
+    !isChallengeFontScale(input.fontScale) ||
     !isHeaderTitle(input.headerTitle) ||
     typeof input.effectsEnabled !== "boolean" ||
     !isMaxVisible(input.maxVisible) ||

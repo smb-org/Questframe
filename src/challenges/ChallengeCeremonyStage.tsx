@@ -25,6 +25,7 @@ export const ChallengeCeremonyStage = ({
     data-ceremony-type={presentation.activeCeremony?.visual}
     data-style={update.settings.styleId}
     data-header-style={update.settings.headerStyle}
+    data-font-family={update.settings.fontFamily}
   >
     <ChallengeLog
       ceremonySeq={presentation.activeCeremony?.eventSeq}
