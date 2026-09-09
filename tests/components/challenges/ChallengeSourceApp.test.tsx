@@ -803,7 +803,7 @@ describe("ChallengeSourceApp", () => {
     expect(screen.queryByText("Seite 5")).not.toBeInTheDocument();
   });
 
-  it("zeigt die Nummer in der Markierungsspalte und ersetzt Häkchen sowie Quest-Raute", () => {
+  it("zeigt die Nummer in der Markierungsspalte, erledigt bekommt trotzdem den Haken", () => {
     const done = { ...challenge("done-number", "Erledigt nummeriert", "done", 1), completedAt: new Date(fixedNow).toISOString() };
     const update = sourceUpdate({
       challenges: [challenge("open-number", "Offen nummeriert", "pending", 0), done],
@@ -813,8 +813,10 @@ describe("ChallengeSourceApp", () => {
     const openMark = document.querySelector('[data-challenge-id="open-number"] .challenge-source__mark');
     const doneMark = document.querySelector('[data-challenge-id="done-number"] .challenge-source__mark');
     expect(openMark).toHaveTextContent("1");
-    expect(doneMark).toHaveTextContent("2");
-    expect(doneMark).not.toHaveTextContent("✓");
+    // Erledigt schlägt Nummerierung: der grüne Haken ist das Signal, die Nummer
+    // wäre hier nur noch Buchhaltung.
+    expect(doneMark).toHaveTextContent("✓");
+    expect(doneMark).not.toHaveTextContent("2");
 
     view.rerender(<ChallengeLog now={fixedNow} update={sourceUpdate({
       challenges: [challenge("quest-number", "Quest nummeriert", "pending", 0)],

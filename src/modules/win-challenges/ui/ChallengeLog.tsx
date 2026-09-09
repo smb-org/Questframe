@@ -127,7 +127,11 @@ const ChallengeRow = ({
     >
       <span aria-hidden="true" className="challenge-source__timer-bar" />
       <span className="challenge-source__row-inner" key={ceremonyKey}>
-        <span aria-hidden="true" className="challenge-source__mark" key={ceremonyKey}>{numbered ? number ?? "" : done ? "✓" : ""}</span>
+        <span aria-hidden="true" className="challenge-source__mark" key={ceremonyKey}>
+          {/* Erledigt schlaegt Nummerierung: der gruene Haken ist das Signal, die Nummer
+            waere hier nur noch Buchhaltung. */}
+          {done ? "✓" : numbered ? number ?? "" : ""}
+        </span>
         <span className="challenge-source__content">
           <span className="challenge-source__name">{challenge.title}</span>
           {progress !== null && (

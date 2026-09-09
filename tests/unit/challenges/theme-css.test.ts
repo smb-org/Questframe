@@ -125,6 +125,16 @@ describe("Challenge-Quelle-CSS", () => {
     expect(bareBlock).toContain("--wc-title-weight: 700;");
   });
 
+  it("blendet erledigte Zeilen ab, ohne ihre Fläche mitzunehmen", () => {
+    // `opacity` auf der Zeile hätte die Flächen-Ebene im ::before mit abgeblendet:
+    // das Video schiene durch und der Text wäre über hellem Bild kaum lesbar.
+    const doneBlock = sourceCss.match(
+      /\.challenge-source__row--done \{([^}]*)\}/,
+    )?.[1] ?? "";
+    expect(doneBlock).not.toContain("opacity");
+    expect(sourceCss).toContain(".challenge-source__row--done > * {");
+  });
+
   it("gibt Haarlinie, Fortschrittsbalken und Timer-Puls denselben bare-Halo", () => {
     const bareShadow = "box-shadow: var(--wc-bare-shadow);";
     const hairline = sourceCss.match(/\.challenge-source__header::after[\s\S]*?\{([^}]*)\}/)?.[1] ?? "";

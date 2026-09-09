@@ -629,7 +629,30 @@
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__row--done {
   color: var(--wc-ok);
+}
+
+/* Die Abschwaechung liegt auf den Kindern, nicht auf der Zeile: `opacity` auf der
+   Zeile haette die Flaeche gleich mit abgeblendet, das Video schiene durch und der
+   Text waere kaum noch lesbar. Die Flaechen-Ebene steckt im ::before der Zeile und
+   bleibt von dieser Regel unberuehrt. */
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__row--done > * {
   opacity: 0.58;
+}
+
+/* Ohne tragende Flaeche multiplizieren sich schwache Ebene und Abblendung: die
+   erledigte Zeile liegt dann fast frei ueber dem Video. Unter 50 % Hintergrund
+   wird deshalb weniger abgeblendet -- erledigt bleibt erkennbar zurueckgenommen,
+   aber lesbar. */
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+)[data-surface-mode="bare"] .challenge-source__row--done > * {
+  opacity: 0.78;
 }
 
 :is(
