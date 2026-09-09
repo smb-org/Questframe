@@ -363,9 +363,7 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
           <label><span>X</span><input aria-label="X" disabled={loading || saving || !online || effectivePlacement === null} max={384} min={0} type="number" value={fallbackPlacement.x} onChange={(event) => updatePlacement({ ...fallbackPlacement, x: Number(event.target.value) })} /></label>
           <label><span>Y</span><input aria-label="Y" disabled={loading || saving || !online || effectivePlacement === null} max={216} min={0} type="number" value={fallbackPlacement.y} onChange={(event) => updatePlacement({ ...fallbackPlacement, y: Number(event.target.value) })} /></label>
         </div>
-        <details className="challenge-settings-details">
-          <summary>Alle Einstellungen</summary>
-          <div className="challenge-settings-details-content">
+
             <fieldset>
               <legend>Aussehen</legend>
               <div className="settings-grid">
@@ -413,8 +411,7 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
                 </div>
               </div>
             </fieldset>
-          </div>
-        </details>
+
       </>}
       {/* Kein modul-eigener Speichern-Button mehr: die globale Speicherleiste ist die
           einzige Speicher-Aktion. Status/Dirty-Anzeige bleibt fuer Sichtbarkeit. */}

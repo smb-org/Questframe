@@ -391,10 +391,6 @@ input[type="color"] { padding: 4px; }
 .challenge-settings-panel { width: min(1200px, 100%); margin: 0 auto 16px; padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .challenge-settings-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; margin-bottom: 12px; color: var(--accent-bright); }
 .challenge-settings-heading h2 { margin: 0; font-family: Georgia, serif; font-size: 16px; font-weight: 600; color: var(--text); }
-.challenge-settings-panel .challenge-settings-details { margin: 0; }
-.challenge-settings-panel .challenge-settings-details summary { display: inline-flex; align-items: center; min-height: 28px; color: var(--accent-bright); font-size: 11px; font-weight: 700; cursor: pointer; }
-.challenge-settings-panel .challenge-settings-details[open] summary { margin-bottom: 12px; }
-.challenge-settings-panel .challenge-settings-details-content { overflow-x: hidden; }
 .challenge-settings-save-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 12px; }
 .challenge-settings-save-bar > span { color: var(--muted); font-size: 11px; }
 .challenge-settings-save-bar > span:last-child { text-align: right; }

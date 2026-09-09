@@ -242,7 +242,7 @@ describe("Admin workspace shell", () => {
     expect(await screen.findByText("Für den Modus ‚runterzählen‘ ist eine Dauer erforderlich.")).toBeInTheDocument();
   });
 
-  it("zeigt den Schnellbereich und hält die übrigen Einstellungen zunächst geschlossen", async () => {
+  it("zeigt den Schnellbereich und alle Gruppen ohne Aufklappen", async () => {
     const challengeSnapshot: ChallengeBoardSnapshot = {
       eventSeq: 0,
       boardRevision: 1,
@@ -275,9 +275,9 @@ describe("Admin workspace shell", () => {
     expect(panel.queryByRole("group", { name: "Kopfzeile" })).not.toBeInTheDocument();
     expect(panel.queryByRole("group", { name: "Fußzeile" })).not.toBeInTheDocument();
     expect(panel.queryByRole("group", { name: "Ereignisse" })).not.toBeInTheDocument();
-    const details = panel.getByText("Alle Einstellungen").closest("details");
-    expect(details).not.toBeNull();
-    expect(details).not.toHaveAttribute("open");
+    // Das Panel passt aufgeklappt in die Rail; ein Aufklappelement waere nur ein
+    // zusaetzlicher Klick ohne Gewinn.
+    expect(panel.queryByText("Alle Einstellungen")).not.toBeInTheDocument();
     expect(panel.getByLabelText("Strafe")).toHaveAttribute("placeholder", "leer = keine Fußzeile");
     expect(panel.getByText("Die Vorschau links zeigt den Entwurf. Position auch per Ziehen.")).toBeInTheDocument();
   });
