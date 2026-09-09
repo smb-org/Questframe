@@ -191,6 +191,7 @@ describe("Admin workspace shell", () => {
 
     const toggle = await screen.findByRole("checkbox", { name: "Animationen und Töne" });
     expect(toggle).toBeChecked();
+    expect(toggle).toHaveAttribute("title", "Der Schalter gilt für alle Styles und alle OBS-Quellen.");
     await user.click(toggle);
     // Die HUD-Rail ist ebenfalls dauerhaft gemountet und hat eigene X/Y/Skalierung-Felder;
     // hier gezielt im sichtbaren Challenge-Tabpanel suchen.
@@ -208,12 +209,13 @@ describe("Admin workspace shell", () => {
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Modus" }), { target: { value: "down" } });
     fireEvent.change(challengesPanel.getByRole("spinbutton", { name: "Dauer" }), { target: { value: "45" } });
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Erledigte Einträge" }), { target: { value: "keep" } });
+    expect(challengesPanel.queryByText("Bei ‚Rest abschneiden‘ fallen sie hinten raus.")).not.toBeInTheDocument();
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Bei mehr als 8 Einträgen" }), { target: { value: "page" } });
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Wechseltempo" }), { target: { value: "fast" } });
     await user.click(challengesPanel.getByRole("checkbox", { name: "Nummerierung" }));
     fireEvent.change(challengesPanel.getByLabelText("X"), { target: { value: "250" } });
     fireEvent.change(challengesPanel.getByLabelText("Y"), { target: { value: "12" } });
-    fireEvent.change(challengesPanel.getByLabelText("Größe"), { target: { value: "1.25" } });
+    fireEvent.change(challengesPanel.getByLabelText("Quellengröße"), { target: { value: "1.25" } });
     await user.click(screen.getByRole("button", { name: "Alle speichern" }));
 
     expect(saveChallengeSettings).toHaveBeenCalledWith(expect.objectContaining({
@@ -240,7 +242,7 @@ describe("Admin workspace shell", () => {
     expect(await screen.findByText("Für den Modus ‚runterzählen‘ ist eine Dauer erforderlich.")).toBeInTheDocument();
   });
 
-  it("findet alle sieben Darstellungsgruppen über ihre Legende", async () => {
+  it("zeigt den Schnellbereich und hält die übrigen Einstellungen zunächst geschlossen", async () => {
     const challengeSnapshot: ChallengeBoardSnapshot = {
       eventSeq: 0,
       boardRevision: 1,
@@ -264,10 +266,20 @@ describe("Admin workspace shell", () => {
     render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="challenges" />);
 
     const panel = within(await screen.findByRole("region", { name: "Darstellung" }));
-    for (const name of ["Aussehen", "Kopfzeile", "Fußzeile", "Einträge", "Timer", "Position im Stream", "Ereignisse"]) {
+    for (const name of ["Hintergrund", "Sichtbare Einträge", "Textgröße", "Quellengröße", "X", "Y"]) {
+      expect(panel.getByLabelText(name)).toBeInTheDocument();
+    }
+    for (const name of ["Aussehen", "Kopf- und Fußzeile", "Einträge", "Timer"]) {
       expect(panel.getByRole("group", { name })).toBeInTheDocument();
     }
-    expect(panel.getByText("Die Vorschau links zeigt den Entwurf.")).toBeInTheDocument();
+    expect(panel.queryByRole("group", { name: "Kopfzeile" })).not.toBeInTheDocument();
+    expect(panel.queryByRole("group", { name: "Fußzeile" })).not.toBeInTheDocument();
+    expect(panel.queryByRole("group", { name: "Ereignisse" })).not.toBeInTheDocument();
+    const details = panel.getByText("Alle Einstellungen").closest("details");
+    expect(details).not.toBeNull();
+    expect(details).not.toHaveAttribute("open");
+    expect(panel.getByLabelText("Strafe")).toHaveAttribute("placeholder", "leer = keine Fußzeile");
+    expect(panel.getByText("Die Vorschau links zeigt den Entwurf. Position auch per Ziehen.")).toBeInTheDocument();
   });
 
   it("verwirft in der Vorschau alte Globaltimer-Laufzeit bei geänderter Dauer", async () => {

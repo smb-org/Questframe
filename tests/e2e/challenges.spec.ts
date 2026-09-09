@@ -305,9 +305,9 @@ test("die Komposition verschiebt und veröffentlicht die Challenge-Quelle", asyn
   await expect(challengeRow(source, title)).toHaveCount(1);
 
   const challengeRail = page.locator(".composition-challenge-rail");
-  const currentX = Number(await challengeRail.getByLabel("X").inputValue());
+  const currentX = Number(await challengeRail.getByLabel("X", { exact: true }).inputValue());
   const nextX = currentX >= 384 ? currentX - 1 : currentX + 1;
-  await challengeRail.getByLabel("X").fill(String(nextX));
+  await challengeRail.getByLabel("X", { exact: true }).fill(String(nextX));
   // Kein modul-eigener Save-Button mehr: die globale Speicherleiste ist der einzige Trigger.
   await page.getByRole("button", { name: "Alle speichern" }).click();
   await expect(page.getByText("Einstellung veröffentlicht.")).toBeVisible();

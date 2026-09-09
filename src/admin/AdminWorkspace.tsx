@@ -14,7 +14,6 @@ import {
   Save,
   Settings2,
   Undo2,
-  Volume2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -353,77 +352,73 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
   const disabled = loading || saving || !online || snapshot === null;
   return (
     <section aria-labelledby="challenge-settings-heading" className="challenge-settings-panel">
-      <header className="challenge-settings-heading"><div><span className="eyebrow">WIN-CHALLENGES</span><h2 id="challenge-settings-heading">Darstellung</h2><p>Wie die Challenge-Quelle im Stream aussieht und sich verhält.</p></div></header>
+      <header className="challenge-settings-heading"><h2 id="challenge-settings-heading">Darstellung</h2></header>
       {error !== "" && <p className="challenge-board-error" role="alert">{error}</p>}
       {settingsDraft !== null && <>
-        <fieldset>
-          <legend>Aussehen</legend>
-          <div className="settings-grid">
-            <label><span>Listenart</span><select aria-label="Listenart" disabled={disabled} value={settingsDraft.styleId} onChange={(event) => updateSettings({ styleId: event.target.value as ChallengeStyleId })}><option value="plain-list">Liste</option><option value="plain-bullets">Aufzählung</option><option value="quest-log">Quest-Log</option></select></label>
-            <label><span>Hintergrund</span><select aria-label="Hintergrund" disabled={disabled} value={settingsDraft.surfaceOpacity} onChange={(event) => updateSettings({ surfaceOpacity: Number(event.target.value) as ChallengeSurfaceOpacity })}>{([100, 75, 50, 25, 0] as const).map((value) => <option key={value} value={value}>{value === 100 ? "deckend (100 %)" : value === 0 ? "keiner (0 %)" : `${String(value)} %`}</option>)}</select><small className="field-help">Unter 50 %: fettere Schrift mit Schatten.</small></label>
-            <label><span>Schriftart</span><select aria-label="Schriftart" disabled={disabled} value={settingsDraft.fontFamily} onChange={(event) => updateSettings({ fontFamily: event.target.value as ChallengeFontFamily })}><option value="theme">Wie Theme</option><option value="atkinson">Atkinson Hyperlegible</option><option value="serif">Serif</option><option value="sans">Sans</option><option value="mono">Mono</option></select></label>
-            <label><span>Schriftgröße</span><select aria-label="Schriftgröße" disabled={disabled} value={settingsDraft.fontScale} onChange={(event) => updateSettings({ fontScale: Number(event.target.value) })}>{Array.from({ length: 26 }, (_, index) => Number((0.75 + index * 0.05).toFixed(2))).map((value) => <option key={value} value={value}>{Math.round(value * 100)} %</option>)}</select><small className="field-help">nur der Text</small></label>
-            <label className="challenge-numbered-toggle"><input aria-label="Nummerierung" checked={settingsDraft.numbered} disabled={disabled} onChange={(event) => updateSettings({ numbered: event.target.checked })} type="checkbox" /><span>Nummerierung</span></label>
+        <div className="settings-grid challenge-settings-quick" aria-label="Schnelleinstellungen">
+          <label><span>Hintergrund</span><select aria-label="Hintergrund" disabled={disabled} value={settingsDraft.surfaceOpacity} onChange={(event) => updateSettings({ surfaceOpacity: Number(event.target.value) as ChallengeSurfaceOpacity })}>{([100, 75, 50, 25, 0] as const).map((value) => <option key={value} value={value}>{value === 100 ? "deckend (100 %)" : value === 0 ? "0 % · fette Schrift mit Schatten" : value === 25 ? "25 % · fette Schrift mit Schatten" : `${String(value)} %`}</option>)}</select></label>
+          <label><span>Sichtbare Einträge</span><select aria-label="Sichtbare Einträge" disabled={disabled} value={settingsDraft.maxVisible} onChange={(event) => updateSettings({ maxVisible: Number(event.target.value) })}>{Array.from({ length: MAX_VISIBLE_ROWS - 2 }, (_, index) => index + 3).map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+          <label><span>Textgröße</span><select aria-label="Textgröße" disabled={disabled} value={settingsDraft.fontScale} onChange={(event) => updateSettings({ fontScale: Number(event.target.value) })}>{Array.from({ length: 26 }, (_, index) => Number((0.75 + index * 0.05).toFixed(2))).map((value) => <option key={value} value={value}>{Math.round(value * 100)} %</option>)}</select></label>
+          <label><span>Quellengröße</span><select aria-label="Quellengröße" disabled={loading || saving || !online || effectivePlacement === null} value={fallbackPlacement.scale} onChange={(event) => updatePlacement({ ...fallbackPlacement, scale: Number(event.target.value) })}>{[0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2].map((scale) => <option key={scale} value={scale}>{Math.round(scale * 100)}%</option>)}</select></label>
+          <label><span>X</span><input aria-label="X" disabled={loading || saving || !online || effectivePlacement === null} max={384} min={0} type="number" value={fallbackPlacement.x} onChange={(event) => updatePlacement({ ...fallbackPlacement, x: Number(event.target.value) })} /></label>
+          <label><span>Y</span><input aria-label="Y" disabled={loading || saving || !online || effectivePlacement === null} max={216} min={0} type="number" value={fallbackPlacement.y} onChange={(event) => updatePlacement({ ...fallbackPlacement, y: Number(event.target.value) })} /></label>
+        </div>
+        <details className="challenge-settings-details">
+          <summary>Alle Einstellungen</summary>
+          <div className="challenge-settings-details-content">
+            <fieldset>
+              <legend>Aussehen</legend>
+              <div className="settings-grid">
+                <label><span>Listenart</span><select aria-label="Listenart" disabled={disabled} value={settingsDraft.styleId} onChange={(event) => updateSettings({ styleId: event.target.value as ChallengeStyleId })}><option value="plain-list">Liste</option><option value="plain-bullets">Aufzählung</option><option value="quest-log">Quest-Log</option></select></label>
+                <label><span>Schriftart</span><select aria-label="Schriftart" disabled={disabled} value={settingsDraft.fontFamily} onChange={(event) => updateSettings({ fontFamily: event.target.value as ChallengeFontFamily })}><option value="theme">Wie Theme</option><option value="atkinson">Atkinson Hyperlegible</option><option value="serif">Serif</option><option value="sans">Sans</option><option value="mono">Mono</option></select></label>
+                <div className="challenge-checkbox-pair">
+                  <label className="challenge-numbered-toggle"><input aria-label="Nummerierung" checked={settingsDraft.numbered} disabled={disabled} onChange={(event) => updateSettings({ numbered: event.target.checked })} type="checkbox" /><span>Nummerierung</span></label>
+                  <label className="challenge-numbered-toggle"><input aria-label="Animationen und Töne" checked={settingsDraft.effectsEnabled} disabled={disabled} onChange={(event) => updateSettings({ effectsEnabled: event.target.checked })} title="Der Schalter gilt für alle Styles und alle OBS-Quellen." type="checkbox" /><span>Animationen und Töne</span></label>
+                </div>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Kopf- und Fußzeile</legend>
+              <div className="settings-grid">
+                <label><span>Titel</span><input aria-label="Titel" maxLength={24} disabled={disabled} type="text" value={settingsDraft.headerTitle} onChange={(event) => updateSettings({ headerTitle: event.target.value })} /></label>
+                <label><span>Stil</span><select aria-label="Stil" disabled={disabled} value={settingsDraft.headerStyle} onChange={(event) => updateSettings({ headerStyle: event.target.value as ChallengeSettingsDraft["headerStyle"] })}><option value="default">Schlicht</option><option value="inverted">Akzentband</option></select></label>
+                <label><span>Strafe</span><input aria-label="Strafe" maxLength={80} disabled={disabled} placeholder="leer = keine Fußzeile" type="text" value={settingsDraft.penaltyText} onChange={(event) => updateSettings({ penaltyText: event.target.value })} /></label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Einträge</legend>
+              <div className="settings-grid">
+                <label><span>Bei mehr als {settingsDraft.maxVisible} Einträgen</span><select aria-label={`Bei mehr als ${String(settingsDraft.maxVisible)} Einträgen`} disabled={disabled} value={settingsDraft.overflowMode} onChange={(event) => updateSettings({ overflowMode: event.target.value as ChallengeOverflowMode })}><option value="cut">Rest abschneiden</option><option value="page">seitenweise blättern</option><option value="scroll">durchlaufen lassen</option></select></label>
+                <label><span>Wechseltempo</span><select aria-label="Wechseltempo" disabled={disabled || settingsDraft.overflowMode === "cut"} value={settingsDraft.overflowTempo} onChange={(event) => updateSettings({ overflowTempo: event.target.value as ChallengeOverflowTempo })}><option value="slow">langsam</option><option value="medium">mittel</option><option value="fast">schnell</option></select>{settingsDraft.overflowMode === "cut" && <small className="field-help">nur bei Blättern/Durchlaufen</small>}</label>
+                <label><span>Erledigte Einträge</span><select aria-label="Erledigte Einträge" disabled={disabled} value={settingsDraft.doneOrder} onChange={(event) => updateSettings({ doneOrder: event.target.value as ChallengeDoneOrder })}><option value="end">ans Ende rücken</option><option value="keep">an ihrem Platz lassen</option></select>{settingsDraft.overflowMode === "cut" && settingsDraft.doneOrder === "end" && <small className="field-help">Bei ‚Rest abschneiden‘ fallen sie hinten raus.</small>}</label>
+              </div>
+            </fieldset>
+            <fieldset>
+              <legend>Timer</legend>
+              <div className="settings-grid">
+                <label><span>Modus</span><select aria-label="Modus" disabled={disabled} value={settingsDraft.globalTimerMode} onChange={(event) => updateGlobalTimerMode(event.target.value as GlobalTimerMode | "off")}><option value="off">aus</option><option value="down">runterzählen</option><option value="up">hochzählen</option></select></label>
+                <label><span>Dauer</span><span className="challenge-timer-input"><input aria-label="Dauer" disabled={disabled || settingsDraft.globalTimerMode !== "down"} max={GLOBAL_TIMER_UP_CAP_MS / 60_000} min={1} required={settingsDraft.globalTimerMode === "down"} step={1} type="number" value={settingsDraft.globalTimerMinutes} onChange={(event) => updateGlobalTimerMinutes(event.target.value)} /><small>Minuten</small></span>{settingsDraft.globalTimerMode !== "down" && <small className="field-help">nur beim Runterzählen</small>}</label>
+                <div className="challenge-timer-actions">
+                  <span className="challenge-settings-cell-label">Bedienung</span>
+                  <div className="challenge-timer-actions-row">
+                    <small className={`challenge-timer-status challenge-timer-status--${liveStatus.state}`}>{liveStatus.label}</small>
+                    <TimerControls
+                      disabled={disabled || resetting || api.sendChallengeCommand === undefined || challengeUpdate?.settings.globalTimer === null || challengeUpdate?.settings.globalTimer === undefined}
+                      labelPrefix="Globaler Timer"
+                      onReset={() => void runGlobalTimerCommand("resetGlobalTimer", "Globaler Timer zurückgesetzt.")}
+                      onToggle={() => void runGlobalTimerCommand(liveStatus.state === "running" ? "pauseGlobalTimer" : "startGlobalTimer", liveStatus.state === "running" ? "Globaler Timer pausiert." : "Globaler Timer gestartet.")}
+                      state={liveStatus.state}
+                    />
+                  </div>
+                </div>
+              </div>
+            </fieldset>
           </div>
-        </fieldset>
-        <fieldset>
-          <legend>Kopfzeile</legend>
-          <div className="settings-grid">
-            <label><span>Titel</span><input aria-label="Titel" maxLength={24} disabled={disabled} type="text" value={settingsDraft.headerTitle} onChange={(event) => updateSettings({ headerTitle: event.target.value })} /></label>
-            <label><span>Stil</span><select aria-label="Stil" disabled={disabled} value={settingsDraft.headerStyle} onChange={(event) => updateSettings({ headerStyle: event.target.value as ChallengeSettingsDraft["headerStyle"] })}><option value="default">Schlicht</option><option value="inverted">Akzentband</option></select></label>
-          </div>
-        </fieldset>
-        <fieldset>
-          <legend>Fußzeile</legend>
-          <div className="settings-grid">
-            <label><span>Strafe</span><input aria-label="Strafe" maxLength={80} disabled={disabled} type="text" value={settingsDraft.penaltyText} onChange={(event) => updateSettings({ penaltyText: event.target.value })} /><small className="field-help">Leer lassen blendet die Fußzeile aus.</small></label>
-          </div>
-        </fieldset>
-        <fieldset>
-          <legend>Einträge</legend>
-          <div className="settings-grid">
-            <label><span>Sichtbare Einträge</span><select aria-label="Sichtbare Einträge" disabled={disabled} value={settingsDraft.maxVisible} onChange={(event) => updateSettings({ maxVisible: Number(event.target.value) })}>{Array.from({ length: MAX_VISIBLE_ROWS - 2 }, (_, index) => index + 3).map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-            <label><span>Bei mehr als {settingsDraft.maxVisible} Einträgen</span><select aria-label={`Bei mehr als ${String(settingsDraft.maxVisible)} Einträgen`} disabled={disabled} value={settingsDraft.overflowMode} onChange={(event) => updateSettings({ overflowMode: event.target.value as ChallengeOverflowMode })}><option value="cut">Rest abschneiden</option><option value="page">seitenweise blättern</option><option value="scroll">durchlaufen lassen</option></select></label>
-            <label><span>Wechseltempo</span><select aria-label="Wechseltempo" disabled={disabled || settingsDraft.overflowMode === "cut"} value={settingsDraft.overflowTempo} onChange={(event) => updateSettings({ overflowTempo: event.target.value as ChallengeOverflowTempo })}><option value="slow">langsam</option><option value="medium">mittel</option><option value="fast">schnell</option></select>{settingsDraft.overflowMode === "cut" && <small className="field-help">nur bei Blättern/Durchlaufen</small>}</label>
-            <label><span>Erledigte Einträge</span><select aria-label="Erledigte Einträge" disabled={disabled} value={settingsDraft.doneOrder} onChange={(event) => updateSettings({ doneOrder: event.target.value as ChallengeDoneOrder })}><option value="end">ans Ende rücken</option><option value="keep">an ihrem Platz lassen</option></select><small className="field-help">Bei ‚Rest abschneiden‘ fallen sie hinten raus.</small></label>
-          </div>
-        </fieldset>
-        <fieldset>
-          <legend>Timer</legend>
-          <div className="settings-grid">
-            <label><span>Modus</span><select aria-label="Modus" disabled={disabled} value={settingsDraft.globalTimerMode} onChange={(event) => updateGlobalTimerMode(event.target.value as GlobalTimerMode | "off")}><option value="off">aus</option><option value="down">runterzählen</option><option value="up">hochzählen</option></select></label>
-            <label><span>Dauer</span><span className="challenge-timer-input"><input aria-label="Dauer" disabled={disabled || settingsDraft.globalTimerMode !== "down"} max={GLOBAL_TIMER_UP_CAP_MS / 60_000} min={1} required={settingsDraft.globalTimerMode === "down"} step={1} type="number" value={settingsDraft.globalTimerMinutes} onChange={(event) => updateGlobalTimerMinutes(event.target.value)} /><small>Minuten</small></span>{settingsDraft.globalTimerMode !== "down" && <small className="field-help">nur beim Runterzählen</small>}</label>
-            <div className="challenge-timer-actions">
-              <small className={`challenge-timer-status challenge-timer-status--${liveStatus.state}`}>{liveStatus.label}</small>
-              <TimerControls
-                disabled={disabled || resetting || api.sendChallengeCommand === undefined || challengeUpdate?.settings.globalTimer === null || challengeUpdate?.settings.globalTimer === undefined}
-                labelPrefix="Globaler Timer"
-                onReset={() => void runGlobalTimerCommand("resetGlobalTimer", "Globaler Timer zurückgesetzt.")}
-                onToggle={() => void runGlobalTimerCommand(liveStatus.state === "running" ? "pauseGlobalTimer" : "startGlobalTimer", liveStatus.state === "running" ? "Globaler Timer pausiert." : "Globaler Timer gestartet.")}
-                state={liveStatus.state}
-              />
-            </div>
-          </div>
-        </fieldset>
-        <fieldset>
-          <legend>Position im Stream</legend>
-          <div className="settings-grid placement-grid">
-            <label><span>Größe</span><select aria-label="Größe" disabled={loading || saving || !online || effectivePlacement === null} value={fallbackPlacement.scale} onChange={(event) => updatePlacement({ ...fallbackPlacement, scale: Number(event.target.value) })}>{[0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2].map((scale) => <option key={scale} value={scale}>{Math.round(scale * 100)}%</option>)}</select><small className="field-help">ganze Quelle inkl. Hintergrund</small></label>
-            <label><span>X</span><input aria-label="X" disabled={loading || saving || !online || effectivePlacement === null} max={384} min={0} type="number" value={fallbackPlacement.x} onChange={(event) => updatePlacement({ ...fallbackPlacement, x: Number(event.target.value) })} /></label>
-            <label><span>Y</span><input aria-label="Y" disabled={loading || saving || !online || effectivePlacement === null} max={216} min={0} type="number" value={fallbackPlacement.y} onChange={(event) => updatePlacement({ ...fallbackPlacement, y: Number(event.target.value) })} /></label>
-          </div>
-          <small className="fieldset-help">oder in der Vorschau ziehen</small>
-        </fieldset>
-        <fieldset>
-          <legend><Volume2 aria-hidden="true" size={14} />Ereignisse</legend>
-          <div className="settings-grid">
-            <label className="challenge-effects-toggle"><input aria-label="Animationen und Töne" checked={settingsDraft.effectsEnabled} disabled={disabled} onChange={(event) => updateSettings({ effectsEnabled: event.target.checked })} type="checkbox" /><span><strong>Animationen und Töne</strong><small>Der Schalter gilt für alle Styles und alle OBS-Quellen.</small></span></label>
-          </div>
-        </fieldset>
+        </details>
       </>}
       {/* Kein modul-eigener Speichern-Button mehr: die globale Speicherleiste ist die
           einzige Speicher-Aktion. Status/Dirty-Anzeige bleibt fuer Sichtbarkeit. */}
-      <footer className="challenge-settings-save-bar"><span aria-live="polite" className={dirty ? "save-dirty" : ""}>{loading ? "Einstellungen werden geladen …" : message !== "" ? message : dirty ? "Ungespeicherte Einstellung" : "Einstellung veröffentlicht"}</span><span>Die Vorschau links zeigt den Entwurf.</span></footer>
+      <footer className="challenge-settings-save-bar"><span aria-live="polite" className={dirty ? "save-dirty" : ""}>{loading ? "Einstellungen werden geladen …" : message !== "" ? message : dirty ? "Ungespeicherte Einstellung" : "Einstellung veröffentlicht"}</span><span>Die Vorschau links zeigt den Entwurf. Position auch per Ziehen.</span></footer>
     </section>
   );
 };
