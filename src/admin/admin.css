@@ -313,8 +313,11 @@ input[type="color"] { padding: 4px; }
 .theme-preview .hud-root { position: absolute; inset: 0 auto auto 0; }
 .theme-card-check { position: absolute; z-index: 5; top: 5px; right: 5px; width: 18px; height: 18px; display: grid; place-items: center; border: 1px solid #17130c; border-radius: 50%; color: #17130c; background: var(--accent-bright); }
 .placement-grid { display: grid; grid-template-columns: 70px 70px 1fr; gap: 8px; margin-top: 13px; }
-.settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
-.settings-grid label { min-width: 0; display: grid; gap: 5px; }
+/* align-items/align-content: start ist hier wesentlich. Ein Feld mit Hinweistext
+   ist hoeher als seine Nachbarn; ohne das dehnen sich die Nachbarzellen auf die
+   Zeilenhoehe und ihre Bedienelemente rutschen nach unten weg. */
+.settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; gap: 10px 12px; margin-bottom: 10px; }
+.settings-grid label { min-width: 0; display: grid; align-content: start; gap: 5px; }
 .settings-grid label > span { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
 .challenge-settings-panel fieldset { margin: 0 0 18px; padding: 0; border: 0; }
 .challenge-settings-panel fieldset:last-of-type { margin-bottom: 0; }

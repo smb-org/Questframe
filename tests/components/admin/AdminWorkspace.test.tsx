@@ -196,7 +196,7 @@ describe("Admin workspace shell", () => {
     // hier gezielt im sichtbaren Challenge-Tabpanel suchen.
     const challengesPanel = within(document.querySelector("#admin-composition-panel-challenges") as HTMLElement);
     expect(challengesPanel.getByRole("combobox", { name: "Wechseltempo" })).toBeDisabled();
-    expect(challengesPanel.getByText("nur bei Blättern und Durchlaufen")).toBeInTheDocument();
+    expect(challengesPanel.getByText("nur bei Blättern/Durchlaufen")).toBeInTheDocument();
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Listenart" }), { target: { value: "quest-log" } });
     fireEvent.change(challengesPanel.getByLabelText("Titel"), { target: { value: "RUN" } });
     fireEvent.change(challengesPanel.getByLabelText("Strafe"), { target: { value: "Keine Pizza" } });
