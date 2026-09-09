@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS wc_meta (
   settings_revision INTEGER NOT NULL,
   style_id TEXT NOT NULL,
   theme_mode TEXT NOT NULL CHECK (theme_mode IN ('inherit', 'own')),
-  surface_mode TEXT NOT NULL CHECK (surface_mode IN ('surface', 'bare')),
+  surface_opacity INTEGER NOT NULL DEFAULT 100 CHECK (surface_opacity IN (0,25,50,75,100)),
   header_style TEXT NOT NULL DEFAULT 'default' CHECK (header_style IN ('default','inverted')),
   font_family TEXT NOT NULL DEFAULT 'theme' CHECK (font_family IN ('theme','atkinson','serif','sans','mono')),
   font_scale REAL NOT NULL DEFAULT 1 CHECK (font_scale BETWEEN 0.75 AND 2),
@@ -162,13 +162,13 @@ CREATE TABLE IF NOT EXISTS wc_dock_tokens (
 );
 INSERT INTO wc_meta(
   singleton, event_seq, board_revision, settings_revision, style_id,
-  theme_mode, surface_mode, header_title, effects_enabled,
+  theme_mode, surface_opacity, header_title, effects_enabled,
   max_visible,
   overflow_mode, overflow_tempo, numbered, done_order,
   global_timer_mode,
   placement_x, placement_y, placement_scale,
   global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms
-) VALUES (1, 0, 1, 1, 'plain-list', 'inherit', 'surface', 'CHALLENGES', 1,
+) VALUES (1, 0, 1, 1, 'plain-list', 'inherit', 100, 'CHALLENGES', 1,
   5, 'cut', 'medium', 0, 'end', 'down', 300, 8, 1, NULL, NULL, NULL)
 ON CONFLICT(singleton) DO NOTHING;
 `;
@@ -243,7 +243,11 @@ const MIGRATION_10_HEADER_STYLE = "ALTER TABLE wc_meta ADD COLUMN header_style T
 const MIGRATION_12_FONT_FAMILY = "ALTER TABLE wc_meta ADD COLUMN font_family TEXT NOT NULL DEFAULT 'theme' CHECK (font_family IN ('theme','atkinson','serif','sans','mono'));";
 const MIGRATION_12_FONT_SCALE = "ALTER TABLE wc_meta ADD COLUMN font_scale REAL NOT NULL DEFAULT 1 CHECK (font_scale BETWEEN 0.75 AND 2);";
 
-const MIGRATION_11_WC_META_REBUILD = `
+const MIGRATION_13_SURFACE_OPACITY_ADD = "ALTER TABLE wc_meta ADD COLUMN surface_opacity INTEGER NOT NULL DEFAULT 100 CHECK (surface_opacity IN (0,25,50,75,100));";
+const MIGRATION_13_SURFACE_OPACITY_BACKFILL = "UPDATE wc_meta SET surface_opacity = CASE surface_mode WHEN 'bare' THEN 0 ELSE 100 END;";
+const MIGRATION_13_SURFACE_MODE_DROP = "ALTER TABLE wc_meta DROP COLUMN surface_mode;";
+
+const createChallengeMetaRebuildMigration = (surfaceOpacityExpression: string): string => `
 CREATE TABLE wc_meta_migration_11 (
   singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
   event_seq INTEGER NOT NULL,
@@ -251,7 +255,7 @@ CREATE TABLE wc_meta_migration_11 (
   settings_revision INTEGER NOT NULL,
   style_id TEXT NOT NULL,
   theme_mode TEXT NOT NULL CHECK (theme_mode IN ('inherit', 'own')),
-  surface_mode TEXT NOT NULL CHECK (surface_mode IN ('surface', 'bare')),
+  surface_opacity INTEGER NOT NULL DEFAULT 100 CHECK (surface_opacity IN (0,25,50,75,100)),
   header_style TEXT NOT NULL DEFAULT 'default' CHECK (header_style IN ('default','inverted')),
   font_family TEXT NOT NULL DEFAULT 'theme' CHECK (font_family IN ('theme','atkinson','serif','sans','mono')),
   font_scale REAL NOT NULL DEFAULT 1 CHECK (font_scale BETWEEN 0.75 AND 2),
@@ -277,14 +281,14 @@ CREATE TABLE wc_meta_migration_11 (
 );
 INSERT INTO wc_meta_migration_11(
   singleton, event_seq, board_revision, settings_revision, style_id,
-  theme_mode, surface_mode, header_style, header_title, effects_enabled,
+  theme_mode, surface_opacity, header_style, header_title, effects_enabled,
   max_visible, overflow_mode, overflow_tempo, numbered, done_order,
   global_timer_mode, placement_x, placement_y, placement_scale,
   global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms
 )
 SELECT
   singleton, event_seq, board_revision, settings_revision, style_id,
-  theme_mode, surface_mode, header_style, header_title, effects_enabled,
+  theme_mode, ${surfaceOpacityExpression}, header_style, header_title, effects_enabled,
   max_visible, overflow_mode, overflow_tempo, numbered, done_order,
   global_timer_mode, placement_x, placement_y, placement_scale,
   global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms
@@ -292,6 +296,11 @@ FROM wc_meta;
 DROP TABLE wc_meta;
 ALTER TABLE wc_meta_migration_11 RENAME TO wc_meta;
 `;
+
+const MIGRATION_11_WC_META_REBUILD = createChallengeMetaRebuildMigration("surface_opacity");
+const MIGRATION_11_WC_META_REBUILD_LEGACY_SURFACE_MODE = createChallengeMetaRebuildMigration(
+  "CASE surface_mode WHEN 'bare' THEN 0 ELSE 100 END",
+);
 
 const hasMaxVisibleRowsCheck = (sql: SqlStorage): boolean => {
   const tableSql = sql
@@ -442,7 +451,13 @@ export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
     .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 11")
     .toArray().length > 0;
   if (!versionElevenWasApplied) {
-    if (!hasMaxVisibleRowsCheck(sql)) sql.exec(MIGRATION_11_WC_META_REBUILD);
+    if (!hasMaxVisibleRowsCheck(sql)) {
+      sql.exec(
+        hasChallengeMetaColumn(sql, "surface_mode")
+          ? MIGRATION_11_WC_META_REBUILD_LEGACY_SURFACE_MODE
+          : MIGRATION_11_WC_META_REBUILD,
+      );
+    }
     sql.exec(
       "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
       11,
@@ -459,6 +474,27 @@ export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
     sql.exec(
       "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
       12,
+      buildId,
+      new Date().toISOString(),
+    );
+  }
+  const versionThirteenWasApplied = sql
+    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 13")
+    .toArray().length > 0;
+  if (!versionThirteenWasApplied) {
+    // Frische Datenbanken und Tabellen, die MIGRATION_11 bereits neu aufgebaut
+    // hat, besitzen die neue Spalte schon. Nur echte Legacy-Tabellen brauchen
+    // den ALTER/Backfill/Drop-Schritt; so läuft der Backfill nicht doppelt.
+    if (!hasChallengeMetaColumn(sql, "surface_opacity") && hasChallengeMetaColumn(sql, "surface_mode")) {
+      sql.exec(MIGRATION_13_SURFACE_OPACITY_ADD);
+    }
+    if (hasChallengeMetaColumn(sql, "surface_opacity") && hasChallengeMetaColumn(sql, "surface_mode")) {
+      sql.exec(MIGRATION_13_SURFACE_OPACITY_BACKFILL);
+      sql.exec(MIGRATION_13_SURFACE_MODE_DROP);
+    }
+    sql.exec(
+      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
+      13,
       buildId,
       new Date().toISOString(),
     );

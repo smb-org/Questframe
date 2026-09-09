@@ -39,7 +39,7 @@ import {
   isTargetCount,
   isThemeId,
   isThemeMode,
-  isSurfaceMode,
+  isChallengeSurfaceOpacity,
   isTimerTotalMs,
   isTimerRemainMs,
   normalizeChallengeText,
@@ -120,7 +120,7 @@ const themeIdSchema = custom(
   `Theme muss einer dieser Werte sein: ${CHALLENGE_THEME_IDS.join(", ")}.`,
 );
 const themeModeSchema = custom(isThemeMode, "Theme-Modus ist ungültig.");
-const surfaceModeSchema = custom(isSurfaceMode, "Flächenmodus ist ungültig.");
+const surfaceOpacitySchema = custom(isChallengeSurfaceOpacity, "Flächenopazität ist ungültig.");
 const headerStyleSchema = custom(isHeaderStyle, "Kopfzeilen-Stil ist ungültig.");
 const fontFamilySchema = custom(isChallengeFontFamily, "Schriftart ist ungültig.");
 const fontScaleSchema = custom(isChallengeFontScale, "Schriftgröße muss 0,75–2,00 in 0,05-Schritten sein.");
@@ -196,7 +196,7 @@ export const globalTimerSchema = z
 export const settingsSchema = z.strictObject({
   styleId: styleIdSchema,
   themeMode: themeModeSchema,
-  surfaceMode: surfaceModeSchema,
+  surfaceOpacity: surfaceOpacitySchema,
   headerStyle: headerStyleSchema,
   fontFamily: fontFamilySchema,
   fontScale: fontScaleSchema,
@@ -281,7 +281,7 @@ export const settingsSaveRequestSchema = z.strictObject({
   baseSettingsRevision: revisionSchema,
   styleId: styleIdSchema,
   themeMode: themeModeSchema,
-  surfaceMode: surfaceModeSchema,
+  surfaceOpacity: surfaceOpacitySchema,
   headerStyle: headerStyleSchema,
   fontFamily: fontFamilySchema,
   fontScale: fontScaleSchema,

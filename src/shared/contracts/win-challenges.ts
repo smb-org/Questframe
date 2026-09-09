@@ -8,6 +8,7 @@ export type ChallengeOverflowTempo = "slow" | "medium" | "fast";
 export type ChallengeDoneOrder = "end" | "keep";
 export type GlobalTimerMode = "down" | "up";
 export type ChallengeFontFamily = "theme" | "atkinson" | "serif" | "sans" | "mono";
+export type ChallengeSurfaceOpacity = 0 | 25 | 50 | 75 | 100;
 
 export type ChallengeThemeId =
   | "trail-wood"
@@ -50,7 +51,7 @@ export type ChallengePlacement = {
 export type ChallengeSettings = {
   styleId: ChallengeStyleId;
   themeMode: "inherit" | "own";
-  surfaceMode: "surface" | "bare";
+  surfaceOpacity: ChallengeSurfaceOpacity;
   headerStyle: "default" | "inverted";
   fontFamily: ChallengeFontFamily;
   fontScale: number;

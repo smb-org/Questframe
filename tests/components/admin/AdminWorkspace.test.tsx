@@ -123,7 +123,7 @@ describe("Admin workspace shell", () => {
       settings: {
         styleId: "plain-list",
         themeMode: "inherit",
-        surfaceMode: "surface",
+        surfaceOpacity: 100,
         headerStyle: "default",
         fontFamily: "theme",
         fontScale: 1,
@@ -163,7 +163,7 @@ describe("Admin workspace shell", () => {
       settings: {
         styleId: "plain-list",
         themeMode: "inherit",
-        surfaceMode: "surface",
+        surfaceOpacity: 100,
         headerStyle: "default",
         fontFamily: "theme",
         fontScale: 1,
@@ -196,7 +196,7 @@ describe("Admin workspace shell", () => {
     expect(challengesPanel.getByRole("combobox", { name: "Tempo" })).toBeDisabled();
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Liste" }), { target: { value: "quest-log" } });
     fireEvent.change(challengesPanel.getByLabelText("Kopfzeile"), { target: { value: "RUN" } });
-    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Fläche" }), { target: { value: "bare" } });
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Fläche" }), { target: { value: "0" } });
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Kopfzeilen-Stil" }), { target: { value: "inverted" } });
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Zeilen" }), { target: { value: "8" } });
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Globaler Timer" }), { target: { value: "off" } });
@@ -215,7 +215,7 @@ describe("Admin workspace shell", () => {
       baseSettingsRevision: 3,
       effectsEnabled: false,
       styleId: "quest-log",
-      surfaceMode: "bare",
+      surfaceOpacity: 0,
       headerStyle: "inverted",
       headerTitle: "RUN",
       maxVisible: 8,
@@ -242,7 +242,7 @@ describe("Admin workspace shell", () => {
       settings: {
         styleId: "plain-list",
         themeMode: "inherit",
-        surfaceMode: "surface",
+        surfaceOpacity: 100,
         headerStyle: "default",
         fontFamily: "theme",
         fontScale: 1,
@@ -282,7 +282,7 @@ describe("Admin workspace shell", () => {
       settings: {
         styleId: "plain-list",
         themeMode: "inherit",
-        surfaceMode: "surface",
+        surfaceOpacity: 100,
         headerStyle: "default",
         fontFamily: "theme",
         fontScale: 1,
@@ -331,7 +331,7 @@ describe("Admin workspace shell", () => {
       boardRevision: 1,
       settingsRevision: 1,
       settings: {
-        styleId: "plain-list", themeMode: "inherit", surfaceMode: "surface", headerStyle: "default", headerTitle: "CHALLENGES", effectsEnabled: true,
+        styleId: "plain-list", themeMode: "inherit", surfaceOpacity: 100, headerStyle: "default", headerTitle: "CHALLENGES", effectsEnabled: true,
         fontFamily: "theme", fontScale: 1,
         maxVisible: 5, overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: { totalMs: 60_000, endsAt: new Date(Date.now() + 30_000).toISOString(), pausedRemainMs: null }, placement: { x: 300, y: 8, scale: 1 },
@@ -381,7 +381,7 @@ describe("Admin workspace shell", () => {
       settings: {
         styleId: "plain-list",
         themeMode: "inherit",
-        surfaceMode: "surface",
+        surfaceOpacity: 100,
         headerStyle: "default",
         fontFamily: "theme",
         fontScale: 1,
@@ -429,7 +429,7 @@ describe("Admin workspace shell", () => {
       settings: {
         styleId: "plain-list",
         themeMode: "inherit",
-        surfaceMode: "surface",
+        surfaceOpacity: 100,
         headerStyle: "default",
         fontFamily: "theme",
         fontScale: 1,
@@ -480,7 +480,7 @@ describe("Admin workspace shell", () => {
       settings: {
         styleId: "plain-list",
         themeMode: "inherit",
-        surfaceMode: "surface",
+        surfaceOpacity: 100,
         headerStyle: "default",
         fontFamily: "theme",
         fontScale: 1,
@@ -539,7 +539,7 @@ describe("Admin workspace shell", () => {
       settings: {
         styleId: "plain-list",
         themeMode: "inherit",
-        surfaceMode: "surface",
+        surfaceOpacity: 100,
         headerStyle: "default",
         fontFamily: "theme",
         fontScale: 1,
@@ -599,7 +599,7 @@ describe("Admin workspace shell", () => {
       settings: {
         styleId: "plain-list",
         themeMode: "inherit",
-        surfaceMode: "surface",
+        surfaceOpacity: 100,
         headerStyle: "default",
         fontFamily: "theme",
         fontScale: 1,
@@ -650,7 +650,7 @@ describe("Admin workspace shell", () => {
       settings: {
         styleId: "plain-list",
         themeMode: "inherit",
-        surfaceMode: "surface",
+        surfaceOpacity: 100,
         headerStyle: "default",
         fontFamily: "theme",
         fontScale: 1,
@@ -778,7 +778,7 @@ describe("Admin workspace setup", () => {
       settings: {
         styleId: "plain-list",
         themeMode: "inherit",
-        surfaceMode: "surface",
+        surfaceOpacity: 100,
         headerStyle: "default",
         fontFamily: "theme",
         fontScale: 1,

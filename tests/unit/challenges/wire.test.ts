@@ -14,7 +14,7 @@ const update = (): ChallengeUpdate => ({
   settings: {
     styleId: "plain-list",
     themeMode: "inherit",
-    surfaceMode: "surface",
+    surfaceOpacity: 100,
     headerStyle: "default",
     fontFamily: "theme",
     fontScale: 1,
@@ -181,6 +181,15 @@ describe("Challenge-Quelle-Wire", () => {
       ...update(),
       settings: { ...update().settings, fontScale: 2.05 },
     })).toBeNull();
+  });
+
+  it("weist eine Flächenopazität außerhalb der fünf erlaubten Werte zurück", () => {
+    for (const surfaceOpacity of [24, 50.5, 101]) {
+      expect(parseChallengeUpdate({
+        ...update(),
+        settings: { ...update().settings, surfaceOpacity },
+      })).toBeNull();
+    }
   });
 
   it("verlangt auch im Placement exakte Keys", () => {

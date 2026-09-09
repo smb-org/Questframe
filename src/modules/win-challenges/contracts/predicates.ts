@@ -1,4 +1,4 @@
-import type { ChallengeFontFamily, ChallengePlacement } from "../../../shared/contracts/win-challenges";
+import type { ChallengeFontFamily, ChallengePlacement, ChallengeSurfaceOpacity } from "../../../shared/contracts/win-challenges";
 
 const challengeGraphemeSegmenter = new Intl.Segmenter("de", {
   granularity: "grapheme",
@@ -181,8 +181,8 @@ export const isThemeId = (value: unknown): value is (typeof CHALLENGE_THEME_IDS)
 export const isThemeMode = (value: unknown): value is "inherit" | "own" =>
   value === "inherit" || value === "own";
 
-export const isSurfaceMode = (value: unknown): value is "surface" | "bare" =>
-  value === "surface" || value === "bare";
+export const isChallengeSurfaceOpacity = (value: unknown): value is ChallengeSurfaceOpacity =>
+  value === 0 || value === 25 || value === 50 || value === 75 || value === 100;
 
 export const isHeaderStyle = (value: unknown): value is "default" | "inverted" =>
   value === "default" || value === "inverted";

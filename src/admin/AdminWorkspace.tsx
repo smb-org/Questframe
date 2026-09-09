@@ -32,6 +32,7 @@ import type {
   ChallengeFontFamily,
   ChallengePlacement,
   ChallengeSettings,
+  ChallengeSurfaceOpacity,
   ChallengeStyleId,
   ChallengeThemeId,
   ChallengeUpdate,
@@ -111,17 +112,17 @@ const loadCompositionChallengeTheme = async (themeId: ChallengeThemeId): Promise
   await loadChallengeTheme(themeId);
 };
 
-type ChallengeSettingsDraft = Pick<ChallengeSettings, "styleId" | "surfaceMode" | "headerStyle" | "fontFamily" | "fontScale" | "headerTitle" | "effectsEnabled" | "maxVisible" | "overflowMode" | "overflowTempo" | "numbered" | "doneOrder"> & {
+type ChallengeSettingsDraft = Pick<ChallengeSettings, "styleId" | "surfaceOpacity" | "headerStyle" | "fontFamily" | "fontScale" | "headerTitle" | "effectsEnabled" | "maxVisible" | "overflowMode" | "overflowTempo" | "numbered" | "doneOrder"> & {
   globalTimerMode: GlobalTimerMode | "off";
   globalTimerTotalMs: number | null;
   globalTimerMinutes: string;
 };
 
-type ChallengeSettingsDraftSource = Pick<ChallengeSettings, "styleId" | "surfaceMode" | "headerStyle" | "fontFamily" | "fontScale" | "headerTitle" | "effectsEnabled" | "maxVisible" | "overflowMode" | "overflowTempo" | "numbered" | "doneOrder" | "globalTimerMode" | "globalTimer">;
+type ChallengeSettingsDraftSource = Pick<ChallengeSettings, "styleId" | "surfaceOpacity" | "headerStyle" | "fontFamily" | "fontScale" | "headerTitle" | "effectsEnabled" | "maxVisible" | "overflowMode" | "overflowTempo" | "numbered" | "doneOrder" | "globalTimerMode" | "globalTimer">;
 
 const settingsDraftFrom = (settings: ChallengeSettingsDraftSource): ChallengeSettingsDraft => ({
   styleId: settings.styleId,
-  surfaceMode: settings.surfaceMode,
+  surfaceOpacity: settings.surfaceOpacity,
   headerStyle: settings.headerStyle,
   fontFamily: settings.fontFamily,
   fontScale: settings.fontScale,
@@ -138,7 +139,7 @@ const settingsDraftFrom = (settings: ChallengeSettingsDraftSource): ChallengeSet
 });
 
 const sameChallengeSettingsDraft = (left: ChallengeSettingsDraft | null, right: ChallengeSettingsDraft): boolean =>
-  left !== null && left.styleId === right.styleId && left.surfaceMode === right.surfaceMode && left.headerStyle === right.headerStyle && left.fontFamily === right.fontFamily && left.fontScale === right.fontScale && left.headerTitle === right.headerTitle && left.effectsEnabled === right.effectsEnabled && left.maxVisible === right.maxVisible && left.overflowMode === right.overflowMode && left.overflowTempo === right.overflowTempo && left.numbered === right.numbered && left.doneOrder === right.doneOrder && left.globalTimerMode === right.globalTimerMode && left.globalTimerTotalMs === right.globalTimerTotalMs;
+  left !== null && left.styleId === right.styleId && left.surfaceOpacity === right.surfaceOpacity && left.headerStyle === right.headerStyle && left.fontFamily === right.fontFamily && left.fontScale === right.fontScale && left.headerTitle === right.headerTitle && left.effectsEnabled === right.effectsEnabled && left.maxVisible === right.maxVisible && left.overflowMode === right.overflowMode && left.overflowTempo === right.overflowTempo && left.numbered === right.numbered && left.doneOrder === right.doneOrder && left.globalTimerMode === right.globalTimerMode && left.globalTimerTotalMs === right.globalTimerTotalMs;
 
 const challengeSettingsWithDraft = (settings: ChallengeSettings, draft: ChallengeSettingsDraft | null, themeId: ChallengeThemeId): ChallengeSettings => {
   if (draft === null) return { ...settings, themeId };
@@ -150,7 +151,7 @@ const challengeSettingsWithDraft = (settings: ChallengeSettings, draft: Challeng
     ...settings,
     themeId,
     styleId: draft.styleId,
-    surfaceMode: draft.surfaceMode,
+    surfaceOpacity: draft.surfaceOpacity,
     headerStyle: draft.headerStyle,
     fontFamily: draft.fontFamily,
     fontScale: draft.fontScale,
@@ -313,7 +314,7 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
       const globalTimerTotalMs = settingsDraft.globalTimerMode === "up"
         ? GLOBAL_TIMER_UP_CAP_MS
         : settingsDraft.globalTimerTotalMs;
-      const response = await saveChallengeSettings({ baseSettingsRevision: snapshot.settingsRevision, styleId: settingsDraft.styleId, themeMode: settings.themeMode, surfaceMode: settingsDraft.surfaceMode, headerStyle: settingsDraft.headerStyle, fontFamily: settingsDraft.fontFamily, fontScale: settingsDraft.fontScale, headerTitle: settingsDraft.headerTitle, effectsEnabled: settingsDraft.effectsEnabled, maxVisible: settingsDraft.maxVisible, overflowMode: settingsDraft.overflowMode, overflowTempo: settingsDraft.overflowTempo, numbered: settingsDraft.numbered, doneOrder: settingsDraft.doneOrder, globalTimerMode: settingsDraft.globalTimerMode === "off" ? "down" : settingsDraft.globalTimerMode, globalTimerTotalMs, placement: effectivePlacement });
+      const response = await saveChallengeSettings({ baseSettingsRevision: snapshot.settingsRevision, styleId: settingsDraft.styleId, themeMode: settings.themeMode, surfaceOpacity: settingsDraft.surfaceOpacity, headerStyle: settingsDraft.headerStyle, fontFamily: settingsDraft.fontFamily, fontScale: settingsDraft.fontScale, headerTitle: settingsDraft.headerTitle, effectsEnabled: settingsDraft.effectsEnabled, maxVisible: settingsDraft.maxVisible, overflowMode: settingsDraft.overflowMode, overflowTempo: settingsDraft.overflowTempo, numbered: settingsDraft.numbered, doneOrder: settingsDraft.doneOrder, globalTimerMode: settingsDraft.globalTimerMode === "off" ? "down" : settingsDraft.globalTimerMode, globalTimerTotalMs, placement: effectivePlacement });
       // Derselbe Revisions-Guard wie in applyRemoteSnapshot: waehrend unsere Antwort
       // unterwegs war, kann per Socket schon eine neuere Revision eingetroffen sein
       // (zweiter Editor). Eine verspaetete eigene Antwort darf diesen neueren lokalen
@@ -356,7 +357,7 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
         <div className="settings-grid">
           <label><span>Style</span><select aria-label="Liste" disabled={disabled} value={settingsDraft.styleId} onChange={(event) => updateSettings({ styleId: event.target.value as ChallengeStyleId })}><option value="plain-list">Liste</option><option value="plain-bullets">Aufzählung</option><option value="quest-log">Quest-Log</option></select></label>
           <label><span>Kopfzeile</span><input aria-label="Kopfzeile" maxLength={24} disabled={disabled} type="text" value={settingsDraft.headerTitle} onChange={(event) => updateSettings({ headerTitle: event.target.value })} /></label>
-          <label><span>Fläche</span><select aria-label="Fläche" disabled={disabled} value={settingsDraft.surfaceMode} onChange={(event) => updateSettings({ surfaceMode: event.target.value as ChallengeSettingsDraft["surfaceMode"] })}><option value="surface">Fläche</option><option value="bare">Ohne Fläche</option></select></label>
+          <label><span>Fläche</span><select aria-label="Fläche" disabled={disabled} value={settingsDraft.surfaceOpacity} onChange={(event) => updateSettings({ surfaceOpacity: Number(event.target.value) as ChallengeSurfaceOpacity })}>{([0, 25, 50, 75, 100] as const).map((value) => <option key={value} value={value}>{value} %</option>)}</select></label>
           <label><span>Kopfzeilen-Stil</span><select aria-label="Kopfzeilen-Stil" disabled={disabled} value={settingsDraft.headerStyle} onChange={(event) => updateSettings({ headerStyle: event.target.value as ChallengeSettingsDraft["headerStyle"] })}><option value="default">Standard</option><option value="inverted">Invertiert</option></select></label>
           <label><span>Schriftart</span><select aria-label="Schriftart" disabled={disabled} value={settingsDraft.fontFamily} onChange={(event) => updateSettings({ fontFamily: event.target.value as ChallengeFontFamily })}><option value="theme">Theme-Vorgabe</option><option value="atkinson">Atkinson Hyperlegible</option><option value="serif">Serif</option><option value="sans">Sans</option><option value="mono">Mono</option></select></label>
           <label><span>Schriftgröße</span><select aria-label="Schriftgröße" disabled={disabled} value={settingsDraft.fontScale} onChange={(event) => updateSettings({ fontScale: Number(event.target.value) })}>{Array.from({ length: 26 }, (_, index) => Number((0.75 + index * 0.05).toFixed(2))).map((value) => <option key={value} value={value}>{Math.round(value * 100)} %</option>)}</select></label>

@@ -60,7 +60,7 @@ const update: ChallengeUpdate = {
   settings: {
     styleId: "plain-list",
     themeMode: "inherit",
-    surfaceMode: "surface",
+    surfaceOpacity: 100,
     headerStyle: "default",
     fontFamily: "theme",
     fontScale: 1,

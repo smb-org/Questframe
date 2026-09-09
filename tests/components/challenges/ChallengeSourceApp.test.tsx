@@ -80,7 +80,7 @@ const message = (): ChallengeUpdate => ({
   settings: {
     styleId: "plain-list",
     themeMode: "inherit",
-    surfaceMode: "surface",
+    surfaceOpacity: 100,
     headerStyle: "default",
     fontFamily: "theme",
     fontScale: 1,
@@ -677,20 +677,20 @@ describe("ChallengeSourceApp", () => {
     expect(source).toHaveAttribute("data-style", "plain-list");
   });
 
-  it.each(styleNames)("rendert dieselben Daten lesbar im %s-Style für surface und bare", (styleId) => {
+  it.each(styleNames)("rendert dieselben Daten lesbar im %s-Style für Fläche und ohne Fläche", (styleId) => {
     const visibleDone = { ...challenge("done", "Erledigt unten", "done", 0), completedAt: new Date(fixedNow).toISOString() };
     const visibleUpdate = sourceUpdate({
       challenges: [visibleDone, challenge("open", "Offene Challenge", "pending", 1)],
     });
-    for (const surfaceMode of ["surface", "bare"] as const) {
+    for (const surfaceOpacity of [100, 0] as const) {
       const view = render(<ChallengeLog now={fixedNow} update={{
         ...visibleUpdate,
-        settings: { ...visibleUpdate.settings, styleId, surfaceMode, themeMode: "own" },
+        settings: { ...visibleUpdate.settings, styleId, surfaceOpacity, themeMode: "own" },
       }} />);
 
       const source = document.querySelector(".challenge-source");
       expect(source).toHaveAttribute("data-style", styleId);
-      expect(source).toHaveAttribute("data-surface-mode", surfaceMode);
+      expect(source).toHaveAttribute("data-surface-mode", surfaceOpacity === 0 ? "bare" : "surface");
       expect(screen.getByText("Offene Challenge")).toBeInTheDocument();
       expect(screen.getByText("Erledigt unten")).toBeInTheDocument();
       const rows = [...document.querySelectorAll(".challenge-source__row")];
@@ -699,6 +699,24 @@ describe("ChallengeSourceApp", () => {
 
       view.unmount();
     }
+  });
+
+  it("leitet bei 25 Prozent das Bare-Preset ab und setzt die Flächenopazität", () => {
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      settings: { ...message().settings, surfaceOpacity: 25 },
+    })} />);
+
+    const source = document.querySelector(".challenge-source");
+    expect(source).toHaveAttribute("data-surface-mode", "bare");
+    expect(source).toHaveStyle("--wc-surface-opacity: 0.25");
+  });
+
+  it("belässt bei 50 Prozent das Surface-Preset", () => {
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      settings: { ...message().settings, surfaceOpacity: 50 },
+    })} />);
+
+    expect(document.querySelector(".challenge-source")).toHaveAttribute("data-surface-mode", "surface");
   });
 
   it("trägt den invertierten Kopfzeilen-Stil am Wurzelelement", () => {

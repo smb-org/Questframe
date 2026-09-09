@@ -25,6 +25,7 @@
   --wc-bare-timer-size: calc(18px * var(--wc-font-scale));
   --wc-meta-size: calc(11px * var(--wc-font-scale));
   --wc-bare-meta-size: calc(13px * var(--wc-font-scale));
+  --wc-surface-opacity: 1;
 
   /* Der eigene Vertrag: ohne HUD sind diese Werte vollstaendig. */
   --wc-surface: rgba(13, 16, 19, 0.88);
@@ -122,7 +123,11 @@
   .challenge-source[data-style="plain-bullets"],
   .challenge-source[data-style="quest-log"]
 )[data-theme-mode][data-surface-mode="bare"] {
-  --wc-surface: transparent;
+  /* Hier wird die Flaeche NICHT auf transparent gesetzt: das erledigt jetzt
+     --wc-surface-opacity. Wuerde es hier stehen, waeren 25 % und 0 % identisch,
+     weil die Ebene nichts mehr zu malen haette. Bei 0 % ist die Deckkraft
+     ohnehin null. Dieses Preset liefert nur noch das, was ohne tragende Flaeche
+     noetig ist: groessere Grade, mehr Gewicht, Halo. */
   --wc-font-size: var(--wc-bare-font-size);
   --wc-title-size: var(--wc-bare-title-size);
   --wc-timer-size: var(--wc-bare-timer-size);
@@ -186,7 +191,28 @@
 ) .challenge-source__row {
   position: relative;
   box-sizing: border-box;
+  background: transparent;
+}
+
+/* Der Root spannt durch transform: scale(...) einen eigenen Stapelkontext auf;
+   deshalb ist z-index: -1 fuer die Flaechenebene innerhalb der Quelle sicher. */
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__header::before,
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__row::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
   background: var(--wc-surface);
+  opacity: var(--wc-surface-opacity);
+  content: "";
+  pointer-events: none;
 }
 
 /* Die Haarlinie ist ein eigenes Element, damit sie im bare-Preset denselben
@@ -222,7 +248,7 @@
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
   .challenge-source[data-style="quest-log"]
-) .challenge-source__row[data-timer-state]::before {
+) .challenge-source__row[data-timer-state] .challenge-source__timer-bar {
   position: absolute;
   right: 0;
   bottom: 0;
@@ -246,7 +272,7 @@
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
   .challenge-source[data-style="quest-log"]
-) .challenge-source__row[data-timer-state="paused"]::before {
+) .challenge-source__row[data-timer-state="paused"] .challenge-source__timer-bar {
   animation-play-state: paused;
   opacity: .55;
 }
@@ -255,7 +281,7 @@
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
   .challenge-source[data-style="quest-log"]
-) .challenge-source__row[data-timer-critical="true"]::before {
+) .challenge-source__row[data-timer-critical="true"] .challenge-source__timer-bar {
   background: var(--wc-critical);
   animation-name: wc-timer-drain, challenge-source-pulse;
   animation-duration: var(--wc-timer-total), 1.35s;
@@ -270,7 +296,7 @@
     .challenge-source[data-style="plain-list"],
     .challenge-source[data-style="plain-bullets"],
     .challenge-source[data-style="quest-log"]
-  ) .challenge-source__row[data-timer-state]::before {
+  ) .challenge-source__row[data-timer-state] .challenge-source__timer-bar {
     animation-name: none;
     transform: scaleX(var(--wc-timer-scale, 1));
   }
@@ -672,15 +698,30 @@
   .challenge-source[data-style="plain-bullets"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__more {
+  position: relative;
   display: block;
   height: var(--wc-overflow-height);
   box-sizing: border-box;
   margin: 0;
   padding: 2px var(--wc-inline-padding) 0 30px;
-  background: var(--wc-surface);
+  background: transparent;
   color: var(--wc-muted);
   font-size: var(--wc-meta-size);
   list-style-type: none;
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__more::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--wc-surface);
+  opacity: var(--wc-surface-opacity);
+  content: "";
+  pointer-events: none;
 }
 
 @keyframes challenge-source-pulse {

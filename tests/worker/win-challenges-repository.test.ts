@@ -43,7 +43,7 @@ const resetModuleTables = async (): Promise<void> => {
     state.storage.sql.exec(
       `UPDATE wc_meta SET
         event_seq = 0, board_revision = 1, settings_revision = 1,
-        style_id = 'plain-list', theme_mode = 'inherit', surface_mode = 'surface',
+        style_id = 'plain-list', theme_mode = 'inherit', surface_opacity = 100,
         font_family = 'theme', font_scale = 1,
         header_title = 'CHALLENGES', effects_enabled = 1, max_visible = 5,
         overflow_mode = 'cut', overflow_tempo = 'medium', numbered = 0, done_order = 'end',
@@ -120,7 +120,7 @@ describe("win-challenges repository and migration", () => {
           settings_revision: number;
           style_id: string;
           theme_mode: string;
-          surface_mode: string;
+          surface_opacity: number;
           header_style: string;
           font_family: string;
           font_scale: number;
@@ -160,6 +160,7 @@ describe("win-challenges repository and migration", () => {
     expect(result.versions).toContain(10);
     expect(result.versions).toContain(11);
     expect(result.versions).toContain(12);
+    expect(result.versions).toContain(13);
     expect(result.tables).toEqual([
       "wc_challenges",
       "wc_commands",
@@ -173,7 +174,7 @@ describe("win-challenges repository and migration", () => {
       "settings_revision",
       "style_id",
       "theme_mode",
-      "surface_mode",
+      "surface_opacity",
       "header_style",
       "font_family",
       "font_scale",
@@ -213,7 +214,7 @@ describe("win-challenges repository and migration", () => {
       settings_revision: 1,
       style_id: "plain-list",
       theme_mode: "inherit",
-      surface_mode: "surface",
+      surface_opacity: 100,
       header_style: "default",
       font_family: "theme",
       font_scale: 1,
@@ -283,6 +284,8 @@ describe("win-challenges repository and migration", () => {
         }>("SELECT style_id, numbered, placement_x, placement_y, placement_scale, global_timer_mode FROM wc_meta WHERE singleton = 1").toArray()[0],
         headerStyle: state.storage.sql.exec<{ header_style: string }>("SELECT header_style FROM wc_meta WHERE singleton = 1").toArray()[0]?.header_style,
         fontSettings: state.storage.sql.exec<{ font_family: string; font_scale: number }>("SELECT font_family, font_scale FROM wc_meta WHERE singleton = 1").toArray()[0],
+        surfaceOpacity: state.storage.sql.exec<{ surface_opacity: number }>("SELECT surface_opacity FROM wc_meta WHERE singleton = 1").toArray()[0]?.surface_opacity,
+        surfaceColumns: state.storage.sql.exec<{ name: string }>("PRAGMA table_info(wc_meta)").toArray().map(({ name }) => name),
         versions: state.storage.sql.exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version").toArray().map(({ version }) => version),
       };
     });
@@ -291,8 +294,12 @@ describe("win-challenges repository and migration", () => {
     expect(placement.versions).toContain(8);
     expect(placement.versions).toContain(10);
     expect(placement.versions).toContain(12);
+    expect(placement.versions).toContain(13);
     expect(placement.headerStyle).toBe("default");
     expect(placement.fontSettings).toEqual({ font_family: "theme", font_scale: 1 });
+    expect(placement.surfaceOpacity).toBe(100);
+    expect(placement.surfaceColumns).toContain("surface_opacity");
+    expect(placement.surfaceColumns).not.toContain("surface_mode");
     const columns = await runInDurableObject(legacyStub, (_instance, state) => state.storage.sql.exec<{ name: string }>("PRAGMA table_info(wc_meta)").toArray().map(({ name }) => name));
     expect(columns).toContain("max_visible");
     expect(columns).toContain("header_style");
@@ -377,7 +384,7 @@ describe("win-challenges repository and migration", () => {
           settings_revision: number;
           style_id: string;
           theme_mode: string;
-          surface_mode: string;
+          surface_opacity: number;
           header_style: string;
           font_family: string;
           font_scale: number;
@@ -395,12 +402,13 @@ describe("win-challenges repository and migration", () => {
           global_timer_total_ms: number | null;
           global_timer_ends_at: string | null;
           global_timer_paused_remain_ms: number | null;
-        }>("SELECT singleton, event_seq, board_revision, settings_revision, style_id, theme_mode, surface_mode, header_style, font_family, font_scale, header_title, effects_enabled, max_visible, overflow_mode, overflow_tempo, numbered, done_order, global_timer_mode, placement_x, placement_y, placement_scale, global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms FROM wc_meta WHERE singleton = 1").toArray()[0],
+        }>("SELECT singleton, event_seq, board_revision, settings_revision, style_id, theme_mode, surface_opacity, header_style, font_family, font_scale, header_title, effects_enabled, max_visible, overflow_mode, overflow_tempo, numbered, done_order, global_timer_mode, placement_x, placement_y, placement_scale, global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms FROM wc_meta WHERE singleton = 1").toArray()[0],
       };
     });
 
     expect(result.versions).toContain(11);
     expect(result.versions).toContain(12);
+    expect(result.versions).toContain(13);
     expect(result.meta).toEqual({
       singleton: 1,
       event_seq: 42,
@@ -408,7 +416,7 @@ describe("win-challenges repository and migration", () => {
       settings_revision: 8,
       style_id: "quest-log",
       theme_mode: "own",
-      surface_mode: "bare",
+      surface_opacity: 0,
       header_style: "inverted",
       font_family: "theme",
       font_scale: 1,
@@ -461,6 +469,32 @@ describe("win-challenges repository and migration", () => {
     });
 
     expect(result).toEqual(["running-and-paused", "runtime-without-definition"]);
+  });
+
+  it("speichert und lädt die Flächenopazität im Repository-Roundtrip", async () => {
+    const before = await inRepository((repository) => repository.readSnapshot());
+    await inRepository((repository) => repository.saveSettings({
+      baseSettingsRevision: before.settingsRevision,
+      styleId: before.settings.styleId,
+      themeMode: before.settings.themeMode,
+      surfaceOpacity: 25,
+      headerStyle: before.settings.headerStyle,
+      fontFamily: before.settings.fontFamily,
+      fontScale: before.settings.fontScale,
+      headerTitle: before.settings.headerTitle,
+      effectsEnabled: before.settings.effectsEnabled,
+      maxVisible: before.settings.maxVisible,
+      overflowMode: before.settings.overflowMode,
+      overflowTempo: before.settings.overflowTempo,
+      numbered: before.settings.numbered,
+      doneOrder: before.settings.doneOrder,
+      globalTimerMode: before.settings.globalTimerMode,
+      globalTimerTotalMs: before.settings.globalTimer?.totalMs ?? null,
+      placement: before.settings.placement,
+      now,
+    }));
+
+    expect((await inRepository((repository) => repository.readSnapshot())).settings.surfaceOpacity).toBe(25);
   });
 
   it("enforces the hidden Boolean CHECK constraint", async () => {
@@ -671,7 +705,7 @@ describe("win-challenges repository and migration", () => {
         baseSettingsRevision: before.settingsRevision,
         styleId: "plain-list",
         themeMode: "own",
-        surfaceMode: "bare",
+        surfaceOpacity: 0,
         headerStyle: "inverted",
         fontFamily: "mono",
         fontScale: 1.5,
@@ -692,7 +726,7 @@ describe("win-challenges repository and migration", () => {
     expect(saved.snapshot.settings).toMatchObject({
       styleId: "plain-list",
       themeMode: "own",
-      surfaceMode: "bare",
+      surfaceOpacity: 0,
       headerStyle: "inverted",
       fontFamily: "mono",
       fontScale: 1.5,
@@ -725,7 +759,7 @@ describe("win-challenges repository and migration", () => {
         baseSettingsRevision: before.settingsRevision,
         styleId: "plain-list",
         themeMode: "inherit",
-        surfaceMode: "surface",
+        surfaceOpacity: 100,
         headerStyle: "default",
         fontFamily: "theme",
         fontScale: 1,
@@ -763,7 +797,7 @@ describe("win-challenges repository and migration", () => {
         baseSettingsRevision: before.settingsRevision,
         styleId: "plain-list",
         themeMode: "inherit",
-        surfaceMode: "surface",
+        surfaceOpacity: 100,
         headerStyle: "default",
         fontFamily: "theme",
         fontScale: 1,
@@ -919,7 +953,7 @@ describe("win-challenges repository and migration", () => {
         baseSettingsRevision: created.snapshot.settingsRevision,
         styleId: "plain-list",
         themeMode: "inherit",
-        surfaceMode: "surface",
+        surfaceOpacity: 100,
         headerStyle: "default",
         fontFamily: "theme",
         fontScale: 1,
@@ -1067,7 +1101,7 @@ describe("win-challenges repository and migration", () => {
           baseSettingsRevision: board.result.snapshot.settingsRevision,
           styleId: "plain-list",
           themeMode: "inherit",
-          surfaceMode: "surface",
+          surfaceOpacity: 100,
           headerStyle: "default",
           fontFamily: "theme",
           fontScale: 1,
@@ -1094,7 +1128,7 @@ describe("win-challenges repository and migration", () => {
     });
     expect(mutation).toMatchObject({ rowsWritten: 4, rowsRead: 5 });
     expect(board).toMatchObject({ rowsWritten: 7, rowsRead: 15 });
-    expect(settings).toMatchObject({ rowsWritten: 1, rowsRead: 18 });
+    expect(settings).toMatchObject({ rowsWritten: 1, rowsRead: 19 });
     expect(snapshot).toMatchObject({ rowsWritten: 0, rowsRead: 7 });
   });
 });

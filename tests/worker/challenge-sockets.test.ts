@@ -89,7 +89,7 @@ const resetTables = async (): Promise<void> => {
     state.storage.sql.exec(
       `UPDATE wc_meta SET
         event_seq = 0, board_revision = 1, settings_revision = 1,
-        style_id = 'plain-list', theme_mode = 'inherit', surface_mode = 'surface', header_style = 'default',
+        style_id = 'plain-list', theme_mode = 'inherit', surface_opacity = 100, header_style = 'default',
         header_title = 'CHALLENGES', effects_enabled = 1, max_visible = 5,
         overflow_mode = 'cut', overflow_tempo = 'medium', numbered = 0, done_order = 'end',
         placement_x = 300, placement_y = 8, placement_scale = 1,
@@ -1024,7 +1024,7 @@ describe("Win-Challenges-Sockets", () => {
           baseSettingsRevision: 1,
           styleId: "plain-list",
           themeMode: "inherit",
-          surfaceMode: "surface",
+          surfaceOpacity: 100,
           headerStyle: "default",
           fontFamily: "theme",
           fontScale: 1,

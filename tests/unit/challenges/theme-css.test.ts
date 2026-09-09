@@ -111,7 +111,10 @@ describe("Challenge-Quelle-CSS", () => {
     const bareBlock = sourceCss.match(
       /\[data-theme-mode\]\[data-surface-mode="bare"\]\s*\{([^}]*)\}/,
     )?.[1] ?? "";
-    expect(bareBlock).toContain("--wc-surface: transparent;");
+    // Das bare-Preset darf die Flaeche NICHT selbst auf transparent setzen: die
+    // Deckkraft steuert --wc-surface-opacity. Stuende es hier, waeren 25 % und
+    // 0 % identisch, weil die Ebene nichts mehr zu malen haette.
+    expect(bareBlock).not.toContain("--wc-surface:");
     expect(bareBlock).toContain("--wc-font-size: var(--wc-bare-font-size);");
     expect(bareBlock).toContain("--wc-title-size: var(--wc-bare-title-size);");
     expect(bareBlock).toContain("--wc-timer-size: var(--wc-bare-timer-size);");

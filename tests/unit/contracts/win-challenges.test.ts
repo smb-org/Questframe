@@ -14,6 +14,7 @@ import {
   isChallengeTitle,
   isChallengeFontFamily,
   isChallengeFontScale,
+  isChallengeSurfaceOpacity,
   isCurrentCount,
   isDoneOrder,
   isDelta,
@@ -63,7 +64,7 @@ const challenge = {
 const settings = {
   styleId: "plain-list" as const,
   themeMode: "inherit" as const,
-  surfaceMode: "surface" as const,
+  surfaceOpacity: 100 as const,
   headerStyle: "default" as const,
   fontFamily: "theme" as const,
   fontScale: 1,
@@ -419,6 +420,18 @@ describe("Win-Challenges-Verträge", () => {
     }
     for (const scale of rejected) {
       expect(isPlacementScale(scale)).toBe(false);
+    }
+  });
+
+  it("akzeptiert für die Flächenopazität nur die fünf Prozentwerte", () => {
+    for (const value of [0, 25, 50, 75, 100]) {
+      expect(isChallengeSurfaceOpacity(value)).toBe(true);
+      expect(settingsSchema.safeParse({ ...settings, surfaceOpacity: value }).success).toBe(true);
+    }
+
+    for (const value of [-1, 24, 50.5, 101, "50"]) {
+      expect(isChallengeSurfaceOpacity(value)).toBe(false);
+      expect(settingsSchema.safeParse({ ...settings, surfaceOpacity: value }).success).toBe(false);
     }
   });
 });

@@ -125,6 +125,7 @@ const ChallengeRow = ({
         "--wc-timer-scale": String(timerScale),
       } as CSSProperties}
     >
+      <span aria-hidden="true" className="challenge-source__timer-bar" />
       <span className="challenge-source__row-inner" key={ceremonyKey}>
         <span aria-hidden="true" className="challenge-source__mark" key={ceremonyKey}>{numbered ? number ?? "" : done ? "✓" : ""}</span>
         <span className="challenge-source__content">
@@ -280,8 +281,12 @@ export const ChallengeLog = ({
     "--wc-y": `${String((placement ?? update.settings.placement).y * 5)}px`,
     "--wc-scale": String((placement ?? update.settings.placement).scale),
     "--wc-font-scale": String(update.settings.fontScale),
+    "--wc-surface-opacity": String(update.settings.surfaceOpacity / 100),
     "--wc-scroll-visible-rows": String(pageSize),
   } as CSSProperties;
+  // Das vorhandene Bare-Preset wird abgeleitet, damit Halo, Fettung und die
+  // Bare-Schriftgrade bei schwacher Fläche erhalten bleiben. Unter der Hälfte
+  // trägt die Fläche den Text nicht mehr; deshalb liegt die Schwelle bei 50.
   const Root = rootTag ?? "main";
 
   return (
@@ -291,7 +296,7 @@ export const ChallengeLog = ({
       data-style={update.settings.styleId}
       data-overflow-mode={effectiveMode}
       data-numbered={update.settings.numbered ? "true" : "false"}
-      data-surface-mode={update.settings.surfaceMode}
+      data-surface-mode={update.settings.surfaceOpacity < 50 ? "bare" : "surface"}
       data-header-style={update.settings.headerStyle}
       data-font-family={update.settings.fontFamily}
       data-theme-mode={update.settings.themeMode}
