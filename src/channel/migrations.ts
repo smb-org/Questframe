@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS wc_meta (
   font_family TEXT NOT NULL DEFAULT 'theme' CHECK (font_family IN ('theme','atkinson','serif','sans','mono')),
   font_scale REAL NOT NULL DEFAULT 1 CHECK (font_scale BETWEEN 0.75 AND 2),
   header_title TEXT NOT NULL,
+  penalty_text TEXT NOT NULL DEFAULT '',
   effects_enabled INTEGER NOT NULL CHECK (effects_enabled IN (0, 1)),
   max_visible INTEGER NOT NULL DEFAULT 5 CHECK (max_visible BETWEEN 3 AND 20),
   overflow_mode TEXT NOT NULL DEFAULT 'cut' CHECK (overflow_mode IN ('cut', 'page', 'scroll')),
@@ -162,13 +163,13 @@ CREATE TABLE IF NOT EXISTS wc_dock_tokens (
 );
 INSERT INTO wc_meta(
   singleton, event_seq, board_revision, settings_revision, style_id,
-  theme_mode, surface_opacity, header_title, effects_enabled,
+  theme_mode, surface_opacity, header_title, penalty_text, effects_enabled,
   max_visible,
   overflow_mode, overflow_tempo, numbered, done_order,
   global_timer_mode,
   placement_x, placement_y, placement_scale,
   global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms
-) VALUES (1, 0, 1, 1, 'plain-list', 'inherit', 100, 'CHALLENGES', 1,
+) VALUES (1, 0, 1, 1, 'plain-list', 'inherit', 100, 'CHALLENGES', '', 1,
   5, 'cut', 'medium', 0, 'end', 'down', 300, 8, 1, NULL, NULL, NULL)
 ON CONFLICT(singleton) DO NOTHING;
 `;
@@ -260,6 +261,7 @@ CREATE TABLE wc_meta_migration_11 (
   font_family TEXT NOT NULL DEFAULT 'theme' CHECK (font_family IN ('theme','atkinson','serif','sans','mono')),
   font_scale REAL NOT NULL DEFAULT 1 CHECK (font_scale BETWEEN 0.75 AND 2),
   header_title TEXT NOT NULL,
+  penalty_text TEXT NOT NULL DEFAULT '',
   effects_enabled INTEGER NOT NULL CHECK (effects_enabled IN (0, 1)),
   max_visible INTEGER NOT NULL DEFAULT 5 CHECK (max_visible BETWEEN 3 AND 20),
   overflow_mode TEXT NOT NULL DEFAULT 'cut' CHECK (overflow_mode IN ('cut', 'page', 'scroll')),
@@ -316,6 +318,8 @@ const hasChallengeTimerRemain = (sql: SqlStorage): boolean =>
     .exec<{ name: string }>("PRAGMA table_info(wc_challenges)")
     .toArray()
     .some((column) => column.name === "timer_remain_ms");
+
+const MIGRATION_14_PENALTY_TEXT = "ALTER TABLE wc_meta ADD COLUMN penalty_text TEXT NOT NULL DEFAULT '';";
 
 export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
   sql.exec(MIGRATION_1);
@@ -495,6 +499,18 @@ export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
     sql.exec(
       "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
       13,
+      buildId,
+      new Date().toISOString(),
+    );
+  }
+  const versionFourteenWasApplied = sql
+    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 14")
+    .toArray().length > 0;
+  if (!versionFourteenWasApplied) {
+    if (!hasChallengeMetaColumn(sql, "penalty_text")) sql.exec(MIGRATION_14_PENALTY_TEXT);
+    sql.exec(
+      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
+      14,
       buildId,
       new Date().toISOString(),
     );

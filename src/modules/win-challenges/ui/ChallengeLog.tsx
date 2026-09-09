@@ -389,6 +389,12 @@ export const ChallengeLog = ({
           {effectiveMode === "cut" && remaining > 0 && <li className="challenge-source__more">+{remaining} weitere</li>}
         </ul>
       )}
+      {update.settings.penaltyText.trim() !== "" && (
+        <footer className="challenge-source__penalty">
+          <span className="challenge-source__penalty-label">Strafe</span>
+          <span className="challenge-source__penalty-text">{update.settings.penaltyText}</span>
+        </footer>
+      )}
     </Root>
   );
 };

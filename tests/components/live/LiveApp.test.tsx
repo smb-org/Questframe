@@ -62,6 +62,7 @@ const message = (currentCount = 3): ChallengeUpdate => ({
     fontFamily: "theme",
     fontScale: 1,
     headerTitle: "CHALLENGES",
+    penaltyText: "",
     effectsEnabled: true,
     maxVisible: 5,
     overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",

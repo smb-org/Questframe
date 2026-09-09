@@ -188,7 +188,12 @@
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
   .challenge-source[data-style="quest-log"]
-) .challenge-source__row {
+) .challenge-source__row,
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__penalty {
   position: relative;
   box-sizing: border-box;
   background: transparent;
@@ -205,7 +210,12 @@
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
   .challenge-source[data-style="quest-log"]
-) .challenge-source__row::before {
+) .challenge-source__row::before,
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__penalty::before {
   position: absolute;
   inset: 0;
   z-index: -1;
@@ -226,7 +236,12 @@
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
   .challenge-source[data-style="quest-log"]
-) .challenge-source__row::after {
+) .challenge-source__row::after,
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__penalty::after {
   position: absolute;
   right: 0;
   bottom: 0;
@@ -236,6 +251,52 @@
   box-shadow: var(--wc-bare-shadow);
   content: "";
   pointer-events: none;
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__penalty {
+  display: flex;
+  align-items: baseline;
+  gap: var(--wc-gap);
+  min-width: 0;
+  padding: calc(var(--wc-gap) / 2) var(--wc-inline-padding) var(--wc-gap);
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__penalty::after {
+  top: 0;
+  bottom: auto;
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__penalty-label {
+  flex: 0 0 auto;
+  color: var(--wc-muted);
+  font-size: var(--wc-meta-size);
+  font-weight: var(--wc-label-weight);
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__penalty-text {
+  min-width: 0;
+  color: var(--wc-text);
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 @keyframes wc-timer-drain {

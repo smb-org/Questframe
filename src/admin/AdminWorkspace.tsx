@@ -112,13 +112,13 @@ const loadCompositionChallengeTheme = async (themeId: ChallengeThemeId): Promise
   await loadChallengeTheme(themeId);
 };
 
-type ChallengeSettingsDraft = Pick<ChallengeSettings, "styleId" | "surfaceOpacity" | "headerStyle" | "fontFamily" | "fontScale" | "headerTitle" | "effectsEnabled" | "maxVisible" | "overflowMode" | "overflowTempo" | "numbered" | "doneOrder"> & {
+type ChallengeSettingsDraft = Pick<ChallengeSettings, "styleId" | "surfaceOpacity" | "headerStyle" | "fontFamily" | "fontScale" | "headerTitle" | "penaltyText" | "effectsEnabled" | "maxVisible" | "overflowMode" | "overflowTempo" | "numbered" | "doneOrder"> & {
   globalTimerMode: GlobalTimerMode | "off";
   globalTimerTotalMs: number | null;
   globalTimerMinutes: string;
 };
 
-type ChallengeSettingsDraftSource = Pick<ChallengeSettings, "styleId" | "surfaceOpacity" | "headerStyle" | "fontFamily" | "fontScale" | "headerTitle" | "effectsEnabled" | "maxVisible" | "overflowMode" | "overflowTempo" | "numbered" | "doneOrder" | "globalTimerMode" | "globalTimer">;
+type ChallengeSettingsDraftSource = Pick<ChallengeSettings, "styleId" | "surfaceOpacity" | "headerStyle" | "fontFamily" | "fontScale" | "headerTitle" | "penaltyText" | "effectsEnabled" | "maxVisible" | "overflowMode" | "overflowTempo" | "numbered" | "doneOrder" | "globalTimerMode" | "globalTimer">;
 
 const settingsDraftFrom = (settings: ChallengeSettingsDraftSource): ChallengeSettingsDraft => ({
   styleId: settings.styleId,
@@ -127,6 +127,7 @@ const settingsDraftFrom = (settings: ChallengeSettingsDraftSource): ChallengeSet
   fontFamily: settings.fontFamily,
   fontScale: settings.fontScale,
   headerTitle: settings.headerTitle,
+  penaltyText: settings.penaltyText,
   effectsEnabled: settings.effectsEnabled,
   maxVisible: settings.maxVisible,
   overflowMode: settings.overflowMode,
@@ -139,7 +140,7 @@ const settingsDraftFrom = (settings: ChallengeSettingsDraftSource): ChallengeSet
 });
 
 const sameChallengeSettingsDraft = (left: ChallengeSettingsDraft | null, right: ChallengeSettingsDraft): boolean =>
-  left !== null && left.styleId === right.styleId && left.surfaceOpacity === right.surfaceOpacity && left.headerStyle === right.headerStyle && left.fontFamily === right.fontFamily && left.fontScale === right.fontScale && left.headerTitle === right.headerTitle && left.effectsEnabled === right.effectsEnabled && left.maxVisible === right.maxVisible && left.overflowMode === right.overflowMode && left.overflowTempo === right.overflowTempo && left.numbered === right.numbered && left.doneOrder === right.doneOrder && left.globalTimerMode === right.globalTimerMode && left.globalTimerTotalMs === right.globalTimerTotalMs;
+  left !== null && left.styleId === right.styleId && left.surfaceOpacity === right.surfaceOpacity && left.headerStyle === right.headerStyle && left.fontFamily === right.fontFamily && left.fontScale === right.fontScale && left.headerTitle === right.headerTitle && left.penaltyText === right.penaltyText && left.effectsEnabled === right.effectsEnabled && left.maxVisible === right.maxVisible && left.overflowMode === right.overflowMode && left.overflowTempo === right.overflowTempo && left.numbered === right.numbered && left.doneOrder === right.doneOrder && left.globalTimerMode === right.globalTimerMode && left.globalTimerTotalMs === right.globalTimerTotalMs;
 
 const challengeSettingsWithDraft = (settings: ChallengeSettings, draft: ChallengeSettingsDraft | null, themeId: ChallengeThemeId): ChallengeSettings => {
   if (draft === null) return { ...settings, themeId };
@@ -156,6 +157,7 @@ const challengeSettingsWithDraft = (settings: ChallengeSettings, draft: Challeng
     fontFamily: draft.fontFamily,
     fontScale: draft.fontScale,
     headerTitle: draft.headerTitle,
+    penaltyText: draft.penaltyText,
     effectsEnabled: draft.effectsEnabled,
     maxVisible: draft.maxVisible,
     overflowMode: draft.overflowMode,
@@ -314,7 +316,7 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
       const globalTimerTotalMs = settingsDraft.globalTimerMode === "up"
         ? GLOBAL_TIMER_UP_CAP_MS
         : settingsDraft.globalTimerTotalMs;
-      const response = await saveChallengeSettings({ baseSettingsRevision: snapshot.settingsRevision, styleId: settingsDraft.styleId, themeMode: settings.themeMode, surfaceOpacity: settingsDraft.surfaceOpacity, headerStyle: settingsDraft.headerStyle, fontFamily: settingsDraft.fontFamily, fontScale: settingsDraft.fontScale, headerTitle: settingsDraft.headerTitle, effectsEnabled: settingsDraft.effectsEnabled, maxVisible: settingsDraft.maxVisible, overflowMode: settingsDraft.overflowMode, overflowTempo: settingsDraft.overflowTempo, numbered: settingsDraft.numbered, doneOrder: settingsDraft.doneOrder, globalTimerMode: settingsDraft.globalTimerMode === "off" ? "down" : settingsDraft.globalTimerMode, globalTimerTotalMs, placement: effectivePlacement });
+      const response = await saveChallengeSettings({ baseSettingsRevision: snapshot.settingsRevision, styleId: settingsDraft.styleId, themeMode: settings.themeMode, surfaceOpacity: settingsDraft.surfaceOpacity, headerStyle: settingsDraft.headerStyle, fontFamily: settingsDraft.fontFamily, fontScale: settingsDraft.fontScale, headerTitle: settingsDraft.headerTitle, penaltyText: settingsDraft.penaltyText, effectsEnabled: settingsDraft.effectsEnabled, maxVisible: settingsDraft.maxVisible, overflowMode: settingsDraft.overflowMode, overflowTempo: settingsDraft.overflowTempo, numbered: settingsDraft.numbered, doneOrder: settingsDraft.doneOrder, globalTimerMode: settingsDraft.globalTimerMode === "off" ? "down" : settingsDraft.globalTimerMode, globalTimerTotalMs, placement: effectivePlacement });
       // Derselbe Revisions-Guard wie in applyRemoteSnapshot: waehrend unsere Antwort
       // unterwegs war, kann per Socket schon eine neuere Revision eingetroffen sein
       // (zweiter Editor). Eine verspaetete eigene Antwort darf diesen neueren lokalen
@@ -369,6 +371,12 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
           <div className="settings-grid">
             <label><span>Titel</span><input aria-label="Titel" maxLength={24} disabled={disabled} type="text" value={settingsDraft.headerTitle} onChange={(event) => updateSettings({ headerTitle: event.target.value })} /></label>
             <label><span>Stil</span><select aria-label="Stil" disabled={disabled} value={settingsDraft.headerStyle} onChange={(event) => updateSettings({ headerStyle: event.target.value as ChallengeSettingsDraft["headerStyle"] })}><option value="default">Schlicht</option><option value="inverted">Akzentband</option></select></label>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>Fußzeile</legend>
+          <div className="settings-grid">
+            <label><span>Strafe</span><input aria-label="Strafe" maxLength={80} disabled={disabled} type="text" value={settingsDraft.penaltyText} onChange={(event) => updateSettings({ penaltyText: event.target.value })} /><small className="field-help">Bleibt leer, wenn du keine Strafe zeigen willst.</small></label>
           </div>
         </fieldset>
         <fieldset>

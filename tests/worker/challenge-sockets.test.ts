@@ -90,7 +90,7 @@ const resetTables = async (): Promise<void> => {
       `UPDATE wc_meta SET
         event_seq = 0, board_revision = 1, settings_revision = 1,
         style_id = 'plain-list', theme_mode = 'inherit', surface_opacity = 100, header_style = 'default',
-        header_title = 'CHALLENGES', effects_enabled = 1, max_visible = 5,
+        header_title = 'CHALLENGES', penalty_text = '', effects_enabled = 1, max_visible = 5,
         overflow_mode = 'cut', overflow_tempo = 'medium', numbered = 0, done_order = 'end',
         placement_x = 300, placement_y = 8, placement_scale = 1,
         global_timer_total_ms = NULL, global_timer_ends_at = NULL,
@@ -1029,6 +1029,7 @@ describe("Win-Challenges-Sockets", () => {
           fontFamily: "theme",
           fontScale: 1,
           headerTitle: "CHALLENGES",
+          penaltyText: "",
           effectsEnabled: true,
           maxVisible: 5,
           overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",

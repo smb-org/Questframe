@@ -45,7 +45,7 @@ const resetModuleTables = async (): Promise<void> => {
         event_seq = 0, board_revision = 1, settings_revision = 1,
         style_id = 'plain-list', theme_mode = 'inherit', surface_opacity = 100,
         font_family = 'theme', font_scale = 1,
-        header_title = 'CHALLENGES', effects_enabled = 1, max_visible = 5,
+        header_title = 'CHALLENGES', penalty_text = '', effects_enabled = 1, max_visible = 5,
         overflow_mode = 'cut', overflow_tempo = 'medium', numbered = 0, done_order = 'end',
         placement_x = 300, placement_y = 8, placement_scale = 1,
         global_timer_mode = 'down',
@@ -125,6 +125,7 @@ describe("win-challenges repository and migration", () => {
           font_family: string;
           font_scale: number;
           header_title: string;
+          penalty_text: string;
           effects_enabled: number;
           max_visible: number;
           overflow_mode: string;
@@ -161,6 +162,7 @@ describe("win-challenges repository and migration", () => {
     expect(result.versions).toContain(11);
     expect(result.versions).toContain(12);
     expect(result.versions).toContain(13);
+    expect(result.versions).toContain(14);
     expect(result.tables).toEqual([
       "wc_challenges",
       "wc_commands",
@@ -179,6 +181,7 @@ describe("win-challenges repository and migration", () => {
       "font_family",
       "font_scale",
       "header_title",
+      "penalty_text",
       "effects_enabled",
       "max_visible",
       "overflow_mode",
@@ -219,6 +222,7 @@ describe("win-challenges repository and migration", () => {
       font_family: "theme",
       font_scale: 1,
       header_title: "CHALLENGES",
+      penalty_text: "",
       effects_enabled: 1,
       max_visible: 5,
       overflow_mode: "cut",
@@ -389,6 +393,7 @@ describe("win-challenges repository and migration", () => {
           font_family: string;
           font_scale: number;
           header_title: string;
+          penalty_text: string;
           effects_enabled: number;
           max_visible: number;
           overflow_mode: string;
@@ -402,7 +407,7 @@ describe("win-challenges repository and migration", () => {
           global_timer_total_ms: number | null;
           global_timer_ends_at: string | null;
           global_timer_paused_remain_ms: number | null;
-        }>("SELECT singleton, event_seq, board_revision, settings_revision, style_id, theme_mode, surface_opacity, header_style, font_family, font_scale, header_title, effects_enabled, max_visible, overflow_mode, overflow_tempo, numbered, done_order, global_timer_mode, placement_x, placement_y, placement_scale, global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms FROM wc_meta WHERE singleton = 1").toArray()[0],
+        }>("SELECT singleton, event_seq, board_revision, settings_revision, style_id, theme_mode, surface_opacity, header_style, font_family, font_scale, header_title, penalty_text, effects_enabled, max_visible, overflow_mode, overflow_tempo, numbered, done_order, global_timer_mode, placement_x, placement_y, placement_scale, global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms FROM wc_meta WHERE singleton = 1").toArray()[0],
       };
     });
 
@@ -421,6 +426,7 @@ describe("win-challenges repository and migration", () => {
       font_family: "theme",
       font_scale: 1,
       header_title: "Legacy",
+      penalty_text: "",
       effects_enabled: 0,
       max_visible: 20,
       overflow_mode: "scroll",
@@ -482,6 +488,7 @@ describe("win-challenges repository and migration", () => {
       fontFamily: before.settings.fontFamily,
       fontScale: before.settings.fontScale,
       headerTitle: before.settings.headerTitle,
+      penaltyText: "Die nächste Challenge wird doppelt schwer.",
       effectsEnabled: before.settings.effectsEnabled,
       maxVisible: before.settings.maxVisible,
       overflowMode: before.settings.overflowMode,
@@ -494,7 +501,10 @@ describe("win-challenges repository and migration", () => {
       now,
     }));
 
-    expect((await inRepository((repository) => repository.readSnapshot())).settings.surfaceOpacity).toBe(25);
+    expect((await inRepository((repository) => repository.readSnapshot())).settings).toMatchObject({
+      surfaceOpacity: 25,
+      penaltyText: "Die nächste Challenge wird doppelt schwer.",
+    });
   });
 
   it("enforces the hidden Boolean CHECK constraint", async () => {
@@ -710,6 +720,7 @@ describe("win-challenges repository and migration", () => {
         fontFamily: "mono",
         fontScale: 1.5,
         headerTitle: "RUN",
+        penaltyText: "",
         effectsEnabled: false,
         maxVisible: 8,
         overflowMode: "page",
@@ -731,6 +742,7 @@ describe("win-challenges repository and migration", () => {
       fontFamily: "mono",
       fontScale: 1.5,
       headerTitle: "RUN",
+      penaltyText: "",
       effectsEnabled: false,
       overflowMode: "page",
       overflowTempo: "fast",
@@ -764,6 +776,7 @@ describe("win-challenges repository and migration", () => {
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
+        penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
         overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
@@ -802,6 +815,7 @@ describe("win-challenges repository and migration", () => {
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
+        penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
         overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
@@ -958,6 +972,7 @@ describe("win-challenges repository and migration", () => {
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
+        penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
         overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
@@ -1106,6 +1121,7 @@ describe("win-challenges repository and migration", () => {
           fontFamily: "theme",
           fontScale: 1,
           headerTitle: "CHALLENGES",
+          penaltyText: "",
           effectsEnabled: true,
           maxVisible: 5,
           overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",

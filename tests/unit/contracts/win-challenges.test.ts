@@ -21,6 +21,7 @@ import {
   isGlobalTimerMode,
   isHeaderStyle,
   isHeaderTitle,
+  isPenaltyText,
   isInstant,
   isGlobalTimerTotalMs,
   isMaxVisible,
@@ -69,6 +70,7 @@ const settings = {
   fontFamily: "theme" as const,
   fontScale: 1,
   headerTitle: "CHALLENGES",
+  penaltyText: "",
   effectsEnabled: true,
   maxVisible: 5,
   overflowMode: "cut" as const,
@@ -290,6 +292,17 @@ describe("Win-Challenges-Verträge", () => {
           { value: "e\u0301", accepted: true },
           { value: "x".repeat(24), accepted: true },
           { value: "x".repeat(25), accepted: false },
+        ],
+      },
+      {
+        name: "penaltyText",
+        predicate: isPenaltyText,
+        schema: (value: unknown) => settingsSchema.safeParse({ ...settings, penaltyText: value }).success,
+        values: [
+          { value: "", accepted: true },
+          { value: "  ", accepted: true },
+          { value: "x".repeat(80), accepted: true },
+          { value: "x".repeat(81), accepted: false },
         ],
       },
       {

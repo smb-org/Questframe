@@ -155,6 +155,9 @@ export const isChallengePlacement = (value: unknown): value is ChallengePlacemen
 export const isHeaderTitle = (value: unknown): value is string =>
   isNormalizedText(value, 1, 24);
 
+export const isPenaltyText = (value: unknown): value is string =>
+  isNormalizedText(value, 0, 80);
+
 export const isChallengeId = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0;
 

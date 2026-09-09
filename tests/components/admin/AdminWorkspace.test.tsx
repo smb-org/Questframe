@@ -128,6 +128,7 @@ describe("Admin workspace shell", () => {
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
+        penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
         overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
@@ -168,6 +169,7 @@ describe("Admin workspace shell", () => {
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
+        penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
         overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
@@ -197,6 +199,7 @@ describe("Admin workspace shell", () => {
     expect(challengesPanel.getByText("nur bei Blättern und Durchlaufen")).toBeInTheDocument();
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Listenart" }), { target: { value: "quest-log" } });
     fireEvent.change(challengesPanel.getByLabelText("Titel"), { target: { value: "RUN" } });
+    fireEvent.change(challengesPanel.getByLabelText("Strafe"), { target: { value: "Keine Pizza" } });
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Hintergrund" }), { target: { value: "0" } });
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Stil" }), { target: { value: "inverted" } });
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Sichtbare Einträge" }), { target: { value: "8" } });
@@ -220,6 +223,7 @@ describe("Admin workspace shell", () => {
       surfaceOpacity: 0,
       headerStyle: "inverted",
       headerTitle: "RUN",
+      penaltyText: "Keine Pizza",
       maxVisible: 8,
       overflowMode: "page",
       overflowTempo: "fast",
@@ -236,13 +240,13 @@ describe("Admin workspace shell", () => {
     expect(await screen.findByText("Für den Modus ‚runterzählen‘ ist eine Dauer erforderlich.")).toBeInTheDocument();
   });
 
-  it("findet alle sechs Darstellungsgruppen über ihre Legende", async () => {
+  it("findet alle sieben Darstellungsgruppen über ihre Legende", async () => {
     const challengeSnapshot: ChallengeBoardSnapshot = {
       eventSeq: 0,
       boardRevision: 1,
       settingsRevision: 1,
       settings: {
-        styleId: "plain-list", themeMode: "inherit", surfaceOpacity: 100, headerStyle: "default", headerTitle: "CHALLENGES", effectsEnabled: true,
+        styleId: "plain-list", themeMode: "inherit", surfaceOpacity: 100, headerStyle: "default", headerTitle: "CHALLENGES", penaltyText: "", effectsEnabled: true,
         fontFamily: "theme", fontScale: 1,
         maxVisible: 8, overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null, placement: { x: 300, y: 8, scale: 1 },
@@ -260,7 +264,7 @@ describe("Admin workspace shell", () => {
     render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="challenges" />);
 
     const panel = within(await screen.findByRole("region", { name: "Darstellung" }));
-    for (const name of ["Aussehen", "Kopfzeile", "Einträge", "Timer", "Position im Stream", "Ereignisse"]) {
+    for (const name of ["Aussehen", "Kopfzeile", "Fußzeile", "Einträge", "Timer", "Position im Stream", "Ereignisse"]) {
       expect(panel.getByRole("group", { name })).toBeInTheDocument();
     }
     expect(panel.getByText("Die Vorschau links zeigt den Entwurf.")).toBeInTheDocument();
@@ -279,6 +283,7 @@ describe("Admin workspace shell", () => {
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
+        penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
         overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
@@ -319,6 +324,7 @@ describe("Admin workspace shell", () => {
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
+        penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
         overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
@@ -363,7 +369,7 @@ describe("Admin workspace shell", () => {
       boardRevision: 1,
       settingsRevision: 1,
       settings: {
-        styleId: "plain-list", themeMode: "inherit", surfaceOpacity: 100, headerStyle: "default", headerTitle: "CHALLENGES", effectsEnabled: true,
+        styleId: "plain-list", themeMode: "inherit", surfaceOpacity: 100, headerStyle: "default", headerTitle: "CHALLENGES", penaltyText: "", effectsEnabled: true,
         fontFamily: "theme", fontScale: 1,
         maxVisible: 5, overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: { totalMs: 60_000, endsAt: new Date(Date.now() + 30_000).toISOString(), pausedRemainMs: null }, placement: { x: 300, y: 8, scale: 1 },
@@ -418,6 +424,7 @@ describe("Admin workspace shell", () => {
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
+        penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
         overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
@@ -467,6 +474,7 @@ describe("Admin workspace shell", () => {
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
+        penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
         overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
@@ -518,6 +526,7 @@ describe("Admin workspace shell", () => {
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
+        penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
         overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
@@ -577,6 +586,7 @@ describe("Admin workspace shell", () => {
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
+        penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
         overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
@@ -637,6 +647,7 @@ describe("Admin workspace shell", () => {
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
+        penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
         overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
@@ -688,6 +699,7 @@ describe("Admin workspace shell", () => {
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
+        penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
         overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
@@ -816,6 +828,7 @@ describe("Admin workspace setup", () => {
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
+        penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
         overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",

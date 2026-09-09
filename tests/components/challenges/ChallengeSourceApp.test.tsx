@@ -85,6 +85,7 @@ const message = (): ChallengeUpdate => ({
     fontFamily: "theme",
     fontScale: 1,
     headerTitle: "CHALLENGES",
+    penaltyText: "",
     effectsEnabled: true,
     maxVisible: 5,
     overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
@@ -758,6 +759,21 @@ describe("ChallengeSourceApp", () => {
 
     expect(screen.getByText("ABENTEUER")).toBeInTheDocument();
     expect(screen.getByText("1 / 2")).toBeInTheDocument();
+  });
+
+  it("zeigt die Strafe als Fußzeile und hält das leere Feld unsichtbar", () => {
+    const current = message();
+    const view = render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      settings: { ...current.settings, penaltyText: "Keine Pizza für dich" },
+    })} />);
+
+    expect(document.querySelector(".challenge-source__penalty")).toHaveTextContent("Strafe");
+    expect(document.querySelector(".challenge-source__penalty-text")).toHaveTextContent("Keine Pizza für dich");
+
+    view.rerender(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      settings: { ...current.settings, penaltyText: "   " },
+    })} />);
+    expect(document.querySelector(".challenge-source__penalty")).toBeNull();
   });
 
   it("blättert synchron durch Seiten, hält die gepinnte Challenge fest und zieht Zeremonienziele auf die aktuelle Seite", () => {
