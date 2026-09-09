@@ -102,7 +102,7 @@ function splitCssSelectorList(selectorList: string): string[] {
 }
 
 describe("Challenge-Quelle-CSS", () => {
-  it("liefert das eigene surface-Preset und das gekoppelte bare-Preset", () => {
+  it("liefert das eigene surface-Preset sowie getrennte bare- und strong-Presets", () => {
     expect(sourceCss).toContain("--wc-surface: rgba(13, 16, 19, 0.88);");
     expect(sourceCss).toContain("--wc-bare-shadow: none;");
     expect(sourceCss).toContain("font-weight: 500;");
@@ -119,10 +119,20 @@ describe("Challenge-Quelle-CSS", () => {
     expect(bareBlock).toContain("--wc-title-size: var(--wc-bare-title-size);");
     expect(bareBlock).toContain("--wc-timer-size: var(--wc-bare-timer-size);");
     expect(bareBlock).toContain("--wc-meta-size: var(--wc-bare-meta-size);");
-    expect(bareBlock).toContain(
+    expect(bareBlock).not.toContain("font-weight");
+    expect(bareBlock).not.toContain("text-shadow");
+    expect(bareBlock).not.toContain("--wc-bare-shadow");
+
+    const strongBlock = sourceCss.match(
+      /\[data-theme-mode\]\[data-text-emphasis="strong"\]\s*\{([^}]*)\}/,
+    )?.[1] ?? "";
+    expect(strongBlock).toContain(
       "--wc-bare-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 6px rgba(0, 0, 0, 0.7);",
     );
-    expect(bareBlock).toContain("--wc-title-weight: 700;");
+    expect(strongBlock).toContain("--wc-title-weight: 700;");
+    expect(strongBlock).toContain("--wc-label-weight: 700;");
+    expect(strongBlock).toContain("font-weight: 700;");
+    expect(strongBlock).toContain("text-shadow: var(--wc-bare-shadow);");
   });
 
   it("blendet erledigte Zeilen ab, ohne ihre Fläche mitzunehmen", () => {
@@ -135,7 +145,7 @@ describe("Challenge-Quelle-CSS", () => {
     expect(sourceCss).toContain(".challenge-source__row--done > * {");
   });
 
-  it("gibt Haarlinie, Fortschrittsbalken und Timer-Puls denselben bare-Halo", () => {
+  it("gibt Haarlinie, Fortschrittsbalken und Timer-Puls denselben strong-Halo", () => {
     const bareShadow = "box-shadow: var(--wc-bare-shadow);";
     const hairline = sourceCss.match(/\.challenge-source__header::after[\s\S]*?\{([^}]*)\}/)?.[1] ?? "";
     const progress = sourceCss.match(/\.challenge-source__progress\s*\{([^}]*)\}/)?.[1] ?? "";

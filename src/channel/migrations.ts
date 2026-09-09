@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS wc_meta (
   theme_mode TEXT NOT NULL CHECK (theme_mode IN ('inherit', 'own')),
   surface_opacity INTEGER NOT NULL DEFAULT 100 CHECK (surface_opacity IN (0,25,50,75,100)),
   header_style TEXT NOT NULL DEFAULT 'default' CHECK (header_style IN ('default','inverted')),
+  text_emphasis TEXT NOT NULL DEFAULT 'auto' CHECK (text_emphasis IN ('auto','strong','plain')),
   font_family TEXT NOT NULL DEFAULT 'theme' CHECK (font_family IN ('theme','atkinson','serif','sans','mono')),
   font_scale REAL NOT NULL DEFAULT 1 CHECK (font_scale BETWEEN 0.75 AND 2),
   header_title TEXT NOT NULL,
@@ -164,13 +165,13 @@ CREATE TABLE IF NOT EXISTS wc_dock_tokens (
 );
 INSERT INTO wc_meta(
   singleton, event_seq, board_revision, settings_revision, style_id,
-  theme_mode, surface_opacity, header_title, penalty_label, penalty_text, effects_enabled,
+  theme_mode, surface_opacity, header_style, text_emphasis, header_title, penalty_label, penalty_text, effects_enabled,
   max_visible,
   overflow_mode, overflow_tempo, numbered, done_order,
   global_timer_mode,
   placement_x, placement_y, placement_scale,
   global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms
-) VALUES (1, 0, 1, 1, 'plain-list', 'inherit', 100, 'CHALLENGES', 'STRAFE', '', 1,
+) VALUES (1, 0, 1, 1, 'plain-list', 'inherit', 100, 'default', 'auto', 'CHALLENGES', 'STRAFE', '', 1,
   5, 'cut', 'medium', 0, 'end', 'down', 300, 8, 1, NULL, NULL, NULL)
 ON CONFLICT(singleton) DO NOTHING;
 `;
@@ -259,6 +260,7 @@ CREATE TABLE wc_meta_migration_11 (
   theme_mode TEXT NOT NULL CHECK (theme_mode IN ('inherit', 'own')),
   surface_opacity INTEGER NOT NULL DEFAULT 100 CHECK (surface_opacity IN (0,25,50,75,100)),
   header_style TEXT NOT NULL DEFAULT 'default' CHECK (header_style IN ('default','inverted')),
+  text_emphasis TEXT NOT NULL DEFAULT 'auto' CHECK (text_emphasis IN ('auto','strong','plain')),
   font_family TEXT NOT NULL DEFAULT 'theme' CHECK (font_family IN ('theme','atkinson','serif','sans','mono')),
   font_scale REAL NOT NULL DEFAULT 1 CHECK (font_scale BETWEEN 0.75 AND 2),
   header_title TEXT NOT NULL,
@@ -285,14 +287,14 @@ CREATE TABLE wc_meta_migration_11 (
 );
 INSERT INTO wc_meta_migration_11(
   singleton, event_seq, board_revision, settings_revision, style_id,
-  theme_mode, surface_opacity, header_style, header_title, effects_enabled,
+  theme_mode, surface_opacity, header_style, text_emphasis, header_title, effects_enabled,
   max_visible, overflow_mode, overflow_tempo, numbered, done_order,
   global_timer_mode, placement_x, placement_y, placement_scale,
   global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms
 )
 SELECT
   singleton, event_seq, board_revision, settings_revision, style_id,
-  theme_mode, ${surfaceOpacityExpression}, header_style, header_title, effects_enabled,
+  theme_mode, ${surfaceOpacityExpression}, header_style, 'auto', header_title, effects_enabled,
   max_visible, overflow_mode, overflow_tempo, numbered, done_order,
   global_timer_mode, placement_x, placement_y, placement_scale,
   global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms
@@ -323,6 +325,7 @@ const hasChallengeTimerRemain = (sql: SqlStorage): boolean =>
 
 const MIGRATION_14_PENALTY_TEXT = "ALTER TABLE wc_meta ADD COLUMN penalty_text TEXT NOT NULL DEFAULT '';";
 const MIGRATION_15_PENALTY_LABEL = "ALTER TABLE wc_meta ADD COLUMN penalty_label TEXT NOT NULL DEFAULT 'STRAFE';";
+const MIGRATION_16_TEXT_EMPHASIS = "ALTER TABLE wc_meta ADD COLUMN text_emphasis TEXT NOT NULL DEFAULT 'auto' CHECK (text_emphasis IN ('auto','strong','plain'));";
 
 export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
   sql.exec(MIGRATION_1);
@@ -526,6 +529,18 @@ export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
     sql.exec(
       "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
       15,
+      buildId,
+      new Date().toISOString(),
+    );
+  }
+  const versionSixteenWasApplied = sql
+    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 16")
+    .toArray().length > 0;
+  if (!versionSixteenWasApplied) {
+    if (!hasChallengeMetaColumn(sql, "text_emphasis")) sql.exec(MIGRATION_16_TEXT_EMPHASIS);
+    sql.exec(
+      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
+      16,
       buildId,
       new Date().toISOString(),
     );

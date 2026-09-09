@@ -37,6 +37,7 @@ import {
   isThemeId,
   isThemeMode,
   isChallengeSurfaceOpacity,
+  isChallengeTextEmphasis,
   isTimerTotalMs,
   isTimerRemainMs,
   MAX_CHALLENGES,
@@ -94,6 +95,7 @@ const parseSettings = (input: unknown): ChallengeSettings | null => {
       "themeMode",
       "surfaceOpacity",
       "headerStyle",
+      "textEmphasis",
       "fontFamily",
       "fontScale",
       "headerTitle",
@@ -114,6 +116,7 @@ const parseSettings = (input: unknown): ChallengeSettings | null => {
     !isThemeMode(input.themeMode) ||
     !isChallengeSurfaceOpacity(input.surfaceOpacity) ||
     !isHeaderStyle(input.headerStyle) ||
+    !isChallengeTextEmphasis(input.textEmphasis) ||
     !isChallengeFontFamily(input.fontFamily) ||
     !isChallengeFontScale(input.fontScale) ||
     !isHeaderTitle(input.headerTitle) ||

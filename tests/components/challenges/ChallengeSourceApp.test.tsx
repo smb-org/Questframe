@@ -82,6 +82,7 @@ const message = (): ChallengeUpdate => ({
     themeMode: "inherit",
     surfaceOpacity: 100,
     headerStyle: "default",
+    textEmphasis: "auto",
     fontFamily: "theme",
     fontScale: 1,
     headerTitle: "CHALLENGES",
@@ -711,6 +712,24 @@ describe("ChallengeSourceApp", () => {
     const source = document.querySelector(".challenge-source");
     expect(source).toHaveAttribute("data-surface-mode", "bare");
     expect(source).toHaveStyle("--wc-surface-opacity: 0.25");
+  });
+
+  it("löst den Schrifteffekt unabhängig von der Flächenopazität auf", () => {
+    const cases = [
+      { label: "automatisch bei voller Deckkraft", surfaceOpacity: 100 as const, textEmphasis: "auto" as const, expectedEmphasis: "plain", expectedSurface: "surface" },
+      { label: "automatisch bei 25 Prozent", surfaceOpacity: 25 as const, textEmphasis: "auto" as const, expectedEmphasis: "strong", expectedSurface: "bare" },
+      { label: "kräftig bei voller Deckkraft", surfaceOpacity: 100 as const, textEmphasis: "strong" as const, expectedEmphasis: "strong", expectedSurface: "surface" },
+    ] as const;
+
+    for (const testCase of cases) {
+      const view = render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+        settings: { ...message().settings, surfaceOpacity: testCase.surfaceOpacity, textEmphasis: testCase.textEmphasis },
+      })} />);
+      const source = document.querySelector(".challenge-source");
+      expect(source, testCase.label).toHaveAttribute("data-text-emphasis", testCase.expectedEmphasis);
+      expect(source, testCase.label).toHaveAttribute("data-surface-mode", testCase.expectedSurface);
+      view.unmount();
+    }
   });
 
   it("belässt bei 50 Prozent das Surface-Preset", () => {

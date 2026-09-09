@@ -15,6 +15,7 @@ import {
   isChallengeFontFamily,
   isChallengeFontScale,
   isChallengeSurfaceOpacity,
+  isChallengeTextEmphasis,
   isCurrentCount,
   isDoneOrder,
   isDelta,
@@ -68,6 +69,7 @@ const settings = {
   themeMode: "inherit" as const,
   surfaceOpacity: 100 as const,
   headerStyle: "default" as const,
+  textEmphasis: "auto" as const,
   fontFamily: "theme" as const,
   fontScale: 1,
   headerTitle: "CHALLENGES",
@@ -325,6 +327,17 @@ describe("Win-Challenges-Verträge", () => {
         values: [
           { value: "default", accepted: true },
           { value: "inverted", accepted: true },
+          { value: "unknown", accepted: false },
+        ],
+      },
+      {
+        name: "textEmphasis",
+        predicate: isChallengeTextEmphasis,
+        schema: (value: unknown) => settingsSchema.safeParse({ ...settings, textEmphasis: value }).success,
+        values: [
+          { value: "auto", accepted: true },
+          { value: "strong", accepted: true },
+          { value: "plain", accepted: true },
           { value: "unknown", accepted: false },
         ],
       },

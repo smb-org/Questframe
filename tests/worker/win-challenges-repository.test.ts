@@ -123,6 +123,7 @@ describe("win-challenges repository and migration", () => {
           theme_mode: string;
           surface_opacity: number;
           header_style: string;
+          text_emphasis: string;
           font_family: string;
           font_scale: number;
           header_title: string;
@@ -166,6 +167,7 @@ describe("win-challenges repository and migration", () => {
     expect(result.versions).toContain(13);
     expect(result.versions).toContain(14);
     expect(result.versions).toContain(15);
+    expect(result.versions).toContain(16);
     expect(result.tables).toEqual([
       "wc_challenges",
       "wc_commands",
@@ -181,6 +183,7 @@ describe("win-challenges repository and migration", () => {
       "theme_mode",
       "surface_opacity",
       "header_style",
+      "text_emphasis",
       "font_family",
       "font_scale",
       "header_title",
@@ -223,6 +226,7 @@ describe("win-challenges repository and migration", () => {
       theme_mode: "inherit",
       surface_opacity: 100,
       header_style: "default",
+      text_emphasis: "auto",
       font_family: "theme",
       font_scale: 1,
       header_title: "CHALLENGES",
@@ -244,16 +248,21 @@ describe("win-challenges repository and migration", () => {
     });
   });
 
-  it("fügt einer Version-14-Datenbank das Strafen-Label mit Vorgabewert hinzu", async () => {
+  it("fügt einer alten Datenbank Strafen-Label und Schrifteffekt mit Vorgabewert hinzu", async () => {
     const result = await runInDurableObject(migrationFifteenStub, (_instance, state) => {
       runMigrations(state.storage.sql, "worker-test-before-penalty-label");
       state.storage.sql.exec("ALTER TABLE wc_meta DROP COLUMN penalty_label");
+      state.storage.sql.exec("ALTER TABLE wc_meta DROP COLUMN text_emphasis");
       state.storage.sql.exec("DELETE FROM _sql_schema_migrations WHERE version = 15");
+      state.storage.sql.exec("DELETE FROM _sql_schema_migrations WHERE version = 16");
       runMigrations(state.storage.sql, "worker-test-penalty-label");
       return {
         label: state.storage.sql
           .exec<{ penalty_label: string }>("SELECT penalty_label FROM wc_meta WHERE singleton = 1")
           .toArray()[0]?.penalty_label,
+        textEmphasis: state.storage.sql
+          .exec<{ text_emphasis: string }>("SELECT text_emphasis FROM wc_meta WHERE singleton = 1")
+          .toArray()[0]?.text_emphasis,
         versions: state.storage.sql
           .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
           .toArray()
@@ -262,7 +271,9 @@ describe("win-challenges repository and migration", () => {
     });
 
     expect(result.label).toBe("STRAFE");
+    expect(result.textEmphasis).toBe("auto");
     expect(result.versions).toContain(15);
+    expect(result.versions).toContain(16);
   });
 
   it("überführt alte Meta-Zeilen mit plain-numbered und max_visible vollständig", async () => {
@@ -313,6 +324,7 @@ describe("win-challenges repository and migration", () => {
           global_timer_mode: string;
         }>("SELECT style_id, numbered, placement_x, placement_y, placement_scale, global_timer_mode FROM wc_meta WHERE singleton = 1").toArray()[0],
         headerStyle: state.storage.sql.exec<{ header_style: string }>("SELECT header_style FROM wc_meta WHERE singleton = 1").toArray()[0]?.header_style,
+        textEmphasis: state.storage.sql.exec<{ text_emphasis: string }>("SELECT text_emphasis FROM wc_meta WHERE singleton = 1").toArray()[0]?.text_emphasis,
         fontSettings: state.storage.sql.exec<{ font_family: string; font_scale: number }>("SELECT font_family, font_scale FROM wc_meta WHERE singleton = 1").toArray()[0],
         surfaceOpacity: state.storage.sql.exec<{ surface_opacity: number }>("SELECT surface_opacity FROM wc_meta WHERE singleton = 1").toArray()[0]?.surface_opacity,
         surfaceColumns: state.storage.sql.exec<{ name: string }>("PRAGMA table_info(wc_meta)").toArray().map(({ name }) => name),
@@ -325,10 +337,13 @@ describe("win-challenges repository and migration", () => {
     expect(placement.versions).toContain(10);
     expect(placement.versions).toContain(12);
     expect(placement.versions).toContain(13);
+    expect(placement.versions).toContain(16);
     expect(placement.headerStyle).toBe("default");
+    expect(placement.textEmphasis).toBe("auto");
     expect(placement.fontSettings).toEqual({ font_family: "theme", font_scale: 1 });
     expect(placement.surfaceOpacity).toBe(100);
     expect(placement.surfaceColumns).toContain("surface_opacity");
+    expect(placement.surfaceColumns).toContain("text_emphasis");
     expect(placement.surfaceColumns).not.toContain("surface_mode");
     const columns = await runInDurableObject(legacyStub, (_instance, state) => state.storage.sql.exec<{ name: string }>("PRAGMA table_info(wc_meta)").toArray().map(({ name }) => name));
     expect(columns).toContain("max_visible");
@@ -416,6 +431,7 @@ describe("win-challenges repository and migration", () => {
           theme_mode: string;
           surface_opacity: number;
           header_style: string;
+          text_emphasis: string;
           font_family: string;
           font_scale: number;
           header_title: string;
@@ -433,7 +449,7 @@ describe("win-challenges repository and migration", () => {
           global_timer_total_ms: number | null;
           global_timer_ends_at: string | null;
           global_timer_paused_remain_ms: number | null;
-        }>("SELECT singleton, event_seq, board_revision, settings_revision, style_id, theme_mode, surface_opacity, header_style, font_family, font_scale, header_title, penalty_text, effects_enabled, max_visible, overflow_mode, overflow_tempo, numbered, done_order, global_timer_mode, placement_x, placement_y, placement_scale, global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms FROM wc_meta WHERE singleton = 1").toArray()[0],
+        }>("SELECT singleton, event_seq, board_revision, settings_revision, style_id, theme_mode, surface_opacity, header_style, text_emphasis, font_family, font_scale, header_title, penalty_text, effects_enabled, max_visible, overflow_mode, overflow_tempo, numbered, done_order, global_timer_mode, placement_x, placement_y, placement_scale, global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms FROM wc_meta WHERE singleton = 1").toArray()[0],
       };
     });
 
@@ -449,6 +465,7 @@ describe("win-challenges repository and migration", () => {
       theme_mode: "own",
       surface_opacity: 0,
       header_style: "inverted",
+      text_emphasis: "auto",
       font_family: "theme",
       font_scale: 1,
       header_title: "Legacy",
@@ -511,6 +528,7 @@ describe("win-challenges repository and migration", () => {
       themeMode: before.settings.themeMode,
       surfaceOpacity: 25,
       headerStyle: before.settings.headerStyle,
+      textEmphasis: before.settings.textEmphasis,
       fontFamily: before.settings.fontFamily,
       fontScale: before.settings.fontScale,
       headerTitle: before.settings.headerTitle,
@@ -745,6 +763,7 @@ describe("win-challenges repository and migration", () => {
         themeMode: "own",
         surfaceOpacity: 0,
         headerStyle: "inverted",
+        textEmphasis: "strong",
         fontFamily: "mono",
         fontScale: 1.5,
         headerTitle: "RUN",
@@ -768,6 +787,7 @@ describe("win-challenges repository and migration", () => {
       themeMode: "own",
       surfaceOpacity: 0,
       headerStyle: "inverted",
+      textEmphasis: "strong",
       fontFamily: "mono",
       fontScale: 1.5,
       headerTitle: "RUN",
@@ -783,7 +803,7 @@ describe("win-challenges repository and migration", () => {
       globalTimerMode: "up",
     });
     const reloaded = await inRepository((repository) => repository.readSnapshot());
-    expect(reloaded.settings).toMatchObject({ fontFamily: "mono", fontScale: 1.5 });
+    expect(reloaded.settings).toMatchObject({ textEmphasis: "strong", fontFamily: "mono", fontScale: 1.5 });
     expect((await readGlobalTimerRow()).global_timer_mode).toBe("up");
   });
 
@@ -803,6 +823,7 @@ describe("win-challenges repository and migration", () => {
         themeMode: "inherit",
         surfaceOpacity: 100,
         headerStyle: "default",
+        textEmphasis: "auto",
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
@@ -843,6 +864,7 @@ describe("win-challenges repository and migration", () => {
         themeMode: "inherit",
         surfaceOpacity: 100,
         headerStyle: "default",
+        textEmphasis: "auto",
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
@@ -1001,6 +1023,7 @@ describe("win-challenges repository and migration", () => {
         themeMode: "inherit",
         surfaceOpacity: 100,
         headerStyle: "default",
+        textEmphasis: "auto",
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
@@ -1151,6 +1174,7 @@ describe("win-challenges repository and migration", () => {
           themeMode: "inherit",
           surfaceOpacity: 100,
           headerStyle: "default",
+          textEmphasis: "auto",
           fontFamily: "theme",
           fontScale: 1,
           headerTitle: "CHALLENGES",
@@ -1178,7 +1202,7 @@ describe("win-challenges repository and migration", () => {
     });
     expect(mutation).toMatchObject({ rowsWritten: 4, rowsRead: 5 });
     expect(board).toMatchObject({ rowsWritten: 7, rowsRead: 15 });
-    expect(settings).toMatchObject({ rowsWritten: 1, rowsRead: 19 });
+    expect(settings).toMatchObject({ rowsWritten: 1, rowsRead: 20 });
     expect(snapshot).toMatchObject({ rowsWritten: 0, rowsRead: 7 });
   });
 });

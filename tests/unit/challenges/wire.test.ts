@@ -16,6 +16,7 @@ const update = (): ChallengeUpdate => ({
     themeMode: "inherit",
     surfaceOpacity: 100,
     headerStyle: "default",
+    textEmphasis: "auto",
     fontFamily: "theme",
     fontScale: 1,
     headerTitle: "CHALLENGES",
@@ -168,6 +169,13 @@ describe("Challenge-Quelle-Wire", () => {
     expect(parseChallengeUpdate({
       ...update(),
       settings: { ...update().settings, headerStyle: "unknown" },
+    })).toBeNull();
+  });
+
+  it("weist einen unbekannten Schrifteffekt zurück", () => {
+    expect(parseChallengeUpdate({
+      ...update(),
+      settings: { ...update().settings, textEmphasis: "unknown" },
     })).toBeNull();
   });
 

@@ -25,6 +25,9 @@ export const ChallengeCeremonyStage = ({
     data-ceremony-type={presentation.activeCeremony?.visual}
     data-style={update.settings.styleId}
     data-surface-mode={update.settings.surfaceOpacity < 50 ? "bare" : "surface"}
+    data-text-emphasis={update.settings.textEmphasis === "auto"
+      ? update.settings.surfaceOpacity < 50 ? "strong" : "plain"
+      : update.settings.textEmphasis}
     data-header-style={update.settings.headerStyle}
     data-font-family={update.settings.fontFamily}
   >

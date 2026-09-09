@@ -125,6 +125,7 @@ describe("Admin workspace shell", () => {
         themeMode: "inherit",
         surfaceOpacity: 100,
         headerStyle: "default",
+        textEmphasis: "auto",
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
@@ -167,6 +168,7 @@ describe("Admin workspace shell", () => {
         themeMode: "inherit",
         surfaceOpacity: 100,
         headerStyle: "default",
+        textEmphasis: "auto",
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
@@ -205,6 +207,7 @@ describe("Admin workspace shell", () => {
     fireEvent.change(challengesPanel.getByLabelText("Strafen-Titel"), { target: { value: "Konsequenz" } });
     fireEvent.change(challengesPanel.getByLabelText("Strafe"), { target: { value: "Keine Pizza" } });
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Hintergrund" }), { target: { value: "0" } });
+    fireEvent.change(challengesPanel.getByRole("combobox", { name: "Schrifteffekt" }), { target: { value: "strong" } });
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Stil" }), { target: { value: "inverted" } });
     fireEvent.change(challengesPanel.getByRole("combobox", { name: "Sichtbare Einträge" }), { target: { value: "8" } });
     expect(challengesPanel.getByRole("combobox", { name: "Bei mehr als 8 Einträgen" })).toBeInTheDocument();
@@ -227,6 +230,7 @@ describe("Admin workspace shell", () => {
       styleId: "quest-log",
       surfaceOpacity: 0,
       headerStyle: "inverted",
+      textEmphasis: "strong",
       headerTitle: "RUN",
       penaltyLabel: "Konsequenz",
       penaltyText: "Keine Pizza",
@@ -252,7 +256,7 @@ describe("Admin workspace shell", () => {
       boardRevision: 1,
       settingsRevision: 1,
       settings: {
-        styleId: "plain-list", themeMode: "inherit", surfaceOpacity: 100, headerStyle: "default", headerTitle: "CHALLENGES", penaltyLabel: "STRAFE", penaltyText: "", effectsEnabled: true,
+        styleId: "plain-list", themeMode: "inherit", surfaceOpacity: 100, headerStyle: "default", textEmphasis: "auto", headerTitle: "CHALLENGES", penaltyLabel: "STRAFE", penaltyText: "", effectsEnabled: true,
         fontFamily: "theme", fontScale: 1,
         maxVisible: 8, overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null, placement: { x: 300, y: 8, scale: 1 },
@@ -296,6 +300,7 @@ describe("Admin workspace shell", () => {
         themeMode: "inherit",
         surfaceOpacity: 100,
         headerStyle: "default",
+        textEmphasis: "auto",
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
@@ -338,6 +343,7 @@ describe("Admin workspace shell", () => {
         themeMode: "inherit",
         surfaceOpacity: 100,
         headerStyle: "default",
+        textEmphasis: "auto",
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
@@ -387,7 +393,7 @@ describe("Admin workspace shell", () => {
       boardRevision: 1,
       settingsRevision: 1,
       settings: {
-        styleId: "plain-list", themeMode: "inherit", surfaceOpacity: 100, headerStyle: "default", headerTitle: "CHALLENGES", penaltyLabel: "STRAFE", penaltyText: "", effectsEnabled: true,
+        styleId: "plain-list", themeMode: "inherit", surfaceOpacity: 100, headerStyle: "default", textEmphasis: "auto", headerTitle: "CHALLENGES", penaltyLabel: "STRAFE", penaltyText: "", effectsEnabled: true,
         fontFamily: "theme", fontScale: 1,
         maxVisible: 5, overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: { totalMs: 60_000, endsAt: new Date(Date.now() + 30_000).toISOString(), pausedRemainMs: null }, placement: { x: 300, y: 8, scale: 1 },
@@ -439,6 +445,7 @@ describe("Admin workspace shell", () => {
         themeMode: "inherit",
         surfaceOpacity: 100,
         headerStyle: "default",
+        textEmphasis: "auto",
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
@@ -490,6 +497,7 @@ describe("Admin workspace shell", () => {
         themeMode: "inherit",
         surfaceOpacity: 100,
         headerStyle: "default",
+        textEmphasis: "auto",
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
@@ -543,6 +551,7 @@ describe("Admin workspace shell", () => {
         themeMode: "inherit",
         surfaceOpacity: 100,
         headerStyle: "default",
+        textEmphasis: "auto",
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
@@ -604,6 +613,7 @@ describe("Admin workspace shell", () => {
         themeMode: "inherit",
         surfaceOpacity: 100,
         headerStyle: "default",
+        textEmphasis: "auto",
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
@@ -666,6 +676,7 @@ describe("Admin workspace shell", () => {
         themeMode: "inherit",
         surfaceOpacity: 100,
         headerStyle: "default",
+        textEmphasis: "auto",
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
@@ -719,6 +730,7 @@ describe("Admin workspace shell", () => {
         themeMode: "inherit",
         surfaceOpacity: 100,
         headerStyle: "default",
+        textEmphasis: "auto",
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
@@ -849,6 +861,7 @@ describe("Admin workspace setup", () => {
         themeMode: "inherit",
         surfaceOpacity: 100,
         headerStyle: "default",
+        textEmphasis: "auto",
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",

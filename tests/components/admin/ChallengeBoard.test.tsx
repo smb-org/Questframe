@@ -48,6 +48,7 @@ const snapshot = (
     themeMode: "inherit",
     surfaceOpacity: 100,
     headerStyle: "default",
+    textEmphasis: "auto",
     fontFamily: "theme",
     fontScale: 1,
     headerTitle: "CHALLENGES",

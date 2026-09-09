@@ -45,6 +45,7 @@ type MetaRow = {
   theme_mode: string;
   surface_opacity: number;
   header_style: string;
+  text_emphasis: string;
   font_family: string;
   font_scale: number;
   header_title: string;
@@ -109,6 +110,7 @@ const metaRowSchema = z.strictObject({
   theme_mode: z.string(),
   surface_opacity: z.number().int(),
   header_style: z.string(),
+  text_emphasis: z.string(),
   font_family: z.string(),
   font_scale: z.number(),
   header_title: z.string(),
@@ -204,6 +206,7 @@ const parseMeta = (row: MetaRow): ChallengeSnapshot["settings"] &
     themeMode: parsedRow.theme_mode,
     surfaceOpacity: parsedRow.surface_opacity,
     headerStyle: parsedRow.header_style,
+    textEmphasis: parsedRow.text_emphasis,
     fontFamily: parsedRow.font_family,
     fontScale: parsedRow.font_scale,
     headerTitle: parsedRow.header_title,
@@ -398,7 +401,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       const nextSettings = this.parseSettingsInput(input, current.settings);
       this.execute<MetaRow>(
         `UPDATE ${this.table("meta")} SET
-          style_id = ?, theme_mode = ?, surface_opacity = ?, header_style = ?, font_family = ?, font_scale = ?, header_title = ?, penalty_label = ?, penalty_text = ?,
+          style_id = ?, theme_mode = ?, surface_opacity = ?, header_style = ?, text_emphasis = ?, font_family = ?, font_scale = ?, header_title = ?, penalty_label = ?, penalty_text = ?,
           effects_enabled = ?, max_visible = ?, overflow_mode = ?, overflow_tempo = ?, numbered = ?, done_order = ?,
           global_timer_mode = ?, global_timer_total_ms = ?, global_timer_ends_at = ?, global_timer_paused_remain_ms = ?,
           placement_x = ?, placement_y = ?, placement_scale = ?,
@@ -408,6 +411,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         nextSettings.themeMode,
         nextSettings.surfaceOpacity,
         nextSettings.headerStyle,
+        nextSettings.textEmphasis,
         nextSettings.fontFamily,
         nextSettings.fontScale,
         nextSettings.headerTitle,
@@ -569,6 +573,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         themeMode: parsedMeta.themeMode,
         surfaceOpacity: parsedMeta.surfaceOpacity,
         headerStyle: parsedMeta.headerStyle,
+        textEmphasis: parsedMeta.textEmphasis,
         fontFamily: parsedMeta.fontFamily,
         fontScale: parsedMeta.fontScale,
         headerTitle: parsedMeta.headerTitle,
@@ -750,6 +755,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       themeMode: input.themeMode,
       surfaceOpacity: input.surfaceOpacity,
       headerStyle: input.headerStyle,
+      textEmphasis: input.textEmphasis,
       fontFamily: input.fontFamily,
       fontScale: input.fontScale,
       headerTitle: input.headerTitle,

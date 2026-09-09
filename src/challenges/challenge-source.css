@@ -114,9 +114,10 @@
 }
 
 /*
- * Zwei gekoppelte Presets: bare schaltet nicht nur die Flaeche ab, sondern
- * erhoeht zugleich Schriftgroessen und Kontrast. Die hoehere Spezifitaet ist
- * noetig, damit dieses Attribut auch nach einem geladenen Theme-Chunk gewinnt.
+ * Zwei gekoppelte Presets: bare schaltet die groesseren Schriftgrade fuer
+ * transparente Flaechen, strong schaltet Gewicht und Halo unabhaengig davon.
+ * Die hoehere Spezifitaet ist noetig, damit die Attribute auch nach einem
+ * geladenen Theme-Chunk gewinnen.
  */
 :is(
   .challenge-source[data-style="plain-list"],
@@ -126,13 +127,20 @@
   /* Hier wird die Flaeche NICHT auf transparent gesetzt: das erledigt jetzt
      --wc-surface-opacity. Wuerde es hier stehen, waeren 25 % und 0 % identisch,
      weil die Ebene nichts mehr zu malen haette. Bei 0 % ist die Deckkraft
-     ohnehin null. Dieses Preset liefert nur noch das, was ohne tragende Flaeche
-     noetig ist: groessere Grade, mehr Gewicht, Halo. */
+     ohnehin null. Dieses Preset liefert nur die groesseren Grade, die ohne
+     tragende Flaeche als Lesbarkeits-Kruecke noetig sind. */
   --wc-font-size: var(--wc-bare-font-size);
   --wc-title-size: var(--wc-bare-title-size);
   --wc-timer-size: var(--wc-bare-timer-size);
   --wc-meta-size: var(--wc-bare-meta-size);
   --wc-progress-track: rgba(255, 255, 255, 0.28);
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+)[data-theme-mode][data-text-emphasis="strong"] {
   --wc-bare-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 6px rgba(0, 0, 0, 0.7);
   --wc-title-weight: 700;
   --wc-label-weight: 700;
@@ -586,7 +594,7 @@
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__timer--critical {
   animation: challenge-source-pulse 1.35s ease-in-out infinite;
-  /* Der globale Timer behaelt im bare-Preset denselben Text-Halo. */
+  /* Der globale Timer behaelt im strong-Preset denselben Text-Halo. */
   text-shadow: var(--wc-bare-shadow);
 }
 

@@ -25,6 +25,12 @@ export type ChallengeLogCeremonyTarget =
   | { kind: "challenge"; id: string }
   | { kind: "global" };
 
+const resolveChallengeTextEmphasis = (
+  textEmphasis: ChallengeUpdate["settings"]["textEmphasis"],
+  surfaceOpacity: ChallengeUpdate["settings"]["surfaceOpacity"],
+): Exclude<ChallengeUpdate["settings"]["textEmphasis"], "auto"> =>
+  textEmphasis === "auto" ? surfaceOpacity < 50 ? "strong" : "plain" : textEmphasis;
+
 const GlobalTimerDisplay = ({
   timer,
   mode,
@@ -288,9 +294,14 @@ export const ChallengeLog = ({
     "--wc-surface-opacity": String(update.settings.surfaceOpacity / 100),
     "--wc-scroll-visible-rows": String(pageSize),
   } as CSSProperties;
-  // Das vorhandene Bare-Preset wird abgeleitet, damit Halo, Fettung und die
-  // Bare-Schriftgrade bei schwacher Fläche erhalten bleiben. Unter der Hälfte
-  // trägt die Fläche den Text nicht mehr; deshalb liegt die Schwelle bei 50.
+  // Zwei Attribute halten zwei unabhängige Entscheidungen fest: Die größeren
+  // Schriftgrade bleiben an der Transparenz als Lesbarkeits-Krücke hängen,
+  // Fettung und Schatten folgen dagegen dem eigenen Schrifteffekt-Regler.
+  const surfaceMode = update.settings.surfaceOpacity < 50 ? "bare" : "surface";
+  const effectiveEmphasis = resolveChallengeTextEmphasis(
+    update.settings.textEmphasis,
+    update.settings.surfaceOpacity,
+  );
   const Root = rootTag ?? "main";
 
   return (
@@ -300,7 +311,8 @@ export const ChallengeLog = ({
       data-style={update.settings.styleId}
       data-overflow-mode={effectiveMode}
       data-numbered={update.settings.numbered ? "true" : "false"}
-      data-surface-mode={update.settings.surfaceOpacity < 50 ? "bare" : "surface"}
+      data-surface-mode={surfaceMode}
+      data-text-emphasis={effectiveEmphasis}
       data-header-style={update.settings.headerStyle}
       data-font-family={update.settings.fontFamily}
       data-theme-mode={update.settings.themeMode}
