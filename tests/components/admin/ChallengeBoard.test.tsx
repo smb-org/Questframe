@@ -51,6 +51,7 @@ const snapshot = (
     fontFamily: "theme",
     fontScale: 1,
     headerTitle: "CHALLENGES",
+    penaltyLabel: "STRAFE",
     penaltyText: "",
     effectsEnabled: true,
     maxVisible: 5,

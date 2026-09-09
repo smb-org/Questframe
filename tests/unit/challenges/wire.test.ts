@@ -19,6 +19,7 @@ const update = (): ChallengeUpdate => ({
     fontFamily: "theme",
     fontScale: 1,
     headerTitle: "CHALLENGES",
+    penaltyLabel: "STRAFE",
     penaltyText: "",
     effectsEnabled: true,
     maxVisible: 5,
@@ -184,8 +185,12 @@ describe("Challenge-Quelle-Wire", () => {
     })).toBeNull();
   });
 
-  it("akzeptiert eine leere Strafe und weist mehr als 80 Zeichen zurück", () => {
+  it("akzeptiert ein leeres Strafen-Label und weist mehr als 24 Zeichen zurück", () => {
     expect(parseChallengeUpdate(update())).toEqual(update());
+    expect(parseChallengeUpdate({
+      ...update(),
+      settings: { ...update().settings, penaltyLabel: "x".repeat(25) },
+    })).toBeNull();
     expect(parseChallengeUpdate({
       ...update(),
       settings: { ...update().settings, penaltyText: "x".repeat(81) },

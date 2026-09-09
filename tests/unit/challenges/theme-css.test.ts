@@ -150,6 +150,14 @@ describe("Challenge-Quelle-CSS", () => {
     expect(criticalTimer).toContain("text-shadow: var(--wc-bare-shadow);");
   });
 
+  it("zwingt das pflegbare Strafen-Label nicht in Großbuchstaben", () => {
+    const penaltyLabel = sourceCss.match(
+      /\.challenge-source__penalty-label\s*\{([^}]*)\}/,
+    )?.[1] ?? "";
+
+    expect(penaltyLabel).not.toContain("text-transform");
+  });
+
   it('erzwingt data-theme-mode="inherit" fuer jede HUD-zu-WC-Brueckenregel', () => {
     const unscopedSelectors = parseCssRuleBlocks(sourceCss)
       .filter(({ body }) => body.includes("var(--hud-"))

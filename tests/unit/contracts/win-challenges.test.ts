@@ -21,6 +21,7 @@ import {
   isGlobalTimerMode,
   isHeaderStyle,
   isHeaderTitle,
+  isPenaltyLabel,
   isPenaltyText,
   isInstant,
   isGlobalTimerTotalMs,
@@ -70,6 +71,7 @@ const settings = {
   fontFamily: "theme" as const,
   fontScale: 1,
   headerTitle: "CHALLENGES",
+  penaltyLabel: "STRAFE",
   penaltyText: "",
   effectsEnabled: true,
   maxVisible: 5,
@@ -290,6 +292,17 @@ describe("Win-Challenges-Verträge", () => {
         values: [
           { value: "", accepted: false },
           { value: "e\u0301", accepted: true },
+          { value: "x".repeat(24), accepted: true },
+          { value: "x".repeat(25), accepted: false },
+        ],
+      },
+      {
+        name: "penaltyLabel",
+        predicate: isPenaltyLabel,
+        schema: (value: unknown) => settingsSchema.safeParse({ ...settings, penaltyLabel: value }).success,
+        values: [
+          { value: "", accepted: true },
+          { value: "  ", accepted: true },
           { value: "x".repeat(24), accepted: true },
           { value: "x".repeat(25), accepted: false },
         ],

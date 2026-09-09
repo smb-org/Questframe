@@ -48,6 +48,7 @@ type MetaRow = {
   font_family: string;
   font_scale: number;
   header_title: string;
+  penalty_label: string;
   penalty_text: string;
   effects_enabled: number;
   max_visible: number;
@@ -111,6 +112,7 @@ const metaRowSchema = z.strictObject({
   font_family: z.string(),
   font_scale: z.number(),
   header_title: z.string(),
+  penalty_label: z.string(),
   penalty_text: z.string(),
   effects_enabled: z.number().int(),
   max_visible: z.number().int(),
@@ -205,6 +207,7 @@ const parseMeta = (row: MetaRow): ChallengeSnapshot["settings"] &
     fontFamily: parsedRow.font_family,
     fontScale: parsedRow.font_scale,
     headerTitle: parsedRow.header_title,
+    penaltyLabel: parsedRow.penalty_label,
     penaltyText: parsedRow.penalty_text,
     effectsEnabled: parseBooleanInteger(parsedRow.effects_enabled),
     maxVisible: parsedRow.max_visible,
@@ -395,7 +398,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       const nextSettings = this.parseSettingsInput(input, current.settings);
       this.execute<MetaRow>(
         `UPDATE ${this.table("meta")} SET
-          style_id = ?, theme_mode = ?, surface_opacity = ?, header_style = ?, font_family = ?, font_scale = ?, header_title = ?, penalty_text = ?,
+          style_id = ?, theme_mode = ?, surface_opacity = ?, header_style = ?, font_family = ?, font_scale = ?, header_title = ?, penalty_label = ?, penalty_text = ?,
           effects_enabled = ?, max_visible = ?, overflow_mode = ?, overflow_tempo = ?, numbered = ?, done_order = ?,
           global_timer_mode = ?, global_timer_total_ms = ?, global_timer_ends_at = ?, global_timer_paused_remain_ms = ?,
           placement_x = ?, placement_y = ?, placement_scale = ?,
@@ -408,6 +411,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         nextSettings.fontFamily,
         nextSettings.fontScale,
         nextSettings.headerTitle,
+        nextSettings.penaltyLabel,
         nextSettings.penaltyText,
         nextSettings.effectsEnabled ? 1 : 0,
         nextSettings.maxVisible,
@@ -568,6 +572,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         fontFamily: parsedMeta.fontFamily,
         fontScale: parsedMeta.fontScale,
         headerTitle: parsedMeta.headerTitle,
+        penaltyLabel: parsedMeta.penaltyLabel,
         penaltyText: parsedMeta.penaltyText,
         effectsEnabled: parsedMeta.effectsEnabled,
         maxVisible: parsedMeta.maxVisible,
@@ -748,6 +753,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       fontFamily: input.fontFamily,
       fontScale: input.fontScale,
       headerTitle: input.headerTitle,
+      penaltyLabel: input.penaltyLabel,
       penaltyText: input.penaltyText,
       effectsEnabled: input.effectsEnabled,
       maxVisible: input.maxVisible,

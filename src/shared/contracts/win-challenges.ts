@@ -56,6 +56,7 @@ export type ChallengeSettings = {
   fontFamily: ChallengeFontFamily;
   fontScale: number;
   headerTitle: string;
+  penaltyLabel: string;
   penaltyText: string;
   effectsEnabled: boolean;
   maxVisible: number;

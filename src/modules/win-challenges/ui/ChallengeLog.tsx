@@ -395,7 +395,9 @@ export const ChallengeLog = ({
       )}
       {update.settings.penaltyText.trim() !== "" && (
         <footer className="challenge-source__penalty">
-          <span className="challenge-source__penalty-label">Strafe</span>
+          {update.settings.penaltyLabel.trim() !== "" && (
+            <span className="challenge-source__penalty-label">{update.settings.penaltyLabel}</span>
+          )}
           <span className="challenge-source__penalty-text">{update.settings.penaltyText}</span>
         </footer>
       )}

@@ -16,6 +16,7 @@ const stub = env.CHANNEL.get(env.CHANNEL.idFromName(testChannelId));
 const legacyStub = env.CHANNEL.get(env.CHANNEL.idFromName(`win-challenges-legacy-${crypto.randomUUID()}`));
 const migrationNineStub = env.CHANNEL.get(env.CHANNEL.idFromName(`win-challenges-migration-nine-${crypto.randomUUID()}`));
 const migrationElevenStub = env.CHANNEL.get(env.CHANNEL.idFromName(`win-challenges-migration-eleven-${crypto.randomUUID()}`));
+const migrationFifteenStub = env.CHANNEL.get(env.CHANNEL.idFromName(`win-challenges-migration-fifteen-${crypto.randomUUID()}`));
 
 type GlobalTimerRow = {
   global_timer_total_ms: number | null;
@@ -45,7 +46,7 @@ const resetModuleTables = async (): Promise<void> => {
         event_seq = 0, board_revision = 1, settings_revision = 1,
         style_id = 'plain-list', theme_mode = 'inherit', surface_opacity = 100,
         font_family = 'theme', font_scale = 1,
-        header_title = 'CHALLENGES', penalty_text = '', effects_enabled = 1, max_visible = 5,
+        header_title = 'CHALLENGES', penalty_label = 'STRAFE', penalty_text = '', effects_enabled = 1, max_visible = 5,
         overflow_mode = 'cut', overflow_tempo = 'medium', numbered = 0, done_order = 'end',
         placement_x = 300, placement_y = 8, placement_scale = 1,
         global_timer_mode = 'down',
@@ -125,6 +126,7 @@ describe("win-challenges repository and migration", () => {
           font_family: string;
           font_scale: number;
           header_title: string;
+          penalty_label: string;
           penalty_text: string;
           effects_enabled: number;
           max_visible: number;
@@ -163,6 +165,7 @@ describe("win-challenges repository and migration", () => {
     expect(result.versions).toContain(12);
     expect(result.versions).toContain(13);
     expect(result.versions).toContain(14);
+    expect(result.versions).toContain(15);
     expect(result.tables).toEqual([
       "wc_challenges",
       "wc_commands",
@@ -181,6 +184,7 @@ describe("win-challenges repository and migration", () => {
       "font_family",
       "font_scale",
       "header_title",
+      "penalty_label",
       "penalty_text",
       "effects_enabled",
       "max_visible",
@@ -222,6 +226,7 @@ describe("win-challenges repository and migration", () => {
       font_family: "theme",
       font_scale: 1,
       header_title: "CHALLENGES",
+      penalty_label: "STRAFE",
       penalty_text: "",
       effects_enabled: 1,
       max_visible: 5,
@@ -237,6 +242,27 @@ describe("win-challenges repository and migration", () => {
       global_timer_ends_at: null,
       global_timer_paused_remain_ms: null,
     });
+  });
+
+  it("fügt einer Version-14-Datenbank das Strafen-Label mit Vorgabewert hinzu", async () => {
+    const result = await runInDurableObject(migrationFifteenStub, (_instance, state) => {
+      runMigrations(state.storage.sql, "worker-test-before-penalty-label");
+      state.storage.sql.exec("ALTER TABLE wc_meta DROP COLUMN penalty_label");
+      state.storage.sql.exec("DELETE FROM _sql_schema_migrations WHERE version = 15");
+      runMigrations(state.storage.sql, "worker-test-penalty-label");
+      return {
+        label: state.storage.sql
+          .exec<{ penalty_label: string }>("SELECT penalty_label FROM wc_meta WHERE singleton = 1")
+          .toArray()[0]?.penalty_label,
+        versions: state.storage.sql
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .toArray()
+          .map(({ version }) => version),
+      };
+    });
+
+    expect(result.label).toBe("STRAFE");
+    expect(result.versions).toContain(15);
   });
 
   it("überführt alte Meta-Zeilen mit plain-numbered und max_visible vollständig", async () => {
@@ -488,6 +514,7 @@ describe("win-challenges repository and migration", () => {
       fontFamily: before.settings.fontFamily,
       fontScale: before.settings.fontScale,
       headerTitle: before.settings.headerTitle,
+      penaltyLabel: "Konsequenz",
       penaltyText: "Die nächste Challenge wird doppelt schwer.",
       effectsEnabled: before.settings.effectsEnabled,
       maxVisible: before.settings.maxVisible,
@@ -503,6 +530,7 @@ describe("win-challenges repository and migration", () => {
 
     expect((await inRepository((repository) => repository.readSnapshot())).settings).toMatchObject({
       surfaceOpacity: 25,
+      penaltyLabel: "Konsequenz",
       penaltyText: "Die nächste Challenge wird doppelt schwer.",
     });
   });
@@ -720,6 +748,7 @@ describe("win-challenges repository and migration", () => {
         fontFamily: "mono",
         fontScale: 1.5,
         headerTitle: "RUN",
+        penaltyLabel: "STRAFE",
         penaltyText: "",
         effectsEnabled: false,
         maxVisible: 8,
@@ -742,6 +771,7 @@ describe("win-challenges repository and migration", () => {
       fontFamily: "mono",
       fontScale: 1.5,
       headerTitle: "RUN",
+      penaltyLabel: "STRAFE",
       penaltyText: "",
       effectsEnabled: false,
       overflowMode: "page",
@@ -776,6 +806,7 @@ describe("win-challenges repository and migration", () => {
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
+        penaltyLabel: "STRAFE",
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
@@ -815,6 +846,7 @@ describe("win-challenges repository and migration", () => {
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
+        penaltyLabel: "STRAFE",
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
@@ -972,6 +1004,7 @@ describe("win-challenges repository and migration", () => {
         fontFamily: "theme",
         fontScale: 1,
         headerTitle: "CHALLENGES",
+        penaltyLabel: "STRAFE",
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
@@ -1121,6 +1154,7 @@ describe("win-challenges repository and migration", () => {
           fontFamily: "theme",
           fontScale: 1,
           headerTitle: "CHALLENGES",
+          penaltyLabel: "STRAFE",
           penaltyText: "",
           effectsEnabled: true,
           maxVisible: 5,

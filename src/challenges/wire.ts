@@ -21,6 +21,7 @@ import {
   isChallengeFontScale,
   isHeaderStyle,
   isHeaderTitle,
+  isPenaltyLabel,
   isPenaltyText,
   isHidden,
   isInstant,
@@ -96,6 +97,7 @@ const parseSettings = (input: unknown): ChallengeSettings | null => {
       "fontFamily",
       "fontScale",
       "headerTitle",
+      "penaltyLabel",
       "penaltyText",
       "effectsEnabled",
       "maxVisible",
@@ -115,6 +117,7 @@ const parseSettings = (input: unknown): ChallengeSettings | null => {
     !isChallengeFontFamily(input.fontFamily) ||
     !isChallengeFontScale(input.fontScale) ||
     !isHeaderTitle(input.headerTitle) ||
+    !isPenaltyLabel(input.penaltyLabel) ||
     !isPenaltyText(input.penaltyText) ||
     typeof input.effectsEnabled !== "boolean" ||
     !isMaxVisible(input.maxVisible) ||

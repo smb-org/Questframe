@@ -34,6 +34,7 @@ import {
   isPlacementScale,
   isPlacementX,
   isPlacementY,
+  isPenaltyLabel,
   isPenaltyText,
   isRevision,
   isSortOrder,
@@ -105,6 +106,10 @@ const headerTitleSchema = normalized(
 const penaltyTextSchema = normalized(
   isPenaltyText,
   "Strafe darf höchstens 80 Zeichen lang sein.",
+);
+const penaltyLabelSchema = normalized(
+  isPenaltyLabel,
+  "Strafen-Titel darf höchstens 24 Zeichen lang sein.",
 );
 const revisionSchema = custom(isRevision, "Revision muss positiv sein.");
 const eventSeqSchema = custom(isEventSeq, "Event-Sequenz muss nichtnegativ sein.");
@@ -206,6 +211,7 @@ export const settingsSchema = z.strictObject({
   fontFamily: fontFamilySchema,
   fontScale: fontScaleSchema,
   headerTitle: headerTitleSchema,
+  penaltyLabel: penaltyLabelSchema,
   penaltyText: penaltyTextSchema,
   effectsEnabled: z.boolean(),
   maxVisible: maxVisibleSchema,
@@ -292,6 +298,7 @@ export const settingsSaveRequestSchema = z.strictObject({
   fontFamily: fontFamilySchema,
   fontScale: fontScaleSchema,
   headerTitle: headerTitleSchema,
+  penaltyLabel: penaltyLabelSchema,
   penaltyText: penaltyTextSchema,
   effectsEnabled: z.boolean(),
   maxVisible: maxVisibleSchema,

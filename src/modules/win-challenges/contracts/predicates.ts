@@ -158,6 +158,9 @@ export const isHeaderTitle = (value: unknown): value is string =>
 export const isPenaltyText = (value: unknown): value is string =>
   isNormalizedText(value, 0, 80);
 
+export const isPenaltyLabel = (value: unknown): value is string =>
+  isNormalizedText(value, 0, 24);
+
 export const isChallengeId = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0;
 
