@@ -578,8 +578,8 @@ als NOT NULL UNIQUE an und braucht dafür den Allocator aus N2, während das
 Repository die Spalten erst in N3 schreibt und liest.
 
 1. **T2 — Migrations-Testgerüst.** `tests/worker/migrations.test.ts` mit
-   Schema-Fixtures, Idempotenz-Lauf und Crash-Fixtures (Abbruch zwischen
-   create/copy/drop/rename/Ledger-Eintrag). Muss vor der Migration stehen.
+   Schema-Fixtures, Idempotenz-Lauf und einem Test, der erzwingt dass der
+   Migrationspfad synchron bleibt. Muss vor der Migration stehen.
 2. **T9 — P1-Registry-Vertrag** plus Selbsttest als Vitest-Test (nicht zur
    Laufzeit: hartes 100-ms-Startbudget). Ändert kein Verhalten.
 3. **T1 — Migration 17, atomar.** Ein Commit: `wc_challenges` **und**
@@ -734,8 +734,11 @@ stehen zuerst.
 **Absicherung:**
 
 - Es gab **keine einzige Migrations-Testdatei**. `tests/worker/migrations.test.ts`
-  entsteht als Gerüst mit Schema-Fixtures, Idempotenz-Lauf und Crash-Fixtures;
-  es trägt auch den Schema-Vergleich aus P3.
+  entsteht als Gerüst mit Schema-Fixtures, Idempotenz-Lauf und einem Test der
+  Synchronität erzwingt; es trägt auch den Schema-Vergleich aus P3. Der
+  Snapshot muss dafür normalisiert werden (Quoting, Whitespace): ein
+  Neuaufbau mit Rename erzeugt `CREATE TABLE "wc_meta"`, eine Direktanlage
+  `CREATE TABLE wc_meta`.
 - Sperrliste `wc_retired_keys` wird beim Löschen tatsächlich befüllt —
   `deleteMissingChallenges()` schreibt Tombstones in derselben Transaktion.
 - `_sql_schema_migrations` gehört in die Host-Tabellen des Registry-Selbsttests.
@@ -759,17 +762,30 @@ stehen zuerst.
   `/overlay/all` teilen sich HUD- und Challenge-CSS ein Dokument.
 - `runMigrations` bekommt eine echte Build-Kennung statt der Konstante `"v1"`.
 
-**Randbedingung für P3:** `runMigrations` läuft synchron im DO-Konstruktor
-(`channel-object.ts:220`) ohne `blockConcurrencyWhile`. Das ist heute korrekt,
-weil `sql.exec` synchron ist. Sobald der deklarative Runner etwas `await`et,
-muss er in `blockConcurrencyWhile` — sonst ist es eine Race.
+**Randbedingung für P3 — die tragende Invariante.** `runMigrations` läuft
+synchron im DO-Konstruktor (`channel-object.ts:220`) ohne
+`blockConcurrencyWhile`. Das ist nicht nur korrekt, daran hängt die
+Atomarität: Durable Objects fassen Schreibvorgänge ohne dazwischenliegendes
+`await` zu einer impliziten Transaktion zusammen, ausdrücklich für mehrere
+`sql.exec`-Aufrufe. Weil der ganze Lauf synchron ist, committet er als eine
+Einheit — partielle Schemazustände nach einem Abbruch sind **nicht
+erreichbar**, und Tabellen-Neuaufbauten brauchen deshalb keine Crash-Fixtures.
+
+Die Gefahr liegt woanders: sobald der deklarative Runner aus P3 irgendwo ein
+`await` bekommt, zerfällt der Lauf in mehrere Commits und die partiellen
+Zustände werden erreichbar. Genau das muss ein Test verhindern.
+
+*Korrigiert am 2026-09-11. Die erste Fassung dieses Eng-Reviews verlangte
+Crash-Fixtures für einen Zustand, den es nicht geben kann; aufgedeckt vom
+Zweitreview (`gpt-5.6-sol`), belegt in der Cloudflare-Dokumentation zur
+SQLite-Storage-API und nachgeprüft.*
 
 ## Implementation Tasks
 
 Aus den Befunden dieses Reviews. P1 blockiert das Ausliefern, P2 gehört in
 denselben Branch, P3 ist Nacharbeit.
 
-- [ ] **T2 (P1, human: ~1,5 Tage / CC: ~1 Sitzung)** — tests — Migrations-Testgerüst mit Schema-, Idempotenz- und Crash-Fixtures
+- [ ] **T2 (P1, human: ~1,5 Tage / CC: ~1 Sitzung)** — tests — Migrations-Testgerüst mit Schema-Fixtures, Idempotenz-Lauf und Synchronitäts-Invariante
 - [ ] **T9 (P1, human: ~5 Std / CC: ~35 Min)** — registry — P1-Vertrag mit `handle()`, `ModuleId`-Erweiterbarkeit klären, Selbsttest als Vitest
 - [ ] **T1 (P1, human: ~3 Tage / CC: ~2 Sitzungen)** — migration — Migration 17 atomar über `wc_challenges` und `wc_meta`, Allocator, Sperrliste, Contracts
 - [ ] **T3 (P1, human: ~2 Std / CC: ~15 Min)** — service — `canonicalCommand` auf Payload-je-Typ, Regressionstests
@@ -807,7 +823,7 @@ einer Lane.
 
 | Codepfad | Realistischer Ausfall | Test | Fehlerbehandlung | Sichtbar? |
 |---|---|---|---|---|
-| Migration 17 | Abbruch zwischen Neuaufbau und Rename | T2 Crash-Fixtures | Transaktion | Kanal startet nicht |
+| Migration 17 | `await` gerät auf den Migrationspfad und bricht die Atomarität | T2 Synchronitäts-Test | implizite Transaktion | Kanal startet nicht |
 | Key-Allokation | Kollision gegen Sperrliste | T1 | UNIQUE-Index als letzte Sicherung | Board-Save schlägt fehl |
 | `adjustTimer` global | Retry addiert doppelt | T3 | Idempotenz-Hash | Timer springt, still |
 | `measure` über Ziel | Auto-Abschluss blockiert weiter | T4 | typabhängige Regel | Anzeige klebt, still |
