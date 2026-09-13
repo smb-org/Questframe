@@ -3,6 +3,7 @@ import path from "node:path";
 import { gzipSync } from "node:zlib";
 import { sumDirectoryBytes } from "./lib/build-budget-assets.mjs";
 import { assetSizeKey, collectStaticClosure, evaluateBuildBudgets } from "./lib/build-budgets.mjs";
+import { createBudgetDeclarations } from "./lib/build-budget-declarations.mjs";
 
 const projectRoot = path.resolve(import.meta.dirname, "..");
 const clientRoot = path.join(projectRoot, "dist/client");
@@ -11,104 +12,10 @@ const overlayKey = "src/overlay/OverlayApp.tsx";
 const adminKey = "src/admin/AdminApp.tsx";
 const challengeSourceKey = "src/challenges/ChallengeSourceApp.tsx";
 const compositeKey = "src/composite/CompositeApp.tsx";
-const liveKey = "src/live/LiveApp.tsx";
 // pnpm verschachtelt den aufgeloesten Pfad unter node_modules/.pnpm/..., deshalb
 // matchen wir weiterhin per Suffix statt gegen ein package-manager-spezifisches Layout.
 const temporalKeySuffix = "@js-temporal/polyfill/dist/index.esm.js";
 const qrCodeKeySuffix = "/qrcode/lib/browser.js";
-
-const createBudgetDeclarations = (temporalKey, challengeThemeKeys, challengeStyleKeys, qrCodeKey) => [
-  {
-    type: "surface",
-    key: overlayKey,
-    label: "Overlay",
-    staticRoots: [indexKey],
-    javascriptLabel: "Overlay initial JavaScript",
-    javascriptBudget: 120 * 1024,
-    transferLabel: "Overlay initial static transfer",
-    transferBudget: 1024 * 1024,
-    transferAssets: ["shell", "font", "hudMedia", "effects", "audio"],
-  },
-  {
-    type: "surface",
-    key: adminKey,
-    label: "Admin",
-    staticRoots: [indexKey],
-    javascriptLabel: "Admin initial JavaScript",
-    javascriptBudget: 250 * 1024,
-    transferLabel: "Admin initial static transfer",
-    transferBudget: 1.5 * 1024 * 1024,
-    transferAssets: ["shell", "font", "hudMedia"],
-  },
-  {
-    type: "surface",
-    key: temporalKey,
-    label: "Temporal",
-    javascriptLabel: "Lazy Temporal chunk",
-    javascriptBudget: 100 * 1024,
-  },
-  {
-    type: "surface",
-    key: qrCodeKey,
-    label: "QR-Code Chunk",
-    javascriptLabel: "Dynamischer QR-Code-Einstiegspunkt",
-    javascriptBudget: 32 * 1024,
-  },
-  {
-    type: "surface",
-    key: challengeSourceKey,
-    label: "Challenge-Quelle",
-    staticRoots: [indexKey],
-    javascriptLabel: "Challenge-Quelle initial JavaScript",
-    javascriptBudget: 80 * 1024,
-    transferLabel: "Challenge-Quelle initial static transfer",
-    transferBudget: 512 * 1024,
-    transferAssets: ["shell", "font", "hudMedia", "effects", "audio"],
-  },
-  {
-    type: "surface",
-    key: compositeKey,
-    label: "Composite-Quelle",
-    staticRoots: [indexKey],
-    javascriptLabel: "Composite-Quelle initial JavaScript",
-    javascriptBudget: 100 * 1024,
-    transferLabel: "Composite-Quelle initial static transfer",
-    transferBudget: 350 * 1024,
-    transferAssets: ["shell", "font", "hudMedia", "effects", "audio"],
-  },
-  {
-    type: "surface",
-    key: liveKey,
-    label: "Live-Seite",
-    staticRoots: [indexKey],
-    javascriptLabel: "Live-Seite initial JavaScript",
-    javascriptBudget: 200 * 1024,
-    transferLabel: "Live-Seite initial static transfer",
-    transferBudget: 1024 * 1024,
-    transferAssets: ["shell", "font"],
-  },
-  {
-    // Im laufenden Stream wird genau eine Theme-Variante geladen. Deshalb
-    // zaehlt hier das groesste vollstaendige Theme-Chunk, nicht die Summe.
-    type: "variantMax",
-    label: "Challenge-Theme-Chunk (variantMax)",
-    keys: challengeThemeKeys,
-    budget: 64 * 1024,
-  },
-  {
-    // Im laufenden Stream wird genau ein Aufbau geladen. Deshalb zaehlt hier
-    // das groesste vollstaendige Style-Chunk, nicht die Summe.
-    type: "variantMax",
-    label: "Challenge-Style-Chunk (variantMax)",
-    keys: challengeStyleKeys,
-    budget: 64 * 1024,
-  },
-  {
-    type: "exempt",
-    key: indexKey,
-    reason: "Die Shell fließt über staticRoots in jede Surface-Closure ein und steckt zusätzlich als Asset-Gruppe shell im Transfer.",
-  },
-];
 
 const manifest = JSON.parse(
   await readFile(path.join(clientRoot, ".vite/manifest.json"), "utf8"),

@@ -4,6 +4,11 @@ import { describe, expect, it } from "vitest";
 
 import { runMigrations } from "../../src/channel/migrations";
 import MIGRATIONS_SOURCE from "../../src/channel/migrations.ts?raw";
+import {
+  readSchemaSnapshot,
+  withHistoricalDatabase as withHarnessDatabase,
+  type SchemaSnapshot,
+} from "./migrations-harness";
 
 const FIXTURE_TIMESTAMP = "2026-08-30T12:00:00.000Z";
 const HISTORICAL_VERSIONS = Array.from({ length: 16 }, (_, index) => index + 1) as HistoricalSchemaVersion[];
@@ -11,15 +16,6 @@ const ALL_SCHEMA_VERSIONS = [0, ...HISTORICAL_VERSIONS] as HistoricalSchemaVersi
 const RECOVERABLE_CRASH_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16] as HistoricalSchemaVersion[];
 
 export type HistoricalSchemaVersion = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
-
-export type SqliteMasterRow = {
-  type: string;
-  name: string;
-  tbl_name: string;
-  sql: string | null;
-};
-
-export type SchemaSnapshot = readonly SqliteMasterRow[];
 
 export type DatabaseSnapshot = {
   schema: SchemaSnapshot;
@@ -394,39 +390,6 @@ export const createHistoricalDatabase = (sql: SqlStorage, version: HistoricalSch
   insertMigrationLedger(sql, version);
 };
 
-const normalizeSchemaSql = (sql: string | null): string | null => {
-  if (sql === null) return null;
-
-  // SQL-Strings bleiben als ein Token erhalten; nur DDL-Whitespace und
-  // einfache, von SQLite gesetzte Identifier-Anfuehrungszeichen werden
-  // vereinheitlicht.
-  const tokens = sql.match(/'(?:''|[^'])*'|"(?:[^"]|"")*"|[(),;]|[^\s'",();]+/g) ?? [];
-  if (tokens.at(-1) === ";") tokens.pop();
-
-  return tokens
-    .map((token) => {
-      if (!token.startsWith('"') || !token.endsWith('"')) return token;
-      const identifier = token.slice(1, -1).replaceAll('""', '"');
-      return /^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier) ? identifier : token;
-    })
-    .join(" ");
-};
-
-/**
- * Der Snapshot vergleicht die semantische DDL-Form, nicht SQLite's zufaellige
- * Quote-/Whitespace-Darstellung (zum Beispiel nach Rebuild und Rename).
- * Bewusst ausgeschlossen sind Eintraege mit `name LIKE 'sqlite_%'`: Das
- * entfernt Autoindex-Eintraege und `sqlite_sequence`; diese Hilfsobjekte sind
- * kein Teil des von diesem Harness bewerteten Anwendungsschemas.
- */
-export const readSchemaSnapshot = (sql: SqlStorage): SchemaSnapshot =>
-  sql
-    .exec<SqliteMasterRow>(
-      "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name",
-    )
-    .toArray()
-    .map((row) => ({ ...row, sql: normalizeSchemaSql(row.sql) }));
-
 export const readDatabaseSnapshot = (sql: SqlStorage): DatabaseSnapshot => {
   const data: Record<string, readonly Record<string, SqlStorageValue>[]> = {};
   for (const tableName of createTableNames(sql)) {
@@ -531,16 +494,16 @@ export const createRecoverableCrashFixture = (sql: SqlStorage, version: Historic
 const makeStub = (label: string) =>
   env.CHANNEL.get(env.CHANNEL.idFromName(`migration-harness-${label}-${crypto.randomUUID()}`));
 
-export const withHistoricalDatabase = async <T>(
+const withHistoricalDatabase = <T>(
   version: HistoricalSchemaVersion,
   callback: (sql: SqlStorage) => T,
-): Promise<T> => {
-  const stub = makeStub(`v${String(version)}`);
-  return runInDurableObject(stub, (_instance, state) => {
-    createHistoricalDatabase(state.storage.sql, version);
-    return callback(state.storage.sql);
-  });
-};
+): Promise<T> => withHarnessDatabase(
+  version,
+  callback,
+  (sql, initializedVersion) => {
+    createHistoricalDatabase(sql, initializedVersion as HistoricalSchemaVersion);
+  },
+);
 
 describe("Migrations-Harness", () => {
   it("haelt den vollstaendig synchronen Migrationspfad fest", () => {
