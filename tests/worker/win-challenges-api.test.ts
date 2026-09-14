@@ -557,6 +557,54 @@ describe("Win-Challenges-API", () => {
     expect(completed.state).toBe("done");
   });
 
+  it("weist typfremde große Deltas als Validierungsfehler zurück und lässt sie für Messwerte zu", async () => {
+    const board = await saveBoard([
+      { ...definition("Counter"), targetCount: 999 },
+      {
+        ...definition("Messwert"),
+        kind: "measure",
+        unit: "m",
+        targetCount: 1_500,
+        sortOrder: 1,
+        step: 50,
+      },
+    ]);
+    const body = await board.json<{ snapshot: { challenges: Challenge[] } }>();
+    const counter = body.snapshot.challenges.find(({ title }) => title === "Counter");
+    const measure = body.snapshot.challenges.find(({ title }) => title === "Messwert");
+    if (counter === undefined || measure === undefined) throw new Error("Test-Challenges fehlen.");
+
+    const sendIncrement = async (challengeId: string, delta: number): Promise<Response> =>
+      fetchWorker("/api/challenges/commands", {
+        method: "POST",
+        headers: authenticatedHeaders(),
+        body: JSON.stringify({
+          commandId: commandId(),
+          scope: "challenge",
+          type: "increment",
+          challengeId,
+          delta,
+        }),
+      });
+
+    const rejected = await sendIncrement(counter.id, 100);
+    expect(rejected.status).toBe(422);
+    expect(await rejected.json<{ error: { code: string; message: string } }>()).toMatchObject({
+      error: {
+        code: "validation_failed",
+        message: "Delta muss zwischen -99 und 99 liegen.",
+      },
+    });
+
+    const counterAccepted = await sendIncrement(counter.id, 99);
+    expect(counterAccepted.status).toBe(200);
+    expect((await counterAccepted.json<{ challenge: Challenge }>()).challenge.currentCount).toBe(99);
+
+    const measureAccepted = await sendIncrement(measure.id, 10_000);
+    expect(measureAccepted.status).toBe(200);
+    expect((await measureAccepted.json<{ challenge: Challenge }>()).challenge.currentCount).toBe(10_000);
+  });
+
   it("liefert eine reine GET-Nutzlast ohne event", async () => {
     const response = await fetchWorker("/api/challenges", { headers: { cookie, origin } });
     const body = await response.json<{ challenges: Challenge[] }>();

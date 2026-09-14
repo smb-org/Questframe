@@ -347,7 +347,7 @@ describe("Win-Challenges-Verträge", () => {
         ],
       },
       {
-        name: "delta",
+        name: "delta (kind-loser commandSchema-Raum)",
         predicate: isDelta,
         schema: (value: unknown) =>
           commandSchema.safeParse({
@@ -359,6 +359,7 @@ describe("Win-Challenges-Verträge", () => {
           }).success,
         values: [
           { value: -MAX_MEASURE_COUNT, accepted: true },
+          { value: 100, accepted: true },
           { value: MAX_MEASURE_COUNT, accepted: true },
           { value: MAX_MEASURE_COUNT + 1, accepted: false },
         ],

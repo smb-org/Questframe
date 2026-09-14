@@ -116,6 +116,10 @@ const ChallengeRow = ({
     : done
       ? 100
       : Math.min(100, Math.max(0, challenge.currentCount / targetCount * 100));
+  const accessibleCount = targetCount === null ? null : Math.min(challenge.currentCount, targetCount);
+  const accessibleText = targetCount !== null && challenge.currentCount > targetCount
+    ? `${String(challenge.currentCount)} von ${String(targetCount)} (übererfüllt)`
+    : undefined;
   const progressStyle = progress === null
     ? undefined
     : { "--wc-progress": `${String(progress)}%` } as CSSProperties;
@@ -147,7 +151,8 @@ const ChallengeRow = ({
               aria-label={`Fortschritt: ${String(challenge.currentCount)} von ${String(targetCount)}`}
               aria-valuemax={targetCount ?? undefined}
               aria-valuemin={0}
-              aria-valuenow={challenge.currentCount}
+              aria-valuenow={accessibleCount ?? undefined}
+              aria-valuetext={accessibleText}
               className="challenge-source__progress"
               role="progressbar"
               style={progressStyle}

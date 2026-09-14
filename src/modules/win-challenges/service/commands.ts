@@ -14,7 +14,7 @@ import {
   DOMAIN_ERROR_MESSAGES,
   type DomainNow,
 } from "../domain/timers";
-import { maxCountForKind } from "../contracts/predicates";
+import { isDeltaForKind, maxCountForKind, maxDeltaForKind } from "../contracts/predicates";
 import { selectVisible } from "../domain/visibility";
 import {
   NotFoundError,
@@ -184,6 +184,10 @@ const challengeMutation = (
   if (current === null) throw new NotFoundError();
 
   if (command.type === "increment") {
+    if (!isDeltaForKind(command.delta, current.kind)) {
+      const maxDelta = maxDeltaForKind(current.kind);
+      throw new ValidationError(`Delta muss zwischen -${String(maxDelta)} und ${String(maxDelta)} liegen.`);
+    }
     const transition = applyIncrement(current, command.delta, now);
     if (transition.error !== undefined) {
       throw new ValidationError(DOMAIN_ERROR_MESSAGES[transition.error], transition.error);

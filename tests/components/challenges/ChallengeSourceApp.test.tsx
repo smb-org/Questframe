@@ -1035,6 +1035,22 @@ describe("ChallengeSourceApp", () => {
     expect(doneTime).toHaveAttribute("aria-label", "Rest bei Abschluss 0:00");
   });
 
+  it("liest Übererfüllung eines Messwerts über den geklemmten ARIA-Wert vor", () => {
+    const overfulfilled = {
+      ...challenge("measure", "Messwert", "pending", 0),
+      kind: "measure" as const,
+      unit: "m",
+      targetCount: 1_500,
+      currentCount: 1_800,
+    };
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({ challenges: [overfulfilled] })} />);
+
+    const progressbar = screen.getByRole("progressbar");
+    expect(progressbar).toHaveAttribute("aria-valuemax", "1500");
+    expect(progressbar).toHaveAttribute("aria-valuenow", "1500");
+    expect(progressbar).toHaveAttribute("aria-valuetext", "1800 von 1500 (übererfüllt)");
+  });
+
   it("setzt Zeitleisten-Zustand und Variablen für jeden Challenge-Timer-Zustand", () => {
     vi.useFakeTimers({ now: fixedNow });
     try {
