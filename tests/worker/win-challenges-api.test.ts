@@ -605,6 +605,76 @@ describe("Win-Challenges-API", () => {
     expect((await measureAccepted.json<{ challenge: Challenge }>()).challenge.currentCount).toBe(10_000);
   });
 
+  it("setzt die Inkrement-Semantik von tick und streak vor der Domänenoperation durch", async () => {
+    const board = await saveBoard([
+      { ...definition("Tick"), kind: "tick", targetCount: null },
+      { ...definition("Streak"), kind: "streak", targetCount: 5, sortOrder: 1 },
+      { ...definition("Counter"), sortOrder: 2 },
+    ]);
+    const body = await board.json<{ snapshot: { challenges: Challenge[] } }>();
+    const challenges = body.snapshot.challenges;
+    const tick = challenges.find(({ title }) => title === "Tick");
+    const streak = challenges.find(({ title }) => title === "Streak");
+    const counter = challenges.find(({ title }) => title === "Counter");
+    if (tick === undefined || streak === undefined || counter === undefined) {
+      throw new Error("Test-Challenges fehlen.");
+    }
+
+    const sendIncrement = async (challengeId: string, delta: number): Promise<Response> =>
+      fetchWorker("/api/challenges/commands", {
+        method: "POST",
+        headers: authenticatedHeaders(),
+        body: JSON.stringify({
+          commandId: commandId(),
+          scope: "challenge",
+          type: "increment",
+          challengeId,
+          delta,
+        }),
+      });
+
+    const tickIncrement = await sendIncrement(tick.id, 1);
+    expect(tickIncrement.status).toBe(422);
+    expect(await tickIncrement.json<{ error: { code: string; message: string } }>()).toMatchObject({
+      error: {
+        code: "validation_failed",
+        message: "Eine Challenge vom Typ tick darf nicht inkrementiert werden.",
+      },
+    });
+
+    const tickComplete = await fetchWorker("/api/challenges/commands", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({
+        commandId: commandId(),
+        scope: "challenge",
+        type: "complete",
+        challengeId: tick.id,
+      }),
+    });
+    expect(tickComplete.status).toBe(200);
+    expect((await tickComplete.json<{ challenge: Challenge }>()).challenge.state).toBe("done");
+
+    const streakNegative = await sendIncrement(streak.id, -1);
+    expect(streakNegative.status).toBe(422);
+    expect(await streakNegative.json<{ error: { code: string; message: string } }>()).toMatchObject({
+      error: {
+        code: "validation_failed",
+        message: "Eine Challenge vom Typ streak akzeptiert keine negativen Deltas.",
+      },
+    });
+
+    const streakPositive = await sendIncrement(streak.id, 1);
+    expect(streakPositive.status).toBe(200);
+    expect((await streakPositive.json<{ challenge: Challenge }>()).challenge.currentCount).toBe(1);
+
+    const counterPositive = await sendIncrement(counter.id, 1);
+    expect(counterPositive.status).toBe(200);
+    const counterNegative = await sendIncrement(counter.id, -1);
+    expect(counterNegative.status).toBe(200);
+    expect((await counterNegative.json<{ challenge: Challenge }>()).challenge.currentCount).toBe(0);
+  });
+
   it("liefert eine reine GET-Nutzlast ohne event", async () => {
     const response = await fetchWorker("/api/challenges", { headers: { cookie, origin } });
     const body = await response.json<{ challenges: Challenge[] }>();

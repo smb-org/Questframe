@@ -61,6 +61,10 @@ type CommandMutationValue = {
 
 type CommandForType<Type extends Command["type"]> = Command & { type: Type };
 type CanonicalCommandForType<Type extends Command["type"]> = Required<CommandForType<Type>>;
+type ChallengeKindCommand =
+  | { type: "increment"; delta: number }
+  // Wird beim späteren Einführen von resetStreak aus challengeMutation aufgerufen.
+  | { type: "resetStreak" };
 
 const toInstant = (now: DomainNow): string => {
   const milliseconds = typeof now === "number" ? now : Date.parse(now);
@@ -166,6 +170,31 @@ export const hashChallengeCommand = async (command: Command): Promise<string> =>
     .join("");
 };
 
+const validateChallengeKindCommand = (
+  challenge: Pick<Challenge, "kind">,
+  command: ChallengeKindCommand,
+): void => {
+  if (command.type === "resetStreak") {
+    if (challenge.kind !== "streak") {
+      throw new ValidationError(
+        `Das Kommando resetStreak ist nur für eine Challenge vom Typ streak erlaubt; diese Challenge hat den Typ ${challenge.kind}.`,
+      );
+    }
+    return;
+  }
+
+  if (challenge.kind === "tick") {
+    throw new ValidationError("Eine Challenge vom Typ tick darf nicht inkrementiert werden.");
+  }
+  if (challenge.kind === "streak" && command.delta < 0) {
+    throw new ValidationError("Eine Challenge vom Typ streak akzeptiert keine negativen Deltas.");
+  }
+  if (!isDeltaForKind(command.delta, challenge.kind)) {
+    const maxDelta = maxDeltaForKind(challenge.kind);
+    throw new ValidationError(`Delta muss zwischen -${String(maxDelta)} und ${String(maxDelta)} liegen.`);
+  }
+};
+
 const runtimeOf = (challenge: Challenge): ChallengeRuntime => ({
   currentCount: challenge.currentCount,
   state: challenge.state,
@@ -184,10 +213,7 @@ const challengeMutation = (
   if (current === null) throw new NotFoundError();
 
   if (command.type === "increment") {
-    if (!isDeltaForKind(command.delta, current.kind)) {
-      const maxDelta = maxDeltaForKind(current.kind);
-      throw new ValidationError(`Delta muss zwischen -${String(maxDelta)} und ${String(maxDelta)} liegen.`);
-    }
+    validateChallengeKindCommand(current, command);
     const transition = applyIncrement(current, command.delta, now);
     if (transition.error !== undefined) {
       throw new ValidationError(DOMAIN_ERROR_MESSAGES[transition.error], transition.error);

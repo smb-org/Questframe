@@ -454,6 +454,67 @@ describe("Win-Challenges-Domain", () => {
     });
   });
 
+  it("setzt den Laufzeitstand bei einem Typwechsel vollständig zurück", () => {
+    const activeTypeChange = mergeDefinition(
+      makeChallenge({
+        currentCount: 7,
+        bestCount: 7,
+        state: "active",
+        timerEndsAt: "2026-08-30T12:01:00.000Z",
+        completedAt: null,
+      }),
+      { ...definition, kind: "streak", targetCount: 5 },
+      now,
+    );
+
+    expect(activeTypeChange).toMatchObject({
+      kind: "streak",
+      currentCount: 0,
+      bestCount: 0,
+      state: "pending",
+      timerEndsAt: null,
+      timerRemainMs: null,
+      completedAt: null,
+    });
+
+    const pausedTypeChange = mergeDefinition(
+      makeChallenge({
+        state: "pending",
+        timerEndsAt: null,
+        timerRemainMs: 2_000,
+        completedAt: now,
+      }),
+      { ...definition, kind: "tick", targetCount: null },
+      now,
+    );
+
+    expect(pausedTypeChange).toMatchObject({
+      kind: "tick",
+      currentCount: 0,
+      bestCount: 0,
+      state: "pending",
+      timerEndsAt: null,
+      timerRemainMs: null,
+      completedAt: null,
+    });
+  });
+
+  it("lässt den Laufzeitstand bei unverändertem Typ und übererfüllte Messwerte unangetastet", () => {
+    const counter = mergeDefinition(
+      makeChallenge({ currentCount: 7, bestCount: 8 }),
+      definition,
+      now,
+    );
+    expect(counter).toMatchObject({ currentCount: 7, bestCount: 8, kind: "counter" });
+
+    const measure = mergeDefinition(
+      makeChallenge({ kind: "measure", unit: "m", targetCount: 1_500, currentCount: 1_800 }),
+      { ...definition, kind: "measure", unit: "m", targetCount: 1_500 },
+      now,
+    );
+    expect(measure).toMatchObject({ kind: "measure", currentCount: 1_800 });
+  });
+
   it("sortiert ohne Schnitt, pinnt den laufenden Timer und reiht Erledigte ans Ende", () => {
     const challenges = [
       makeChallenge({ id: "first", sortOrder: 0 }),

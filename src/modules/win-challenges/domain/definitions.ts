@@ -54,13 +54,16 @@ export const mergeDefinition = (
   }
 
   const timestamp = toInstant(now);
+  const kindChanged = definition.kind !== existing.kind;
   const timerRemoved = definition.timerTotalMs === null;
   const timerChanged = definition.timerTotalMs !== existing.timerTotalMs;
-  const currentCount = definition.kind === "measure"
-    ? existing.currentCount
-    : definition.targetCount === null
-      ? Math.min(existing.currentCount, MAX_COUNT)
-      : Math.min(existing.currentCount, definition.targetCount);
+  const currentCount = kindChanged
+    ? 0
+    : definition.kind === "measure"
+      ? existing.currentCount
+      : definition.targetCount === null
+        ? Math.min(existing.currentCount, MAX_COUNT)
+        : Math.min(existing.currentCount, definition.targetCount);
 
   return {
     ...existing,
@@ -73,9 +76,15 @@ export const mergeDefinition = (
     step: definition.step,
     hidden: existing.state === "done" ? false : definition.hidden,
     currentCount,
-    state: timerRemoved && existing.state === "active" ? "pending" : existing.state,
-    timerEndsAt: timerRemoved ? null : existing.timerEndsAt,
-    timerRemainMs: timerChanged ? null : existing.timerRemainMs,
+    bestCount: kindChanged ? 0 : existing.bestCount,
+    state: kindChanged
+      ? "pending"
+      : timerRemoved && existing.state === "active"
+        ? "pending"
+        : existing.state,
+    timerEndsAt: kindChanged ? null : timerRemoved ? null : existing.timerEndsAt,
+    timerRemainMs: kindChanged ? null : timerChanged ? null : existing.timerRemainMs,
+    completedAt: kindChanged ? null : existing.completedAt,
     updatedAt: timestamp,
   };
 };
