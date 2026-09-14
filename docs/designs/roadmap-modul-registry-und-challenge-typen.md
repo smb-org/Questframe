@@ -936,7 +936,7 @@ der Beleg für die Dichte-Befunde in Pass 1 und 4.
 - [x] **T15 (P1, human: ~5 Std / CC: ~35 Min)** — ceremonies — vierter Zeremonie-Typ `lost` samt Ton und Reduced-Motion-Pfad
 - [x] **T16 (P2, human: ~1 Std / CC: ~10 Min)** — styles — Key wie die Nummer darstellen, kein Chip
 - [x] **T17 (P2, human: ~3 Std / CC: ~20 Min)** — styles — `--wc-overtime` als zweite Alarmstufe, Kontrast in `bare` prüfen
-- [ ] **T18 (P1, human: ~5 Std / CC: ~35 Min)** — domain/migration — `step` als Challenge-Eigenschaft, in Migration 17
+- [x] **T18 (P1, human: ~5 Std / CC: ~35 Min)** — domain/migration — `step` als Challenge-Eigenschaft, in Migration 17
 
 **Achtung:** T14 und T18 erweitern den Spaltensatz von Migration 17 um
 `best_count` und `step`. Beide gehören in T1, nicht danach.

@@ -97,6 +97,14 @@ const incrementCommand = (challengeId: string, delta: number): Command => ({
   delta,
 });
 
+const deltaButtonText = (direction: "increase" | "decrease", step: number): string => {
+  const symbol = direction === "increase" ? "+" : "−";
+  return step === 1 ? symbol : `${symbol}${String(step)}`;
+};
+
+const deltaButtonLabel = (title: string, direction: "increase" | "decrease", step: number): string =>
+  `${title} um ${String(step)} ${direction === "increase" ? "erhöhen" : "verringern"}`;
+
 const globalCommand = (type: "startGlobalTimer" | "pauseGlobalTimer"): Command => ({
   commandId: commandId(),
   scope: "global",
@@ -240,6 +248,9 @@ const ChallengeRow = ({
   const streakBest = challenge.kind === "streak"
     ? challenge.bestCount
     : null;
+  const canIncrement = challenge.kind !== "tick";
+  const canDecrement = challenge.kind !== "tick" && challenge.kind !== "streak";
+  const showCount = challenge.kind !== "tick" && (challenge.targetCount !== null || challenge.currentCount > 0);
   const showTime = done
     ? challenge.timerRemainMs !== null
     : timerState === "running" || timerState === "paused" || timerState === "expired";
@@ -268,32 +279,38 @@ const ChallengeRow = ({
               data-state={done ? "done" : timerState}
             >{timerState === "paused" && !done ? "Ⅱ " : ""}{done ? formatRemaining(remainingMs) : timeText}</span>
           )}
-          <span className="live-page__challenge-count">
-            {challenge.targetCount === null
-              ? String(challenge.currentCount)
-              : `${String(challenge.currentCount)} / ${String(challenge.targetCount)}`}
-            {streakBest !== null && streakBest > 0 ? ` · Best ${String(streakBest)}` : ""}
-          </span>
+          {showCount && (
+            <span className="live-page__challenge-count">
+              {challenge.targetCount === null
+                ? String(challenge.currentCount)
+                : `${String(challenge.currentCount)} / ${String(challenge.targetCount)}`}
+              {streakBest !== null && streakBest > 0 ? ` · Best ${String(streakBest)}` : ""}
+            </span>
+          )}
         </span>
       </div>
       {!deleted && !compact && (
         <div className="live-page__challenge-actions" aria-label={`${challenge.title} bedienen`}>
           {!done && (
             <>
-              <button
-                aria-label={`${challenge.title} um 1 verringern`}
-                className="live-control live-control--count"
-                disabled={pending || challenge.currentCount === 0}
-                onClick={() => onCommand(incrementCommand(challenge.id, -1), challenge.id)}
-                type="button"
-              >−</button>
-              <button
-                aria-label={`${challenge.title} um 1 erhöhen`}
-                className="live-control live-control--count"
-                disabled={pending}
-                onClick={() => onCommand(incrementCommand(challenge.id, 1), challenge.id)}
-                type="button"
-              >+</button>
+              {canDecrement && (
+                <button
+                  aria-label={deltaButtonLabel(challenge.title, "decrease", challenge.step)}
+                  className="live-control live-control--count"
+                  disabled={pending || challenge.currentCount === 0}
+                  onClick={() => onCommand(incrementCommand(challenge.id, -challenge.step), challenge.id)}
+                  type="button"
+                >{deltaButtonText("decrease", challenge.step)}</button>
+              )}
+              {canIncrement && (
+                <button
+                  aria-label={deltaButtonLabel(challenge.title, "increase", challenge.step)}
+                  className="live-control live-control--count"
+                  disabled={pending}
+                  onClick={() => onCommand(incrementCommand(challenge.id, challenge.step), challenge.id)}
+                  type="button"
+                >{deltaButtonText("increase", challenge.step)}</button>
+              )}
               <button
                 aria-label={`${challenge.title} abhaken`}
                 className="live-control"

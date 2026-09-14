@@ -205,6 +205,7 @@ describe("Live-Bedienseite", () => {
     render(<LiveApp />);
     emitUpdate();
     const plus = screen.getByRole("button", { name: "Offene Challenge um 1 erhöhen" });
+    expect(plus).toHaveTextContent("+");
     await user.click(plus);
     expect(screen.getByText("4 / 10")).toBeInTheDocument();
     expect(document.querySelector("[data-challenge-id='challenge-1']"))
@@ -216,6 +217,7 @@ describe("Live-Bedienseite", () => {
     const requestInit = vi.mocked(fetch).mock.calls.at(-1)?.[1];
     expect(requestInit?.method).toBe("POST");
     expect(requestInit?.headers).toEqual(expect.objectContaining({ authorization: `Bearer ${token}` }));
+    expect(requestInit?.body).toEqual(expect.stringContaining('"delta":1'));
 
     emitUpdate(message(3));
     expect(screen.getByText("3 / 10")).toBeInTheDocument();
@@ -262,7 +264,7 @@ describe("Live-Bedienseite", () => {
     expect(screen.getByText("3 / 5 · Best 3")).toBeInTheDocument();
   });
 
-  it("schließt einen measure-Zieltreffer optimistisch nicht ab", async () => {
+  it("verwendet die measure-Schrittweite für Button, Kommando und optimistische Anzeige", async () => {
     const user = userEvent.setup();
     render(<LiveApp />);
     emitUpdate({
@@ -275,11 +277,40 @@ describe("Live-Bedienseite", () => {
       })],
     });
 
-    await user.click(screen.getByRole("button", { name: "Offene Challenge um 1 erhöhen" }));
+    const plus = screen.getByRole("button", { name: "Offene Challenge um 50 erhöhen" });
+    expect(plus).toHaveTextContent("+50");
+    expect(screen.getByRole("button", { name: "Offene Challenge um 50 verringern" })).toHaveTextContent("−50");
 
-    expect(screen.getByText("1501 / 1500")).toBeInTheDocument();
+    await user.click(plus);
+
+    expect(screen.getByText("1550 / 1500")).toBeInTheDocument();
+    const requestInit = vi.mocked(fetch).mock.calls.at(-1)?.[1];
+    expect(requestInit?.body).toEqual(expect.stringContaining('"delta":50'));
     expect(document.querySelector("[data-challenge-id='challenge-1']"))
       .toHaveAttribute("data-state", "pending");
+  });
+
+  it("zeigt für tick nur das Abhaken ohne unzulässige Delta-Buttons", () => {
+    render(<LiveApp />);
+    emitUpdate({
+      ...message(),
+      challenges: [challenge(0, { kind: "tick", targetCount: null })],
+    });
+
+    expect(screen.getByRole("button", { name: "Offene Challenge abhaken" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /erhöhen|verringern/ })).not.toBeInTheDocument();
+    expect(document.querySelector(".live-page__challenge-count")).not.toBeInTheDocument();
+  });
+
+  it("zeigt für streak keinen Minus-Button, weil negative Deltas abgelehnt werden", () => {
+    render(<LiveApp />);
+    emitUpdate({
+      ...message(),
+      challenges: [challenge(2, { kind: "streak", targetCount: 5, currentCount: 2 })],
+    });
+
+    expect(screen.getByRole("button", { name: "Offene Challenge um 1 erhöhen" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Offene Challenge um 1 verringern" })).not.toBeInTheDocument();
   });
 
   it("wendet optimistisches Abhaken vor Stand und Auswahl an", async () => {
