@@ -59,6 +59,9 @@ type CommandMutationValue = {
   eventSeq?: number;
 };
 
+type CommandForType<Type extends Command["type"]> = Command & { type: Type };
+type CanonicalCommandForType<Type extends Command["type"]> = Required<CommandForType<Type>>;
+
 const toInstant = (now: DomainNow): string => {
   const milliseconds = typeof now === "number" ? now : Date.parse(now);
   if (!Number.isFinite(milliseconds)) throw new ValidationError("Ungültiger Zeitpunkt.");
@@ -66,28 +69,91 @@ const toInstant = (now: DomainNow): string => {
 };
 
 const canonicalCommand = (command: Command): string => {
-  if (command.scope === "global") {
-    return JSON.stringify({
-      commandId: command.commandId,
-      scope: command.scope,
-      type: command.type,
-    });
+  switch (command.type) {
+    case "increment": {
+      const canonical = {
+        commandId: command.commandId,
+        scope: command.scope,
+        type: command.type,
+        challengeId: command.challengeId,
+        delta: command.delta,
+      } satisfies CanonicalCommandForType<"increment">;
+      return JSON.stringify(canonical);
+    }
+    case "complete": {
+      const canonical = {
+        commandId: command.commandId,
+        scope: command.scope,
+        type: command.type,
+        challengeId: command.challengeId,
+      } satisfies CanonicalCommandForType<"complete">;
+      return JSON.stringify(canonical);
+    }
+    case "reopen": {
+      const canonical = {
+        commandId: command.commandId,
+        scope: command.scope,
+        type: command.type,
+        challengeId: command.challengeId,
+      } satisfies CanonicalCommandForType<"reopen">;
+      return JSON.stringify(canonical);
+    }
+    case "startTimer": {
+      const canonical = {
+        commandId: command.commandId,
+        scope: command.scope,
+        type: command.type,
+        challengeId: command.challengeId,
+      } satisfies CanonicalCommandForType<"startTimer">;
+      return JSON.stringify(canonical);
+    }
+    case "stopTimer": {
+      const canonical = {
+        commandId: command.commandId,
+        scope: command.scope,
+        type: command.type,
+        challengeId: command.challengeId,
+      } satisfies CanonicalCommandForType<"stopTimer">;
+      return JSON.stringify(canonical);
+    }
+    case "resetTimer": {
+      const canonical = {
+        commandId: command.commandId,
+        scope: command.scope,
+        type: command.type,
+        challengeId: command.challengeId,
+      } satisfies CanonicalCommandForType<"resetTimer">;
+      return JSON.stringify(canonical);
+    }
+    case "startGlobalTimer": {
+      const canonical = {
+        commandId: command.commandId,
+        scope: command.scope,
+        type: command.type,
+      } satisfies CanonicalCommandForType<"startGlobalTimer">;
+      return JSON.stringify(canonical);
+    }
+    case "pauseGlobalTimer": {
+      const canonical = {
+        commandId: command.commandId,
+        scope: command.scope,
+        type: command.type,
+      } satisfies CanonicalCommandForType<"pauseGlobalTimer">;
+      return JSON.stringify(canonical);
+    }
+    case "resetGlobalTimer": {
+      const canonical = {
+        commandId: command.commandId,
+        scope: command.scope,
+        type: command.type,
+      } satisfies CanonicalCommandForType<"resetGlobalTimer">;
+      return JSON.stringify(canonical);
+    }
+    default: {
+      const exhaustive: never = command;
+      throw new Error(`Unbekannter Kommandotyp: ${String(exhaustive)}`);
+    }
   }
-  if (command.type === "increment") {
-    return JSON.stringify({
-      commandId: command.commandId,
-      scope: command.scope,
-      type: command.type,
-      challengeId: command.challengeId,
-      delta: command.delta,
-    });
-  }
-  return JSON.stringify({
-    commandId: command.commandId,
-    scope: command.scope,
-    type: command.type,
-    challengeId: command.challengeId,
-  });
 };
 
 export const hashChallengeCommand = async (command: Command): Promise<string> => {
