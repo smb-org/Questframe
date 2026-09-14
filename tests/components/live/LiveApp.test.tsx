@@ -34,7 +34,10 @@ class FakeWebSocket {
   close(): void {}
 }
 
-const challenge = (currentCount = 3): ChallengeUpdate["challenges"][number] => ({
+const challenge = (
+  currentCount = 3,
+  overrides: Partial<ChallengeUpdate["challenges"][number]> = {},
+): ChallengeUpdate["challenges"][number] => ({
   id: "challenge-1",
   title: "Offene Challenge",
   kind: "counter",
@@ -53,6 +56,7 @@ const challenge = (currentCount = 3): ChallengeUpdate["challenges"][number] => (
   completedAt: null,
   createdAt: now,
   updatedAt: now,
+  ...overrides,
 });
 
 const message = (currentCount = 3): ChallengeUpdate => ({
@@ -206,6 +210,26 @@ describe("Live-Bedienseite", () => {
     expect(screen.getByText("3 / 10")).toBeInTheDocument();
     expect(document.querySelector("[data-challenge-id='challenge-1']"))
       .not.toHaveClass("live-page__challenge-row--pending");
+  });
+
+  it("schließt einen measure-Zieltreffer optimistisch nicht ab", async () => {
+    const user = userEvent.setup();
+    render(<LiveApp />);
+    emitUpdate({
+      ...message(),
+      challenges: [challenge(1_500, {
+        kind: "measure",
+        unit: "m",
+        targetCount: 1_500,
+        step: 50,
+      })],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Offene Challenge um 1 erhöhen" }));
+
+    expect(screen.getByText("1501 / 1500")).toBeInTheDocument();
+    expect(document.querySelector("[data-challenge-id='challenge-1']"))
+      .toHaveAttribute("data-state", "pending");
   });
 
   it("wendet optimistisches Abhaken vor Stand und Auswahl an", async () => {

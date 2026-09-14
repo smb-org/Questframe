@@ -8,6 +8,7 @@ import {
   MAX_CHALLENGES,
   MAX_COUNT,
   MAX_CHALLENGE_STEP,
+  MAX_MEASURE_COUNT,
   MAX_CHALLENGE_UNIT_GRAPHEMES,
   MAX_VISIBLE_ROWS,
   isChallengeKind,
@@ -21,7 +22,9 @@ import {
   isClientId,
   isCommandId,
   isCurrentCount,
+  isCurrentCountForKind,
   isDelta,
+  isDeltaForKind,
   isDoneOrder,
   isEventSeq,
   isGlobalTimerTotalMs,
@@ -45,6 +48,7 @@ import {
   isRevision,
   isSortOrder,
   isTargetCount,
+  isTargetCountForKind,
   isThemeId,
   isThemeMode,
   isChallengeSurfaceOpacity,
@@ -71,7 +75,7 @@ const normalized = <T>(
 const challengeIdSchema = custom(isChallengeId, "Challenge-ID ist erforderlich.");
 const clientIdSchema = custom(isClientId, "Client-ID ist erforderlich.");
 const challengeTitleSchema = normalized(isChallengeTitle, "Challenge muss 1–160 Zeichen lang sein.");
-const maxCountLabel = String(MAX_COUNT);
+const maxCountLabel = String(MAX_MEASURE_COUNT);
 const targetCountSchema = custom(isTargetCount, `Ziel muss null oder eine Zahl von 1–${maxCountLabel} sein.`);
 const currentCountSchema = custom(isCurrentCount, `Aktueller Stand muss 0–${maxCountLabel} sein.`);
 const timerTotalMsSchema = custom(
@@ -90,7 +94,10 @@ const requiredGlobalTimerTotalMsSchema = custom(
   (value): value is number => isGlobalTimerTotalMs(value) && value !== null,
   "Globale Gesamtdauer muss 10.000–86.400.000 ms sein.",
 );
-const deltaSchema = custom(isDelta, "Delta muss zwischen -99 und 99 liegen.");
+const deltaSchema = custom(
+  isDelta,
+  `Delta muss zwischen -${String(MAX_MEASURE_COUNT)} und ${String(MAX_MEASURE_COUNT)} liegen.`,
+);
 const instantSchema = custom(isInstant, "Zeitpunkt muss ein ISO-Instant sein.");
 const sortOrderSchema = custom(isSortOrder, "Sortierung muss 0–29 sein.");
 const maxVisibleSchema = custom(
@@ -160,9 +167,36 @@ const numberedSchema = custom(isNumbered, "Nummerierung muss ein Boolean sein.")
 const commandIdSchema = custom(isCommandId, "Kommando-ID muss eine UUID sein.");
 
 const validateChallengeKindSemantics = (
-  value: { kind: "tick" | "counter" | "streak" | "measure"; targetCount: number | null; unit: string | null },
+  value: {
+    kind: "tick" | "counter" | "streak" | "measure";
+    targetCount: number | null;
+    unit: string | null;
+    bestCount?: number;
+    currentCount?: number;
+  },
   context: z.RefinementCtx,
 ): void => {
+  if (!isTargetCountForKind(value.targetCount, value.kind)) {
+    context.addIssue({
+      code: "custom",
+      path: ["targetCount"],
+      message: `Ziel darf für ${value.kind} höchstens ${String(value.kind === "measure" ? MAX_MEASURE_COUNT : MAX_COUNT)} sein.`,
+    });
+  }
+  if (value.bestCount !== undefined && !isCurrentCountForKind(value.bestCount, value.kind)) {
+    context.addIssue({
+      code: "custom",
+      path: ["bestCount"],
+      message: `Rekord darf für ${value.kind} höchstens ${String(value.kind === "measure" ? MAX_MEASURE_COUNT : MAX_COUNT)} sein.`,
+    });
+  }
+  if (value.currentCount !== undefined && !isCurrentCountForKind(value.currentCount, value.kind)) {
+    context.addIssue({
+      code: "custom",
+      path: ["currentCount"],
+      message: `Aktueller Stand darf für ${value.kind} höchstens ${String(value.kind === "measure" ? MAX_MEASURE_COUNT : MAX_COUNT)} sein.`,
+    });
+  }
   if (value.kind === "tick" && value.targetCount !== null) {
     context.addIssue({
       code: "custom",
@@ -415,6 +449,39 @@ export const challengeUpdateSchema = z.strictObject({
   settings: settingsSchema,
   challenges: z.array(challengeSchema).max(MAX_CHALLENGES),
   event: z.union([challengeEventSchema, globalTimerEventSchema, z.null()]),
+}).superRefine((value, context) => {
+  const event = value.event;
+  if (event?.scope !== "challenge" || event.type !== "progressed") return;
+  const challenge = value.challenges.find(({ id }) => id === event.challengeId);
+  if (challenge === undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["event", "challengeId"],
+      message: "Progress-Event verweist auf keine Challenge im Snapshot.",
+    });
+    return;
+  }
+  if (!isDeltaForKind(event.delta, challenge.kind)) {
+    context.addIssue({
+      code: "custom",
+      path: ["event", "delta"],
+      message: `Delta darf für ${challenge.kind} höchstens ${String(challenge.kind === "measure" ? MAX_MEASURE_COUNT : MAX_COUNT)} betragen.`,
+    });
+  }
+  if (!isCurrentCountForKind(event.previousCount, challenge.kind)) {
+    context.addIssue({
+      code: "custom",
+      path: ["event", "previousCount"],
+      message: "Vorheriger Stand überschreitet die Typgrenze.",
+    });
+  }
+  if (!isCurrentCountForKind(event.currentCount, challenge.kind)) {
+    context.addIssue({
+      code: "custom",
+      path: ["event", "currentCount"],
+      message: "Aktueller Stand überschreitet die Typgrenze.",
+    });
+  }
 });
 
 export type Challenge = z.infer<typeof challengeSchema>;

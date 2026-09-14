@@ -129,6 +129,24 @@ describe("Win-Challenges-Domain", () => {
     });
   });
 
+  it("lässt Messwerte mit der Schrittweite über ihr Ziel hinaus laufen", () => {
+    const measure = makeChallenge({
+      kind: "measure",
+      unit: "m",
+      targetCount: 1_500,
+      step: 50,
+      currentCount: 1_500,
+    });
+
+    const first = applyIncrement(measure, 50, now);
+    expect(first.challenge).toMatchObject({ currentCount: 1_550, state: "pending" });
+    expect(first.event).toMatchObject({ type: "progressed", delta: 50, currentCount: 1_550 });
+
+    const overfulfilled = applyIncrement(first.challenge, 250, now);
+    expect(overfulfilled.challenge).toMatchObject({ currentCount: 1_800, state: "pending" });
+    expect(overfulfilled.event).toMatchObject({ type: "progressed", delta: 250, currentCount: 1_800 });
+  });
+
   it("friert beim manuellen Abhaken die Restzeit eines laufenden Timers ein", () => {
     const result = applyComplete(makeChallenge({
       state: "active",
@@ -346,6 +364,13 @@ describe("Win-Challenges-Domain", () => {
       now,
     );
     expect(targetLowered.currentCount).toBe(4);
+
+    const measureOverfulfilled = mergeDefinition(
+      makeChallenge({ kind: "measure", unit: "m", targetCount: 1_500, currentCount: 1_800 }),
+      { ...definition, kind: "measure", unit: "m", targetCount: 1_500 },
+      now,
+    );
+    expect(measureOverfulfilled.currentCount).toBe(1_800);
 
     expect(mergeDefinition(
       makeChallenge({ state: "active" }),

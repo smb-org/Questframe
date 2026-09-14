@@ -1,6 +1,6 @@
 import type { Challenge, GlobalTimer } from "../contracts/schemas";
 import type { ChallengeEvent, GlobalTimerEvent } from "../contracts/events";
-import { MAX_COUNT } from "../contracts/predicates";
+import { maxCountForKind, maxDeltaForKind } from "../contracts/predicates";
 
 export type DomainNow = number | string;
 export type TimerState = "idle" | "running" | "paused" | "expired";
@@ -87,14 +87,19 @@ export function applyIncrement(
     return { challenge, event: null };
   }
 
-  const boundedDelta = Math.max(-99, Math.min(99, Math.trunc(delta)));
-  const maximum = challenge.targetCount ?? MAX_COUNT;
+  const boundedDelta = Math.max(
+    -maxDeltaForKind(challenge.kind),
+    Math.min(maxDeltaForKind(challenge.kind), Math.trunc(delta)),
+  );
+  const maximum = challenge.kind === "measure"
+    ? maxCountForKind(challenge.kind)
+    : challenge.targetCount ?? maxCountForKind(challenge.kind);
   const nextCount = Math.max(0, Math.min(maximum, challenge.currentCount + boundedDelta));
   if (nextCount === challenge.currentCount) {
     return { challenge, event: null };
   }
 
-  if (challenge.targetCount !== null && nextCount === challenge.targetCount) {
+  if (challenge.kind !== "measure" && challenge.targetCount !== null && nextCount === challenge.targetCount) {
     return {
       challenge: completeChallenge({ ...challenge, currentCount: nextCount }, now),
       event: {

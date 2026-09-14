@@ -734,6 +734,40 @@ describe("win-challenges repository and migration", () => {
     });
   });
 
+  it("bewahrt einen übererfüllten measure-Stand beim Board-Save", async () => {
+    const created = await inRepository((repository) =>
+      repository.saveBoard({
+        baseBoardRevision: 1,
+        definitions: [{
+          ...definition("Meter", 0),
+          kind: "measure",
+          unit: "m",
+          targetCount: 1_500,
+          step: 50,
+        }],
+        now,
+      }),
+    );
+    const seeded = onlyChallenge(created.snapshot.challenges);
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec("UPDATE wc_challenges SET current_count = 1800 WHERE id = ?", seeded.id);
+    });
+
+    const saved = await inRepository((repository) =>
+      repository.saveBoard({
+        baseBoardRevision: created.snapshot.boardRevision,
+        definitions: [definitionFor(seeded, "Meter")],
+        now,
+      }),
+    );
+
+    expect(onlyChallenge(saved.snapshot.challenges)).toMatchObject({
+      kind: "measure",
+      currentCount: 1_800,
+      targetCount: 1_500,
+    });
+  });
+
   it("vergibt serverseitige Steuer-Keys für alle neuen Geschwister", async () => {
     const saved = await inRepository((repository) =>
       repository.saveBoard({
@@ -1053,6 +1087,73 @@ describe("win-challenges repository and migration", () => {
     expect((await inRepository((repository) => repository.readChallenge(challenge.id)))?.currentCount).toBe(2);
   });
 
+  it("führt measure-Increments über das Ziel hinaus und liest sie wieder aus der Datenbank", async () => {
+    const created = await inRepository((repository) =>
+      repository.saveBoard({
+        baseBoardRevision: 1,
+        definitions: [{
+          ...definition("Meter", 0),
+          kind: "measure",
+          unit: "m",
+          targetCount: 1_500,
+          step: 50,
+        }],
+        now,
+      }),
+    );
+    const challenge = onlyChallenge(created.snapshot.challenges);
+    const executeIncrement = async (delta: number, commandId: string) => {
+      const command = {
+        commandId,
+        scope: "challenge" as const,
+        type: "increment" as const,
+        challengeId: challenge.id,
+        delta,
+      };
+      const requestHash = await hashChallengeCommand(command);
+      return inRepository((repository) =>
+        createWinChallenges({ repository, clock: () => now }).executeCommandWithHash(
+          command,
+          requestHash,
+        ),
+      );
+    };
+
+    await inRepository((repository) => repository.transaction((transaction) =>
+      transaction.updateChallengeRuntime(
+        challenge.id,
+        {
+          currentCount: 1_500,
+          state: "pending",
+          timerEndsAt: null,
+          timerRemainMs: null,
+          completedAt: null,
+          hidden: false,
+        },
+        now,
+      ),
+    ));
+    const first = await executeIncrement(50, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    const second = await executeIncrement(250, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+
+    expect(first.response.challenge).toMatchObject({ currentCount: 1_550, state: "pending" });
+    expect(second.response.challenge).toMatchObject({ currentCount: 1_800, state: "pending" });
+    expect((await inRepository((repository) => repository.readChallenge(challenge.id)))?.currentCount)
+      .toBe(1_800);
+  });
+
+  it("weist einen ungültigen measure-großen Counter-Stand beim DB-Readback zurück", async () => {
+    const created = await inRepository((repository) =>
+      repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Counter", 0)], now }),
+    );
+    const challenge = onlyChallenge(created.snapshot.challenges);
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec("UPDATE wc_challenges SET current_count = 1000000 WHERE id = ?", challenge.id);
+    });
+
+    await expect(inRepository((repository) => repository.readChallenge(challenge.id))).rejects.toThrow();
+  });
+
   it("deduplicates a command by hash and rejects a hash mismatch", async () => {
     const created = await inRepository((repository) =>
       repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Dedupe", 0)], now: now }),
@@ -1347,7 +1448,7 @@ describe("win-challenges repository and migration", () => {
       settingsSave: { rowsWritten: settings.rowsWritten, rowsRead: settings.rowsRead },
       snapshotRead: { rowsWritten: snapshot.rowsWritten, rowsRead: snapshot.rowsRead },
     });
-    expect(mutation).toMatchObject({ rowsWritten: 4, rowsRead: 5 });
+    expect(mutation).toMatchObject({ rowsWritten: 4, rowsRead: 6 });
     // Migration 17 adds one case-insensitive UNIQUE-index write per new
     // control_key (3 writes). Measured reads increase by 3, from 15 to 18.
     // The retired-key set is loaded once per saveBoard; current.challenges

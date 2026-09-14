@@ -14,7 +14,7 @@ import {
   DOMAIN_ERROR_MESSAGES,
   type DomainNow,
 } from "../domain/timers";
-import { MAX_COUNT } from "../contracts/predicates";
+import { maxCountForKind } from "../contracts/predicates";
 import { selectVisible } from "../domain/visibility";
 import {
   NotFoundError,
@@ -193,10 +193,13 @@ const challengeMutation = (
     const challenge = transaction.incrementChallengeCount(
       command.challengeId,
       transition.challenge.currentCount - current.currentCount,
-      transition.challenge.targetCount ?? MAX_COUNT,
+      current.kind === "measure"
+        ? maxCountForKind(current.kind)
+        : transition.challenge.targetCount ?? maxCountForKind(current.kind),
       transition.challenge.updatedAt,
       transition.event.type === "completed"
         ? {
+            currentCount: transition.challenge.currentCount,
             state: transition.challenge.state,
             timerEndsAt: transition.challenge.timerEndsAt,
             timerRemainMs: transition.challenge.timerRemainMs,

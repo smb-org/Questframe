@@ -10,7 +10,16 @@ import {
   type Challenge,
   type GlobalTimer,
 } from "../contracts/schemas";
-import { MAX_CHALLENGES, MAX_COUNT, isEventSeq, isGlobalTimerMode, isGlobalTimerTotalMs, isRevision } from "../contracts/predicates";
+import {
+  MAX_CHALLENGES,
+  isCurrentCountForKind,
+  isDeltaForKind,
+  isEventSeq,
+  isGlobalTimerMode,
+  isGlobalTimerTotalMs,
+  isRevision,
+  maxCountForKind,
+} from "../contracts/predicates";
 import { mergeDefinition, normalizeSortOrder } from "../domain/definitions";
 import type { DomainNow } from "../domain/timers";
 import {
@@ -395,6 +404,13 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         };
       });
       const normalized = normalizeSortOrder(merged.map(({ challenge }) => challenge));
+      for (const challenge of normalized) {
+        try {
+          challengeSchema.parse(challenge);
+        } catch {
+          throw new ValidationError("Ungültiger Challenge-Stand für den Challenge-Typ.");
+        }
+      }
       const normalizedById = new Map(normalized.map((challenge) => [challenge.id, challenge]));
       const finalIds = normalized.map(({ id }) => id);
       this.deleteMissingChallenges(finalIds, current.challenges);
@@ -649,11 +665,22 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     delta: number,
     maximum: number,
     updatedAt: string,
-    runtime?: Pick<ChallengeRuntime, "state" | "timerEndsAt" | "timerRemainMs" | "completedAt" | "hidden">,
+    runtime?: Pick<ChallengeRuntime, "currentCount" | "state" | "timerEndsAt" | "timerRemainMs" | "completedAt" | "hidden">,
   ): Challenge | null {
     if (runtime !== undefined) assertChallengeTimerInvariant(runtime);
-    if (!Number.isSafeInteger(delta) || !Number.isSafeInteger(maximum) || maximum < 0 || maximum > MAX_COUNT) {
+    const current = this.readChallengeInternal(challengeId);
+    if (current === null) return null;
+    if (
+      !Number.isSafeInteger(delta) ||
+      !isDeltaForKind(delta, current.kind) ||
+      !Number.isSafeInteger(maximum) ||
+      maximum < 0 ||
+      maximum > maxCountForKind(current.kind)
+    ) {
       throw new ValidationError("Ungültige Zählergrenze.");
+    }
+    if (runtime !== undefined && !isCurrentCountForKind(runtime.currentCount, current.kind)) {
+      throw new ValidationError("Ungültiger Zählerstand für den Challenge-Typ.");
     }
     if (runtime === undefined) {
       this.execute<ChallengeRow>(
@@ -691,6 +718,11 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     updatedAt: string,
   ): Challenge | null {
     assertChallengeTimerInvariant(runtime);
+    const current = this.readChallengeInternal(challengeId);
+    if (current === null) return null;
+    if (!isCurrentCountForKind(runtime.currentCount, current.kind)) {
+      throw new ValidationError("Ungültiger Zählerstand für den Challenge-Typ.");
+    }
     this.execute<ChallengeRow>(
       `UPDATE ${this.table("challenges")} SET
         current_count = ?, state = ?, timer_ends_at = ?, timer_remain_ms = ?, completed_at = ?, hidden = ?, updated_at = ?

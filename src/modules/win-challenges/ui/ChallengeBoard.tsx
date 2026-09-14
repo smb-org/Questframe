@@ -21,6 +21,7 @@ import {
   type ChallengeDefinition,
   type Challenge,
 } from "../contracts/schemas";
+import { maxCountForKind } from "../contracts/predicates";
 
 export type ChallengeBoardSubscription = {
   onChallengeUpdate: (update: ChallengeUpdate) => void;
@@ -155,7 +156,7 @@ const noticesFor = (
         message: `Gespeicherter Stand bleibt erhalten: ${String(draft.currentCount)}. Er erscheint wieder, sobald ein Ziel gesetzt wird.`,
       });
     }
-    if (draft.targetCount !== null && draft.currentCount > draft.targetCount) {
+    if (draft.kind !== "measure" && draft.targetCount !== null && draft.currentCount > draft.targetCount) {
       notices.push({
         key: `${draft.key}-clamped-count`,
         kind: "clamped-count",
@@ -401,7 +402,7 @@ const ChallengeRow = ({
             <input
               aria-label={`${draft.title} Zielwert`}
               disabled={disabled || !hasTarget}
-              max={999}
+              max={maxCountForKind(draft.kind)}
               min={1}
               type="number"
               value={hasTarget ? String(draft.targetCount) : ""}
@@ -476,7 +477,7 @@ const ChallengeRow = ({
               <input
                 aria-label={`${draft.title} Zielwert`}
                 disabled={disabled || !hasTarget}
-                max={999}
+                max={maxCountForKind(draft.kind)}
                 min={1}
                 type="number"
                 value={hasTarget ? String(draft.targetCount) : ""}

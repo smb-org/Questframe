@@ -1,4 +1,5 @@
 import type { Challenge, ChallengeDefinition } from "../contracts/schemas";
+import { MAX_COUNT } from "../contracts/predicates";
 import type { DomainNow } from "./timers";
 
 const toInstant = (now: DomainNow): string => {
@@ -55,9 +56,10 @@ export const mergeDefinition = (
   const timestamp = toInstant(now);
   const timerRemoved = definition.timerTotalMs === null;
   const timerChanged = definition.timerTotalMs !== existing.timerTotalMs;
-  const currentCount =
-    definition.targetCount === null
-      ? existing.currentCount
+  const currentCount = definition.kind === "measure"
+    ? existing.currentCount
+    : definition.targetCount === null
+      ? Math.min(existing.currentCount, MAX_COUNT)
       : Math.min(existing.currentCount, definition.targetCount);
 
   return {

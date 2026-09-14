@@ -11,16 +11,19 @@ import {
 } from "../../../src/modules/win-challenges/contracts/schemas";
 import {
   GLOBAL_TIMER_UP_CAP_MS,
+  MAX_MEASURE_COUNT,
   isChallengeTitle,
   isChallengeFontFamily,
   isChallengeFontScale,
   isChallengeSurfaceOpacity,
   isChallengeTextEmphasis,
   isCurrentCount,
+  isCurrentCountForKind,
   isChallengeUnit,
   isChallengeStep,
   isDoneOrder,
   isDelta,
+  isDeltaForKind,
   isGlobalTimerMode,
   isHeaderStyle,
   isHeaderTitle,
@@ -38,6 +41,9 @@ import {
   isPlacementY,
   isSortOrder,
   isTargetCount,
+  isTargetCountForKind,
+  maxCountForKind,
+  maxDeltaForKind,
   isTimerTotalMs,
   isTimerRemainMs,
 } from "../../../src/modules/win-challenges/contracts/predicates";
@@ -98,6 +104,82 @@ const settings = {
 };
 
 describe("Win-Challenges-Verträge", () => {
+  it("hält den Zahlenraum je Challenge-Typ an seiner Grenze", () => {
+    const legacyKinds = ["tick", "counter", "streak"] as const;
+    for (const kind of legacyKinds) {
+      expect(maxCountForKind(kind)).toBe(999);
+      expect(maxDeltaForKind(kind)).toBe(99);
+      expect(isCurrentCountForKind(999, kind)).toBe(true);
+      expect(isCurrentCountForKind(1_000, kind)).toBe(false);
+      expect(isDeltaForKind(99, kind)).toBe(true);
+      expect(isDeltaForKind(100, kind)).toBe(false);
+    }
+
+    expect(maxCountForKind("measure")).toBe(MAX_MEASURE_COUNT);
+    expect(maxDeltaForKind("measure")).toBe(MAX_MEASURE_COUNT);
+    expect(isTargetCount(MAX_MEASURE_COUNT)).toBe(true);
+    expect(isTargetCount(MAX_MEASURE_COUNT + 1)).toBe(false);
+    expect(isCurrentCount(MAX_MEASURE_COUNT)).toBe(true);
+    expect(isCurrentCount(MAX_MEASURE_COUNT + 1)).toBe(false);
+    expect(isDelta(MAX_MEASURE_COUNT)).toBe(true);
+    expect(isDelta(MAX_MEASURE_COUNT + 1)).toBe(false);
+    expect(isCurrentCountForKind(MAX_MEASURE_COUNT, "measure")).toBe(true);
+    expect(isCurrentCountForKind(MAX_MEASURE_COUNT + 1, "measure")).toBe(false);
+    expect(isDeltaForKind(MAX_MEASURE_COUNT, "measure")).toBe(true);
+    expect(isDeltaForKind(MAX_MEASURE_COUNT + 1, "measure")).toBe(false);
+
+    const challengeCases = [
+      { kind: "tick" as const, unit: null, targetCount: null },
+      { kind: "counter" as const, unit: null, targetCount: 999 },
+      { kind: "streak" as const, unit: null, targetCount: 999 },
+      { kind: "measure" as const, unit: "m", targetCount: MAX_MEASURE_COUNT },
+    ];
+    for (const challengeCase of challengeCases) {
+      const boundary = maxCountForKind(challengeCase.kind);
+      expect(challengeSchema.safeParse({
+        ...challenge,
+        ...challengeCase,
+        bestCount: boundary,
+        currentCount: boundary,
+      }).success).toBe(true);
+      expect(challengeSchema.safeParse({
+        ...challenge,
+        ...challengeCase,
+        bestCount: boundary + 1,
+      }).success).toBe(false);
+      expect(challengeSchema.safeParse({
+        ...challenge,
+        ...challengeCase,
+        currentCount: boundary + 1,
+      }).success).toBe(false);
+    }
+
+    for (const kind of ["counter", "measure"] as const) {
+      const boundary = maxCountForKind(kind);
+      const unit = kind === "measure" ? "m" : null;
+      expect(isTargetCountForKind(boundary, kind)).toBe(true);
+      expect(isTargetCountForKind(boundary + 1, kind)).toBe(false);
+      expect(challengeDefinitionSchema.safeParse({
+        ...definition,
+        kind,
+        unit,
+        targetCount: boundary,
+      }).success).toBe(true);
+      expect(challengeDefinitionSchema.safeParse({
+        ...definition,
+        kind,
+        unit,
+        targetCount: boundary + 1,
+      }).success).toBe(false);
+    }
+
+    expect(challengeDefinitionSchema.safeParse({
+      ...definition,
+      kind: "counter",
+      targetCount: MAX_MEASURE_COUNT,
+    }).success).toBe(false);
+  });
+
   it("validiert die Typregeln für Ziel und Einheit", () => {
     expect(challengeDefinitionSchema.safeParse({ ...definition, kind: "tick", targetCount: null }).success).toBe(true);
     expect(challengeDefinitionSchema.safeParse({ ...definition, kind: "tick", targetCount: 1 }).success).toBe(false);
@@ -221,7 +303,7 @@ describe("Win-Challenges-Verträge", () => {
     const tables = [
       {
         name: "targetCount",
-        predicate: isTargetCount,
+        predicate: (value: unknown): value is number | null => isTargetCountForKind(value, "counter"),
         schema: (value: unknown) =>
           challengeDefinitionSchema.safeParse({ ...definition, targetCount: value }).success,
         values: [
@@ -256,7 +338,7 @@ describe("Win-Challenges-Verträge", () => {
       },
       {
         name: "currentCount",
-        predicate: isCurrentCount,
+        predicate: (value: unknown): value is number => isCurrentCountForKind(value, "counter"),
         schema: (value: unknown) => challengeSchema.safeParse({ ...challenge, currentCount: value }).success,
         values: [
           { value: 0, accepted: true },
@@ -276,9 +358,9 @@ describe("Win-Challenges-Verträge", () => {
             delta: value,
           }).success,
         values: [
-          { value: -99, accepted: true },
-          { value: 99, accepted: true },
-          { value: 100, accepted: false },
+          { value: -MAX_MEASURE_COUNT, accepted: true },
+          { value: MAX_MEASURE_COUNT, accepted: true },
+          { value: MAX_MEASURE_COUNT + 1, accepted: false },
         ],
       },
       {

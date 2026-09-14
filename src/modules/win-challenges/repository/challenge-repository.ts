@@ -129,7 +129,7 @@ export interface ChallengeRepositoryTransaction {
     delta: number,
     maximum: number,
     updatedAt: string,
-    runtime?: Pick<ChallengeRuntime, "state" | "timerEndsAt" | "timerRemainMs" | "completedAt" | "hidden">,
+    runtime?: Pick<ChallengeRuntime, "currentCount" | "state" | "timerEndsAt" | "timerRemainMs" | "completedAt" | "hidden">,
   ): Challenge | null;
   updateChallengeRuntime(
     challengeId: string,

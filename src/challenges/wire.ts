@@ -16,8 +16,10 @@ import {
   isChallengeStyleId,
   isChallengeTitle,
   isCurrentCount,
+  isCurrentCountForKind,
   isDoneOrder,
   isDelta,
+  isDeltaForKind,
   isEventSeq,
   isGlobalTimerTotalMs,
   isGlobalTimerMode,
@@ -37,7 +39,7 @@ import {
   isChallengePlacement,
   isRevision,
   isSortOrder,
-  isTargetCount,
+  isTargetCountForKind,
   isThemeId,
   isThemeMode,
   isChallengeSurfaceOpacity,
@@ -145,9 +147,7 @@ const parseSettings = (input: unknown): ChallengeSettings | null => {
 };
 
 const parseChallenge = (input: unknown): Challenge | null => {
-  if (
-    !isRecord(input) ||
-    !exactKeys(input, [
+  if (!isRecord(input) || !exactKeys(input, [
       "id",
       "title",
       "kind",
@@ -166,20 +166,20 @@ const parseChallenge = (input: unknown): Challenge | null => {
       "completedAt",
       "createdAt",
       "updatedAt",
-    ]) ||
-    !isChallengeId(input.id) ||
-    !isChallengeTitle(input.title) ||
-    !isChallengeKind(input.kind) ||
+    ])) return null;
+  if (!isChallengeId(input.id) || !isChallengeTitle(input.title) || !isChallengeKind(input.kind)) return null;
+  const kind = input.kind;
+  if (
     !(input.unit === null || isChallengeUnit(input.unit)) ||
     (input.unit !== null && input.unit !== normalizeChallengeText(input.unit)) ||
     !isControlKey(input.controlKey) ||
-    !isTargetCount(input.targetCount) ||
+    !isTargetCountForKind(input.targetCount, kind) ||
     !isTimerTotalMs(input.timerTotalMs) ||
     !isSortOrder(input.sortOrder) ||
     !isChallengeStep(input.step) ||
-    !isCurrentCount(input.bestCount) ||
+    !isCurrentCountForKind(input.bestCount, kind) ||
     !isHidden(input.hidden) ||
-    !isCurrentCount(input.currentCount) ||
+    !isCurrentCountForKind(input.currentCount, kind) ||
     !isChallengeState(input.state) ||
     !(input.timerEndsAt === null || isInstant(input.timerEndsAt)) ||
     !isTimerRemainMs(input.timerRemainMs) ||
@@ -187,10 +187,10 @@ const parseChallenge = (input: unknown): Challenge | null => {
     !(input.completedAt === null || isInstant(input.completedAt)) ||
     !isInstant(input.createdAt) ||
     !isInstant(input.updatedAt) ||
-    (input.kind === "tick" && input.targetCount !== null) ||
-    ((input.kind === "streak" || input.kind === "measure") && input.targetCount === null) ||
-    (input.kind === "measure" && input.unit === null) ||
-    (input.kind !== "measure" && input.unit !== null)
+    (kind === "tick" && input.targetCount !== null) ||
+    ((kind === "streak" || kind === "measure") && input.targetCount === null) ||
+    (kind === "measure" && input.unit === null) ||
+    (kind !== "measure" && input.unit !== null)
   ) return null;
   return input as unknown as Challenge;
 };
@@ -245,17 +245,26 @@ export const parseChallengeUpdate = (input: unknown): ChallengeUpdate | null => 
   if (!Array.isArray(input.challenges) || input.challenges.length > MAX_CHALLENGES) return null;
   const challenges = input.challenges.map(parseChallenge);
   if (challenges.some((challenge) => challenge === null)) return null;
+  const parsedChallenges = challenges as Challenge[];
   if (
     input.event !== null &&
     !isChallengeEvent(input.event) &&
     !isGlobalTimerEvent(input.event)
   ) return null;
+  const event = input.event;
+  if (event?.scope === "challenge" && event.type === "progressed") {
+    const challenge = parsedChallenges.find(({ id }) => id === event.challengeId);
+    if (challenge === undefined ||
+      !isDeltaForKind(event.delta, challenge.kind) ||
+      !isCurrentCountForKind(event.previousCount, challenge.kind) ||
+      !isCurrentCountForKind(event.currentCount, challenge.kind)) return null;
+  }
   return {
     eventSeq: input.eventSeq,
     boardRevision: input.boardRevision,
     settingsRevision: input.settingsRevision,
     settings,
-    challenges: challenges as Challenge[],
+    challenges: parsedChallenges,
     event: input.event,
   };
 };

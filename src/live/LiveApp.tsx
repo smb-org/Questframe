@@ -4,6 +4,7 @@ import type { Challenge, ChallengeUpdate, GlobalTimer } from "../shared/contract
 import { DOCK_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
 import { challengeNumbers, formatChallengeStand, selectVisible } from "../modules/win-challenges/domain/visibility";
 import { deriveChallengeTimerState, deriveTimerState } from "../modules/win-challenges/domain/timers";
+import { maxCountForKind, maxDeltaForKind } from "../modules/win-challenges/contracts/predicates";
 import type { Command } from "../modules/win-challenges/contracts/schemas";
 import {
   formatRemaining,
@@ -111,10 +112,18 @@ const optimisticPatchFor = (
   if (challenge === undefined) return null;
   if (command.type === "increment") {
     if (challenge.state === "done") return null;
-    const maximum = challenge.targetCount ?? 999;
-    const currentCount = Math.max(0, Math.min(maximum, challenge.currentCount + command.delta));
+    const maximum = challenge.kind === "measure"
+      ? maxCountForKind(challenge.kind)
+      : challenge.targetCount ?? maxCountForKind(challenge.kind);
+    const boundedDelta = Math.max(
+      -maxDeltaForKind(challenge.kind),
+      Math.min(maxDeltaForKind(challenge.kind), Math.trunc(command.delta)),
+    );
+    const currentCount = Math.max(0, Math.min(maximum, challenge.currentCount + boundedDelta));
     if (currentCount === challenge.currentCount) return null;
-    if (challenge.targetCount === null || currentCount !== challenge.targetCount) return { currentCount };
+    if (challenge.kind === "measure" || challenge.targetCount === null || currentCount !== challenge.targetCount) {
+      return { currentCount };
+    }
     const timerState = deriveChallengeTimerState(challenge, Date.now());
     const timerRemainMs = timerState === "running" || timerState === "paused"
       ? remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, Date.now())

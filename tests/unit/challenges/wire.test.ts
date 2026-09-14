@@ -59,6 +59,21 @@ const challengeContractParityCases = [
   { label: "Tick ohne Ziel", patch: { kind: "tick", targetCount: null }, accepted: true },
   { label: "Streak mit Ziel", patch: { kind: "streak", targetCount: 1 }, accepted: true },
   { label: "Messwert mit Einheit und Ziel", patch: { kind: "measure", unit: "kg", targetCount: 1 }, accepted: true },
+  {
+    label: "Messwert über dem Ziel",
+    patch: { kind: "measure", unit: "m", targetCount: 1_500, currentCount: 1_800, bestCount: 1_800 },
+    accepted: true,
+  },
+  {
+    label: "Counter mit Messwert-Stand",
+    patch: { kind: "counter", targetCount: 999, currentCount: 1_000_000, bestCount: 1_000_000 },
+    accepted: false,
+  },
+  {
+    label: "Counter mit Messwert-Ziel",
+    patch: { kind: "counter", targetCount: 1_000_000 },
+    accepted: false,
+  },
   { label: "unbekannter Typ", patch: { kind: "timer" }, accepted: false },
   { label: "numerischer Typ", patch: { kind: 1 }, accepted: false },
   { label: "Einheit als Zahl", patch: { unit: 1 }, accepted: false },

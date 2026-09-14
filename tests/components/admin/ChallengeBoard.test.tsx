@@ -305,6 +305,21 @@ describe("ChallengeBoard", () => {
     expect(screen.getByText(/behält seinen Endzeitpunkt/)).toBeInTheDocument();
   });
 
+  it("kündigt bei einem übererfüllten measure keinen Clamp beim Speichern an", async () => {
+    const initial = snapshot([challenge("measure", "Meter", {
+      kind: "measure",
+      unit: "m",
+      targetCount: 1_500,
+      currentCount: 1_800,
+      step: 50,
+    })]);
+    renderBoard(initial);
+
+    await screen.findByDisplayValue("Meter");
+    expect(screen.queryByText(/geklemmt/)).not.toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: "Meter Zielwert" })).toHaveAttribute("max", "1000000");
+  });
+
   it("zeigt einen revision_conflict mit Serverstand und überschreibt ihn nicht still", async () => {
     const user = userEvent.setup();
     const initial = snapshot([challenge("one", "Lokaler Entwurf")]);
