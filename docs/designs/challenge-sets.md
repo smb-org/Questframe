@@ -439,16 +439,16 @@ höchstens am Rand, und nur S3 schreibt dort.
 
 Aus den Befunden dieses Reviews.
 
-- [ ] **S1 (P1, human: ~1 Tag / CC: ~45 Min)** — contracts/domain — `challengeSetV1Schema` aus `challengeDefinitionFields`, `domain/set-codec.ts` ohne Zod
+- [x] **S1 (P1, human: ~1 Tag / CC: ~45 Min)** — contracts/domain — `challengeSetV1Schema` aus `challengeDefinitionFields`, `domain/set-codec.ts` ohne Zod
   - Surfaced by: Beschluss 3 — Schichtregel
   - Verify: `pnpm run test`, plus Roundtrip- und Missbrauchstests
-- [ ] **S2 (P1, human: ~4 Std / CC: ~30 Min)** — wire/channel — `reason: "set-switch"` und `set_switched` in beiden Contract-Dateien, im Parser und in den Zeremonien
+- [x] **S2 (P1, human: ~4 Std / CC: ~30 Min)** — wire/channel — `reason: "set-switch"` und `set_switched` in beiden Contract-Dateien, im Parser und in den Zeremonien
   - Surfaced by: Beschluss 1
   - Verify: `pnpm run test:worker`, dazu `pnpm run build:budgets` gegen das 80-KiB-Gate
-- [ ] **S3 (P1, human: ~1 Tag / CC: ~45 Min)** — admin — Export-Knopf, Import mit 64-KiB-Grenze, Listenvorschau, Bestätigung
+- [x] **S3 (P1, human: ~1 Tag / CC: ~45 Min)** — admin — Export-Knopf, Import mit 64-KiB-Grenze, Listenvorschau, Bestätigung
   - Surfaced by: Entwurf, Next Steps 3 und 4
   - Verify: Komponententests, manueller Durchlauf
-- [ ] **S4 (P1, human: ~3 Std / CC: ~25 Min)** — tests — Worker-Test über zwei Durable Objects, plus `gstack-shortcut(dec-ba649f26)`-Marker am Codepfad
+- [x] **S4 (P1, human: ~3 Std / CC: ~25 Min)** — tests — Worker-Test über zwei Durable Objects, plus `gstack-shortcut(dec-ba649f26)`-Marker am Codepfad
   - Surfaced by: Beschluss 4
   - Verify: `pnpm run test:worker`
 
@@ -627,16 +627,16 @@ Es werden keine Karten vorgeschlagen.
 
 ## Implementation Tasks — Design
 
-- [ ] **D1 (P1, human: ~4 Std / CC: ~30 Min)** — admin — Set-Leiste am Board-Editor, Import füllt den Entwurf statt zu veröffentlichen
+- [x] **D1 (P1, human: ~4 Std / CC: ~30 Min)** — admin — Set-Leiste am Board-Editor, Import füllt den Entwurf statt zu veröffentlichen
   - Surfaced by: Pass 1 und das Publikationsmodell aus `DESIGN.md`
   - Verify: Komponententest, dass Import nur den Entwurf ändert und `dirty` setzt
-- [ ] **D2 (P1, human: ~3 Std / CC: ~25 Min)** — admin — Zustandstabelle umsetzen, Leerzustand mit Primäraktion, Fehler am Feld
+- [x] **D2 (P1, human: ~3 Std / CC: ~25 Min)** — admin — Zustandstabelle umsetzen, Leerzustand mit Primäraktion, Fehler am Feld
   - Surfaced by: Pass 2 — kein einziger Zustand war benannt
   - Verify: Komponententests je Zustand
-- [ ] **D3 (P2, human: ~1 Std / CC: ~10 Min)** — admin — `· geändert` am Set-Namen, Speichern fragt überschreiben oder neu
+- [x] **D3 (P2, human: ~1 Std / CC: ~10 Min)** — admin — `· geändert` am Set-Namen, Speichern fragt überschreiben oder neu
   - Surfaced by: Pass 7 — sonst speichert man über eine Vorlage
   - Verify: Komponententest über Laden, Ändern, Speichern
-- [ ] **D4 (P2, human: ~1 Std / CC: ~10 Min)** — styles — Leiste unter 760 px ausblenden, Fokus und Touch-Ziele
+- [x] **D4 (P2, human: ~1 Std / CC: ~10 Min)** — styles — Leiste unter 760 px ausblenden, Fokus und Touch-Ziele
   - Surfaced by: Pass 6
   - Verify: manueller Durchlauf bei 375 px, Tastaturdurchlauf
 
