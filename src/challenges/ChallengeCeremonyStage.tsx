@@ -37,6 +37,7 @@ export const ChallengeCeremonyStage = ({
         ? { placement: { ...update.settings.placement, x: 0, y: 0 } }
         : {}}
       ceremonyTarget={presentation.ceremonyTarget}
+      clockOffsetMs={presentation.clockOffsetMs}
       now={presentation.now}
       update={update}
     />

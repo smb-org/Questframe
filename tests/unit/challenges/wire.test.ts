@@ -4,6 +4,7 @@ import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challeng
 import { challengeSchema } from "../../../src/modules/win-challenges/contracts/schemas";
 import {
   accountForChallengeUpdate,
+  parseChallengeMessage,
   parseChallengeUpdate,
   placementAtOriginFromLocation,
 } from "../../../src/challenges/wire";
@@ -95,6 +96,25 @@ const challengeContractParityCases = [
 ] as const;
 
 describe("Challenge-Quelle-Wire", () => {
+  it("akzeptiert eine gültige time_sync-Nachricht", () => {
+    const message = {
+      type: "time_sync" as const,
+      clientTimestamp: 1_700_000_000_000,
+      serverTime: "2026-09-14T10:00:00.000Z",
+    };
+
+    expect(parseChallengeMessage(message)).toEqual(message);
+  });
+
+  it.each([
+    { type: "time_sync", clientTimestamp: "1", serverTime: "2026-09-14T10:00:00.000Z" },
+    { type: "time_sync", clientTimestamp: 1_700_000_000_000, serverTime: "ungültig" },
+    { type: "time_sync", clientTimestamp: 1_700_000_000_000, serverTime: "2026-09-14T10:00:00.000Z", extra: true },
+    { type: "time_sync", clientTimestamp: Number.NaN, serverTime: "2026-09-14T10:00:00.000Z" },
+  ])("verwirft eine kaputte time_sync-Nachricht %#", (message) => {
+    expect(parseChallengeMessage(message)).toBeNull();
+  });
+
   it("nimmt eine gültige challenge_update-Nachricht an", () => {
     expect(parseChallengeUpdate(update())).toEqual(update());
   });

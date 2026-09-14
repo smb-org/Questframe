@@ -33,6 +33,7 @@ type ChunkLoadState = "idle" | "ready" | "failed";
 
 export type ChallengePresentationOptions = {
   update: ChallengeUpdate | null;
+  clockOffsetMs?: number;
   loadStyle?: ChallengeStyleLoader;
   loadTheme?: ChallengeThemeLoader;
   loadThemes?: boolean;
@@ -41,6 +42,7 @@ export type ChallengePresentationOptions = {
 export type ChallengePresentation = {
   ready: boolean;
   now: number;
+  clockOffsetMs: number;
   reducedMotion: boolean;
   ceremonyTarget: ChallengeLogCeremonyTarget | null;
   activeCeremony: (ChallengeCeremony & { eventSeq: number }) | null;
@@ -50,11 +52,12 @@ export type ChallengePresentation = {
 
 export const useChallengePresentation = ({
   update,
+  clockOffsetMs = 0,
   loadStyle = loadChallengeStyle,
   loadTheme = loadChallengeTheme,
   loadThemes = true,
 }: ChallengePresentationOptions): ChallengePresentation => {
-  const [now, setNow] = useState(() => Date.now());
+  const [localNow, setLocalNow] = useState(() => Date.now());
   const [themeLoadState, setThemeLoadState] = useState<{ key: string | null; state: ChunkLoadState }>({
     key: null,
     state: "idle",
@@ -106,7 +109,7 @@ export const useChallengePresentation = ({
   }, [loadTheme, loadThemes, themeId, themeKey, themeMode]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => { setNow(Date.now()); }, 1_000);
+    const timer = window.setInterval(() => { setLocalNow(Date.now()); }, 1_000);
     return () => { window.clearInterval(timer); };
   }, []);
 
@@ -181,7 +184,8 @@ export const useChallengePresentation = ({
 
   return {
     ready: styleReady && themeReady,
-    now,
+    now: localNow + clockOffsetMs,
+    clockOffsetMs,
     reducedMotion,
     ceremonyTarget: activeCeremony?.target ?? null,
     activeCeremony,

@@ -76,6 +76,7 @@ const ChallengeRow = ({
   now,
   ceremonyTargetId,
   ceremonySeq,
+  clockOffsetMs = 0,
   number,
   numbered,
 }: {
@@ -83,6 +84,7 @@ const ChallengeRow = ({
   now: number;
   ceremonyTargetId?: string | null;
   ceremonySeq?: number | undefined;
+  clockOffsetMs?: number;
   number: number | undefined;
   numbered: boolean;
 }) => {
@@ -92,7 +94,7 @@ const ChallengeRow = ({
   const drain = useMemo(() => {
     if (challenge.timerTotalMs === null) return null;
     // eslint-disable-next-line react-hooks/purity -- Der Snapshot darf nur bei einem Timerwechsel neu berechnet werden.
-    const snapshotNow = Date.now();
+    const snapshotNow = Date.now() + clockOffsetMs;
     const restMs = challenge.timerEndsAt !== null
       ? Math.max(0, Date.parse(challenge.timerEndsAt) - snapshotNow)
       : challenge.timerRemainMs ?? 0;
@@ -101,8 +103,8 @@ const ChallengeRow = ({
       "--wc-timer-delay": `-${String(challenge.timerTotalMs - restMs)}ms`,
     };
     // Absicht: kein now in den Abhängigkeiten. Die Werte werden genau dann neu
-    // berechnet, wenn der Timer wirklich wechselt (Start, Pause, Fortsetzen, Reset).
-  }, [challenge.timerEndsAt, challenge.timerRemainMs, challenge.timerTotalMs]);
+    // berechnet, wenn der Timer oder der Zeit-Offset wechselt.
+  }, [challenge.timerEndsAt, challenge.timerRemainMs, challenge.timerTotalMs, clockOffsetMs]);
   const timerScale = challenge.timerTotalMs === null ? 0 : remainingMs / challenge.timerTotalMs;
   const showTime = done
     ? challenge.timerRemainMs !== null
@@ -183,6 +185,7 @@ const ChallengeRow = ({
 export const ChallengeLog = ({
   update,
   now,
+  clockOffsetMs = 0,
   ceremonyTarget = null,
   ceremonySeq,
   placement,
@@ -198,6 +201,7 @@ export const ChallengeLog = ({
 }: {
   update: ChallengeUpdate;
   now: number;
+  clockOffsetMs?: number;
   ceremonyTarget?: ChallengeLogCeremonyTarget | null;
   ceremonySeq?: number | undefined;
   placement?: ChallengeUpdate["settings"]["placement"];
@@ -349,6 +353,7 @@ export const ChallengeLog = ({
               ceremonySeq={ceremonySeq}
               ceremonyTargetId={ceremonyTarget?.kind === "challenge" ? ceremonyTarget.id : null}
               challenge={pinned}
+              clockOffsetMs={clockOffsetMs}
               numbered={update.settings.numbered}
               number={numbers.get(pinned.id)}
               now={now}
@@ -364,6 +369,7 @@ export const ChallengeLog = ({
                   ceremonySeq={ceremonySeq}
                   ceremonyTargetId={ceremonyTarget?.kind === "challenge" ? ceremonyTarget.id : null}
                   challenge={challenge}
+                  clockOffsetMs={clockOffsetMs}
                   key={challenge.id}
                   numbered={update.settings.numbered}
                   number={numbers.get(challenge.id)}
@@ -381,6 +387,7 @@ export const ChallengeLog = ({
               ceremonySeq={ceremonySeq}
               ceremonyTargetId={ceremonyTarget?.kind === "challenge" ? ceremonyTarget.id : null}
               challenge={challenge}
+              clockOffsetMs={clockOffsetMs}
               key={challenge.id}
               numbered={update.settings.numbered}
               number={numbers.get(challenge.id)}
@@ -397,6 +404,7 @@ export const ChallengeLog = ({
               ceremonyTargetId={ceremonyTarget?.kind === "challenge" ? ceremonyTarget.id : null}
               key={challenge.id}
               challenge={challenge}
+              clockOffsetMs={clockOffsetMs}
               numbered={update.settings.numbered}
               number={numbers.get(challenge.id)}
               now={now}

@@ -16,6 +16,10 @@ import {
   placementAtOriginFromLocation,
   tokenFromLocation,
 } from "./wire";
+import {
+  createTimeSyncClient,
+  TIME_SYNC_INTERVAL_MS,
+} from "../shared/time-sync";
 import { loadChallengeStyle, type ChallengeStyleLoader } from "./style-loader";
 import { loadChallengeTheme, type ChallengeThemeLoader } from "./theme-loader";
 import { useChallengePresentation } from "./useChallengePresentation";
@@ -49,9 +53,10 @@ export const ChallengeSourceApp = ({
   reloadPage = reloadWindow,
 }: ChallengeSourceAppProps = {}) => {
   const [update, setUpdate] = useState<ChallengeUpdate | null>(null);
+  const [clockOffsetMs, setClockOffsetMs] = useState(0);
   // Der Hash ändert sich zur Laufzeit nicht; einmal beim Mount auslesen genügt.
   const [placementAtOrigin] = useState(placementAtOriginFromLocation);
-  const presentation = useChallengePresentation({ update, loadStyle, loadTheme });
+  const presentation = useChallengePresentation({ update, clockOffsetMs, loadStyle, loadTheme });
   const { acceptUpdate } = presentation;
 
   useEffect(() => {
@@ -62,6 +67,8 @@ export const ChallengeSourceApp = ({
     let revoked = false;
     let socket: WebSocket | null = null;
     let stopHeartbeat: (() => void) | null = null;
+    let timeSyncTimer: number | null = null;
+    let timeSync: ReturnType<typeof createTimeSyncClient> | null = null;
     let retryTimer: number | null = null;
     let retry = 0;
 
@@ -72,10 +79,17 @@ export const ChallengeSourceApp = ({
         OVERLAY_SOCKET_PROTOCOL,
         token,
       ]);
+      timeSync = createTimeSyncClient({
+        send: (message) => { socket?.send(message); },
+        onOffset: setClockOffsetMs,
+      });
       socket.addEventListener("open", () => {
         stopHeartbeat?.();
         stopHeartbeat = startSocketHeartbeat(socket as WebSocket);
         retry = 0;
+        timeSync?.requestSamples();
+        if (timeSyncTimer !== null) window.clearInterval(timeSyncTimer);
+        timeSyncTimer = window.setInterval(() => { timeSync?.requestSamples(); }, TIME_SYNC_INTERVAL_MS);
       });
       socket.addEventListener("message", (message) => {
         if (typeof message.data !== "string") return;
@@ -98,6 +112,10 @@ export const ChallengeSourceApp = ({
           reloadAfterWireParseFailure(reloadPage);
           return;
         }
+        if ("type" in parsed && parsed.type === "time_sync") {
+          timeSync?.accept(parsed, Date.now());
+          return;
+        }
         if (!("eventSeq" in parsed)) {
           revoked = true;
           setUpdate(null);
@@ -110,6 +128,10 @@ export const ChallengeSourceApp = ({
       socket.addEventListener("close", () => {
         stopHeartbeat?.();
         stopHeartbeat = null;
+        timeSync?.reset();
+        timeSync = null;
+        if (timeSyncTimer !== null) window.clearInterval(timeSyncTimer);
+        timeSyncTimer = null;
         if (disposed || revoked) return;
         setUpdate(null);
         const delay = nextReconnectDelayMs(retry);
@@ -123,6 +145,10 @@ export const ChallengeSourceApp = ({
       disposed = true;
       stopHeartbeat?.();
       stopHeartbeat = null;
+      timeSync?.reset();
+      timeSync = null;
+      if (timeSyncTimer !== null) window.clearInterval(timeSyncTimer);
+      timeSyncTimer = null;
       if (retryTimer !== null) window.clearTimeout(retryTimer);
       socket?.close();
     };

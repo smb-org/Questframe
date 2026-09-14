@@ -8,16 +8,25 @@ import { OVERLAY_SOCKET_PROTOCOL } from "../../../src/shared/contracts/protocol"
 
 const token = "A".repeat(43);
 
+const messageType = (value: string): unknown => {
+  const parsed: unknown = JSON.parse(value);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+  return "type" in parsed ? parsed.type : null;
+};
+
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
   readonly url: string;
   readonly protocols: string[];
+  readonly sentMessages: string[] = [];
+  readonly readyState = 1;
   private readonly listeners = new Map<string, Array<(event: Event & { data?: unknown }) => void>>();
 
   constructor(url: string, protocols?: string | string[]) {
     this.url = url;
     this.protocols = protocols === undefined ? [] : Array.isArray(protocols) ? protocols : [protocols];
     FakeWebSocket.instances.push(this);
+    queueMicrotask(() => this.emit("open"));
   }
 
   addEventListener(type: string, callback: (event: Event & { data?: unknown }) => void): void {
@@ -31,6 +40,10 @@ class FakeWebSocket {
   }
 
   close(): void {}
+
+  send(data: string): void {
+    this.sentMessages.push(data);
+  }
 }
 
 class FakeAudio {
@@ -164,6 +177,108 @@ afterEach(() => {
 });
 
 describe("ChallengeSourceApp", () => {
+  it("lässt die Anzeige ohne time_sync-Antwort weiterlaufen", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(fixedNow);
+    render(<ChallengeSourceApp loadStyle={() => Promise.resolve()} loadTheme={() => Promise.resolve()} />);
+    const socket = FakeWebSocket.instances[0];
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await deliver(socket, sourceUpdate({
+      challenges: [{
+        ...timedChallenge("running", { state: "active", timerEndsAt: new Date(fixedNow + 5_000).toISOString() }),
+        title: "Läuft weiter",
+      }],
+    }));
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByLabelText("Restzeit 0:05")).toBeInTheDocument();
+    act(() => { vi.advanceTimersByTime(1_000); });
+    expect(screen.getByLabelText("Restzeit 0:04")).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it("rechnet absolute Timer mit dem gemessenen Uhr-Offset", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(fixedNow);
+    render(<ChallengeSourceApp loadStyle={() => Promise.resolve()} loadTheme={() => Promise.resolve()} />);
+    const socket = FakeWebSocket.instances[0];
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await deliver(socket, sourceUpdate({
+      challenges: [{
+        ...timedChallenge("running", { state: "active", timerEndsAt: new Date(fixedNow + 5_000).toISOString() }),
+        title: "Korrigierte Uhr",
+      }],
+    }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByLabelText("Restzeit 0:05")).toBeInTheDocument();
+
+    act(() => socket?.emit("message", JSON.stringify({
+      type: "time_sync",
+      clientTimestamp: fixedNow,
+      serverTime: new Date(fixedNow + 1_000).toISOString(),
+    })));
+
+    expect(screen.getByLabelText("Restzeit 0:04")).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it("fordert beim Verbinden und nach einem Reconnect eine neue Zeitmessung an", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    render(<ChallengeSourceApp />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const firstSocket = FakeWebSocket.instances[0];
+    expect(firstSocket?.sentMessages).toHaveLength(3);
+    expect(firstSocket?.sentMessages.map(messageType)).toEqual([
+      "time_sync_request",
+      "time_sync_request",
+      "time_sync_request",
+    ]);
+
+    act(() => { firstSocket?.emit("close"); });
+    act(() => { vi.advanceTimersByTime(750); });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const secondSocket = FakeWebSocket.instances[1];
+    expect(secondSocket?.sentMessages).toHaveLength(3);
+    expect(secondSocket?.sentMessages.map(messageType)).toEqual([
+      "time_sync_request",
+      "time_sync_request",
+      "time_sync_request",
+    ]);
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("frischt die Zeitmessung nach fünf Minuten auf", async () => {
+    vi.useFakeTimers();
+    render(<ChallengeSourceApp />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const socket = FakeWebSocket.instances[0];
+    expect(socket?.sentMessages).toHaveLength(3);
+
+    act(() => { vi.advanceTimersByTime(5 * 60 * 1_000); });
+
+    expect(socket?.sentMessages).toHaveLength(6);
+    vi.useRealTimers();
+  });
+
   it("rendert plain-list erst nach einer gültigen Nachricht und ordnet erledigte unten ein", async () => {
     render(<ChallengeSourceApp />);
     expect(document.body).not.toHaveTextContent("Offene Challenge");

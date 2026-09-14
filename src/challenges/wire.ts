@@ -6,6 +6,7 @@ import type {
   GlobalTimer,
   GlobalTimerEvent,
 } from "../shared/contracts/win-challenges";
+import type { TimeSyncMessage } from "../shared/time-sync";
 import {
   isChallengeId,
   isChallengeKind,
@@ -50,7 +51,7 @@ import {
   MAX_CHALLENGES,
 } from "../modules/win-challenges/contracts/predicates";
 
-export type ChallengeMessage = ChallengeUpdate | { type: "token_revoked" };
+export type ChallengeMessage = ChallengeUpdate | TimeSyncMessage | { type: "token_revoked" };
 
 /**
  * Liest `placement=origin`. Damit rendert die Quelle das Element in der linken
@@ -224,6 +225,18 @@ const isGlobalTimerEvent = (input: unknown): input is GlobalTimerEvent =>
     input.type === "global_paused" ||
     input.type === "global_reset");
 
+const parseTimeSyncMessage = (input: unknown): TimeSyncMessage | null => {
+  if (
+    !isRecord(input) ||
+    !exactKeys(input, ["type", "clientTimestamp", "serverTime"]) ||
+    input.type !== "time_sync" ||
+    typeof input.clientTimestamp !== "number" ||
+    !Number.isFinite(input.clientTimestamp) ||
+    !isInstant(input.serverTime)
+  ) return null;
+  return input as unknown as TimeSyncMessage;
+};
+
 export const parseChallengeUpdate = (input: unknown): ChallengeUpdate | null => {
   if (
     !isRecord(input) ||
@@ -270,6 +283,7 @@ export const parseChallengeUpdate = (input: unknown): ChallengeUpdate | null => 
 };
 
 export const parseChallengeMessage = (input: unknown): ChallengeMessage | null => {
+  if (isRecord(input) && input.type === "time_sync") return parseTimeSyncMessage(input);
   if (isRecord(input) && input.type === "token_revoked" && exactKeys(input, ["type"])) {
     return { type: "token_revoked" };
   }
