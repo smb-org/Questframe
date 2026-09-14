@@ -513,6 +513,52 @@ describe("Win-Challenges-Sockets", () => {
     }
   });
 
+  it("broadcastet streak-reset mit dem zurückgesetzten Stand an die Challenge-Quelle", async () => {
+    const overlayToken = await createOverlayToken();
+    const challenge = await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken);
+
+    try {
+      await requireMessage(challenge, (data) => data.event === null, "Challenge-Snapshot");
+      const boardUpdate = requireMessage(challenge, (data) => data.event === null, "Challenge-Update-Board");
+      const board = await fetchWorker("/api/challenges/board", {
+        method: "PUT",
+        headers: authenticatedHeaders(),
+        body: JSON.stringify({
+          baseBoardRevision: 1,
+          challenges: [{ ...challengeDefinition, kind: "streak", targetCount: 5 }],
+        }),
+      });
+      expect(board.status).toBe(200);
+      await boardUpdate;
+      const boardBody = await board.json<{ snapshot: { challenges: Array<{ id: string }> } }>();
+      const challengeId = boardBody.snapshot.challenges[0]?.id;
+      if (challengeId === undefined) throw new Error("Streak-Challenge fehlt.");
+
+      const resetUpdate = requireMessage(challenge, (data) => {
+        const event = data.event as { type?: string } | null;
+        return event?.type === "streak-reset";
+      }, "Challenge-Update-Streak-Reset");
+      const reset = await fetchWorker("/api/challenges/commands", {
+        method: "POST",
+        headers: authenticatedHeaders(),
+        body: JSON.stringify({
+          commandId: commandId(),
+          scope: "challenge",
+          type: "resetStreak",
+          challengeId,
+        }),
+      });
+      expect(reset.status).toBe(200);
+      const update = await resetUpdate;
+      expect(update.event).toMatchObject({ type: "streak-reset", challengeId });
+      expect(update.challenges).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: challengeId, currentCount: 0 }),
+      ]));
+    } finally {
+      challenge.close();
+    }
+  });
+
   it("begrenzt Composite-Sockets auf das konfigurierte Limit", async () => {
     const overlayToken = await createOverlayToken();
     const sockets: WebSocket[] = [];

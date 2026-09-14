@@ -24,6 +24,7 @@ const timerClass = (state: TimerState, critical: boolean, mode: ChallengeUpdate[
 export type ChallengeLogCeremonyTarget =
   | { kind: "challenge"; id: string }
   | { kind: "global" };
+export type ChallengeLogCeremonyVisual = "progressed" | "completed" | "lost" | "quiet";
 
 const resolveChallengeTextEmphasis = (
   textEmphasis: ChallengeUpdate["settings"]["textEmphasis"],
@@ -75,6 +76,7 @@ const ChallengeRow = ({
   challenge,
   now,
   ceremonyTargetId,
+  ceremonyVisual,
   ceremonySeq,
   clockOffsetMs = 0,
   number,
@@ -85,6 +87,7 @@ const ChallengeRow = ({
   challenge: Challenge;
   now: number;
   ceremonyTargetId?: string | null;
+  ceremonyVisual: ChallengeLogCeremonyVisual | undefined;
   ceremonySeq?: number | undefined;
   clockOffsetMs?: number;
   number: number | undefined;
@@ -131,9 +134,10 @@ const ChallengeRow = ({
     ? undefined
     : { "--wc-progress": `${String(progress)}%` } as CSSProperties;
   const ceremonyKey = ceremonyTargetId === challenge.id ? ceremonySeq : undefined;
+  const streakLoss = ceremonyVisual === "lost" && ceremonyTargetId === challenge.id;
   return (
     <li
-      className={`challenge-source__row${done ? " challenge-source__row--done" : ""}`}
+      className={`challenge-source__row${done ? " challenge-source__row--done" : ""}${streakLoss ? " wc-is-streak-loss" : ""}`}
       data-challenge-id={challenge.id}
       data-ceremony-target={ceremonyTargetId === challenge.id ? "true" : undefined}
       data-state={challenge.state}
@@ -204,6 +208,7 @@ export const ChallengeLog = ({
   now,
   clockOffsetMs = 0,
   ceremonyTarget = null,
+  ceremonyVisual,
   ceremonySeq,
   placement,
   className,
@@ -220,6 +225,7 @@ export const ChallengeLog = ({
   now: number;
   clockOffsetMs?: number;
   ceremonyTarget?: ChallengeLogCeremonyTarget | null;
+  ceremonyVisual?: ChallengeLogCeremonyVisual;
   ceremonySeq?: number | undefined;
   placement?: ChallengeUpdate["settings"]["placement"];
   className?: string;
@@ -368,6 +374,7 @@ export const ChallengeLog = ({
         <>
           {pinned !== null && <ul aria-label="Gepinnte Challenge" className="challenge-source__rows challenge-source__pinned-row">
             <ChallengeRow
+              ceremonyVisual={ceremonyVisual}
               ceremonySeq={ceremonySeq}
               ceremonyTargetId={ceremonyTarget?.kind === "challenge" ? ceremonyTarget.id : null}
               challenge={pinned}
@@ -386,6 +393,7 @@ export const ChallengeLog = ({
             <ul aria-label="Challenges" className="challenge-source__rows" ref={scroll.rows}>
               {(pinned === null ? allChallenges : allChallenges.slice(1)).map((challenge) => (
                 <ChallengeRow
+                  ceremonyVisual={ceremonyVisual}
                   ceremonySeq={ceremonySeq}
                   ceremonyTargetId={ceremonyTarget?.kind === "challenge" ? ceremonyTarget.id : null}
                   challenge={challenge}
@@ -406,6 +414,7 @@ export const ChallengeLog = ({
         <ul aria-label="Challenges" className="challenge-source__rows">
           {challenges.map((challenge) => (
             <ChallengeRow
+              ceremonyVisual={ceremonyVisual}
               ceremonySeq={ceremonySeq}
               ceremonyTargetId={ceremonyTarget?.kind === "challenge" ? ceremonyTarget.id : null}
               challenge={challenge}
@@ -424,6 +433,7 @@ export const ChallengeLog = ({
         <ul aria-label="Challenges" className="challenge-source__rows" key={effectiveMode === "page" ? pageIndex : "cut"}>
           {challenges.map((challenge) => (
             <ChallengeRow
+              ceremonyVisual={ceremonyVisual}
               ceremonySeq={ceremonySeq}
               ceremonyTargetId={ceremonyTarget?.kind === "challenge" ? ceremonyTarget.id : null}
               key={challenge.id}

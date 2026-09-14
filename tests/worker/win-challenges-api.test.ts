@@ -676,6 +676,74 @@ describe("Win-Challenges-API", () => {
     expect((await counterNegative.json<{ challenge: Challenge }>()).challenge.currentCount).toBe(0);
   });
 
+  it("setzt resetStreak auf null, lässt bestCount stehen und weist andere Typen mit 422 ab", async () => {
+    const board = await saveBoard([
+      { ...definition("Streak"), kind: "streak", targetCount: 5 },
+      { ...definition("Counter"), sortOrder: 1 },
+      { ...definition("Tick"), kind: "tick", targetCount: null, sortOrder: 2 },
+      { ...definition("Measure"), kind: "measure", unit: "kg", targetCount: 1_500, sortOrder: 3 },
+    ]);
+    const body = await board.json<{ snapshot: { challenges: Challenge[] } }>();
+    const challenges = body.snapshot.challenges;
+    const streak = challenges.find(({ title }) => title === "Streak");
+    if (streak === undefined) throw new Error("Streak fehlt.");
+
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE wc_challenges SET current_count = 4, best_count = 4 WHERE id = ?",
+        streak.id,
+      );
+    });
+
+    const resetRequest = {
+      commandId: commandId(),
+      scope: "challenge",
+      type: "resetStreak",
+      challengeId: streak.id,
+    } as const;
+    const reset = await fetchWorker("/api/challenges/commands", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify(resetRequest),
+    });
+    expect(reset.status).toBe(200);
+    const resetBody = await reset.json<{ eventSeq: number; replayed: boolean; challenge: Challenge }>();
+    expect(resetBody).toMatchObject({
+      eventSeq: 1,
+      replayed: false,
+      challenge: { currentCount: 0, bestCount: 4 },
+    });
+
+    const replay = await fetchWorker("/api/challenges/commands", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify(resetRequest),
+    });
+    expect(replay.status).toBe(200);
+    expect(await replay.json<{ eventSeq: number; replayed: boolean; challenge: Challenge }>()).toMatchObject({
+      eventSeq: 1,
+      replayed: true,
+      challenge: { currentCount: 0, bestCount: 4 },
+    });
+
+    for (const challenge of challenges.filter(({ title }) => title !== "Streak")) {
+      const rejected = await fetchWorker("/api/challenges/commands", {
+        method: "POST",
+        headers: authenticatedHeaders(),
+        body: JSON.stringify({
+          commandId: commandId(),
+          scope: "challenge",
+          type: "resetStreak",
+          challengeId: challenge.id,
+        }),
+      });
+      expect(rejected.status, challenge.title).toBe(422);
+      expect(await rejected.json<{ error: { code: string } }>()).toMatchObject({
+        error: { code: "validation_failed" },
+      });
+    }
+  });
+
   it("liefert eine reine GET-Nutzlast ohne event", async () => {
     const response = await fetchWorker("/api/challenges", { headers: { cookie, origin } });
     const body = await response.json<{ challenges: Challenge[] }>();

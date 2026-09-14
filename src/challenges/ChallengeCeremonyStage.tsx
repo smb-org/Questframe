@@ -33,6 +33,9 @@ export const ChallengeCeremonyStage = ({
   >
     <ChallengeLog
       ceremonySeq={presentation.activeCeremony?.eventSeq}
+      {...presentation.activeCeremony === null
+        ? {}
+        : { ceremonyVisual: presentation.activeCeremony.visual }}
       {...placementAtOrigin
         ? { placement: { ...update.settings.placement, x: 0, y: 0 } }
         : {}}

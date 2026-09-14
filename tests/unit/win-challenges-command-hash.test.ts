@@ -19,6 +19,19 @@ const commands = [
 ] as const satisfies readonly Command[];
 
 describe("Win-Challenges-Command-Hash", () => {
+  it("bildet resetStreak in eine eigene kanonische Form ab", async () => {
+    const command = {
+      commandId,
+      scope: "challenge",
+      type: "resetStreak",
+      challengeId,
+    } as unknown as Command;
+
+    await expect(hashChallengeCommand(command)).resolves.toBe(
+      "3a9b5f8ddc412c67c4d3cecf90e183ab81792cef2818e9bfcb0f3288ab7f378a",
+    );
+  });
+
   it("erzeugt für jeden Kommandotyp eine stabile und eindeutige kanonische Form", async () => {
     const hashes = await Promise.all(commands.map(hashChallengeCommand));
 

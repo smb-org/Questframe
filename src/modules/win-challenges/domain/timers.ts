@@ -127,6 +127,24 @@ export function applyIncrement(
   };
 }
 
+export function applyResetStreak(
+  challenge: Challenge,
+  now: DomainNow,
+): ChallengeTransition {
+  return {
+    challenge: {
+      ...challenge,
+      currentCount: 0,
+      ...withChallengeTimestamp(now),
+    },
+    event: {
+      scope: "challenge",
+      type: "streak-reset",
+      challengeId: challenge.id,
+    },
+  };
+}
+
 export function applyComplete(
   challenge: Challenge,
   now: DomainNow,

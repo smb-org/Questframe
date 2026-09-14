@@ -9,6 +9,7 @@ import {
   applyStartTimer,
   applyPauseGlobal,
   applyResetTimer,
+  applyResetStreak,
   applyResetGlobal,
   applyStopTimer,
   deriveTimerState,
@@ -122,6 +123,32 @@ describe("Win-Challenges-Domain", () => {
       event: null,
     });
     expect(applyIncrement(makeChallenge({ currentCount: 9 }), 99, now).challenge.currentCount).toBe(10);
+  });
+
+  it("setzt eine Streak auf null, behält den Bestwert und meldet den Fall", () => {
+    const streak = makeChallenge({
+      kind: "streak",
+      targetCount: 5,
+      currentCount: 4,
+      bestCount: 4,
+      state: "active",
+      timerEndsAt: "2026-08-30T12:00:10.000Z",
+    });
+
+    const result = applyResetStreak(streak, now);
+
+    expect(result.challenge).toMatchObject({
+      currentCount: 0,
+      bestCount: 4,
+      state: "active",
+      timerEndsAt: "2026-08-30T12:00:10.000Z",
+      updatedAt: now,
+    });
+    expect(result.event).toEqual({
+      scope: "challenge",
+      type: "streak-reset",
+      challengeId: "challenge-1",
+    });
   });
 
   it("schließt beim Ziel automatisch ab, ohne zusätzlich progressed zu feuern", () => {

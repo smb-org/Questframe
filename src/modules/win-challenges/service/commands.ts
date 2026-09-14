@@ -6,6 +6,7 @@ import {
   applyIncrement,
   applyPauseGlobal,
   applyReopen,
+  applyResetStreak,
   applyResetTimer,
   applyResetGlobal,
   applyStartGlobal,
@@ -63,7 +64,6 @@ type CommandForType<Type extends Command["type"]> = Command & { type: Type };
 type CanonicalCommandForType<Type extends Command["type"]> = Required<CommandForType<Type>>;
 type ChallengeKindCommand =
   | { type: "increment"; delta: number }
-  // Wird beim späteren Einführen von resetStreak aus challengeMutation aufgerufen.
   | { type: "resetStreak" };
 
 const toInstant = (now: DomainNow): string => {
@@ -82,6 +82,15 @@ const canonicalCommand = (command: Command): string => {
         challengeId: command.challengeId,
         delta: command.delta,
       } satisfies CanonicalCommandForType<"increment">;
+      return JSON.stringify(canonical);
+    }
+    case "resetStreak": {
+      const canonical = {
+        commandId: command.commandId,
+        scope: command.scope,
+        type: command.type,
+        challengeId: command.challengeId,
+      } satisfies CanonicalCommandForType<"resetStreak">;
       return JSON.stringify(canonical);
     }
     case "complete": {
@@ -237,6 +246,18 @@ const challengeMutation = (
             hidden: transition.challenge.hidden,
           }
         : undefined,
+    );
+    if (challenge === null) throw new NotFoundError();
+    return { challenge, event: transition.event };
+  }
+
+  if (command.type === "resetStreak") {
+    validateChallengeKindCommand(current, command);
+    const transition = applyResetStreak(current, now);
+    const challenge = transaction.updateChallengeRuntime(
+      command.challengeId,
+      runtimeOf(transition.challenge),
+      transition.challenge.updatedAt,
     );
     if (challenge === null) throw new NotFoundError();
     return { challenge, event: transition.event };

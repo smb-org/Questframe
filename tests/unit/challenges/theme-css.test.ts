@@ -169,6 +169,12 @@ describe("Challenge-Quelle-CSS", () => {
     expect(overtimeTimer).not.toContain("var(--wc-critical)");
   });
 
+  it("führt streak loss als Zeremonienklasse ohne eigene Alarmfarbe", () => {
+    expect(sourceCss).toContain(".wc-is-streak-loss");
+    expect(sourceCss).toContain('[data-ceremony-type="lost"]');
+    expect(sourceCss).not.toMatch(/wc-is-streak-loss[\s\S]{0,500}var\(--wc-critical\)/);
+  });
+
   it("zwingt das pflegbare Strafen-Label nicht in Großbuchstaben", () => {
     const penaltyLabel = sourceCss.match(
       /\.challenge-source__penalty-label\s*\{([^}]*)\}/,

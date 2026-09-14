@@ -895,6 +895,16 @@
   .challenge-source-ceremony[data-style="plain-list"],
   .challenge-source-ceremony[data-style="plain-bullets"],
   .challenge-source-ceremony[data-style="quest-log"]
+)[data-ceremony-motion="animated"][data-ceremony-type="lost"]
+  [data-ceremony-target="true"].wc-is-streak-loss .challenge-source__count {
+  display: inline-block;
+  animation: challenge-ceremony-streak-loss 520ms ease-out;
+}
+
+:is(
+  .challenge-source-ceremony[data-style="plain-list"],
+  .challenge-source-ceremony[data-style="plain-bullets"],
+  .challenge-source-ceremony[data-style="quest-log"]
 )[data-ceremony-motion="animated"][data-ceremony-type="quiet"]
   [data-ceremony-target="true"] .challenge-source__row-inner,
 :is(
@@ -916,6 +926,12 @@
   0% { opacity: 0.4; transform: scale(0.7) rotate(-12deg); }
   65% { opacity: 1; transform: scale(1.25) rotate(4deg); }
   100% { opacity: 1; transform: scale(1) rotate(0); }
+}
+
+@keyframes challenge-ceremony-streak-loss {
+  0% { opacity: 0.58; transform: translateY(-4px) scale(1.08); }
+  55% { opacity: 1; transform: translateY(2px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 @keyframes challenge-ceremony-quiet {

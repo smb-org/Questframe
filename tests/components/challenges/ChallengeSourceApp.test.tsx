@@ -399,6 +399,36 @@ describe("ChallengeSourceApp", () => {
     expect(ceremony?.querySelector('[data-challenge-id="open"] .challenge-source__mark')).toHaveTextContent("✓");
   });
 
+  it("zeigt einen Streak-Fall bei reduced motion als lost-Zeremonie und spielt unabhängig davon den Tick", async () => {
+    vi.stubGlobal("matchMedia", () => ({
+      matches: true,
+      media: "(prefers-reduced-motion: reduce)",
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    const streak = {
+      ...challenge("open", "Offene Streak", "pending", 1),
+      kind: "streak" as const,
+      targetCount: 5,
+      currentCount: 0,
+      bestCount: 4,
+    };
+    render(<ChallengeSourceApp />);
+    const socket = FakeWebSocket.instances[0];
+    await deliver(socket, sourceUpdate({
+      challenges: [streak],
+      settings: { ...message().settings, themeMode: "own" },
+      event: { scope: "challenge", type: "streak-reset", challengeId: "open" },
+    }));
+
+    const ceremony = document.querySelector(".challenge-source-ceremony");
+    expect(ceremony).toHaveAttribute("data-ceremony-type", "lost");
+    expect(ceremony).toHaveAttribute("data-ceremony-motion", "static");
+    expect(ceremony?.querySelector(".wc-is-streak-loss")).toHaveTextContent("0 / 5");
+    const tick = FakeAudio.instances.find((audio) => audio.src.endsWith("/tick.mp3"));
+    expect(tick?.play).toHaveBeenCalledTimes(1);
+  });
+
   it("ignoriert verweigerte Tonwiedergabe ohne die visuelle Zeremonie zu verlieren", async () => {
     render(<ChallengeSourceApp />);
     const socket = FakeWebSocket.instances[0];

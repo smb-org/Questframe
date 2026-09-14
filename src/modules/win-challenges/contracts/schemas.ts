@@ -344,6 +344,10 @@ export const commandSchema = z.union([
   }),
   z.strictObject({
     ...challengeCommandBase,
+    type: z.literal("resetStreak"),
+  }),
+  z.strictObject({
+    ...challengeCommandBase,
     type: z.union([
       z.literal("complete"),
       z.literal("reopen"),
