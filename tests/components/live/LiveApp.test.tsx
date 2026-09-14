@@ -223,6 +223,45 @@ describe("Live-Bedienseite", () => {
       .not.toHaveClass("live-page__challenge-row--pending");
   });
 
+  it("führt den streak-Bestwert auch in der optimistischen Live-Zeile mit", async () => {
+    const user = userEvent.setup();
+    render(<LiveApp />);
+    emitUpdate({
+      ...message(),
+      challenges: [challenge(0, {
+        kind: "streak",
+        targetCount: 5,
+        currentCount: 0,
+        bestCount: 0,
+      })],
+    });
+
+    expect(screen.getByText("0 / 5")).toBeInTheDocument();
+    expect(screen.queryByText(/Best/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Offene Challenge um 1 erhöhen" }));
+
+    expect(screen.getByText("1 / 5 · Best 1")).toBeInTheDocument();
+  });
+
+  it("führt den streak-Bestwert auch beim optimistischen Abhaken mit", async () => {
+    const user = userEvent.setup();
+    render(<LiveApp />);
+    emitUpdate({
+      ...message(),
+      challenges: [challenge(3, {
+        kind: "streak",
+        targetCount: 5,
+        currentCount: 3,
+        bestCount: 0,
+      })],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Offene Challenge abhaken" }));
+
+    expect(screen.getByText("3 / 5 · Best 3")).toBeInTheDocument();
+  });
+
   it("schließt einen measure-Zieltreffer optimistisch nicht ab", async () => {
     const user = userEvent.setup();
     render(<LiveApp />);

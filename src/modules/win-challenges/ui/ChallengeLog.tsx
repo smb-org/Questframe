@@ -130,6 +130,24 @@ const ChallengeRow = ({
   const accessibleText = targetCount !== null && challenge.currentCount > targetCount
     ? `${String(challenge.currentCount)} von ${String(targetCount)} (übererfüllt)`
     : undefined;
+  const streakBest = challenge.kind === "streak"
+    ? Math.max(challenge.bestCount, challenge.currentCount)
+    : null;
+  const showStreakBest = streakBest !== null && streakBest > 0;
+  const measureZeroStatus = challenge.kind === "measure" && challenge.currentCount === 0
+    ? timerState === "running"
+      ? "läuft"
+      : timerState === "idle"
+        ? "bereit"
+        : null
+    : null;
+  const countText = targetCount === null
+    ? String(challenge.currentCount)
+    : `${String(challenge.currentCount)} / ${String(targetCount)}`;
+  const displayedCount = `${countText}${showStreakBest ? ` · Best ${String(streakBest)}` : ""}${measureZeroStatus === null ? "" : ` · ${measureZeroStatus}`}`;
+  const countLabel = targetCount === null
+    ? displayedCount
+    : `Fortschritt: ${displayedCount}${accessibleText === undefined ? "" : ` (${accessibleText})`}`;
   const progressStyle = progress === null
     ? undefined
     : { "--wc-progress": `${String(progress)}%` } as CSSProperties;
@@ -164,7 +182,7 @@ const ChallengeRow = ({
           <span className="challenge-source__name">{challenge.title}</span>
           {progress !== null && (
             <span
-              aria-label={`Fortschritt: ${String(challenge.currentCount)} von ${String(targetCount)}`}
+              aria-label={countLabel}
               aria-valuemax={targetCount ?? undefined}
               aria-valuemin={0}
               aria-valuenow={accessibleCount ?? undefined}
@@ -183,14 +201,12 @@ const ChallengeRow = ({
               Bei 0 und ohne Ziel bleibt die Zeile bewusst leer. */}
           {(challenge.targetCount !== null || challenge.currentCount > 0) && (
             <span className="challenge-source__count" key={ceremonyKey}>
-              {challenge.targetCount === null
-                ? challenge.currentCount
-                : `${String(challenge.currentCount)} / ${String(challenge.targetCount)}`}
+              {displayedCount}
             </span>
           )}
           {showTime && (
             <span
-              aria-label={done ? `Rest bei Abschluss ${timeText}` : `Restzeit ${timeText}`}
+              aria-label={done && remainingMs < 0 ? `Überzeit bei Abschluss ${timeText}` : done ? `Rest bei Abschluss ${timeText}` : `Restzeit ${timeText}`}
               className="challenge-source__time"
               data-state={done ? "done" : timerState}
             >

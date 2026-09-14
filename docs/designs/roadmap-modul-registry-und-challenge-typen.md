@@ -864,13 +864,26 @@ ein Schalter** wie `numbered`, mit klarer Vorrangregel zwischen beiden. Feste
 Kürzungsreihenfolge: der Titel kürzt zuerst, danach weicht die Einheit vom
 Wort auf das Zeichen aus; Key und Timer kürzen nie.
 
-**Zustände (Pass 2).** Eine vollständige Matrix aus vier Typen und sechs
-Zuständen (leer, laufend, Ziel erreicht, überzogen, erledigt, gefallen)
-gehört in den Plan, jedes Feld beschreibt was der Zuschauer sieht. Drei
-Kollisionen sind darin aufzulösen: Überzeit plus erledigt (der Abschluss
-ersetzt abgelaufene Zeit heute durch 0), `measure` bei 0 von 1500, und
-`streak` vor dem ersten Erfolg gegen `streak` nach dem Fall — beide zeigen
-sonst `0/5`.
+**Zustände (Pass 2).** Die vollständige Matrix beschreibt in jedem Feld, was
+der Zuschauer sieht. „Überzogen“ meint Überzeit des Timers; eine
+`measure`-Übererfüllung ist zusätzlich am Stand oberhalb des Ziels erkennbar.
+Ein Gedankenstrich markiert einen für den Typ nicht möglichen Zustand.
+
+| Typ | leer | laufend | Ziel erreicht | überzogen | erledigt | gefallen |
+|---|---|---|---|---|---|---|
+| `tick` | `Titel` | `Titel · 0:20` | — | `Titel · +0:01` | `✓ Titel`; bei Abschluss nach Überzeit zusätzlich `+0:01` | — |
+| `counter` | mit Ziel `Titel 0 / 10`, ohne Ziel `Titel` | `Titel 3 / 10 · 0:20` (ohne Ziel nur der aktuelle Stand) | `✓ Titel 10 / 10` | `Titel 3 / 10 · +0:01` | `✓ Titel 10 / 10`; eingefrorene Überzeit bleibt als `+0:01` sichtbar | — |
+| `streak` | `Titel 0 / 5` ohne `Best` | `Titel 2 / 5 · 0:20` | `✓ Titel 5 / 5 · Best 5` | `Titel 2 / 5 · +0:01` | `✓ Titel 5 / 5 · Best 5`; eingefrorene Überzeit bleibt als `+0:01` sichtbar | `Titel 0 / 5 · Best 4` |
+| `measure` | `Titel 0 / 1500 · bereit` | bei Null `Titel 0 / 1500 · läuft`, sonst `Titel 120 / 1500 · 0:20` | `Titel 1500 / 1500` mit vollem Balken, ohne Haken | `Titel 120 / 1500 · +0:01`; bei Übererfüllung z. B. `1800 / 1500` mit vollem Balken | `✓ Titel 1500 / 1500`; eingefrorene Überzeit bleibt als `+0:01` sichtbar | — |
+
+Die `Best`-Spur ist ausschließlich bei `streak` und ab `bestCount > 0`
+sichtbar. Dadurch bleibt `0 / 5` vor dem ersten Erfolg ruhig, während
+`0 / 5 · Best 4` nach einem Fall die Geschichte der Serie erzählt. Bei
+`measure` unterscheiden die Textzusätze `bereit` (kein laufender Timer) und
+`läuft` (Timer läuft) den Stand null; pausiert oder überzogen bleibt zusätzlich
+die jeweilige Timeranzeige sichtbar. Eine erledigte Challenge behält die beim
+Abschluss eingefrorene Überzeit als `+…`; Haken und Pluszeichen sind damit auch
+ohne Farbe eindeutig.
 
 **Der Streak-Fall ist eine Zeremonie (Pass 3).** `src/challenges/ceremonies.ts`
 bildet Ereignisse bereits auf `progressed`, `completed`, `quiet` und vier Töne

@@ -690,8 +690,12 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     if (runtime === undefined) {
       this.execute<ChallengeRow>(
         `UPDATE ${this.table("challenges")}
-         SET current_count = MIN(MAX(current_count + ?, 0), ?), updated_at = ?
+         SET current_count = MIN(MAX(current_count + ?, 0), ?),
+             best_count = MAX(best_count, MIN(MAX(current_count + ?, 0), ?)),
+             updated_at = ?
          WHERE id = ? AND state <> 'done'`,
+        delta,
+        maximum,
         delta,
         maximum,
         updatedAt,
@@ -700,11 +704,12 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     } else {
       this.execute<ChallengeRow>(
         `UPDATE ${this.table("challenges")} SET
-          current_count = MIN(MAX(current_count + ?, 0), ?), state = ?,
+          current_count = MIN(MAX(current_count + ?, 0), ?), best_count = MAX(best_count, ?), state = ?,
           timer_ends_at = ?, timer_remain_ms = ?, completed_at = ?, hidden = ?, updated_at = ?
          WHERE id = ? AND state <> 'done'`,
         delta,
         maximum,
+        runtime.currentCount,
         runtime.state,
         runtime.timerEndsAt,
         runtime.timerRemainMs,
@@ -730,8 +735,9 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     }
     this.execute<ChallengeRow>(
       `UPDATE ${this.table("challenges")} SET
-        current_count = ?, state = ?, timer_ends_at = ?, timer_remain_ms = ?, completed_at = ?, hidden = ?, updated_at = ?
+        current_count = ?, best_count = MAX(best_count, ?), state = ?, timer_ends_at = ?, timer_remain_ms = ?, completed_at = ?, hidden = ?, updated_at = ?
        WHERE id = ?`,
+      runtime.currentCount,
       runtime.currentCount,
       runtime.state,
       runtime.timerEndsAt,
@@ -897,7 +903,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       this.execute<ChallengeRow>(
         `UPDATE ${this.table("challenges")} SET
           title = ?, kind = ?, unit = ?, target_count = ?, timer_total_ms = ?,
-          sort_order = ?, step = ?, hidden = ?, updated_at = ?
+          sort_order = ?, step = ?, best_count = ?, hidden = ?, updated_at = ?
          WHERE id = ?`,
         challenge.title,
         challenge.kind,
@@ -906,6 +912,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         challenge.timerTotalMs,
         challenge.sortOrder,
         challenge.step,
+        challenge.bestCount,
         challenge.hidden ? 1 : 0,
         challenge.updatedAt,
         challenge.id,
@@ -915,7 +922,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     this.execute<ChallengeRow>(
       `UPDATE ${this.table("challenges")} SET
         title = ?, kind = ?, unit = ?, target_count = ?, timer_total_ms = ?, sort_order = ?, step = ?,
-        hidden = ?, current_count = ?, state = ?, timer_ends_at = ?, timer_remain_ms = ?, completed_at = ?, updated_at = ?
+        best_count = ?, hidden = ?, current_count = ?, state = ?, timer_ends_at = ?, timer_remain_ms = ?, completed_at = ?, updated_at = ?
        WHERE id = ?`,
       challenge.title,
       challenge.kind,
@@ -924,6 +931,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       challenge.timerTotalMs,
       challenge.sortOrder,
       challenge.step,
+      challenge.bestCount,
       challenge.hidden ? 1 : 0,
       challenge.currentCount,
       challenge.state,

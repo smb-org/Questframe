@@ -318,6 +318,104 @@ describe("ChallengeSourceApp", () => {
     expect(rows.map((row) => row.textContent)).toEqual(["Ohne Ziel4", "Noch nichts"]);
   });
 
+  it("zeigt den Bestwert nur bei streak und erst nach dem ersten Erfolg", () => {
+    const streakBeforeFirstSuccess = {
+      ...challenge("streak-before", "Streak vor Erfolg", "pending", 0),
+      kind: "streak" as const,
+      targetCount: 5,
+      currentCount: 0,
+      bestCount: 0,
+    };
+    const streakAfterFall = {
+      ...streakBeforeFirstSuccess,
+      id: "streak-after",
+      title: "Streak nach Fall",
+      bestCount: 4,
+    };
+    const counter = {
+      ...streakAfterFall,
+      id: "counter-best",
+      title: "Counter ohne Bestspur",
+      kind: "counter" as const,
+      bestCount: 4,
+    };
+    const measure = {
+      ...streakAfterFall,
+      id: "measure-best",
+      title: "Messwert ohne Bestspur",
+      kind: "measure" as const,
+      unit: "m",
+      targetCount: 1_500,
+      currentCount: 1_800,
+      bestCount: 1_800,
+    };
+
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      challenges: [streakBeforeFirstSuccess, streakAfterFall, counter, measure],
+      settings: { ...message().settings, maxVisible: 4 },
+    })} />);
+
+    const count = (id: string): HTMLElement => {
+      const element = document.querySelector<HTMLElement>(`[data-challenge-id="${id}"] .challenge-source__count`);
+      if (element === null) throw new Error(`Zähler für ${id} fehlt.`);
+      return element;
+    };
+    expect(count("streak-before")).toHaveTextContent("0 / 5");
+    expect(count("streak-before")).not.toHaveTextContent("Best");
+    expect(count("streak-after")).toHaveTextContent("0 / 5 · Best 4");
+    expect(count("counter-best")).not.toHaveTextContent("Best");
+    expect(count("measure-best")).not.toHaveTextContent("Best");
+  });
+
+  it("unterscheidet eine noch nicht gestartete Messung von einer laufenden Messung bei null", () => {
+    const measure = (id: string, title: string, state: "pending" | "active") => ({
+      ...timedChallenge(id, {
+        title,
+        kind: "measure" as const,
+        unit: "m",
+        targetCount: 1_500,
+        currentCount: 0,
+        bestCount: 0,
+        state,
+        timerEndsAt: state === "active" ? new Date(fixedNow + 60_000).toISOString() : null,
+      }),
+    });
+
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      challenges: [
+        measure("measure-ready", "Messung bereit", "pending"),
+        measure("measure-running", "Messung läuft", "active"),
+      ],
+      settings: { ...message().settings, maxVisible: 2 },
+    })} />);
+
+    expect(document.querySelector("[data-challenge-id=measure-ready] .challenge-source__count"))
+      .toHaveTextContent("0 / 1500 · bereit");
+    expect(document.querySelector("[data-challenge-id=measure-running] .challenge-source__count"))
+      .toHaveTextContent("0 / 1500 · läuft");
+  });
+
+  it("zeigt beim Erledigen nach Ablauf die eingefrorene Überzeit weiter", () => {
+    const doneOvertime = {
+      ...timedChallenge("done-overtime", {
+        title: "Nach Ablauf erledigt",
+        state: "done",
+        timerEndsAt: null,
+        timerRemainMs: -1_000,
+      }),
+    };
+
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      challenges: [doneOvertime],
+    })} />);
+
+    const row = document.querySelector<HTMLElement>("[data-challenge-id=done-overtime]");
+    if (row === null) throw new Error("Überzeit-Zeile fehlt.");
+    expect(row.querySelector(".challenge-source__mark")).toHaveTextContent("✓");
+    expect(row.querySelector(".challenge-source__time")).toHaveTextContent("+0:01");
+    expect(row.querySelector(".challenge-source__time")).toHaveAttribute("data-state", "done");
+  });
+
   it("übersteht die automatische Pong-Antwort auf den Heartbeat", async () => {
     // Das Durable Object beantwortet unseren Ping mit einem nackten "pong". Ohne
     // Sonderbehandlung landet das im Fehlerpfad für ein kaputtes Draht-Format:

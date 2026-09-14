@@ -768,6 +768,49 @@ describe("win-challenges repository and migration", () => {
     });
   });
 
+  it("persistiert den Bestwert-Reset beim Typwechsel", async () => {
+    const created = await inRepository((repository) =>
+      repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Counter", 0)], now }),
+    );
+    const seeded = onlyChallenge(created.snapshot.challenges);
+    const runtime = await inRepository((repository) =>
+      repository.transaction((transaction) =>
+        transaction.updateChallengeRuntime(
+          seeded.id,
+          {
+            currentCount: 4,
+            state: "active",
+            timerEndsAt: future,
+            timerRemainMs: null,
+            completedAt: null,
+            hidden: false,
+          },
+          now,
+        ),
+      ),
+    );
+    if (runtime === null) throw new Error("Runtime-Challenge konnte nicht gesetzt werden.");
+
+    const saved = await inRepository((repository) =>
+      repository.saveBoard({
+        baseBoardRevision: created.snapshot.boardRevision,
+        definitions: [{
+          ...definitionFor(runtime, "Streak"),
+          kind: "streak",
+          targetCount: 5,
+        }],
+        now: future,
+      }),
+    );
+
+    expect(onlyChallenge(saved.snapshot.challenges)).toMatchObject({
+      kind: "streak",
+      currentCount: 0,
+      bestCount: 0,
+      state: "pending",
+    });
+  });
+
   it("bewahrt einen übererfüllten measure-Stand beim Board-Save", async () => {
     const created = await inRepository((repository) =>
       repository.saveBoard({
@@ -1106,7 +1149,7 @@ describe("win-challenges repository and migration", () => {
     });
   });
 
-  it("sums two consecutive atomic increments", async () => {
+  it("führt den Bestwert über atomare Increments mit und bewahrt ihn bei Rückgang", async () => {
     const created = await inRepository((repository) =>
       repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Counter", 0)], now: now }),
     );
@@ -1115,12 +1158,23 @@ describe("win-challenges repository and migration", () => {
       repository.transaction((transaction) => {
         const first = transaction.incrementChallengeCount(challenge.id, 1, 10, now);
         const second = transaction.incrementChallengeCount(challenge.id, 1, 10, now);
-        return [first?.currentCount ?? null, second?.currentCount ?? null];
+        const fallen = transaction.incrementChallengeCount(challenge.id, -1, 10, now);
+        return [
+          first?.currentCount ?? null,
+          first?.bestCount ?? null,
+          second?.currentCount ?? null,
+          second?.bestCount ?? null,
+          fallen?.currentCount ?? null,
+          fallen?.bestCount ?? null,
+        ];
       }),
     );
 
-    expect(counts).toEqual([1, 2]);
-    expect((await inRepository((repository) => repository.readChallenge(challenge.id)))?.currentCount).toBe(2);
+    expect(counts).toEqual([1, 1, 2, 2, 1, 2]);
+    expect(await inRepository((repository) => repository.readChallenge(challenge.id))).toMatchObject({
+      currentCount: 1,
+      bestCount: 2,
+    });
   });
 
   it("führt measure-Increments über das Ziel hinaus und liest sie wieder aus der Datenbank", async () => {

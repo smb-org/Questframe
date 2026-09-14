@@ -101,6 +101,7 @@ describe("Win-Challenges-Domain", () => {
   it("incrementiert positiv und negativ, klemmt und erzeugt bei Wirkung genau ein Event", () => {
     const positive = applyIncrement(makeChallenge({ currentCount: 2 }), 3, now);
     expect(positive.challenge.currentCount).toBe(5);
+    expect(positive.challenge.bestCount).toBe(5);
     expect(positive.event).toEqual({
       scope: "challenge",
       type: "progressed",
@@ -112,6 +113,7 @@ describe("Win-Challenges-Domain", () => {
 
     const negative = applyIncrement(makeChallenge({ currentCount: 2 }), -1, now);
     expect(negative.challenge.currentCount).toBe(1);
+    expect(negative.challenge.bestCount).toBe(2);
     expect(negative.event?.type).toBe("progressed");
 
     expect(applyIncrement(makeChallenge({ currentCount: 0 }), -1, now)).toEqual({
@@ -123,6 +125,14 @@ describe("Win-Challenges-Domain", () => {
       event: null,
     });
     expect(applyIncrement(makeChallenge({ currentCount: 9 }), 99, now).challenge.currentCount).toBe(10);
+  });
+
+  it("führt den Bestwert auch über einen Rückgang des aktuellen Stands hinweg", () => {
+    const progressed = applyIncrement(makeChallenge({ currentCount: 2, bestCount: 2 }), 3, now);
+    expect(progressed.challenge).toMatchObject({ currentCount: 5, bestCount: 5 });
+
+    const fallen = applyIncrement(progressed.challenge, -2, now);
+    expect(fallen.challenge).toMatchObject({ currentCount: 3, bestCount: 5 });
   });
 
   it("setzt eine Streak auf null, behält den Bestwert und meldet den Fall", () => {
@@ -149,6 +159,9 @@ describe("Win-Challenges-Domain", () => {
       type: "streak-reset",
       challengeId: "challenge-1",
     });
+
+    const higher = applyIncrement(result.challenge, 5, now);
+    expect(higher.challenge).toMatchObject({ currentCount: 5, bestCount: 5, state: "done" });
   });
 
   it("schließt beim Ziel automatisch ab, ohne zusätzlich progressed zu feuern", () => {
@@ -159,6 +172,7 @@ describe("Win-Challenges-Domain", () => {
       hidden: true,
     }), 1, now);
     expect(result.challenge.state).toBe("done");
+    expect(result.challenge.bestCount).toBe(10);
     expect(result.challenge.timerEndsAt).toBeNull();
     expect(result.challenge).toMatchObject({ timerRemainMs: 1_000 });
     expect(result.challenge.completedAt).toBe(now);
@@ -190,11 +204,13 @@ describe("Win-Challenges-Domain", () => {
 
   it("friert beim manuellen Abhaken die Restzeit eines laufenden Timers ein", () => {
     const result = applyComplete(makeChallenge({
+      currentCount: 4,
       state: "active",
       timerEndsAt: "2026-08-30T12:03:12.000Z",
     }), now);
 
     expect(result.challenge).toMatchObject({
+      bestCount: 4,
       state: "done",
       timerEndsAt: null,
       timerRemainMs: 192_000,

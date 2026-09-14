@@ -20,7 +20,7 @@ import "./live.css";
 const ERROR_VISIBLE_MS = 3_000;
 const DELETED_NOTICE_MS = 1_500;
 
-type OptimisticPatch = Partial<Pick<Challenge, "currentCount" | "state" | "timerEndsAt" | "timerRemainMs" | "completedAt" | "hidden">>;
+type OptimisticPatch = Partial<Pick<Challenge, "currentCount" | "bestCount" | "state" | "timerEndsAt" | "timerRemainMs" | "completedAt" | "hidden">>;
 
 type CommandFailure = {
   code: string;
@@ -121,8 +121,9 @@ const optimisticPatchFor = (
     );
     const currentCount = Math.max(0, Math.min(maximum, challenge.currentCount + boundedDelta));
     if (currentCount === challenge.currentCount) return null;
+    const bestCount = Math.max(challenge.bestCount, challenge.currentCount, currentCount);
     if (challenge.kind === "measure" || challenge.targetCount === null || currentCount !== challenge.targetCount) {
-      return { currentCount };
+      return { currentCount, bestCount };
     }
     const timerState = deriveChallengeTimerState(challenge, Date.now());
     const timerRemainMs = timerState === "running" || timerState === "paused"
@@ -132,6 +133,7 @@ const optimisticPatchFor = (
         : null;
     return {
       currentCount,
+      bestCount,
       state: "done",
       timerEndsAt: null,
       timerRemainMs,
@@ -148,6 +150,7 @@ const optimisticPatchFor = (
         ? remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, Date.now())
         : null;
     return {
+      bestCount: Math.max(challenge.bestCount, challenge.currentCount),
       state: "done",
       timerEndsAt: null,
       timerRemainMs,
@@ -234,6 +237,9 @@ const ChallengeRow = ({
   const remainingMs = remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, now);
   const timerCritical = timerIsCritical(timerState, remainingMs);
   const timeText = formatRemaining(timerState === "idle" ? challenge.timerTotalMs ?? 0 : remainingMs);
+  const streakBest = challenge.kind === "streak"
+    ? challenge.bestCount
+    : null;
   const showTime = done
     ? challenge.timerRemainMs !== null
     : timerState === "running" || timerState === "paused" || timerState === "expired";
@@ -266,6 +272,7 @@ const ChallengeRow = ({
             {challenge.targetCount === null
               ? String(challenge.currentCount)
               : `${String(challenge.currentCount)} / ${String(challenge.targetCount)}`}
+            {streakBest !== null && streakBest > 0 ? ` · Best ${String(streakBest)}` : ""}
           </span>
         </span>
       </div>

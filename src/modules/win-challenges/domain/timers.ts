@@ -69,6 +69,7 @@ const completeChallenge = (challenge: Challenge, now: DomainNow): Challenge => {
         : null;
   return {
     ...challenge,
+    bestCount: Math.max(challenge.bestCount, challenge.currentCount),
     state: "done",
     timerEndsAt: null,
     timerRemainMs,
@@ -99,9 +100,11 @@ export function applyIncrement(
     return { challenge, event: null };
   }
 
+  const nextBestCount = Math.max(challenge.bestCount, challenge.currentCount, nextCount);
+
   if (challenge.kind !== "measure" && challenge.targetCount !== null && nextCount === challenge.targetCount) {
     return {
-      challenge: completeChallenge({ ...challenge, currentCount: nextCount }, now),
+      challenge: completeChallenge({ ...challenge, currentCount: nextCount, bestCount: nextBestCount }, now),
       event: {
         scope: "challenge",
         type: "completed",
@@ -114,6 +117,7 @@ export function applyIncrement(
     challenge: {
       ...challenge,
       currentCount: nextCount,
+      bestCount: nextBestCount,
       ...withChallengeTimestamp(now),
     },
     event: {
