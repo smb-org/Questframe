@@ -44,6 +44,8 @@
 
   /* Interne Darstellungswerte, nicht Teil des externen Tokenvertrags. */
   --wc-critical: #f36d74;
+  --wc-overtime: #c04f59;
+  --wc-penalty: #f36d74;
   --wc-progress-track: rgba(146, 157, 163, 0.24);
   --wc-progress: 0%;
   --wc-bare-shadow: none;
@@ -288,7 +290,7 @@
   /* Kraeftiger als die Haarlinien der Zeilen und in der Warnfarbe statt im
      Gold-Akzent: die Strafe ist eine Konsequenz, kein weiterer Akzent. */
   height: 2px;
-  background: var(--wc-critical);
+  background: var(--wc-penalty);
 }
 
 :is(
@@ -297,7 +299,7 @@
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__penalty-label {
   flex: 0 0 auto;
-  color: var(--wc-critical);
+  color: var(--wc-penalty);
   font-size: var(--wc-meta-size);
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -585,7 +587,7 @@
   .challenge-source[data-style="plain-bullets"],
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__timer--expired {
-  color: var(--wc-muted);
+  color: var(--wc-overtime);
 }
 
 :is(
@@ -594,6 +596,14 @@
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__timer--critical {
   color: var(--wc-critical);
+}
+
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+) .challenge-source__timer.wc-is-overtime {
+  color: var(--wc-overtime);
 }
 
 :is(
@@ -789,6 +799,16 @@
   .challenge-source[data-style="quest-log"]
 ) .challenge-source__time[data-state="done"] {
   color: var(--wc-ok);
+}
+
+/* Das Pluszeichen bleibt das eindeutige Signal; die Farbe ist nur eine Zugabe.
+   Der ruhige interne Wert bleibt auch im bare-Preset nahe genug an Hell und Dunkel. */
+:is(
+  .challenge-source[data-style="plain-list"],
+  .challenge-source[data-style="plain-bullets"],
+  .challenge-source[data-style="quest-log"]
+) .wc-is-overtime .challenge-source__time {
+  color: var(--wc-overtime);
 }
 
 /* Fortschritt und Fuellkante bekommen im bare-Preset denselben Halo wie Text. */

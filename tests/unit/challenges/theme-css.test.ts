@@ -160,13 +160,33 @@ describe("Challenge-Quelle-CSS", () => {
     expect(criticalTimer).toContain("text-shadow: var(--wc-bare-shadow);");
   });
 
-  it("hält Überzeit neutral und reserviert critical für den knappen Timer", () => {
-    const overtimeTimer = sourceCss.match(
-      /\.challenge-source__timer--expired\s*\{([^}]*)\}/,
+  it("gibt der Überzeit einen eigenen ruhigen Wert und reserviert critical für den knappen Timer", () => {
+    const overtimeRule = sourceCss.match(
+      /\.wc-is-overtime\s+\.challenge-source__time\s*\{([^}]*)\}/,
+    )?.[1] ?? "";
+    const criticalTimer = sourceCss.match(
+      /\.challenge-source__timer--critical\s*\{([^}]*)\}/,
+    )?.[1] ?? "";
+    const pausedOvertimeTimer = sourceCss.match(
+      /\.challenge-source__timer\.wc-is-overtime\s*\{([^}]*)\}/,
+    )?.[1] ?? "";
+    const penaltyRule = [...sourceCss.matchAll(
+      /\.challenge-source__penalty::after\s*\{([^}]*)\}/g,
+    )].at(-1)?.[1] ?? "";
+    const penaltyLabel = sourceCss.match(
+      /\.challenge-source__penalty-label\s*\{([^}]*)\}/,
     )?.[1] ?? "";
 
-    expect(overtimeTimer).toContain("color: var(--wc-muted);");
-    expect(overtimeTimer).not.toContain("var(--wc-critical)");
+    expect(sourceCss).toContain("--wc-overtime: #c04f59;");
+    expect(overtimeRule).toContain("color: var(--wc-overtime);");
+    expect(overtimeRule).not.toContain("var(--wc-critical)");
+    expect(pausedOvertimeTimer).toContain("color: var(--wc-overtime);");
+    expect(criticalTimer).toContain("color: var(--wc-critical);");
+    expect(sourceCss).toContain("--wc-penalty: #f36d74;");
+    expect(penaltyRule).toContain("background: var(--wc-penalty);");
+    expect(penaltyRule).not.toContain("var(--wc-critical)");
+    expect(penaltyLabel).toContain("color: var(--wc-penalty);");
+    expect(penaltyLabel).not.toContain("var(--wc-critical)");
   });
 
   it("führt streak loss als Zeremonienklasse ohne eigene Alarmfarbe", () => {

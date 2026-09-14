@@ -15,10 +15,18 @@ import {
 } from "./timer";
 import { useScrollOffset } from "./scroll";
 
-const timerClass = (state: TimerState, critical: boolean, mode: ChallengeUpdate["settings"]["globalTimerMode"]): string => {
-  if (state === "paused") return "challenge-source__timer--paused";
-  if (state === "expired" && mode === "down") return "challenge-source__timer--expired";
-  return critical ? "challenge-source__timer--critical" : "";
+const timerClass = (
+  state: TimerState,
+  critical: boolean,
+  mode: ChallengeUpdate["settings"]["globalTimerMode"],
+  remainingMs: number,
+): string => {
+  const classes: string[] = [];
+  if (state === "paused") classes.push("challenge-source__timer--paused");
+  if (state === "expired" && mode === "down") classes.push("challenge-source__timer--expired");
+  if (mode === "down" && remainingMs < 0) classes.push("wc-is-overtime");
+  if (critical) classes.push("challenge-source__timer--critical");
+  return classes.join(" ");
 };
 
 export type ChallengeLogCeremonyTarget =
@@ -60,7 +68,7 @@ const GlobalTimerDisplay = ({
     <span
       key={ceremonyTarget ? ceremonySeq : undefined}
       aria-label={`Globaler Timer: ${formatRemaining(displayedMs)}${statusLabel === null ? "" : `, ${statusLabel}`}${mode === "up" ? ", hochzählend" : ""}`}
-      className={`challenge-source__timer ${timerClass(state, critical, mode)}`}
+      className={`challenge-source__timer ${timerClass(state, critical, mode, remainingMs)}`}
       data-critical={critical ? "true" : "false"}
       data-state={state}
       data-ceremony-target={ceremonyTarget ? "true" : undefined}
@@ -99,6 +107,7 @@ const ChallengeRow = ({
   const showingKey = !done && keyVisible;
   const timerState = deriveChallengeTimerState(challenge, now);
   const remainingMs = remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, now);
+  const overtime = remainingMs < 0;
   const drain = useMemo(() => {
     if (challenge.timerTotalMs === null) return null;
     // eslint-disable-next-line react-hooks/purity -- Der Snapshot darf nur bei einem Timerwechsel neu berechnet werden.
@@ -155,7 +164,7 @@ const ChallengeRow = ({
   const streakLoss = ceremonyVisual === "lost" && ceremonyTargetId === challenge.id;
   return (
     <li
-      className={`challenge-source__row${done ? " challenge-source__row--done" : ""}${streakLoss ? " wc-is-streak-loss" : ""}`}
+      className={`challenge-source__row${done ? " challenge-source__row--done" : ""}${overtime ? " wc-is-overtime" : ""}${streakLoss ? " wc-is-streak-loss" : ""}`}
       data-challenge-id={challenge.id}
       data-ceremony-target={ceremonyTargetId === challenge.id ? "true" : undefined}
       data-state={challenge.state}

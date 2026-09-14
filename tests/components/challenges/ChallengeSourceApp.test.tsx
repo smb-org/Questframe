@@ -411,6 +411,7 @@ describe("ChallengeSourceApp", () => {
 
     const row = document.querySelector<HTMLElement>("[data-challenge-id=done-overtime]");
     if (row === null) throw new Error("Überzeit-Zeile fehlt.");
+    expect(row).toHaveClass("wc-is-overtime");
     expect(row.querySelector(".challenge-source__mark")).toHaveTextContent("✓");
     expect(row.querySelector(".challenge-source__time")).toHaveTextContent("+0:01");
     expect(row.querySelector(".challenge-source__time")).toHaveAttribute("data-state", "done");
@@ -1256,6 +1257,7 @@ describe("ChallengeSourceApp", () => {
 
       const expiredRow = row("expired");
       expect(expiredRow).toHaveAttribute("data-timer-state", "expired");
+      expect(expiredRow).toHaveClass("wc-is-overtime");
       expect(expiredRow).not.toHaveAttribute("data-timer-critical");
       expect(expiredRow.style.getPropertyValue("--wc-timer-total")).toBe("120000ms");
       expect(expiredRow.style.getPropertyValue("--wc-timer-delay")).toBe("-120000ms");
@@ -1263,11 +1265,13 @@ describe("ChallengeSourceApp", () => {
 
       const overtimeRow = row("overtime");
       expect(overtimeRow).toHaveAttribute("data-timer-state", "paused");
+      expect(overtimeRow).toHaveClass("wc-is-overtime");
       expect(overtimeRow.style.getPropertyValue("--wc-timer-scale")).toBe("0");
       expect(overtimeRow.querySelector(".challenge-source__time")).toHaveTextContent("Ⅱ +0:01");
 
       const doneRow = row("done");
       expect(doneRow).not.toHaveAttribute("data-timer-state");
+      expect(doneRow).not.toHaveClass("wc-is-overtime");
       expect(doneRow).not.toHaveAttribute("data-timer-critical");
       expect(doneRow.style.getPropertyValue("--wc-timer-total")).toBe("120000ms");
       expect(doneRow.style.getPropertyValue("--wc-timer-delay")).toBe("-75000ms");
@@ -1364,7 +1368,21 @@ describe("ChallengeSourceApp", () => {
     const timer = screen.getByLabelText("Globaler Timer: +0:01, abgelaufen");
     expect(timer).toHaveTextContent("+0:01");
     expect(timer).toHaveAttribute("data-state", "expired");
+    expect(timer).toHaveClass("wc-is-overtime");
     expect(timer).toHaveAttribute("data-critical", "false");
+  });
+
+  it("markiert eine pausierte negative globale Restzeit ebenfalls als Überzeit", () => {
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      settings: {
+        ...message().settings,
+        globalTimer: { totalMs: 60_000, endsAt: null, pausedRemainMs: -1_000 },
+      },
+    })} />);
+
+    const timer = screen.getByLabelText("Globaler Timer: +0:01, pausiert");
+    expect(timer).toHaveClass("challenge-source__timer--paused");
+    expect(timer).toHaveClass("wc-is-overtime");
   });
 
   it("zeigt erledigte Challenges auch bei laufendem globalem Timer", () => {
@@ -1439,6 +1457,7 @@ describe("ChallengeSourceApp", () => {
     expect(expired).toHaveAttribute("data-state", "expired");
     expect(expired).toHaveAttribute("data-critical", "false");
     expect(expired).not.toHaveClass("challenge-source__timer--expired");
+    expect(expired).not.toHaveClass("wc-is-overtime");
     expect(expired).not.toHaveTextContent("abgelaufen");
   });
 
