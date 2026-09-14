@@ -108,7 +108,7 @@ const message = (): ChallengeUpdate => ({
     penaltyText: "",
     effectsEnabled: true,
     maxVisible: 5,
-    overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+    overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end",
     globalTimerMode: "down",
     themeId: "trail-wood",
     globalTimer: null,
@@ -965,6 +965,33 @@ describe("ChallengeSourceApp", () => {
     })} />);
     expect(document.querySelector(".challenge-source__mark")).toHaveTextContent("1");
     expect(document.querySelector(".challenge-source__mark")).not.toHaveTextContent("◆");
+  });
+
+  it("ersetzt bei sichtbaren Keys die Nummer, lässt erledigte Zeilen beim Haken und benennt den Key zugänglich", () => {
+    const done = { ...challenge("done-key", "Erledigt mit Key", "done", 1), completedAt: new Date(fixedNow).toISOString() };
+    const update = sourceUpdate({
+      challenges: [challenge("open-key", "Offen mit Key", "pending", 0), done],
+      settings: { ...message().settings, numbered: true, keyVisible: true },
+    });
+    const view = render(<ChallengeLog ariaLabel="Challenge-Log verschieben, Pfeiltasten" now={fixedNow} update={update} />);
+    const openMark = document.querySelector('[data-challenge-id="open-key"] .challenge-source__mark');
+    const doneMark = document.querySelector('[data-challenge-id="done-key"] .challenge-source__mark');
+
+    expect(openMark).toHaveTextContent("K7RP");
+    expect(openMark).not.toHaveTextContent("1");
+    expect(openMark).toHaveClass("challenge-source__mark--key");
+    expect(openMark).toHaveAttribute("aria-label", "Steuer-Key K7RP");
+    expect(openMark).not.toHaveAttribute("aria-hidden");
+    expect(doneMark).toHaveTextContent("✓");
+    expect(doneMark).not.toHaveTextContent("K7RP");
+
+    view.rerender(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      challenges: [challenge("numbered-only", "Nur nummeriert", "pending", 0)],
+      settings: { ...message().settings, numbered: true, keyVisible: false },
+    })} />);
+    const numberedMark = document.querySelector(".challenge-source__mark");
+    expect(numberedMark).toHaveTextContent("1");
+    expect(numberedMark).not.toHaveTextContent("K7RP");
   });
 
   it("setzt die Leerzustands-Matrix für keine Challenges und keinen Timer um", () => {

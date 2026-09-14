@@ -79,6 +79,8 @@ const ChallengeRow = ({
   clockOffsetMs = 0,
   number,
   numbered,
+  keyVisible,
+  accessibleKey,
 }: {
   challenge: Challenge;
   now: number;
@@ -87,8 +89,11 @@ const ChallengeRow = ({
   clockOffsetMs?: number;
   number: number | undefined;
   numbered: boolean;
+  keyVisible: boolean;
+  accessibleKey: boolean;
 }) => {
   const done = challenge.state === "done";
+  const showingKey = !done && keyVisible;
   const timerState = deriveChallengeTimerState(challenge, now);
   const remainingMs = remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, now);
   const drain = useMemo(() => {
@@ -141,10 +146,15 @@ const ChallengeRow = ({
     >
       <span aria-hidden="true" className="challenge-source__timer-bar" />
       <span className="challenge-source__row-inner" key={ceremonyKey}>
-        <span aria-hidden="true" className="challenge-source__mark" key={ceremonyKey}>
-          {/* Erledigt schlaegt Nummerierung: der gruene Haken ist das Signal, die Nummer
-            waere hier nur noch Buchhaltung. */}
-          {done ? "✓" : numbered ? number ?? "" : ""}
+        <span
+          aria-hidden={showingKey && accessibleKey ? undefined : true}
+          aria-label={showingKey && accessibleKey ? `Steuer-Key ${challenge.controlKey}` : undefined}
+          className={`challenge-source__mark${showingKey ? " challenge-source__mark--key" : ""}`}
+          key={ceremonyKey}
+        >
+          {/* Erledigt schlaegt Steuer-Key und Nummerierung: der gruene Haken ist das Signal,
+            beide Adressen waeren hier nur noch Buchhaltung. */}
+          {done ? "✓" : showingKey ? challenge.controlKey : numbered ? number ?? "" : ""}
         </span>
         <span className="challenge-source__content">
           <span className="challenge-source__name">{challenge.title}</span>
@@ -322,6 +332,7 @@ export const ChallengeLog = ({
       data-style={update.settings.styleId}
       data-overflow-mode={effectiveMode}
       data-numbered={update.settings.numbered ? "true" : "false"}
+      data-key-visible={update.settings.keyVisible ? "true" : "false"}
       data-surface-mode={surfaceMode}
       data-text-emphasis={effectiveEmphasis}
       data-header-style={update.settings.headerStyle}
@@ -362,6 +373,8 @@ export const ChallengeLog = ({
               challenge={pinned}
               clockOffsetMs={clockOffsetMs}
               numbered={update.settings.numbered}
+              keyVisible={update.settings.keyVisible}
+              accessibleKey={ariaLabel !== undefined}
               number={numbers.get(pinned.id)}
               now={now}
             />
@@ -379,6 +392,8 @@ export const ChallengeLog = ({
                   clockOffsetMs={clockOffsetMs}
                   key={challenge.id}
                   numbered={update.settings.numbered}
+                  keyVisible={update.settings.keyVisible}
+                  accessibleKey={ariaLabel !== undefined}
                   number={numbers.get(challenge.id)}
                   now={now}
                 />
@@ -397,6 +412,8 @@ export const ChallengeLog = ({
               clockOffsetMs={clockOffsetMs}
               key={challenge.id}
               numbered={update.settings.numbered}
+              keyVisible={update.settings.keyVisible}
+              accessibleKey={ariaLabel !== undefined}
               number={numbers.get(challenge.id)}
               now={now}
             />
@@ -413,6 +430,8 @@ export const ChallengeLog = ({
               challenge={challenge}
               clockOffsetMs={clockOffsetMs}
               numbered={update.settings.numbered}
+              keyVisible={update.settings.keyVisible}
+              accessibleKey={ariaLabel !== undefined}
               number={numbers.get(challenge.id)}
               now={now}
             />

@@ -26,7 +26,7 @@ const update = (): ChallengeUpdate => ({
     penaltyText: "",
     effectsEnabled: true,
     maxVisible: 5,
-    overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+    overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end",
     globalTimerMode: "down",
     themeId: "trail-wood",
     globalTimer: null,
@@ -261,6 +261,28 @@ describe("Challenge-Quelle-Wire", () => {
     };
     expect(parseChallengeUpdate(update())).toEqual(update());
     expect(parseChallengeUpdate(withoutMode)).toBeNull();
+  });
+
+  it("nimmt die Key-Sichtbarkeit an und verwirft fehlende oder kaputte Werte", () => {
+    const current = update();
+    expect(parseChallengeUpdate({
+      ...current,
+      settings: { ...current.settings, keyVisible: true },
+    })).toMatchObject({ settings: { keyVisible: true } });
+    expect(parseChallengeUpdate({
+      ...current,
+      settings: Object.fromEntries(
+        Object.entries(current.settings).filter(([key]) => key !== "keyVisible"),
+      ),
+    })).toBeNull();
+    expect(parseChallengeUpdate({
+      ...current,
+      settings: { ...current.settings, keyVisible: "true" },
+    })).toBeNull();
+    expect(parseChallengeUpdate({
+      ...current,
+      settings: { ...current.settings, keyVisible: true, unexpected: true },
+    })).toBeNull();
   });
 
   it("weist einen unbekannten Kopfzeilen-Stil zurück", () => {

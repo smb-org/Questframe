@@ -1,6 +1,8 @@
 import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
 
+import { runMigrations } from "../../src/channel/migrations";
+
 export type SqliteMasterRow = {
   type: string;
   name: string;
@@ -64,4 +66,16 @@ export const withHistoricalDatabase = async <T>(
     initialize(state.storage.sql, version);
     return callback(state.storage.sql);
   });
+};
+
+/**
+ * Baut aus dem aktuellen V16-Fixture einen echten Stand 17 für isolierte
+ * Migration-18-Tests. Die Rücknahme der erst danach eingeführten Spalte ist
+ * ausschließlich Test-Fixture-Setup; die Produktionsmigration bleibt ein
+ * reines ALTER TABLE ADD COLUMN.
+ */
+export const prepareVersion17Database = (sql: SqlStorage): void => {
+  runMigrations(sql, "migration-harness-prepare-v17");
+  sql.exec("DELETE FROM _sql_schema_migrations WHERE version = 18");
+  sql.exec("ALTER TABLE wc_meta DROP COLUMN key_visible");
 };

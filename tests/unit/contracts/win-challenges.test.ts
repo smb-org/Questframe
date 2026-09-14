@@ -28,6 +28,7 @@ import {
   isGlobalTimerMode,
   isHeaderStyle,
   isHeaderTitle,
+  isKeyVisible,
   isPenaltyLabel,
   isPenaltyText,
   isInstant,
@@ -98,6 +99,7 @@ const settings = {
   overflowMode: "cut" as const,
   overflowTempo: "medium" as const,
   numbered: false,
+  keyVisible: false,
   doneOrder: "end" as const,
   globalTimerMode: "down" as const,
   themeId: "trail-wood" as const,
@@ -429,6 +431,16 @@ describe("Win-Challenges-Verträge", () => {
         name: "numbered",
         predicate: isNumbered,
         schema: (value: unknown) => settingsSchema.safeParse({ ...settings, numbered: value }).success,
+        values: [
+          { value: true, accepted: true },
+          { value: false, accepted: true },
+          { value: "true", accepted: false },
+        ],
+      },
+      {
+        name: "keyVisible",
+        predicate: isKeyVisible,
+        schema: (value: unknown) => settingsSchema.safeParse({ ...settings, keyVisible: value }).success,
         values: [
           { value: true, accepted: true },
           { value: false, accepted: true },

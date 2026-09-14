@@ -76,7 +76,7 @@ const message = (currentCount = 3): ChallengeUpdate => ({
     penaltyText: "",
     effectsEnabled: true,
     maxVisible: 5,
-    overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+    overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end",
     globalTimerMode: "down",
     themeId: "trail-wood",
     globalTimer: null,
@@ -105,6 +105,17 @@ afterEach(() => {
 });
 
 describe("Live-Bedienseite", () => {
+  it("zeigt bei sichtbaren Keys die eine Adresse zugänglich und unterdrückt die Nummer", () => {
+    render(<LiveApp />);
+    emitUpdate({
+      ...message(),
+      settings: { ...message().settings, numbered: true, keyVisible: true },
+    });
+
+    expect(screen.getByLabelText("Steuer-Key K7RP")).toHaveTextContent("K7RP");
+    expect(document.querySelectorAll(".live-page__challenge-number")).toHaveLength(0);
+  });
+
   it("zeigt im Hochzählmodus die verstrichene Zeit, das Hochzähl-Präfix und keinen kritischen Zustand", () => {
     render(<LiveApp />);
     emitUpdate({

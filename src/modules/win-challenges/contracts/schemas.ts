@@ -33,6 +33,7 @@ import {
   isChallengeFontScale,
   isHeaderStyle,
   isHeaderTitle,
+  isKeyVisible,
   isHidden,
   isInstant,
   isMaxVisible,
@@ -164,6 +165,7 @@ const overflowTempoSchema = custom(isOverflowTempo, "Überlauf-Tempo ist ungült
 const doneOrderSchema = custom(isDoneOrder, "Erledigt-Reihenfolge ist ungültig.");
 const globalTimerModeSchema = custom(isGlobalTimerMode, "Globaler Timer-Modus ist ungültig.");
 const numberedSchema = custom(isNumbered, "Nummerierung muss ein Boolean sein.");
+const keyVisibleSchema = custom(isKeyVisible, "Steuer-Keys müssen ein Boolean sein.");
 const commandIdSchema = custom(isCommandId, "Kommando-ID muss eine UUID sein.");
 
 const validateChallengeKindSemantics = (
@@ -318,6 +320,7 @@ export const settingsSchema = z.strictObject({
   overflowMode: overflowModeSchema,
   overflowTempo: overflowTempoSchema,
   numbered: numberedSchema,
+  keyVisible: keyVisibleSchema,
   doneOrder: doneOrderSchema,
   globalTimerMode: globalTimerModeSchema,
   themeId: themeIdSchema,
@@ -406,6 +409,7 @@ export const settingsSaveRequestSchema = z.strictObject({
   overflowMode: overflowModeSchema,
   overflowTempo: overflowTempoSchema,
   numbered: numberedSchema,
+  keyVisible: keyVisibleSchema,
   doneOrder: doneOrderSchema,
   globalTimerMode: globalTimerModeSchema,
   globalTimerTotalMs: globalTimerTotalMsSchema,

@@ -133,7 +133,7 @@ describe("Admin workspace shell", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -176,7 +176,7 @@ describe("Admin workspace shell", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -196,6 +196,10 @@ describe("Admin workspace shell", () => {
     const toggle = await screen.findByRole("checkbox", { name: "Animationen und Töne" });
     expect(toggle).toBeChecked();
     expect(toggle).toHaveAttribute("title", "Der Schalter gilt für alle Styles und alle OBS-Quellen.");
+    const keyToggle = screen.getByRole("checkbox", { name: "Steuer-Keys" });
+    expect(keyToggle).not.toBeChecked();
+    await user.click(keyToggle);
+    expect(saveChallengeSettings).not.toHaveBeenCalled();
     await user.click(toggle);
     // Die HUD-Rail ist ebenfalls dauerhaft gemountet und hat eigene X/Y/Skalierung-Felder;
     // hier gezielt im sichtbaren Challenge-Tabpanel suchen.
@@ -238,6 +242,7 @@ describe("Admin workspace shell", () => {
       overflowMode: "page",
       overflowTempo: "fast",
       numbered: true,
+      keyVisible: true,
       doneOrder: "keep",
       globalTimerMode: "down",
       globalTimerTotalMs: 2_700_000,
@@ -258,7 +263,7 @@ describe("Admin workspace shell", () => {
       settings: {
         styleId: "plain-list", themeMode: "inherit", surfaceOpacity: 100, headerStyle: "default", textEmphasis: "auto", headerTitle: "CHALLENGES", penaltyLabel: "STRAFE", penaltyText: "", effectsEnabled: true,
         fontFamily: "theme", fontScale: 1,
-        maxVisible: 8, overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        maxVisible: 8, overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null, placement: { x: 300, y: 8, scale: 1 },
       },
       challenges: [],
@@ -308,7 +313,7 @@ describe("Admin workspace shell", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: { totalMs: 60_000, endsAt: new Date(Date.now() + 60_000).toISOString(), pausedRemainMs: null },
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -351,7 +356,7 @@ describe("Admin workspace shell", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: { totalMs: 60_000, endsAt: new Date(Date.now() + 30_000).toISOString(), pausedRemainMs: null },
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -395,7 +400,7 @@ describe("Admin workspace shell", () => {
       settings: {
         styleId: "plain-list", themeMode: "inherit", surfaceOpacity: 100, headerStyle: "default", textEmphasis: "auto", headerTitle: "CHALLENGES", penaltyLabel: "STRAFE", penaltyText: "", effectsEnabled: true,
         fontFamily: "theme", fontScale: 1,
-        maxVisible: 5, overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        maxVisible: 5, overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: { totalMs: 60_000, endsAt: new Date(Date.now() + 30_000).toISOString(), pausedRemainMs: null }, placement: { x: 300, y: 8, scale: 1 },
       },
       challenges: [],
@@ -453,7 +458,7 @@ describe("Admin workspace shell", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -505,7 +510,7 @@ describe("Admin workspace shell", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -559,7 +564,7 @@ describe("Admin workspace shell", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -621,7 +626,7 @@ describe("Admin workspace shell", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -684,7 +689,7 @@ describe("Admin workspace shell", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -738,7 +743,7 @@ describe("Admin workspace shell", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -869,7 +874,7 @@ describe("Admin workspace setup", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },

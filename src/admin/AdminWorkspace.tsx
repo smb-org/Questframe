@@ -112,13 +112,13 @@ const loadCompositionChallengeTheme = async (themeId: ChallengeThemeId): Promise
   await loadChallengeTheme(themeId);
 };
 
-type ChallengeSettingsDraft = Pick<ChallengeSettings, "styleId" | "surfaceOpacity" | "headerStyle" | "textEmphasis" | "fontFamily" | "fontScale" | "headerTitle" | "penaltyLabel" | "penaltyText" | "effectsEnabled" | "maxVisible" | "overflowMode" | "overflowTempo" | "numbered" | "doneOrder"> & {
+type ChallengeSettingsDraft = Pick<ChallengeSettings, "styleId" | "surfaceOpacity" | "headerStyle" | "textEmphasis" | "fontFamily" | "fontScale" | "headerTitle" | "penaltyLabel" | "penaltyText" | "effectsEnabled" | "maxVisible" | "overflowMode" | "overflowTempo" | "numbered" | "keyVisible" | "doneOrder"> & {
   globalTimerMode: GlobalTimerMode | "off";
   globalTimerTotalMs: number | null;
   globalTimerMinutes: string;
 };
 
-type ChallengeSettingsDraftSource = Pick<ChallengeSettings, "styleId" | "surfaceOpacity" | "headerStyle" | "textEmphasis" | "fontFamily" | "fontScale" | "headerTitle" | "penaltyLabel" | "penaltyText" | "effectsEnabled" | "maxVisible" | "overflowMode" | "overflowTempo" | "numbered" | "doneOrder" | "globalTimerMode" | "globalTimer">;
+type ChallengeSettingsDraftSource = Pick<ChallengeSettings, "styleId" | "surfaceOpacity" | "headerStyle" | "textEmphasis" | "fontFamily" | "fontScale" | "headerTitle" | "penaltyLabel" | "penaltyText" | "effectsEnabled" | "maxVisible" | "overflowMode" | "overflowTempo" | "numbered" | "keyVisible" | "doneOrder" | "globalTimerMode" | "globalTimer">;
 
 const settingsDraftFrom = (settings: ChallengeSettingsDraftSource): ChallengeSettingsDraft => ({
   styleId: settings.styleId,
@@ -135,6 +135,7 @@ const settingsDraftFrom = (settings: ChallengeSettingsDraftSource): ChallengeSet
   overflowMode: settings.overflowMode,
   overflowTempo: settings.overflowTempo,
   numbered: settings.numbered,
+  keyVisible: settings.keyVisible,
   doneOrder: settings.doneOrder,
   globalTimerMode: settings.globalTimer === null ? "off" : settings.globalTimerMode,
   globalTimerTotalMs: settings.globalTimer?.totalMs ?? null,
@@ -142,7 +143,7 @@ const settingsDraftFrom = (settings: ChallengeSettingsDraftSource): ChallengeSet
 });
 
 const sameChallengeSettingsDraft = (left: ChallengeSettingsDraft | null, right: ChallengeSettingsDraft): boolean =>
-  left !== null && left.styleId === right.styleId && left.surfaceOpacity === right.surfaceOpacity && left.headerStyle === right.headerStyle && left.textEmphasis === right.textEmphasis && left.fontFamily === right.fontFamily && left.fontScale === right.fontScale && left.headerTitle === right.headerTitle && left.penaltyLabel === right.penaltyLabel && left.penaltyText === right.penaltyText && left.effectsEnabled === right.effectsEnabled && left.maxVisible === right.maxVisible && left.overflowMode === right.overflowMode && left.overflowTempo === right.overflowTempo && left.numbered === right.numbered && left.doneOrder === right.doneOrder && left.globalTimerMode === right.globalTimerMode && left.globalTimerTotalMs === right.globalTimerTotalMs;
+  left !== null && left.styleId === right.styleId && left.surfaceOpacity === right.surfaceOpacity && left.headerStyle === right.headerStyle && left.textEmphasis === right.textEmphasis && left.fontFamily === right.fontFamily && left.fontScale === right.fontScale && left.headerTitle === right.headerTitle && left.penaltyLabel === right.penaltyLabel && left.penaltyText === right.penaltyText && left.effectsEnabled === right.effectsEnabled && left.maxVisible === right.maxVisible && left.overflowMode === right.overflowMode && left.overflowTempo === right.overflowTempo && left.numbered === right.numbered && left.keyVisible === right.keyVisible && left.doneOrder === right.doneOrder && left.globalTimerMode === right.globalTimerMode && left.globalTimerTotalMs === right.globalTimerTotalMs;
 
 const challengeSettingsWithDraft = (settings: ChallengeSettings, draft: ChallengeSettingsDraft | null, themeId: ChallengeThemeId): ChallengeSettings => {
   if (draft === null) return { ...settings, themeId };
@@ -167,6 +168,7 @@ const challengeSettingsWithDraft = (settings: ChallengeSettings, draft: Challeng
     overflowMode: draft.overflowMode,
     overflowTempo: draft.overflowTempo,
     numbered: draft.numbered,
+    keyVisible: draft.keyVisible,
     doneOrder: draft.doneOrder,
     globalTimerMode: draft.globalTimerMode === "off" ? "down" : draft.globalTimerMode,
     globalTimer: draft.globalTimerMode === "off" || globalTimerTotalMs === null
@@ -320,7 +322,7 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
       const globalTimerTotalMs = settingsDraft.globalTimerMode === "up"
         ? GLOBAL_TIMER_UP_CAP_MS
         : settingsDraft.globalTimerTotalMs;
-      const response = await saveChallengeSettings({ baseSettingsRevision: snapshot.settingsRevision, styleId: settingsDraft.styleId, themeMode: settings.themeMode, surfaceOpacity: settingsDraft.surfaceOpacity, headerStyle: settingsDraft.headerStyle, textEmphasis: settingsDraft.textEmphasis, fontFamily: settingsDraft.fontFamily, fontScale: settingsDraft.fontScale, headerTitle: settingsDraft.headerTitle, penaltyLabel: settingsDraft.penaltyLabel, penaltyText: settingsDraft.penaltyText, effectsEnabled: settingsDraft.effectsEnabled, maxVisible: settingsDraft.maxVisible, overflowMode: settingsDraft.overflowMode, overflowTempo: settingsDraft.overflowTempo, numbered: settingsDraft.numbered, doneOrder: settingsDraft.doneOrder, globalTimerMode: settingsDraft.globalTimerMode === "off" ? "down" : settingsDraft.globalTimerMode, globalTimerTotalMs, placement: effectivePlacement });
+      const response = await saveChallengeSettings({ baseSettingsRevision: snapshot.settingsRevision, styleId: settingsDraft.styleId, themeMode: settings.themeMode, surfaceOpacity: settingsDraft.surfaceOpacity, headerStyle: settingsDraft.headerStyle, textEmphasis: settingsDraft.textEmphasis, fontFamily: settingsDraft.fontFamily, fontScale: settingsDraft.fontScale, headerTitle: settingsDraft.headerTitle, penaltyLabel: settingsDraft.penaltyLabel, penaltyText: settingsDraft.penaltyText, effectsEnabled: settingsDraft.effectsEnabled, maxVisible: settingsDraft.maxVisible, overflowMode: settingsDraft.overflowMode, overflowTempo: settingsDraft.overflowTempo, numbered: settingsDraft.numbered, keyVisible: settingsDraft.keyVisible, doneOrder: settingsDraft.doneOrder, globalTimerMode: settingsDraft.globalTimerMode === "off" ? "down" : settingsDraft.globalTimerMode, globalTimerTotalMs, placement: effectivePlacement });
       // Derselbe Revisions-Guard wie in applyRemoteSnapshot: waehrend unsere Antwort
       // unterwegs war, kann per Socket schon eine neuere Revision eingetroffen sein
       // (zweiter Editor). Eine verspaetete eigene Antwort darf diesen neueren lokalen
@@ -377,6 +379,7 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
                 <label><span>Schrifteffekt</span><select aria-label="Schrifteffekt" disabled={disabled} value={settingsDraft.textEmphasis} onChange={(event) => updateSettings({ textEmphasis: event.target.value as ChallengeTextEmphasis })}><option value="auto">automatisch</option><option value="strong">kräftig (fett + Schatten)</option><option value="plain">schlicht</option></select>{settingsDraft.textEmphasis === "auto" && <small className="field-help">unter 50 % Hintergrund automatisch kräftig</small>}</label>
                 <div className="challenge-checkbox-pair">
                   <label className="challenge-numbered-toggle"><input aria-label="Nummerierung" checked={settingsDraft.numbered} disabled={disabled} onChange={(event) => updateSettings({ numbered: event.target.checked })} type="checkbox" /><span>Nummerierung</span></label>
+                  <label className="challenge-numbered-toggle"><input aria-label="Steuer-Keys" checked={settingsDraft.keyVisible} disabled={disabled} onChange={(event) => updateSettings({ keyVisible: event.target.checked })} type="checkbox" /><span>Steuer-Keys</span></label>
                   <label className="challenge-numbered-toggle"><input aria-label="Animationen und Töne" checked={settingsDraft.effectsEnabled} disabled={disabled} onChange={(event) => updateSettings({ effectsEnabled: event.target.checked })} title="Der Schalter gilt für alle Styles und alle OBS-Quellen." type="checkbox" /><span>Animationen und Töne</span></label>
                 </div>
               </div>

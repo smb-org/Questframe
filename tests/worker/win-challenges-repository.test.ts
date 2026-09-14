@@ -48,7 +48,7 @@ const resetModuleTables = async (): Promise<void> => {
         style_id = 'plain-list', theme_mode = 'inherit', surface_opacity = 100,
         font_family = 'theme', font_scale = 1,
         header_title = 'CHALLENGES', penalty_label = 'STRAFE', penalty_text = '', effects_enabled = 1, max_visible = 5,
-        overflow_mode = 'cut', overflow_tempo = 'medium', numbered = 0, done_order = 'end',
+        overflow_mode = 'cut', overflow_tempo = 'medium', numbered = 0, key_visible = 0, done_order = 'end',
         placement_x = 300, placement_y = 8, placement_scale = 1,
         global_timer_mode = 'down',
         global_timer_total_ms = NULL, global_timer_ends_at = NULL,
@@ -141,6 +141,7 @@ describe("win-challenges repository and migration", () => {
           overflow_mode: string;
           overflow_tempo: string;
           numbered: number;
+          key_visible: number;
           done_order: string;
           placement_x: number;
           placement_y: number;
@@ -211,6 +212,7 @@ describe("win-challenges repository and migration", () => {
       "global_timer_total_ms",
       "global_timer_ends_at",
       "global_timer_paused_remain_ms",
+      "key_visible",
     ]);
     expect(result.challengeColumns).toEqual([
       "id",
@@ -251,6 +253,7 @@ describe("win-challenges repository and migration", () => {
       overflow_mode: "cut",
       overflow_tempo: "medium",
       numbered: 0,
+      key_visible: 0,
       done_order: "end",
       placement_x: 300,
       placement_y: 8,
@@ -356,9 +359,36 @@ describe("win-challenges repository and migration", () => {
     expect(placement.textEmphasis).toBe("auto");
     expect(placement.fontSettings).toEqual({ font_family: "theme", font_scale: 1 });
     expect(placement.surfaceOpacity).toBe(100);
-    expect(placement.surfaceColumns).toContain("surface_opacity");
-    expect(placement.surfaceColumns).toContain("text_emphasis");
-    expect(placement.surfaceColumns).not.toContain("surface_mode");
+    expect(placement.surfaceColumns).toEqual([
+      "singleton",
+      "event_seq",
+      "board_revision",
+      "settings_revision",
+      "style_id",
+      "theme_mode",
+      "surface_opacity",
+      "header_style",
+      "text_emphasis",
+      "font_family",
+      "font_scale",
+      "header_title",
+      "penalty_label",
+      "penalty_text",
+      "effects_enabled",
+      "max_visible",
+      "overflow_mode",
+      "overflow_tempo",
+      "numbered",
+      "done_order",
+      "global_timer_mode",
+      "placement_x",
+      "placement_y",
+      "placement_scale",
+      "global_timer_total_ms",
+      "global_timer_ends_at",
+      "global_timer_paused_remain_ms",
+      "key_visible",
+    ]);
     const columns = await runInDurableObject(legacyStub, (_instance, state) => state.storage.sql.exec<{ name: string }>("PRAGMA table_info(wc_meta)").toArray().map(({ name }) => name));
     expect(columns).toContain("max_visible");
     expect(columns).toContain("header_style");
@@ -455,6 +485,7 @@ describe("win-challenges repository and migration", () => {
           overflow_mode: string;
           overflow_tempo: string;
           numbered: number;
+          key_visible: number;
           done_order: string;
           global_timer_mode: string;
           placement_x: number;
@@ -463,7 +494,7 @@ describe("win-challenges repository and migration", () => {
           global_timer_total_ms: number | null;
           global_timer_ends_at: string | null;
           global_timer_paused_remain_ms: number | null;
-        }>("SELECT singleton, event_seq, board_revision, settings_revision, style_id, theme_mode, surface_opacity, header_style, text_emphasis, font_family, font_scale, header_title, penalty_text, effects_enabled, max_visible, overflow_mode, overflow_tempo, numbered, done_order, global_timer_mode, placement_x, placement_y, placement_scale, global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms FROM wc_meta WHERE singleton = 1").toArray()[0],
+        }>("SELECT singleton, event_seq, board_revision, settings_revision, style_id, theme_mode, surface_opacity, header_style, text_emphasis, font_family, font_scale, header_title, penalty_text, effects_enabled, max_visible, overflow_mode, overflow_tempo, numbered, key_visible, done_order, global_timer_mode, placement_x, placement_y, placement_scale, global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms FROM wc_meta WHERE singleton = 1").toArray()[0],
       };
     });
 
@@ -489,6 +520,7 @@ describe("win-challenges repository and migration", () => {
       overflow_mode: "scroll",
       overflow_tempo: "fast",
       numbered: 1,
+      key_visible: 0,
       done_order: "keep",
       global_timer_mode: "up",
       placement_x: 123,
@@ -553,6 +585,7 @@ describe("win-challenges repository and migration", () => {
       overflowMode: before.settings.overflowMode,
       overflowTempo: before.settings.overflowTempo,
       numbered: before.settings.numbered,
+      keyVisible: true,
       doneOrder: before.settings.doneOrder,
       globalTimerMode: before.settings.globalTimerMode,
       globalTimerTotalMs: before.settings.globalTimer?.totalMs ?? null,
@@ -563,6 +596,7 @@ describe("win-challenges repository and migration", () => {
     expect((await inRepository((repository) => repository.readSnapshot())).settings).toMatchObject({
       surfaceOpacity: 25,
       penaltyLabel: "Konsequenz",
+      keyVisible: true,
       penaltyText: "Die nächste Challenge wird doppelt schwer.",
     });
   });
@@ -955,6 +989,7 @@ describe("win-challenges repository and migration", () => {
         overflowMode: "page",
         overflowTempo: "fast",
         numbered: true,
+        keyVisible: true,
         doneOrder: "keep",
         globalTimerMode: "up",
         globalTimerTotalMs: 86_400_000,
@@ -978,6 +1013,7 @@ describe("win-challenges repository and migration", () => {
       overflowMode: "page",
       overflowTempo: "fast",
       numbered: true,
+      keyVisible: true,
       doneOrder: "keep",
       placement: { x: 12, y: 34, scale: 1.25 },
       globalTimer: { totalMs: 86_400_000, endsAt: null, pausedRemainMs: null },
@@ -1012,7 +1048,7 @@ describe("win-challenges repository and migration", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end",
         globalTimerMode: "down",
         globalTimerTotalMs: null,
         placement: { x: 300, y: 8, scale: 1 },
@@ -1053,7 +1089,7 @@ describe("win-challenges repository and migration", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end",
         globalTimerMode: "down",
         globalTimerTotalMs: null,
         placement: { x: 300, y: 8, scale: 1 },
@@ -1279,7 +1315,7 @@ describe("win-challenges repository and migration", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end",
         globalTimerMode: "down",
         globalTimerTotalMs: 120_000,
         placement: { x: 300, y: 8, scale: 1 },
@@ -1430,7 +1466,7 @@ describe("win-challenges repository and migration", () => {
           penaltyText: "",
           effectsEnabled: true,
           maxVisible: 5,
-          overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+          overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end",
           globalTimerMode: "down",
           globalTimerTotalMs: null,
           placement: { x: 300, y: 8, scale: 1 },

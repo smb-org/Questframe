@@ -8,13 +8,14 @@ import CONTROL_KEYS_SOURCE from "../../src/modules/win-challenges/domain/control
 import { MAX_CHALLENGES } from "../../src/modules/win-challenges/contracts/predicates";
 import {
   readSchemaSnapshot,
+  prepareVersion17Database,
   withHistoricalDatabase as withHarnessDatabase,
   type SchemaSnapshot,
 } from "./migrations-harness";
 
 const FIXTURE_TIMESTAMP = "2026-08-30T12:00:00.000Z";
 const HISTORICAL_VERSIONS = Array.from({ length: 16 }, (_, index) => index + 1) as HistoricalSchemaVersion[];
-const CURRENT_VERSIONS = Array.from({ length: 17 }, (_, index) => index + 1);
+const CURRENT_VERSIONS = Array.from({ length: 18 }, (_, index) => index + 1);
 const ALL_SCHEMA_VERSIONS = [0, ...HISTORICAL_VERSIONS] as HistoricalSchemaVersion[];
 const RECOVERABLE_CRASH_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16] as HistoricalSchemaVersion[];
 
@@ -689,7 +690,7 @@ describe("Migrations-Harness", () => {
     ).toEqual([]);
   });
 
-  it("führt eine frische Datenbank durch die Versionen 1 bis 17", async () => {
+  it("führt eine frische Datenbank durch die Versionen 1 bis 18", async () => {
     const result = await withHistoricalDatabase(0, (sql) => {
       runMigrations(sql, "migration-harness-fresh");
       return {
@@ -709,7 +710,8 @@ describe("Migrations-Harness", () => {
             penalty_label: string;
             penalty_text: string;
             max_visible: number;
-          }>("SELECT style_id, surface_opacity, header_style, text_emphasis, font_family, font_scale, penalty_label, penalty_text, max_visible FROM wc_meta WHERE singleton = 1")
+            key_visible: number;
+          }>("SELECT style_id, surface_opacity, header_style, text_emphasis, font_family, font_scale, penalty_label, penalty_text, max_visible, key_visible FROM wc_meta WHERE singleton = 1")
           .toArray()[0],
       };
     });
@@ -745,7 +747,49 @@ describe("Migrations-Harness", () => {
       penalty_label: "STRAFE",
       penalty_text: "",
       max_visible: 5,
+      key_visible: 0,
     });
+  });
+
+  it("führt Migration 18 vom Stand 17 additiv aus, setzt den unsichtbaren Default und ist idempotent", async () => {
+    const result = await withHistoricalDatabase(16, (sql) => {
+      prepareVersion17Database(sql);
+      runMigrations(sql, "migration-harness-v18");
+      const read = () => ({
+        versions: sql
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .toArray()
+          .map(({ version }) => version),
+        keyColumn: sql
+          .exec<{ name: string; dflt_value: string | null }>("PRAGMA table_info(wc_meta)")
+          .toArray()
+          .filter(({ name }) => name === "key_visible"),
+        meta: sql
+          .exec<{ key_visible: number; board_revision: number; settings_revision: number }>(
+            "SELECT key_visible, board_revision, settings_revision FROM wc_meta WHERE singleton = 1",
+          )
+          .toArray(),
+        challenges: sql
+          .exec<{ id: string; title: string; current_count: number; control_key: string }>(
+            "SELECT id, title, current_count, control_key FROM wc_challenges ORDER BY id",
+          )
+          .toArray(),
+        schema: readSchemaSnapshot(sql),
+      });
+      const first = read();
+      runMigrations(sql, "migration-harness-v18-rerun");
+      return { first, second: read() };
+    });
+
+    expect(result.first.versions).toEqual(CURRENT_VERSIONS);
+    expect(result.first.keyColumn.map(({ name, dflt_value }) => ({ name, dflt_value }))).toEqual([
+      { name: "key_visible", dflt_value: "0" },
+    ]);
+    expect(result.first.meta).toEqual([{ key_visible: 0, board_revision: 7, settings_revision: 8 }]);
+    expect(result.first.challenges).toEqual(result.second.challenges);
+    expect(result.first.meta).toEqual(result.second.meta);
+    expect(result.first.versions).toEqual(result.second.versions);
+    expect(result.first.schema).toEqual(result.second.schema);
   });
 
   it.each(HISTORICAL_VERSIONS)("überführt eine Datenbank auf Stand %i ohne Nutzdatenverlust", async (version) => {
@@ -824,6 +868,7 @@ describe("Migrations-Harness", () => {
             overflow_mode: string;
             overflow_tempo: string;
             numbered: number;
+            key_visible: number;
             done_order: string;
             global_timer_mode: string;
             placement_x: number;
@@ -833,7 +878,7 @@ describe("Migrations-Harness", () => {
             global_timer_ends_at: string | null;
             global_timer_paused_remain_ms: number | null;
           }>(
-            "SELECT singleton, event_seq, board_revision, settings_revision, style_id, theme_mode, surface_opacity, header_style, text_emphasis, font_family, font_scale, header_title, penalty_label, penalty_text, effects_enabled, max_visible, overflow_mode, overflow_tempo, numbered, done_order, global_timer_mode, placement_x, placement_y, placement_scale, global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms FROM wc_meta WHERE singleton = 1",
+            "SELECT singleton, event_seq, board_revision, settings_revision, style_id, theme_mode, surface_opacity, header_style, text_emphasis, font_family, font_scale, header_title, penalty_label, penalty_text, effects_enabled, max_visible, overflow_mode, overflow_tempo, numbered, key_visible, done_order, global_timer_mode, placement_x, placement_y, placement_scale, global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms FROM wc_meta WHERE singleton = 1",
           )
           .toArray()[0],
         commands: sql
@@ -951,6 +996,7 @@ describe("Migrations-Harness", () => {
         overflow_mode: "cut",
         overflow_tempo: "medium",
         numbered: 1,
+        key_visible: 0,
         done_order: "end",
         global_timer_mode: "down",
         placement_x: 300,
@@ -998,6 +1044,7 @@ describe("Migrations-Harness", () => {
         overflow_mode: "cut",
         overflow_tempo: "medium",
         numbered: 0,
+        key_visible: 0,
         done_order: "end",
         global_timer_mode: "down",
         placement_x: 300,

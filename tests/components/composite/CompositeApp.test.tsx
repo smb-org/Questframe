@@ -70,7 +70,7 @@ const update: ChallengeUpdate = {
     penaltyText: "",
     effectsEnabled: true,
     maxVisible: 5,
-    overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+    overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
     themeId: "trail-wood",
     globalTimer: null,
     placement: { x: 30, y: 8, scale: 1.25 },

@@ -164,6 +164,9 @@ export const isOverflowTempo = (value: unknown): value is "slow" | "medium" | "f
 export const isNumbered = (value: unknown): value is boolean =>
   typeof value === "boolean";
 
+export const isKeyVisible = (value: unknown): value is boolean =>
+  typeof value === "boolean";
+
 export const isDoneOrder = (value: unknown): value is "end" | "keep" =>
   value === "end" || value === "keep";
 

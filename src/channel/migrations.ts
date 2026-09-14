@@ -328,6 +328,7 @@ const hasChallengeTimerRemain = (sql: SqlStorage): boolean =>
 const MIGRATION_14_PENALTY_TEXT = "ALTER TABLE wc_meta ADD COLUMN penalty_text TEXT NOT NULL DEFAULT '';";
 const MIGRATION_15_PENALTY_LABEL = "ALTER TABLE wc_meta ADD COLUMN penalty_label TEXT NOT NULL DEFAULT 'STRAFE';";
 const MIGRATION_16_TEXT_EMPHASIS = "ALTER TABLE wc_meta ADD COLUMN text_emphasis TEXT NOT NULL DEFAULT 'auto' CHECK (text_emphasis IN ('auto','strong','plain'));";
+const MIGRATION_18_KEY_VISIBLE = "ALTER TABLE wc_meta ADD COLUMN key_visible INTEGER NOT NULL DEFAULT 0 CHECK (key_visible IN (0,1));";
 
 type Migration17ChallengeRow = {
   id: string;
@@ -650,6 +651,18 @@ export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
     sql.exec(
       "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
       17,
+      buildId,
+      new Date().toISOString(),
+    );
+  }
+  const versionEighteenWasApplied = sql
+    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 18")
+    .toArray().length > 0;
+  if (!versionEighteenWasApplied) {
+    if (!hasChallengeMetaColumn(sql, "key_visible")) sql.exec(MIGRATION_18_KEY_VISIBLE);
+    sql.exec(
+      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
+      18,
       buildId,
       new Date().toISOString(),
     );

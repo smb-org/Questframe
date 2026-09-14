@@ -66,6 +66,7 @@ type MetaRow = {
   overflow_mode: string;
   overflow_tempo: string;
   numbered: number;
+  key_visible: number;
   done_order: string;
   global_timer_mode: string;
   placement_x: number;
@@ -136,6 +137,7 @@ const metaRowSchema = z.strictObject({
   overflow_mode: z.string(),
   overflow_tempo: z.string(),
   numbered: z.number().int(),
+  key_visible: z.number().int(),
   done_order: z.string(),
   global_timer_mode: z.string(),
   placement_x: z.number().int(),
@@ -232,6 +234,7 @@ const parseMeta = (row: MetaRow): ChallengeSnapshot["settings"] &
     overflowMode: parsedRow.overflow_mode,
     overflowTempo: parsedRow.overflow_tempo,
     numbered: parseBooleanInteger(parsedRow.numbered),
+    keyVisible: parseBooleanInteger(parsedRow.key_visible),
     doneOrder: parsedRow.done_order,
     globalTimerMode: parsedRow.global_timer_mode,
     globalTimer,
@@ -444,7 +447,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       this.execute<MetaRow>(
         `UPDATE ${this.table("meta")} SET
           style_id = ?, theme_mode = ?, surface_opacity = ?, header_style = ?, text_emphasis = ?, font_family = ?, font_scale = ?, header_title = ?, penalty_label = ?, penalty_text = ?,
-          effects_enabled = ?, max_visible = ?, overflow_mode = ?, overflow_tempo = ?, numbered = ?, done_order = ?,
+          effects_enabled = ?, max_visible = ?, overflow_mode = ?, overflow_tempo = ?, numbered = ?, key_visible = ?, done_order = ?,
           global_timer_mode = ?, global_timer_total_ms = ?, global_timer_ends_at = ?, global_timer_paused_remain_ms = ?,
           placement_x = ?, placement_y = ?, placement_scale = ?,
           settings_revision = settings_revision + 1
@@ -464,6 +467,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         nextSettings.overflowMode,
         nextSettings.overflowTempo,
         nextSettings.numbered ? 1 : 0,
+        nextSettings.keyVisible ? 1 : 0,
         nextSettings.doneOrder,
         nextSettings.globalTimerMode,
         nextSettings.globalTimer?.totalMs ?? null,
@@ -626,6 +630,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         overflowMode: parsedMeta.overflowMode,
         overflowTempo: parsedMeta.overflowTempo,
         numbered: parsedMeta.numbered,
+        keyVisible: parsedMeta.keyVisible,
         doneOrder: parsedMeta.doneOrder,
         globalTimerMode: parsedMeta.globalTimerMode,
         globalTimer: parsedMeta.globalTimer,
@@ -824,6 +829,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       overflowMode: input.overflowMode,
       overflowTempo: input.overflowTempo,
       numbered: input.numbered,
+      keyVisible: input.keyVisible,
       doneOrder: input.doneOrder,
       globalTimerMode: input.globalTimerMode,
       globalTimer,

@@ -212,6 +212,7 @@ const ChallengeRow = ({
   now,
   number,
   numbered,
+  keyVisible,
   onCommand,
 }: {
   challenge: Challenge;
@@ -223,9 +224,11 @@ const ChallengeRow = ({
   now: number;
   number: number | undefined;
   numbered: boolean;
+  keyVisible: boolean;
   onCommand: (command: Command, challengeId: string) => void;
 }) => {
   const done = challenge.state === "done";
+  const showingKey = !done && keyVisible;
   const hasTimer = challenge.timerTotalMs !== null;
   const timerState = hasTimer ? deriveChallengeTimerState(challenge, now) : "idle";
   const remainingMs = remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, now);
@@ -245,7 +248,9 @@ const ChallengeRow = ({
     >
       <div className="live-page__challenge-main">
         <span aria-hidden="true" className="live-page__challenge-mark">{done ? "✓" : "▸"}</span>
-        {numbered && number !== undefined && <span aria-hidden="true" className="live-page__challenge-number">{number}</span>}
+        {showingKey
+          ? <span aria-label={`Steuer-Key ${challenge.controlKey}`} className="live-page__challenge-key">{challenge.controlKey}</span>
+          : numbered && number !== undefined && <span aria-hidden="true" className="live-page__challenge-number">{number}</span>}
         <span className="live-page__challenge-title">{challenge.title}</span>
         {challenge.hidden && <span className="live-page__challenge-hidden-badge">ausgeblendet</span>}
         <span className="live-page__challenge-meta">
@@ -566,6 +571,7 @@ export const LiveApp = () => {
               error={errors[challenge.id] ?? (deletedNotice?.challenge.id === challenge.id ? deletedNotice.message : null)}
               key={challenge.id}
               numbered={update.settings.numbered}
+              keyVisible={update.settings.keyVisible}
               number={numbers.get(challenge.id)}
               onCommand={(command, challengeId) => runCommand(command, challengeId)}
               pending={pending[challenge.id] === true}

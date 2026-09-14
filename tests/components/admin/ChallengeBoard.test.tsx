@@ -61,7 +61,7 @@ const snapshot = (
     penaltyText: "",
     effectsEnabled: true,
     maxVisible: 5,
-    overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+    overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
     globalTimer: null,
     placement: { x: 300, y: 8, scale: 1 },
   },

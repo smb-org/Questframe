@@ -71,6 +71,7 @@ export type ChallengeSettings = {
   overflowMode: ChallengeOverflowMode;
   overflowTempo: ChallengeOverflowTempo;
   numbered: boolean;
+  keyVisible: boolean;
   doneOrder: ChallengeDoneOrder;
   globalTimerMode: GlobalTimerMode;
   themeId: ChallengeThemeId;

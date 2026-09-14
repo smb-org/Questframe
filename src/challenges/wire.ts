@@ -32,6 +32,7 @@ import {
   isPenaltyText,
   isHidden,
   isInstant,
+  isKeyVisible,
   isMaxVisible,
   isNumbered,
   isOverflowMode,
@@ -114,6 +115,7 @@ const parseSettings = (input: unknown): ChallengeSettings | null => {
       "overflowMode",
       "overflowTempo",
       "numbered",
+      "keyVisible",
       "doneOrder",
       "globalTimerMode",
       "themeId",
@@ -135,6 +137,7 @@ const parseSettings = (input: unknown): ChallengeSettings | null => {
     !isOverflowMode(input.overflowMode) ||
     !isOverflowTempo(input.overflowTempo) ||
     !isNumbered(input.numbered) ||
+    !isKeyVisible(input.keyVisible) ||
     !isDoneOrder(input.doneOrder) ||
     !isGlobalTimerMode(input.globalTimerMode) ||
     !isThemeId(input.themeId) ||
