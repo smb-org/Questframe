@@ -801,15 +801,15 @@ denselben Branch, P3 ist Nacharbeit.
 - [x] **T2 (P1, human: ~1,5 Tage / CC: ~1 Sitzung)** — tests — Migrations-Testgerüst mit Schema-Fixtures, Idempotenz-Lauf und Synchronitäts-Invariante
 - [x] **T9 (P1, human: ~5 Std / CC: ~35 Min)** — registry — P1-Vertrag ohne `handle()` (kommt mit P2), `ModuleId` aus der Registry abgeleitet, Selbsttest als Vitest
 - [x] **T1 (P1, human: ~3 Tage / CC: ~2 Sitzungen)** — migration — Migration 17 atomar über `wc_challenges` (nicht `wc_meta`, siehe Korrektur), Allocator, Sperrliste, Contracts
-- [ ] **T3 (P1, human: ~2 Std / CC: ~15 Min)** — service — `canonicalCommand` auf Payload-je-Typ, Regressionstests
-- [ ] **T4 (P1, human: ~1,5 Tage / CC: ~1 Sitzung)** — domain — `measure`: Grenzen typabhängig, kein Auto-Abschluss
-- [ ] **T5 (P1, human: ~3 Std / CC: ~20 Min)** — wire — `time_sync` im Challenge-Pfad
-- [ ] **T6 (P1, human: ~2 Tage / CC: ~1,5 Sitzungen)** — domain — Überzeit vollständig plus `streak-reset`-Ereignis
+- [x] **T3 (P1, human: ~2 Std / CC: ~15 Min)** — service — `canonicalCommand` auf Payload-je-Typ, Regressionstests
+- [x] **T4 (P1, human: ~1,5 Tage / CC: ~1 Sitzung)** — domain — `measure`: Grenzen typabhängig, kein Auto-Abschluss
+- [x] **T5 (P1, human: ~3 Std / CC: ~20 Min)** — wire — `time_sync` im Challenge-Pfad
+- [x] **T6 (P1, human: ~2 Tage / CC: ~1,5 Sitzungen)** — domain — Überzeit vollständig plus `streak-reset`-Ereignis
 - [x] **T7 (P2, human: ~2 Std / CC: ~15 Min)** — contracts — `kind`, `unit`, `controlKey` über `predicates.ts`
-- [ ] **T8 (P2, human: ~1 Tag / CC: ~45 Min)** — domain — Typ-Semantik plus Key-Sichtbarkeit
+- [x] **T8 (P2, human: ~1 Tag / CC: ~45 Min)** — domain — Typ-Semantik plus Key-Sichtbarkeit
 - [x] **T10 (P2, human: ~1,5 Std / CC: ~10 Min)** — repository — Allocator lädt Key-Mengen einmal pro `saveBoard`
 - [x] **T11 (P3, human: ~15 Min / CC: ~3 Min)** — channel — echte `build_id` durchreichen
-- [ ] **T12 (P3, human: ~30 Min / CC: ~5 Min)** — styles — Zustandsklassen als `wc-is-*`
+- [x] **T12 (P3, human: ~30 Min / CC: ~5 Min)** — styles — Zustandsklassen als `wc-is-*`
 
 ## Parallelisierung
 
@@ -931,11 +931,11 @@ der Beleg für die Dichte-Befunde in Pass 1 und 4.
 
 ## Implementation Tasks — Design
 
-- [ ] **T13 (P1, human: ~4 Std / CC: ~30 Min)** — settings/ui — Key-Sichtbarkeitsschalter plus feste Kürzungsreihenfolge
-- [ ] **T14 (P1, human: ~1 Tag / CC: ~50 Min)** — domain/ui — Zustandsmatrix umsetzen, `best_count` mitführen und anzeigen
-- [ ] **T15 (P1, human: ~5 Std / CC: ~35 Min)** — ceremonies — vierter Zeremonie-Typ `lost` samt Ton und Reduced-Motion-Pfad
-- [ ] **T16 (P2, human: ~1 Std / CC: ~10 Min)** — styles — Key wie die Nummer darstellen, kein Chip
-- [ ] **T17 (P2, human: ~3 Std / CC: ~20 Min)** — styles — `--wc-overtime` als zweite Alarmstufe, Kontrast in `bare` prüfen
+- [x] **T13 (P1, human: ~4 Std / CC: ~30 Min)** — settings/ui — Key-Sichtbarkeitsschalter plus feste Kürzungsreihenfolge
+- [x] **T14 (P1, human: ~1 Tag / CC: ~50 Min)** — domain/ui — Zustandsmatrix umsetzen, `best_count` mitführen und anzeigen
+- [x] **T15 (P1, human: ~5 Std / CC: ~35 Min)** — ceremonies — vierter Zeremonie-Typ `lost` samt Ton und Reduced-Motion-Pfad
+- [x] **T16 (P2, human: ~1 Std / CC: ~10 Min)** — styles — Key wie die Nummer darstellen, kein Chip
+- [x] **T17 (P2, human: ~3 Std / CC: ~20 Min)** — styles — `--wc-overtime` als zweite Alarmstufe, Kontrast in `bare` prüfen
 - [ ] **T18 (P1, human: ~5 Std / CC: ~35 Min)** — domain/migration — `step` als Challenge-Eigenschaft, in Migration 17
 
 **Achtung:** T14 und T18 erweitern den Spaltensatz von Migration 17 um
