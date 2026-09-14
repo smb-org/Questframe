@@ -177,53 +177,54 @@ const validateChallengeKindSemantics = (
     currentCount?: number;
   },
   context: z.RefinementCtx,
+  pathPrefix: readonly PropertyKey[] = [],
 ): void => {
   if (!isTargetCountForKind(value.targetCount, value.kind)) {
     context.addIssue({
       code: "custom",
-      path: ["targetCount"],
+      path: [...pathPrefix, "targetCount"],
       message: `Ziel darf für ${value.kind} höchstens ${String(value.kind === "measure" ? MAX_MEASURE_COUNT : MAX_COUNT)} sein.`,
     });
   }
   if (value.bestCount !== undefined && !isCurrentCountForKind(value.bestCount, value.kind)) {
     context.addIssue({
       code: "custom",
-      path: ["bestCount"],
+      path: [...pathPrefix, "bestCount"],
       message: `Rekord darf für ${value.kind} höchstens ${String(value.kind === "measure" ? MAX_MEASURE_COUNT : MAX_COUNT)} sein.`,
     });
   }
   if (value.currentCount !== undefined && !isCurrentCountForKind(value.currentCount, value.kind)) {
     context.addIssue({
       code: "custom",
-      path: ["currentCount"],
+      path: [...pathPrefix, "currentCount"],
       message: `Aktueller Stand darf für ${value.kind} höchstens ${String(value.kind === "measure" ? MAX_MEASURE_COUNT : MAX_COUNT)} sein.`,
     });
   }
   if (value.kind === "tick" && value.targetCount !== null) {
     context.addIssue({
       code: "custom",
-      path: ["targetCount"],
+      path: [...pathPrefix, "targetCount"],
       message: "Ein Tick braucht kein Ziel.",
     });
   }
   if ((value.kind === "streak" || value.kind === "measure") && value.targetCount === null) {
     context.addIssue({
       code: "custom",
-      path: ["targetCount"],
+      path: [...pathPrefix, "targetCount"],
       message: `${value.kind === "streak" ? "Eine Streak" : "Ein Messwert"} braucht ein Ziel.`,
     });
   }
   if (value.kind === "measure" && value.unit === null) {
     context.addIssue({
       code: "custom",
-      path: ["unit"],
+      path: [...pathPrefix, "unit"],
       message: "Ein Messwert braucht eine Einheit.",
     });
   }
   if (value.kind !== "measure" && value.unit !== null) {
     context.addIssue({
       code: "custom",
-      path: ["unit"],
+      path: [...pathPrefix, "unit"],
       message: "Eine Einheit ist nur für Messwerte erlaubt.",
     });
   }
@@ -240,6 +241,19 @@ const challengeDefinitionFields = {
   hidden: z.boolean().default(false),
 } as const;
 
+/** Der Wächter erzwingt eine bewusste Entscheidung, wenn der interne Satz wächst. */
+export const challengeDefinitionFieldKeys = Object.keys(challengeDefinitionFields) as Array<keyof typeof challengeDefinitionFields>;
+export const challengeSetV1FieldPolicy = {
+  title: "include",
+  kind: "include",
+  unit: "include",
+  targetCount: "include",
+  timerTotalMs: "include",
+  sortOrder: "include",
+  step: "include",
+  hidden: "include",
+} as const satisfies Record<keyof typeof challengeDefinitionFields, "include" | "ignore" | "v2">;
+
 export const challengeDefinitionSchema = z
   .union([
     z.strictObject({ id: challengeIdSchema, ...challengeDefinitionFields }),
@@ -248,6 +262,47 @@ export const challengeDefinitionSchema = z
   .superRefine((value, context) => {
     validateChallengeKindSemantics(value, context);
   });
+
+const challengeSetProgressSchema = z.strictObject({
+  currentCount: currentCountSchema,
+  bestCount: currentCountSchema,
+  state: challengeStateSchema,
+  timerRemainMs: z.union([timerRemainMsSchema, z.null()]),
+  completedAt: z.union([instantSchema, z.null()]),
+});
+
+const challengeSetChallengeSchema = z
+  .strictObject({
+    // V1 zählt diese Felder absichtlich einzeln auf. Keine Ableitung aus
+    // challengeDefinitionFields: Die eingefrorene Datei darf nicht mit dem
+    // internen Vertrag mitwandern.
+    title: challengeTitleSchema,
+    kind: challengeKindSchema,
+    unit: challengeUnitSchema,
+    targetCount: targetCountSchema,
+    timerTotalMs: timerTotalMsSchema,
+    sortOrder: sortOrderSchema,
+    step: challengeStepSchema,
+    hidden: z.boolean(),
+    progress: challengeSetProgressSchema.optional(),
+  })
+  .superRefine((value, context) => {
+    validateChallengeKindSemantics(value, context);
+    if (value.progress !== undefined) {
+      validateChallengeKindSemantics(
+        { ...value, ...value.progress },
+        context,
+        ["progress"],
+      );
+    }
+  });
+
+export const challengeSetV1Schema = z.strictObject({
+  schemaVersion: z.literal(1),
+  name: z.string().min(1),
+  createdAt: instantSchema,
+  challenges: z.array(challengeSetChallengeSchema).max(MAX_CHALLENGES),
+});
 
 export const challengeSchema = z
   .strictObject({
@@ -495,6 +550,8 @@ export const challengeUpdateSchema = z.strictObject({
 
 export type Challenge = z.infer<typeof challengeSchema>;
 export type ChallengeDefinition = z.infer<typeof challengeDefinitionSchema>;
+export type ChallengeSetV1 = z.infer<typeof challengeSetV1Schema>;
+export type ChallengeSetV1Challenge = ChallengeSetV1["challenges"][number];
 export type GlobalTimer = z.infer<typeof globalTimerSchema>;
 export type Settings = z.infer<typeof settingsSchema>;
 export type Command = z.infer<typeof commandSchema>;
