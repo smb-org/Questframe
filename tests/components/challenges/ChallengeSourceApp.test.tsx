@@ -614,6 +614,32 @@ describe("ChallengeSourceApp", () => {
     expect(document.querySelector('[data-challenge-id="open"]')).toBe(firstRow);
   });
 
+  it("bricht eine laufende Zeremonie bei einem Set-Wechsel ab", async () => {
+    render(<ChallengeSourceApp />);
+    const socket = FakeWebSocket.instances[0];
+    const settings = { ...message().settings, themeMode: "own" as const };
+    const progressed = {
+      scope: "challenge" as const,
+      type: "progressed" as const,
+      challengeId: "open",
+      delta: 1,
+      previousCount: 3,
+      currentCount: 4,
+    };
+
+    await deliver(socket, sourceUpdate({ eventSeq: 1, settings, event: progressed }));
+    expect(document.querySelector(".challenge-source-ceremony")).not.toBeNull();
+
+    await deliver(socket, sourceUpdate({
+      eventSeq: 2,
+      settings,
+      event: { scope: "board", type: "set_switched" },
+    }));
+
+    expect(document.querySelector(".challenge-source-ceremony")?.getAttribute("data-ceremony-type") ?? null).toBeNull();
+    expect(FakeAudio.instances.filter((audio) => audio.src.endsWith("/tick.mp3")).length).toBe(1);
+  });
+
   it("erzeugt Markierung und Zeileninneres je Zeremonie-Ereignis neu", () => {
     const update = sourceUpdate({ settings: { ...message().settings, themeMode: "own" } });
     const view = render(<ChallengeLog ceremonySeq={1} ceremonyTarget={{ kind: "challenge", id: "open" }} now={fixedNow} update={update} />);

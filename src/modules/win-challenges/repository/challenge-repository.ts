@@ -4,6 +4,8 @@ import type { DomainError, DomainNow } from "../domain/timers";
 
 export type ChallengeRepositorySettings = Omit<Settings, "themeId">;
 
+export type BoardSaveReason = "set-switch";
+
 export type ChallengeSnapshot = {
   eventSeq: number;
   boardRevision: number;
@@ -19,6 +21,7 @@ export type SettingsSaveInput = Omit<ChallengeRepositorySettings, "globalTimer">
 export type BoardSaveInput = {
   baseBoardRevision: number;
   definitions: readonly ChallengeDefinition[];
+  reason?: BoardSaveReason;
   now: DomainNow;
 };
 

@@ -700,8 +700,14 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const result = this.challengeService().saveBoard({
       baseBoardRevision: input.baseBoardRevision,
       definitions: input.challenges,
+      ...(input.reason === undefined ? {} : { reason: input.reason }),
     });
-    this.broadcastChallengeUpdate(this.toChallengeUpdate({ ...result.snapshot, event: null }));
+    this.broadcastChallengeUpdate(this.toChallengeUpdate({
+      ...result.snapshot,
+      event: input.reason === "set-switch"
+        ? { scope: "board", type: "set_switched" }
+        : null,
+    }));
     return jsonResponse(result);
   }
 

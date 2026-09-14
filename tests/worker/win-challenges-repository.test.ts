@@ -768,6 +768,52 @@ describe("win-challenges repository and migration", () => {
     });
   });
 
+  it("erhöht event_seq nur beim Set-Wechsel und rollt den Sprung mit dem Board zurück", async () => {
+    const created = await inRepository((repository) =>
+      repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Original", 0)], now }),
+    );
+    expect(created.snapshot.eventSeq).toBe(0);
+    const original = onlyChallenge(created.snapshot.challenges);
+
+    const ordinary = await inRepository((repository) =>
+      repository.saveBoard({
+        baseBoardRevision: created.snapshot.boardRevision,
+        definitions: [definitionFor(original, "Gewöhnlich")],
+        now: future,
+      }),
+    );
+    expect(ordinary.snapshot.eventSeq).toBe(0);
+
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec(`
+        CREATE TRIGGER fail_set_switch_event_seq
+        BEFORE UPDATE OF event_seq ON wc_meta
+        WHEN NEW.event_seq > OLD.event_seq
+        BEGIN
+          SELECT RAISE(ABORT, 'Set-Wechsel-Sequenz absichtlich fehlgeschlagen');
+        END
+      `);
+    });
+
+    await expect(inRepository((repository) => repository.saveBoard({
+      baseBoardRevision: ordinary.snapshot.boardRevision,
+      definitions: [definitionFor(original, "Nicht gespeichert")],
+      reason: "set-switch",
+      now: future,
+    }))).rejects.toThrow();
+
+    const afterRollback = await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec("DROP TRIGGER fail_set_switch_event_seq");
+      const repository = createSqlStorageChallengeRepository({
+        sql: state.storage.sql,
+        transactionSync: state.storage.transactionSync.bind(state.storage),
+      });
+      return repository.readSnapshot();
+    });
+    expect(afterRollback.eventSeq).toBe(0);
+    expect(onlyChallenge(afterRollback.challenges).title).toBe("Gewöhnlich");
+  });
+
   it("persistiert den Bestwert-Reset beim Typwechsel", async () => {
     const created = await inRepository((repository) =>
       repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Counter", 0)], now }),

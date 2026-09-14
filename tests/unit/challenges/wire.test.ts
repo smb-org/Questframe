@@ -137,6 +137,19 @@ describe("Challenge-Quelle-Wire", () => {
     })).toBeNull();
   });
 
+  it("akzeptiert set_switched und verwirft kaputte Varianten", () => {
+    const setSwitched = { scope: "board", type: "set_switched" } as const;
+    expect(parseChallengeUpdate({ ...update(), event: setSwitched })).toMatchObject({ event: setSwitched });
+    expect(parseChallengeUpdate({
+      ...update(),
+      event: { ...setSwitched, extra: true },
+    })).toBeNull();
+    expect(parseChallengeUpdate({
+      ...update(),
+      event: { scope: "challenge", type: "set_switched", challengeId: "challenge-1" },
+    })).toBeNull();
+  });
+
   it.each(challengeContractParityCases)("hält Schema und Wire-Parser bei $label paritätisch", ({ patch, accepted, label }) => {
     const challenge = { ...update().challenges[0], ...patch };
     const schemaAccepted = challengeSchema.safeParse(challenge).success;

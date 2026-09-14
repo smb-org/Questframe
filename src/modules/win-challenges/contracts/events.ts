@@ -1,4 +1,5 @@
 export type {
+  BoardEvent,
   ChallengeEvent,
   ChallengeEventType,
   GlobalTimerEvent,

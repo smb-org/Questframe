@@ -425,6 +425,7 @@ export const commandSchema = z.union([
 export const boardSaveRequestSchema = z.strictObject({
   baseBoardRevision: revisionSchema,
   challenges: z.array(challengeDefinitionSchema).max(MAX_CHALLENGES),
+  reason: z.literal("set-switch").optional(),
 });
 
 export const challengeBoardSnapshotSchema = z.strictObject({
@@ -506,13 +507,18 @@ const globalTimerEventSchema = z.strictObject({
   ]),
 });
 
+const boardEventSchema = z.strictObject({
+  scope: z.literal("board"),
+  type: z.literal("set_switched"),
+});
+
 export const challengeUpdateSchema = z.strictObject({
   eventSeq: eventSeqSchema,
   boardRevision: revisionSchema,
   settingsRevision: revisionSchema,
   settings: settingsSchema,
   challenges: z.array(challengeSchema).max(MAX_CHALLENGES),
-  event: z.union([challengeEventSchema, globalTimerEventSchema, z.null()]),
+  event: z.union([challengeEventSchema, globalTimerEventSchema, boardEventSchema, z.null()]),
 }).superRefine((value, context) => {
   const event = value.event;
   if (event?.scope !== "challenge" || event.type !== "progressed") return;

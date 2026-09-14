@@ -3,6 +3,7 @@ import type {
   ChallengeEvent,
   ChallengeSettings,
   ChallengeUpdate,
+  BoardEvent,
   GlobalTimer,
   GlobalTimerEvent,
 } from "../shared/contracts/win-challenges";
@@ -229,6 +230,12 @@ const isGlobalTimerEvent = (input: unknown): input is GlobalTimerEvent =>
     input.type === "global_paused" ||
     input.type === "global_reset");
 
+const isBoardEvent = (input: unknown): input is BoardEvent =>
+  isRecord(input) &&
+  exactKeys(input, ["scope", "type"]) &&
+  input.scope === "board" &&
+  input.type === "set_switched";
+
 const parseTimeSyncMessage = (input: unknown): TimeSyncMessage | null => {
   if (
     !isRecord(input) ||
@@ -266,7 +273,8 @@ export const parseChallengeUpdate = (input: unknown): ChallengeUpdate | null => 
   if (
     input.event !== null &&
     !isChallengeEvent(input.event) &&
-    !isGlobalTimerEvent(input.event)
+    !isGlobalTimerEvent(input.event) &&
+    !isBoardEvent(input.event)
   ) return null;
   const event = input.event;
   if (event?.scope === "challenge" && event.type === "progressed") {

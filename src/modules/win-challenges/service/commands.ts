@@ -1,4 +1,4 @@
-import type { ChallengeEvent, GlobalTimerEvent } from "../contracts/events";
+import type { BoardEvent, ChallengeEvent, GlobalTimerEvent } from "../contracts/events";
 import type { Command, Challenge } from "../contracts/schemas";
 import type { ChallengeUpdate } from "../../../shared/contracts/win-challenges";
 import {
@@ -31,7 +31,7 @@ import {
 
 export type ChallengeUpdatePayload = Omit<ChallengeUpdate, "settings"> & {
   settings: Omit<ChallengeUpdate["settings"], "themeId">;
-  event: ChallengeEvent | GlobalTimerEvent | null;
+  event: ChallengeEvent | GlobalTimerEvent | BoardEvent | null;
 };
 
 export type CommandResponse = {

@@ -1,4 +1,5 @@
 import type {
+  BoardEvent,
   ChallengeEvent,
   ChallengeEventType,
   ChallengeStyleId,
@@ -12,8 +13,8 @@ export type CeremonyTarget =
   | { kind: "challenge"; id: string }
   | { kind: "global" };
 
-type CeremonyEvent = ChallengeEvent | GlobalTimerEvent;
-type CeremonyEventType = ChallengeEventType | GlobalTimerEventType;
+type CeremonyEvent = ChallengeEvent | GlobalTimerEvent | BoardEvent;
+type CeremonyEventType = ChallengeEventType | GlobalTimerEventType | BoardEvent["type"];
 type CeremonyEntry = {
   visual: CeremonyVisual;
   sound: CeremonySound;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  boardSaveRequestSchema,
   challengeDefinitionSchema,
   challengePlacementSchema,
   challengeSchema,
@@ -108,6 +109,17 @@ const settings = {
 };
 
 describe("Win-Challenges-Verträge", () => {
+  it("nimmt den optionalen Set-Wechsel-Grund an und lehnt andere Gründe ab", () => {
+    const request = {
+      baseBoardRevision: 1,
+      challenges: [definition],
+    };
+
+    expect(boardSaveRequestSchema.safeParse(request).success).toBe(true);
+    expect(boardSaveRequestSchema.safeParse({ ...request, reason: "set-switch" }).success).toBe(true);
+    expect(boardSaveRequestSchema.safeParse({ ...request, reason: "manual" }).success).toBe(false);
+  });
+
   it("hält den Zahlenraum je Challenge-Typ an seiner Grenze", () => {
     const legacyKinds = ["tick", "counter", "streak"] as const;
     for (const kind of legacyKinds) {
@@ -322,6 +334,31 @@ describe("Win-Challenges-Verträge", () => {
     expect(challengeUpdateSchema.safeParse({
       ...update,
       event: { ...event, challengeId: "" },
+    }).success).toBe(false);
+  });
+
+  it("validiert das Set-Wechsel-Ereignis im Zod-Wire-Vertrag", () => {
+    const event = {
+      scope: "board" as const,
+      type: "set_switched" as const,
+    };
+    const update = {
+      eventSeq: 1,
+      boardRevision: 1,
+      settingsRevision: 1,
+      settings,
+      challenges: [challenge],
+      event,
+    };
+
+    expect(challengeUpdateSchema.safeParse(update).success).toBe(true);
+    expect(challengeUpdateSchema.safeParse({
+      ...update,
+      event: { ...event, extra: true },
+    }).success).toBe(false);
+    expect(challengeUpdateSchema.safeParse({
+      ...update,
+      event: { scope: "challenge", type: "set_switched", challengeId: "challenge-1" },
     }).success).toBe(false);
   });
 

@@ -427,7 +427,11 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         }
       }
       this.execute<MetaRow>(
-        `UPDATE ${this.table("meta")} SET board_revision = board_revision + 1 WHERE singleton = 1`,
+        `UPDATE ${this.table("meta")} SET
+           board_revision = board_revision + 1,
+           event_seq = event_seq + ?
+         WHERE singleton = 1`,
+        input.reason === "set-switch" ? 1 : 0,
       );
       const snapshot = this.readSnapshotInternal();
       return {

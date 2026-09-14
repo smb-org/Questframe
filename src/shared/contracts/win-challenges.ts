@@ -112,11 +112,16 @@ export type GlobalTimerEvent = {
   type: GlobalTimerEventType;
 };
 
+export type BoardEvent = {
+  scope: "board";
+  type: "set_switched";
+};
+
 export type ChallengeUpdate = {
   eventSeq: number;
   boardRevision: number;
   settingsRevision: number;
   settings: ChallengeSettings;
   challenges: Challenge[];
-  event: ChallengeEvent | GlobalTimerEvent | null;
+  event: ChallengeEvent | GlobalTimerEvent | BoardEvent | null;
 };

@@ -248,11 +248,15 @@ const challengeDefinition = {
   hidden: false,
 } as const;
 
-const saveBoard = () =>
+const saveBoard = (baseBoardRevision = 1, reason?: "set-switch") =>
   fetchWorker("/api/challenges/board", {
     method: "PUT",
     headers: authenticatedHeaders(),
-    body: JSON.stringify({ baseBoardRevision: 1, challenges: [challengeDefinition] }),
+    body: JSON.stringify({
+      baseBoardRevision,
+      challenges: [challengeDefinition],
+      ...(reason === undefined ? {} : { reason }),
+    }),
   });
 
 const expectClose = async (socket: WebSocket, code: number, reason: string): Promise<void> => {
@@ -554,6 +558,45 @@ describe("Win-Challenges-Sockets", () => {
       expect(update.challenges).toEqual(expect.arrayContaining([
         expect.objectContaining({ id: challengeId, currentCount: 0 }),
       ]));
+    } finally {
+      challenge.close();
+    }
+  });
+
+  it("unterscheidet gewöhnliches Speichern vom atomaren Set-Wechsel", async () => {
+    const overlayToken = await createOverlayToken();
+    const challenge = await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken);
+
+    try {
+      const initial = await requireMessage(challenge, (data) => data.event === null, "Challenge-Snapshot");
+      expectChallengeUpdateShape(initial);
+      expect(initial.eventSeq).toBe(0);
+
+      const ordinaryUpdate = requireMessage(challenge, (data) => data.event === null, "Challenge-Update-Board");
+      const ordinary = await saveBoard();
+      expect(ordinary.status).toBe(200);
+      const ordinaryBody = await ordinary.json<{ snapshot: { boardRevision: number; eventSeq: number } }>();
+      expect(ordinaryBody.snapshot.eventSeq).toBe(0);
+      expect((await ordinaryUpdate).eventSeq).toBe(0);
+
+      const switchedUpdate = requireMessage(
+        challenge,
+        (data) => (data.event as { type?: string } | null)?.type === "set_switched",
+        "Challenge-Update-Set-Wechsel",
+      );
+      const switched = await saveBoard(ordinaryBody.snapshot.boardRevision, "set-switch");
+      expect(switched.status).toBe(200);
+      const switchedBody = await switched.json<{ snapshot: { boardRevision: number; eventSeq: number } }>();
+      expect(switchedBody.snapshot.eventSeq).toBe(1);
+      await expect(switchedUpdate).resolves.toEqual(expect.objectContaining({
+        eventSeq: 1,
+        event: { scope: "board", type: "set_switched" },
+      }));
+
+      const stale = await saveBoard(ordinaryBody.snapshot.boardRevision, "set-switch");
+      expect(stale.status).toBe(409);
+      expect((await stale.json<{ error: { currentSnapshot: { eventSeq: number } } }>()).error.currentSnapshot.eventSeq).toBe(1);
+      expect(await waitForMessage(challenge, (data) => data.event !== null, 250)).toBeNull();
     } finally {
       challenge.close();
     }
