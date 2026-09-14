@@ -2,16 +2,20 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
+  Download,
   GripVertical,
   Info,
   Maximize2,
   Plus,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 import type { ChallengeUpdate } from "../../../shared/contracts/win-challenges";
+import { decodeChallengeSet, encodeChallengeSet } from "../domain/set-codec";
+import { downloadChallengeSet, readChallengeSetFile } from "../../../admin/ui/challengeSetFiles";
 import {
   boardSaveRequestSchema,
   challengeBoardSnapshotSchema,
@@ -95,6 +99,51 @@ const draftsFromSnapshot = (snapshot: ChallengeBoardSnapshot): ChallengeDraft[] 
   [...snapshot.challenges]
     .sort((left, right) => left.sortOrder - right.sortOrder)
     .map(draftFromChallenge);
+
+const draftsFromDefinitions = (definitions: readonly ChallengeDefinition[]): ChallengeDraft[] =>
+  definitions.map((definition, sortOrder) => {
+    const clientId = "clientId" in definition ? definition.clientId : clientIdForNewChallenge();
+    return {
+      key: clientId,
+      identity: { clientId },
+      title: definition.title,
+      kind: definition.kind,
+      unit: definition.unit,
+      step: definition.step,
+      targetCount: definition.targetCount,
+      timerTotalMs: definition.timerTotalMs,
+      sortOrder,
+      hidden: definition.hidden,
+      currentCount: 0,
+      state: "pending",
+      timerEndsAt: null,
+    };
+  });
+
+const challengeForSetExport = (
+  draft: ChallengeDraft,
+  saved: Challenge | undefined,
+  now: string,
+): Challenge => ({
+  id: saved?.id ?? draft.key,
+  title: draft.title,
+  kind: draft.kind,
+  unit: draft.unit,
+  controlKey: saved?.controlKey ?? "DRAFT",
+  targetCount: draft.targetCount,
+  timerTotalMs: draft.timerTotalMs,
+  sortOrder: draft.sortOrder,
+  step: draft.step,
+  bestCount: saved?.bestCount ?? 0,
+  hidden: draft.hidden,
+  currentCount: draft.currentCount,
+  state: draft.state,
+  timerEndsAt: draft.timerEndsAt,
+  timerRemainMs: null,
+  completedAt: saved?.completedAt ?? null,
+  createdAt: saved?.createdAt ?? now,
+  updatedAt: saved?.updatedAt ?? now,
+});
 
 const definitionFromDraft = (draft: ChallengeDraft): ChallengeDefinition => {
   const fields = {
@@ -643,6 +692,63 @@ const ChallengeBoardFullscreenDialog = ({
   );
 };
 
+type ChallengeSetImportConfirmationProps = {
+  fileName: string | null;
+  triggerRef: RefObject<HTMLButtonElement | null>;
+  onCancel: () => void;
+  onConfirm: () => void;
+};
+
+const ChallengeSetImportConfirmation = ({
+  fileName,
+  triggerRef,
+  onCancel,
+  onConfirm,
+}: ChallengeSetImportConfirmationProps) => {
+  const confirmRef = useRef<HTMLButtonElement | null>(null);
+  const wasOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (fileName !== null) {
+      confirmRef.current?.focus();
+      wasOpenRef.current = true;
+    } else if (wasOpenRef.current) {
+      triggerRef.current?.focus();
+      wasOpenRef.current = false;
+    }
+  }, [fileName, triggerRef]);
+
+  if (fileName === null) return null;
+
+  return (
+    <div className="effect-backdrop" role="presentation" onMouseDown={onCancel}>
+      <section
+        aria-describedby="challenge-set-import-confirm-copy"
+        aria-labelledby="challenge-set-import-confirm-heading"
+        aria-modal="true"
+        className="effect-flyover challenge-set-confirm-flyover"
+        onMouseDown={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        <header className="effect-flyover-header">
+          <div>
+            <span className="eyebrow">Set-Datei</span>
+            <h2 id="challenge-set-import-confirm-heading">Ungespeicherte Änderungen</h2>
+          </div>
+          <button aria-label="Importdialog schließen" className="icon-button" onClick={onCancel} type="button"><X size={18} /></button>
+        </header>
+        <p className="challenge-set-confirm-copy" id="challenge-set-import-confirm-copy">
+          „{fileName}“ ersetzt den lokalen Board-Entwurf. Noch nicht gespeicherte Änderungen gehen verloren.
+        </p>
+        <footer className="effect-actions">
+          <button className="button button--quiet" onClick={onCancel} type="button">Abbrechen</button>
+          <button className="button button--primary" onClick={onConfirm} ref={confirmRef} type="button">Import ersetzen</button>
+        </footer>
+      </section>
+    </div>
+  );
+};
+
 export const ChallengeBoard = ({
   api,
   onOnlineChange,
@@ -664,6 +770,12 @@ export const ChallengeBoard = ({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [activeSet, setActiveSet] = useState<{ name: string; fileName: string } | null>(null);
+  const [setFileState, setSetFileState] = useState<"idle" | "reading">("idle");
+  const [setFileError, setSetFileError] = useState("");
+  const [setFileMessage, setSetFileMessage] = useState("");
+  const [pendingSetSwitch, setPendingSetSwitch] = useState(false);
+  const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [draggedKey, setDraggedKey] = useState<string | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const snapshotRef = useRef<ChallengeBoardSnapshot | null>(null);
@@ -671,6 +783,8 @@ export const ChallengeBoard = ({
   const savingRef = useRef(false);
   const draftsPendingReconciliationRef = useRef(false);
   const fullscreenTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const setFileInputRef = useRef<HTMLInputElement | null>(null);
+  const setImportTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     snapshotRef.current = snapshot;
@@ -706,6 +820,10 @@ export const ChallengeBoard = ({
       setConflict(incoming);
     } else {
       setDrafts(draftsFromSnapshot(incoming));
+      setActiveSet(null);
+      setPendingSetSwitch(false);
+      setSetFileError("");
+      setSetFileMessage("");
       setConflict(null);
     }
   }, []);
@@ -714,6 +832,10 @@ export const ChallengeBoard = ({
     snapshotRef.current = next;
     setSnapshot(next);
     setDrafts(draftsFromSnapshot(next));
+    setActiveSet(null);
+    setPendingSetSwitch(false);
+    setSetFileError("");
+    setSetFileMessage("");
     setConflict(null);
     setMessage(nextMessage);
     setError("");
@@ -758,10 +880,68 @@ export const ChallengeBoard = ({
 
   const effectiveOnline = onlineOverride ?? online;
 
+  const readImportedSet = async (file: File): Promise<void> => {
+    setSetFileState("reading");
+    setSetFileError("");
+    setSetFileMessage("");
+    try {
+      const result = await readChallengeSetFile(file);
+      const decoded = decodeChallengeSet(result.payload);
+      setDrafts(draftsFromDefinitions(decoded.definitions));
+      setActiveSet({ name: result.payload.name, fileName: result.fileName });
+      setPendingSetSwitch(true);
+      setMessage("");
+      setError("");
+      setSetFileMessage(`Set-Datei geladen: ${result.fileName}. Entwurf noch nicht veröffentlicht.`);
+    } catch (caught) {
+      setSetFileError(caught instanceof Error ? caught.message : "Set-Datei konnte nicht gelesen werden.");
+    } finally {
+      setSetFileState("idle");
+    }
+  };
+
+  const importSet = (event: React.ChangeEvent<HTMLInputElement>): void => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = "";
+    if (file === undefined) return;
+    if (dirty) {
+      setPendingImportFile(file);
+      return;
+    }
+    void readImportedSet(file);
+  };
+
+  const confirmImport = (): void => {
+    const file = pendingImportFile;
+    setPendingImportFile(null);
+    if (file !== null) void readImportedSet(file);
+  };
+
+  const exportSet = (): void => {
+    if (snapshot === null || drafts.length === 0 || setFileState === "reading") return;
+    const now = new Date();
+    const savedById = new Map(snapshot.challenges.map((challenge) => [challenge.id, challenge]));
+    const name = activeSet?.name ?? "Challenge-Board";
+    const payload = encodeChallengeSet(
+      {
+        challenges: drafts.map((draft) => {
+          const saved = "id" in draft.identity ? savedById.get(draft.identity.id) : undefined;
+          return challengeForSetExport(draft, saved, now.toISOString());
+        }),
+      },
+      { name, createdAt: now.toISOString(), now: now.toISOString(), includeProgress: false },
+    );
+    downloadChallengeSet(payload, now);
+    setSetFileMessage("Set-Datei exportiert.");
+    setSetFileError("");
+  };
+
   const updateDraft = (key: string, patch: Partial<ChallengeDraft>) => {
     setDrafts((current) => current.map((draft) => (draft.key === key ? { ...draft, ...patch } : draft)));
     setMessage("");
     setError("");
+    setSetFileMessage("");
   };
 
   const moveDraft = (key: string, to: number) => {
@@ -770,11 +950,13 @@ export const ChallengeBoard = ({
       return reorder(current, from, to);
     });
     setMessage("");
+    setSetFileMessage("");
   };
 
   const addDraft = () => {
     setDrafts((current) => [...current, defaultDraft(current.length)]);
     setMessage("");
+    setSetFileMessage("");
   };
 
   const deleteDraft = (key: string) => {
@@ -782,6 +964,7 @@ export const ChallengeBoard = ({
       .filter((item) => item.key !== key)
       .map((item, sortOrder) => ({ ...item, sortOrder })));
     setMessage("");
+    setSetFileMessage("");
   };
 
   const dropDraft = (key: string) => {
@@ -791,6 +974,7 @@ export const ChallengeBoard = ({
       return reorder(current, from, to);
     });
     setDraggedKey(null);
+    setSetFileMessage("");
   };
 
   const save = async (replaceForeignBoard = false): Promise<{ ok: boolean; conflict: boolean; message?: string }> => {
@@ -811,6 +995,7 @@ export const ChallengeBoard = ({
       const request = boardSaveRequestSchema.parse({
         baseBoardRevision,
         challenges: definitionsFromDrafts(drafts),
+        ...(pendingSetSwitch ? { reason: "set-switch" } : {}),
       });
       const response = await api.save(request);
       // Derselbe Revisions-Guard wie in applyChallengeUpdate: waehrend unsere Antwort
@@ -828,6 +1013,8 @@ export const ChallengeBoard = ({
         setDrafts(resolvedDrafts);
         setConflict(null);
       }
+      setPendingSetSwitch(false);
+      setSetFileMessage(activeSet === null ? "" : "Entwurf veröffentlicht.");
       setMessage(`Board gespeichert · Revision ${String(response.snapshot.boardRevision)}.`);
       return { ok: true, conflict: false };
     } catch (caught) {
@@ -901,6 +1088,57 @@ export const ChallengeBoard = ({
           </button>
         </div>
       </header>
+
+      <div aria-label="Challenge-Sets" className="challenge-set-bar" role="group">
+        <div className="challenge-set-summary">
+          <span className="eyebrow">Aktives Set</span>
+          <strong className={activeSet !== null && !dirty ? "challenge-set-name challenge-set-name--published" : "challenge-set-name"}>
+            {activeSet === null ? "Noch kein Set" : `${activeSet.name}${dirty ? " · geändert" : ""}`}
+          </strong>
+          {activeSet === null
+            ? <small>Sichere das aktuelle Board als Datei.</small>
+            : <small>Datei: {activeSet.fileName}</small>}
+        </div>
+        <div className="challenge-set-actions">
+          <input
+            accept="application/json,.json"
+            aria-label="Set-Datei auswählen"
+            hidden
+            onChange={importSet}
+            ref={setFileInputRef}
+            type="file"
+          />
+          <button
+            className="button button--quiet challenge-set-action"
+            disabled={saving || setFileState === "reading"}
+            onClick={() => setFileInputRef.current?.click()}
+            ref={setImportTriggerRef}
+            type="button"
+          >
+            <Upload size={16} /> Set importieren
+          </button>
+          <button
+            className="button button--primary challenge-set-action"
+            disabled={drafts.length === 0 || saving || setFileState === "reading"}
+            onClick={exportSet}
+            title={drafts.length === 0 ? "Das Board ist leer." : undefined}
+            type="button"
+          >
+            <Download size={16} /> {drafts.length === 0 ? "Aktuelles Board als Set sichern" : "Set exportieren"}
+          </button>
+        </div>
+        {setFileState === "reading" && <span aria-live="polite" className="challenge-set-status">Set-Datei wird gelesen …</span>}
+        {setFileError !== "" && <span className="challenge-set-status challenge-set-status--error" role="alert">{setFileError}</span>}
+        {setFileMessage !== "" && setFileState === "idle" && <span aria-live="polite" className="challenge-set-status challenge-set-status--success">{setFileMessage}</span>}
+        {drafts.length === 0 && <span className="challenge-set-status challenge-set-status--hint">Export nicht verfügbar: Das Board ist leer.</span>}
+      </div>
+
+      <ChallengeSetImportConfirmation
+        fileName={pendingImportFile?.name ?? null}
+        onCancel={() => setPendingImportFile(null)}
+        onConfirm={confirmImport}
+        triggerRef={setImportTriggerRef}
+      />
 
       {conflict !== null && (
         <section className="challenge-board-conflict" role="alert">

@@ -167,6 +167,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .composition-challenge-rail .challenge-settings-panel, .composition-challenge-rail .challenge-board-shell { width: auto; margin: 0; border-right: 0; border-left: 0; border-radius: 0; }
 .composition-challenge-rail .challenge-settings-panel { border-top: 0; }
 .composition-challenge-rail .challenge-board-heading { padding: 0 16px; }
+.composition-challenge-rail .challenge-set-bar { margin-right: 16px; margin-left: 16px; }
 
 /* Das Board sitzt in der Komposition in einer 360-520px-Rail, waehrend der
    Viewport breit bleibt: der 760px-Breakpoint greift also nie, obwohl der
@@ -401,6 +402,19 @@ input[type="color"] { padding: 4px; }
 .challenge-board-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .challenge-board-fullscreen-trigger { width: 38px; height: 38px; flex-basis: 38px; border-color: var(--line); color: var(--accent-bright); background: var(--surface); }
 .challenge-board-fullscreen-trigger:hover:not(:disabled) { border-color: var(--accent); background: var(--surface-3); }
+.challenge-set-bar { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 16px; margin-bottom: 12px; padding: 9px 12px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--surface); }
+.challenge-set-summary { min-width: 0; display: grid; gap: 2px; }
+.challenge-set-summary strong { overflow: hidden; color: var(--text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.challenge-set-summary strong.challenge-set-name--published { color: var(--accent-bright); }
+.challenge-set-summary small { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.challenge-set-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.challenge-set-action { min-height: 44px; }
+.challenge-set-status { grid-column: 1 / -1; color: var(--muted); font-size: 11px; line-height: 1.35; }
+.challenge-set-status--error { color: var(--red); }
+.challenge-set-status--success { color: var(--green); }
+.challenge-set-status--hint { color: var(--muted); }
+.challenge-set-confirm-flyover { grid-template-rows: auto 1fr auto; }
+.challenge-set-confirm-copy { margin: 0; padding: 0 19px 18px; color: var(--text); font-size: 13px; line-height: 1.5; }
 .challenge-revision, .connection-state { min-height: 38px; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .connection-state i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .connection-state.is-online { color: var(--green); }
@@ -582,6 +596,7 @@ input[type="color"] { padding: 4px; }
   .challenge-board-heading { align-items: start; flex-direction: column; gap: 12px; margin-bottom: 16px; }
   .challenge-board-heading h1 { font-size: 24px; }
   .challenge-board-meta { justify-content: flex-start; }
+  .challenge-set-bar { display: none; }
   .challenge-setup-heading { flex-direction: column; }
   .challenge-setup__reveal, .challenge-setup__token-action { width: 100%; }
   .challenge-setup__source-heading { flex-direction: column; gap: 6px; }
