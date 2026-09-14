@@ -323,3 +323,344 @@ zuerst das, was Verbreitung erzeugt.
   trotzdem akzeptiert, dass es erst nach dem Commit drankommt. Die Idee war
   dir wichtig genug zum Aussprechen und nicht wichtig genug, um die laufende
   Arbeit dafür zu unterbrechen.
+
+## Beschlüsse aus dem Eng-Review (2026-09-14)
+
+Fünf Befunde, alle entschieden.
+
+**1. Der Import braucht keinen eigenen Endpunkt** (`[P1]`, am Code belegt).
+`boardSaveRequestSchema` (`contracts/schemas.ts:329-332`) ist bereits exakt das,
+was ein Import schickt: `baseBoardRevision` plus eine Liste von Definitionen.
+Der Client liest die Datei, prüft sie, zeigt die Vorschau und ruft danach das
+bestehende `PUT /api/challenges/board`. Revisionsprüfung, Key-Vergabe und
+Tombstones bleiben unberührt.
+
+Damit der Server den Wechsel trotzdem erkennt, bekommt die Anfrage ein
+optionales `reason: "set-switch"`; nur dann sendet er `set_switched` statt
+`event: null`. Der Ereignis-Slot ist `challengeUpdateSchema.event`
+(`schemas.ts:417`), gespiegelt im Shared Contract (`:119`) — `set_switched`
+wird dort das dritte Union-Mitglied. Der Client behauptet die Absicht; ein
+falsch gesetztes Feld unterdrückt eine Zeremonie und sonst nichts.
+
+**2. Genau eine Autosicherung, außerhalb der Zählung** (`[P1]`).
+Autosicherung bei jedem Laden plus Obergrenze zwanzig hätte die Liste nach
+zehn Ladevorgängen mit Automatik gefüllt. Stattdessen ein fester Platz,
+„Letzter Stand vor dem Laden", der bei jedem Laden überschrieben wird und
+nicht gegen die Obergrenze zählt. Bewusste Grenze: genau eine Stufe zurück.
+
+**3. Der Codec fasst kein Zod an** (`[P2]`).
+`src/modules/win-challenges/domain/` importiert heute ausnahmslos nur Typen —
+null Zod-Treffer im ganzen Verzeichnis. Und `src/challenges/**` ist
+lint-beschränkt (`eslint.config.js:50-58`): kein Import von `service`,
+`repository`, `adapters` oder `contracts/schemas`, weil das Overlay unter
+einem harten 120-KiB-Gate steht. Also: `domain/set-codec.ts` rechnet nur um,
+`challengeSetV1Schema` bleibt in `contracts/schemas.ts`, und `set_switched`
+wird in `wire.ts` mit Prädikaten und Shared-Typen geparst wie jedes andere
+Ereignis.
+
+**4. Der kanalübergreifende Austausch wird als Worker-Test geprüft** (`[P1]`).
+Zwei Durable Objects in der Worker-Suite statt eines Playwright-Laufs.
+**Bewusster Schnitt** (Decision `ba649f26`): die Benutzerstrecke — Dateidialog,
+Vorschau, Bestätigung — bleibt ungeprüft. Geprüft wird die Datenseite: gleiche
+Aufgaben, andere IDs, andere Steuerkeys, kein übernommener Fortschritt.
+Der Codepfad trägt beim Bau einen `gstack-shortcut(dec-ba649f26)`-Marker.
+Upgrade-Trigger: sobald der Importdialog mehr kann als Datei wählen und
+bestätigen, oder sobald ein Fehler auftritt, der nur in der UI-Kette sichtbar war.
+
+**5. Die Set-Liste liest nie `SELECT *`** (`[P2]`).
+Ein Set ist ein Blob in derselben Zeile wie sein Name. Die Auswahlliste braucht
+nur `id`, `name`, `has_progress` und `updated_at`; das Payload-Feld wird
+ausschließlich beim Laden eines einzelnen Sets angefasst. So lässt SQLite die
+Overflow-Seiten liegen.
+
+## Was schon existiert
+
+| Vorhanden | Deckt ab | Wird genutzt? |
+|---|---|---|
+| `saveBoard()` (`sql-storage-challenge-repository.ts:336`) | Ganzen Snapshot konfliktgeschützt ersetzen: Validierung, Revisionsprüfung, Löschen verschwundener Zeilen, UUID- und Key-Vergabe, Tombstones — transaktional | Ja, das Laden ist im Kern ein Board-Save |
+| `challengeDefinitionFields` (`contracts/schemas.ts:196`) | Der öffentliche Aufgabenteil, inklusive `timerTotalMs` | Ja, `challengeSetV1Schema` setzt sich daraus zusammen |
+| `challengeDefinitionSchema` (`:207`) | Die serverseitige Vertrauensgrenze beim Speichern | Ja, unverändert — sie bleibt die harte Grenze |
+| `allocateControlKey` (`domain/control-keys.ts`) | Key-Vergabe gegen persistierte, Geschwister- und pensionierte Keys | Ja, über `saveBoard()` |
+| Undo mit JSON-Snapshot (`channel-object.ts:835`) | Muster „sichern und validiert wiederherstellen" | Nein — gehört dem HUD, Challenges haben kein Undo. Genau deshalb die Autosicherung |
+| Medien-Upload (`/media`, `media_blobs`) | Serverseitige Blobs für Bilder | Nein — falsche Form für eine Set-Datei, Wiederverwendung wäre schlechter als zwanzig Zeilen neu |
+| Download-/Upload-Helfer in der Konsole | — | Existiert nicht. Null Treffer für `createObjectURL`, `download`, `<input type="file">`, `FileReader`. Neu, aber klein |
+
+## NOT in scope
+
+- **Teil-Code über den Server.** Verworfen in der Entwurfssitzung: fremder
+  Nutzertext auf dem eigenen Worker, der ungefiltert in OBS-Quellen rendert,
+  samt Moderationspflicht. Das Dateiformat trägt den Code-Weg später.
+- **Diff-Vorschau gegen das laufende Board.** V1 zeigt eine Liste. Eine echte
+  Unterschiedsberechnung wartet, bis jemand sie vermisst.
+- **Playwright-Lauf über die Benutzerstrecke.** Bewusst geschnitten, siehe
+  Beschluss 4 samt Upgrade-Trigger.
+- **Sets für Stil, Thema und Platzierung.** Die Optik bleibt am Kanal; ein
+  geladenes Set soll das Aussehen des Empfängers nicht umreißen.
+- **Der globale Timer.** Liegt in `wc_meta`, beschreibt den Stream und nicht
+  die Aufgaben.
+- **Aufräumen von `wc_retired_keys`.** Rund 22.000 Einträge im Jahr gegen einen
+  Pool von 923.000 — die Antwort ist nicht V1.
+- **Mehrere Sets zu einem Ablauf stapeln** („Show-Kapitel" aus der
+  Zweitmeinung). Reizvoll, aber es setzt voraus, dass Sets sich erst einmal
+  bewähren.
+
+## Failure Modes
+
+| Codepfad | Realistischer Ausfall | Test? | Fehlerbehandlung? | Sieht der Nutzer es? |
+|---|---|---|---|---|
+| `challengeSetV1Schema` | Datei aus einer künftigen Version wird stillschweigend halb übernommen | Ja (falsche `schemaVersion` abgelehnt) | Ja, Zod lehnt ab | Ja, klare Meldung |
+| Codec, Timer-Umrechnung | Laufender Timer wird als abgelaufen gesichert und zeigt beim Laden Überzeit | Ja (laufend → pausiert, Überzeit → negativ) | n/a | Ja, falscher Timer wäre sofort sichtbar |
+| Codec, Key-Entfernung | `controlKey` bleibt in der Datei und kollidiert beim Empfänger | Ja (Roundtrip prüft Abwesenheit), plus `UNIQUE` als letzte Sicherung | Ja, DB wirft | Board-Save schlägt fehl, Meldung in der Konsole |
+| Import, Größe | 40-MB-Datei blockiert den Browser-Tab | Ja (> 64 KiB abgelehnt) | Ja, Limit vor dem Parsen | Ja, klare Meldung |
+| `reason: "set-switch"` | Feld fehlt, Quelle feiert verschwundene Zeilen ab | Ja (gesetzt und nicht gesetzt) | Nein, es gibt nichts abzufangen | **Ja, und zwar live vor Publikum** |
+| `wire.ts` | Unbekannter Ereignistyp lässt den Parser die ganze Nachricht verwerfen | Ja (unbekannter Typ wird verworfen) | Ja, Parser ist tolerant gebaut | Board friert ein, bis die nächste Nachricht kommt |
+| Board-Save beim Import | Zweiter Tab hat inzwischen gespeichert | Ja (Revisionskonflikt) | Ja, 409 aus `saveBoard()` | Ja, Konfliktmeldung |
+
+**Kritische Lücke:** keine. Der einzige Pfad ohne Fehlerbehandlung
+(`reason`-Feld fehlt) ist getestet und sichtbar, nicht still.
+
+## Parallelisierung — Runde 1
+
+| Schritt | Module | Hängt ab von |
+|---|---|---|
+| S1 Set-Schema + Codec | `modules/win-challenges/{contracts,domain}` | — |
+| S2 Wechsel-Ereignis | `shared/contracts/`, `channel/`, `challenges/` | S1 (Contract-Form) |
+| S3 Export/Import-UI | `admin/`, `modules/win-challenges/ui/` | S1 (Codec) |
+
+- **Lane A:** S1 (allein, alle anderen hängen daran)
+- **Lane B:** S2 — `challenges/` und `channel/`
+- **Lane C:** S3 — `admin/`
+
+Ablauf: S1 zuerst. Danach B und C parallel; sie teilen kein Verzeichnis.
+Konfliktflagge: keine — S2 und S3 berühren `modules/win-challenges/ui/`
+höchstens am Rand, und nur S3 schreibt dort.
+
+## Implementation Tasks — Sets
+
+Aus den Befunden dieses Reviews.
+
+- [ ] **S1 (P1, human: ~1 Tag / CC: ~45 Min)** — contracts/domain — `challengeSetV1Schema` aus `challengeDefinitionFields`, `domain/set-codec.ts` ohne Zod
+  - Surfaced by: Beschluss 3 — Schichtregel
+  - Verify: `pnpm run test`, plus Roundtrip- und Missbrauchstests
+- [ ] **S2 (P1, human: ~4 Std / CC: ~30 Min)** — wire/channel — `reason: "set-switch"` und `set_switched` in beiden Contract-Dateien, im Parser und in den Zeremonien
+  - Surfaced by: Beschluss 1
+  - Verify: `pnpm run test:worker`, dazu `pnpm run build:budgets` gegen das 80-KiB-Gate
+- [ ] **S3 (P1, human: ~1 Tag / CC: ~45 Min)** — admin — Export-Knopf, Import mit 64-KiB-Grenze, Listenvorschau, Bestätigung
+  - Surfaced by: Entwurf, Next Steps 3 und 4
+  - Verify: Komponententests, manueller Durchlauf
+- [ ] **S4 (P1, human: ~3 Std / CC: ~25 Min)** — tests — Worker-Test über zwei Durable Objects, plus `gstack-shortcut(dec-ba649f26)`-Marker am Codepfad
+  - Surfaced by: Beschluss 4
+  - Verify: `pnpm run test:worker`
+
+## Outside Voice (2026-09-14, `gpt-5.6-sol`)
+
+Zwölf Befunde gegen einen Plan, der bereits zwei Reviewrunden hinter sich
+hatte. Fünf davon habe ich am Code nachgeprüft, alle fünf trafen zu. Drei
+haben Entscheidungen umgeworfen.
+
+**Umgeworfen:**
+
+- **Die Begründung für `set_switched` war erfunden.** Ich hatte behauptet,
+  verschwundene Zeilen lösten Abschluss-Zeremonien aus. Sie tun es nicht:
+  `useChallengePresentation.ts:149` feuert nur bei
+  `ceremony.shouldFire && event !== null`, und Board-Saves senden
+  `event: null` (`channel-object.ts:704`). **Das Ereignis bleibt, aber nur
+  als Abbruchsignal** für eine Zeremonie, die beim Wechsel noch läuft.
+  `ceremonies.ts` wird nicht angefasst, es gibt keine Unterdrückungslogik
+  pro Zeile. Die Arbeit schrumpft.
+- **V1 wird eingefroren, nicht abgeleitet.** Ein aus `challengeDefinitionFields`
+  zusammengesetztes Schema macht „V1" zu einer beweglichen Zielscheibe: ein
+  neues internes Feld ändert rückwirkend, was die Versionsnummer bedeutet,
+  während die Datei bei Fremden liegt. `challengeSetV1Schema` zählt seine
+  Felder deshalb selbst auf, ein Codec übersetzt, und **ein Wächter-Test
+  scheitert, sobald `challengeDefinitionFields` einen Schlüssel bekommt, den
+  die Übersetzung nicht kennt.** Damit ist die ursprüngliche Sorge — ein
+  vergessenes Feld — trotzdem abgedeckt.
+- **Datei-Import verwirft Fortschritt immer.** „Export streift den Stand ab"
+  war eine Regel im Exportknopf, nicht im Format. Eine handgebaute oder
+  fremde Datei konnte ihn zurückschreiben. Die Regel wandert in den
+  Importpfad: was aus einer Datei kommt, startet bei null. Fortschritt
+  überlebt nur den Weg über die servergespeicherten Sets im eigenen Kanal.
+
+**Als Anforderung übernommen, ohne dass es etwas zu entscheiden gab:**
+
+- **Der Set-Wechsel ist eine Transaktion, kein zweiter Schritt.**
+  `saveBoard()` schließt seine Transaktion vollständig ab
+  (`sql-storage-challenge-repository.ts:336`); ein danach ausgeführter
+  Laufzeit-Restore könnte ein halb geladenes Board hinterlassen. Autosicherung,
+  Revisionsprüfung, Board-Ersatz, Restore und Sequenzsprung gehören in **eine**
+  Repository-Transaktion. Damit fällt Variante (b) aus dem Entwurf
+  („zweiter Schreibschritt nach `saveBoard()`") — sie muss stattdessen in die
+  Transaktion hinein.
+- **`event_seq` steigt heute beim Board-Save nicht.** `event_seq = event_seq + 1`
+  steht nur in den Kommandopfaden (`:714`, `:725`). Das `reason`-Feld muss bis
+  in die Repository-Transaktion durchgereicht werden, sonst ist der
+  Sequenzsprung nicht atomar.
+- **`ChallengeRuntime` kennt `bestCount` nicht**
+  (`repository/challenge-repository.ts:47`). Der Fortschritts-Restore aus
+  Runde 2 braucht eine Erweiterung dieses Typs — er kann den Bestwert sonst
+  nicht zurückschreiben.
+- **Die Timerannahme gilt heute noch nicht.** `applyStopTimer`
+  (`domain/timers.ts:211-213`) klemmt abgelaufene Timer auf `0` und verwirft
+  damit die Überzeit. Die vorzeichenbehaftete Spalte allein reicht nicht;
+  **Runde 2 hängt an T6** (Überzeit vollständig). Dazu: ein Codec im Browser
+  rechnet Restzeit gegen die Client-Uhr — dieselbe Schwäche, die `TODOS.md`
+  für die Overlay-Uhr beschreibt.
+- **Die Autosicherung darf sich nicht selbst überschreiben.** Beim Laden von
+  „Letzter Stand vor dem Laden" muss der Payload gelesen sein, bevor derselbe
+  Datensatz mit dem aktuellen Board überschrieben wird.
+- **Ein ungespeicherter Editor-Entwurf überlebt die Autosicherung nicht.**
+  Die serverseitige Sicherung kennt nur das veröffentlichte Board, und
+  `ChallengeBoard.tsx:689` behält einen Dirty-Draft als Konflikt: OBS zeigte
+  das neue Set, der Editor weiter den alten Entwurf. **Laden blockiert bei
+  ungespeicherten Änderungen**, bis sie gespeichert oder verworfen sind.
+- **Das Tabellendesign aus Runde 2 braucht mehr als ein Blob:** stabile
+  Set-ID, reservierter Autosave-Typ, normalisierter Name, und die Metadaten
+  gehören in Spalten statt zusätzlich ins JSON — sonst gibt es beim Umbenennen
+  zwei Wahrheiten.
+
+**Richtiggestellt, ohne Folgen für die Entscheidung:**
+
+Der Zwei-DO-Worker-Test beweist weniger, als ich beim Entscheiden gesagt habe.
+`getChannelStub` (`worker/channel.ts:4`) bindet ein Deployment über
+`BROADCASTER_ID` an genau einen Kanal; ein echter kanalübergreifender
+Austausch läuft zwischen zwei Deployments. Der Test zeigt **Codec- und
+Repository-Portabilität**, nicht die Austauschstrecke, und umgeht die
+öffentliche HTTP-Schicht. Ein Playwright-Lauf hätte dieselbe Grenze, die
+Entscheidung bleibt also richtig — nur die Behauptung war zu groß.
+
+**Zurückgewiesen:**
+
+Befund 1 („Runde 1 ist nicht mehr lieferbar") gilt nicht. Der Entwurf regelt
+den Fall bereits: in Runde 1 existiert `wc_sets` nicht, deshalb bietet der
+Bestätigungsdialog dort den Download des aktuellen Stands an, statt
+serverseitig zu sichern. Die Zusammenfassung im Eng-Review-Abschnitt hat
+diesen Vorbehalt nicht wiederholt — das war die Unklarheit, nicht der Plan.
+
+## Beschlüsse aus dem Design-Review (2026-09-14)
+
+Ausgangsbewertung 3/10 — das Dokument nannte die UI in einer Zeile
+Aufzählung. Sieben Pässe, textbasiert gegen `DESIGN.md`, keine Mockups: die
+Konsole hat ein verbindliches, dokumentiertes Aussehen, und die offenen Fragen
+waren Zustände, Texte und Fokus, nicht Optik.
+
+**Umgeworfen — das Publikationsmodell.** Der Import veröffentlicht **nicht**.
+`DESIGN.md` hält fest: „Slider und Felder ändern ausschließlich den lokalen
+Entwurf. Nur **Änderungen speichern** publiziert atomar." Ein Import, der
+direkt sendet, wäre der einzige Knopf der Konsole, der sich anders verhält —
+und zwar im Livebetrieb, wo man sich auf diese Regel verlässt. Also: **die
+Datei füllt den Board-Entwurf**, du siehst sie im gewohnten Editor, und erst
+Speichern veröffentlicht.
+
+Folgen davon:
+
+- **Die eigene Vorschau-Komponente entfällt.** Der befüllte Entwurf *ist* die
+  Vorschau. Das streicht ein UI-Stück aus S3.
+- **`reason: "set-switch"` hängt am Speichern, nicht am Import.** Die Konsole
+  merkt sich, dass dieser Entwurf aus einem Set kam.
+- **Der Dirty-Draft-Konflikt aus der Outside Voice entschärft sich:** Import in
+  einen ungespeicherten Entwurf ist eine gewöhnliche Überschreibfrage, kein
+  Konflikt mit dem Live-Board.
+
+**Umgeworfen — der Auslöser der Autosicherung.** Sie hing am Laden, weil Laden
+das Board ersetzte. Das tut es nicht mehr. Sie hängt jetzt am **Veröffentlichen
+eines Set-Entwurfs**: der zuletzt live gewesene Stand wandert in den
+reservierten Platz. Das schützt den einzigen verbliebenen unwiderruflichen
+Moment.
+
+**Ort.** Die Sets sitzen als schmale **Leiste am Board-Editor**, nicht als
+eigener Bereich: aktives Set, Laden, Speichern, Import, Export. Was denselben
+Inhalt ändert, gehört ins selbe Blickfeld — ein Ladevorgang in einem anderen
+Panel ändert den Editor, während man woanders hinsieht.
+
+**Der Set-Name trägt seinen Zustand.** Nach einer Änderung steht dort
+`Elden Ring Bingo · geändert` — als Wort, nicht als Farbe. Speichern fragt
+dann: überschreiben oder als neues Set? Ohne das speichert man über eine
+Vorlage, die man noch für geladen hielt.
+
+**Zustände.** Vorher war keiner benannt.
+
+```
+FEATURE        | LEER                  | LADEND        | FEHLER              | ERFOLG            | TEILWEISE
+---------------|-----------------------|---------------|---------------------|-------------------|------------------
+Set-Leiste     | "Noch kein Set" +     | Liste          | "Sets nicht         | Name des aktiven  | "· geändert"
+               | "Aktuelles Board als  | ausgegraut,    |  erreichbar"        | Sets, Gold wenn   | hinter dem Namen
+               | Set sichern"          | kein Spinner   | + Wiederholen       | veröffentlicht    |
+Set speichern  | —                     | Knopf inaktiv  | Name vergeben:      | Grün, Name in der | —
+               |                       |                | Fehler am Feld      | Leiste            |
+Set laden      | —                     | —              | —                   | Entwurf gefüllt,  | —
+               |                       |                |                     | Herkunft benannt  |
+Import         | —                     | Datei liest    | Zu groß / kaputt /  | Entwurf gefüllt,  | 31 Aufgaben:
+               |                       | (<1 s)         | fremde Version:     | Dateiname genannt | Abbruch mit Zahl
+               |                       |                | benannt am Feld     |                   |
+Export         | Leeres Board: Knopf   | —              | —                   | Datei im Download,| —
+               | inaktiv mit Grund     |                |                     | kurze Bestätigung |
+```
+
+Der Leerzustand erklärt das Feature durch den nächsten Schritt, nicht durch
+einen Absatz darüber: ein Satz plus die Primäraktion. Die Konsole ist laut
+`DESIGN.md` ein Werkzeug — Wärme heißt hier Handlungsangebot, nicht Zuspruch.
+
+**Kein rohes Dateifeld.** Ein `<input type="file">` bringt ein fremdes
+Aussehen mit und trägt sein Label im Steuerelement, was gegen „Label müssen
+sichtbar bleiben, wenn das Feld gefüllt ist" verstößt. Stattdessen ein
+gewöhnlicher Knopf „Set importieren", der den Systemdialog öffnet.
+
+**Unter 760 px verschwindet die Set-Leiste**, wie Setup und OBS-Link. Die
+Notfallansicht ist in `DESIGN.md` ausdrücklich als Absicht beschrieben, und
+ein Dateiaustausch auf dem Telefon ist der schlechteste Ort für diese Aufgabe.
+
+**Barrierefreiheit**, direkt aus `DESIGN.md` übernommen: sichtbarer
+Tastaturfokus auf allen Bedienelementen, Fehler am jeweiligen Feld benannt,
+„enthält Stand" und „geändert" nie nur über Farbe, Touch-Ziele bei 44 px.
+
+**AI-Slop-Prüfung:** Klassifizierung OPERATE. Keine der sieben
+Hard-Rejections greift; die einzige für App-UI relevante („aus gestapelten
+Karten statt Layout") ist nicht berührt, weil die Leiste eine Zeile ist.
+Es werden keine Karten vorgeschlagen.
+
+**Vertagt, mit Vorschlag:**
+
+- Sortierung der Liste — Vorschlag: zuletzt benutzt zuerst.
+- Namenslänge — Vorschlag: 24 Zeichen wie `penaltyLabel`.
+- Dubletten — Vorschlag: abgelehnt statt überschrieben.
+
+## Implementation Tasks — Design
+
+- [ ] **D1 (P1, human: ~4 Std / CC: ~30 Min)** — admin — Set-Leiste am Board-Editor, Import füllt den Entwurf statt zu veröffentlichen
+  - Surfaced by: Pass 1 und das Publikationsmodell aus `DESIGN.md`
+  - Verify: Komponententest, dass Import nur den Entwurf ändert und `dirty` setzt
+- [ ] **D2 (P1, human: ~3 Std / CC: ~25 Min)** — admin — Zustandstabelle umsetzen, Leerzustand mit Primäraktion, Fehler am Feld
+  - Surfaced by: Pass 2 — kein einziger Zustand war benannt
+  - Verify: Komponententests je Zustand
+- [ ] **D3 (P2, human: ~1 Std / CC: ~10 Min)** — admin — `· geändert` am Set-Namen, Speichern fragt überschreiben oder neu
+  - Surfaced by: Pass 7 — sonst speichert man über eine Vorlage
+  - Verify: Komponententest über Laden, Ändern, Speichern
+- [ ] **D4 (P2, human: ~1 Std / CC: ~10 Min)** — styles — Leiste unter 760 px ausblenden, Fokus und Touch-Ziele
+  - Surfaced by: Pass 6
+  - Verify: manueller Durchlauf bei 375 px, Tastaturdurchlauf
+
+## GSTACK REVIEW REPORT
+
+| Review | Trigger | Why | Runs | Status | Findings |
+|--------|---------|-----|------|--------|----------|
+| CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
+| Codex Review | `/codex review` | Independent 2nd opinion | 1 | issues_found | 12 Befunde, 5 am Code nachgeprüft, 3 Entscheidungen umgeworfen |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | clean | 17 Befunde, 0 kritische Lücken |
+| Design Review | `/plan-design-review` | UI/UX gaps | 1 | clean | 3/10 → 8,5/10, 6 Entscheidungen |
+| DX Review | `/plan-devex-review` | Developer experience gaps | 0 | — | — |
+
+**CODEX:** Zwölf Befunde gegen einen bereits zweifach geprüften Plan. Drei
+Entscheidungen umgeworfen: die Begründung für `set_switched` war am Code
+widerlegt, V1 wird eingefroren statt abgeleitet, und der Datei-Import verwirft
+Fortschritt unbedingt. Einer zurückgewiesen, eine eigene Behauptung
+richtiggestellt.
+
+**CROSS-MODEL:** Drei Spannungen einzeln entschieden, alle zugunsten der
+Outside Voice — jeweils erst nachdem die Behauptung am Code belegt war. Das
+Muster dieser Sitzung: das Review findet die Struktur, die Outside Voice findet
+die Stellen, an denen das Review sich seine Begründung ausgedacht hat.
+
+**VERDICT:** ENG + DESIGN CLEARED — implementierbar.
+
+NO UNRESOLVED DECISIONS
