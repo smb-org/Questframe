@@ -465,14 +465,12 @@
   color: var(--wc-header-ink);
 }
 
-/* Der Alarmzustand behaelt eine eigene Farbe, sonst geht die Bedeutung verloren --
-   das helle Rot waere auf der Akzentflaeche aber kaum lesbar. */
+/* Nur der knappe Timer ist ein Alarm. Ueberzeit bleibt als Dauerzustand neutral. */
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
   .challenge-source[data-style="quest-log"]
 )[data-header-style="inverted"] .challenge-source__header :is(
-  .challenge-source__timer--expired,
   .challenge-source__timer--critical
 ) {
   color: var(--wc-header-ink-critical);
@@ -571,7 +569,10 @@
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],
   .challenge-source[data-style="quest-log"]
-) .challenge-source__timer--expired,
+) .challenge-source__timer--expired {
+  color: var(--wc-muted);
+}
+
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],

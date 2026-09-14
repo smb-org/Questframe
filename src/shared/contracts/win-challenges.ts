@@ -83,7 +83,8 @@ export type ChallengeEventType =
   | "completed"
   | "reopened"
   | "timer_started"
-  | "timer_stopped";
+  | "timer_stopped"
+  | "streak-reset";
 
 export type ChallengeEvent =
   | {

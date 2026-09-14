@@ -160,6 +160,15 @@ describe("Challenge-Quelle-CSS", () => {
     expect(criticalTimer).toContain("text-shadow: var(--wc-bare-shadow);");
   });
 
+  it("hält Überzeit neutral und reserviert critical für den knappen Timer", () => {
+    const overtimeTimer = sourceCss.match(
+      /\.challenge-source__timer--expired\s*\{([^}]*)\}/,
+    )?.[1] ?? "";
+
+    expect(overtimeTimer).toContain("color: var(--wc-muted);");
+    expect(overtimeTimer).not.toContain("var(--wc-critical)");
+  });
+
   it("zwingt das pflegbare Strafen-Label nicht in Großbuchstaben", () => {
     const penaltyLabel = sourceCss.match(
       /\.challenge-source__penalty-label\s*\{([^}]*)\}/,

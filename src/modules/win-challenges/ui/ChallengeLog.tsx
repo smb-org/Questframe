@@ -105,7 +105,9 @@ const ChallengeRow = ({
     // Absicht: kein now in den Abhängigkeiten. Die Werte werden genau dann neu
     // berechnet, wenn der Timer oder der Zeit-Offset wechselt.
   }, [challenge.timerEndsAt, challenge.timerRemainMs, challenge.timerTotalMs, clockOffsetMs]);
-  const timerScale = challenge.timerTotalMs === null ? 0 : remainingMs / challenge.timerTotalMs;
+  const timerScale = challenge.timerTotalMs === null
+    ? 0
+    : Math.min(1, Math.max(0, remainingMs / challenge.timerTotalMs));
   const showTime = done
     ? challenge.timerRemainMs !== null
     : timerState === "running" || timerState === "paused" || timerState === "expired";

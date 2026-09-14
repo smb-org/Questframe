@@ -325,7 +325,7 @@ describe("Live-Bedienseite", () => {
     }
   });
 
-  it("zeigt bei einem abgelaufenen Challenge-Timer den Ablauftext", () => {
+  it("zeigt bei einem abgelaufenen Challenge-Timer die Überzeit", () => {
     vi.useFakeTimers();
     try {
       render(<LiveApp />);
@@ -335,10 +335,10 @@ describe("Live-Bedienseite", () => {
       });
 
       const time = document.querySelector(".live-page__challenge-time");
-      expect(time).toHaveTextContent("abgelaufen");
+      expect(time).toHaveTextContent("+0:01");
       expect(time).toHaveAttribute("data-state", "expired");
-      expect(time).toHaveAttribute("data-critical", "true");
-      expect(time).toHaveAttribute("aria-label", "Timer abgelaufen");
+      expect(time).toHaveAttribute("data-critical", "false");
+      expect(time).toHaveAttribute("aria-label", "Timer abgelaufen: +0:01");
     } finally {
       vi.useRealTimers();
     }

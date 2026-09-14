@@ -61,11 +61,11 @@ const withChallengeTimestamp = (now: DomainNow): Pick<Challenge, "updatedAt"> =>
 const completeChallenge = (challenge: Challenge, now: DomainNow): Challenge => {
   const timerState = deriveChallengeTimerState(challenge, now);
   const timerRemainMs = timerState === "running" && challenge.timerEndsAt !== null
-    ? Math.max(0, Date.parse(challenge.timerEndsAt) - toMilliseconds(now))
+    ? Date.parse(challenge.timerEndsAt) - toMilliseconds(now)
     : timerState === "paused"
       ? challenge.timerRemainMs
-      : timerState === "expired"
-        ? 0
+      : timerState === "expired" && challenge.timerEndsAt !== null
+        ? Date.parse(challenge.timerEndsAt) - toMilliseconds(now)
         : null;
   return {
     ...challenge,
@@ -214,9 +214,9 @@ export function applyStopTimer(
   if (challenge.state !== "active") return { challenge, event: null };
   const timerState = deriveChallengeTimerState(challenge, now);
   if (timerState !== "running" && timerState !== "expired") return { challenge, event: null };
-  const timerRemainMs = timerState === "running" && challenge.timerEndsAt !== null
-    ? Math.max(0, Date.parse(challenge.timerEndsAt) - toMilliseconds(now))
-    : 0;
+  const timerRemainMs = challenge.timerEndsAt === null
+    ? null
+    : Date.parse(challenge.timerEndsAt) - toMilliseconds(now);
   return {
     challenge: {
       ...challenge,
@@ -287,12 +287,13 @@ export const applyPauseGlobal = (
   now: DomainNow,
 ): GlobalTimerTransition => {
   if (globalTimer === null) return { globalTimer, event: null };
-  if (deriveTimerState(globalTimer.endsAt, globalTimer.pausedRemainMs, now) !== "running") {
+  const timerState = deriveTimerState(globalTimer.endsAt, globalTimer.pausedRemainMs, now);
+  if (timerState !== "running" && timerState !== "expired") {
     return { globalTimer, event: null };
   }
   const endsAt = globalTimer.endsAt;
   if (endsAt === null) return { globalTimer, event: null };
-  const pausedRemainMs = Math.max(0, Date.parse(endsAt) - toMilliseconds(now));
+  const pausedRemainMs = Date.parse(endsAt) - toMilliseconds(now);
   return {
     globalTimer: { ...globalTimer, endsAt: null, pausedRemainMs },
     event: globalEvent("global_paused"),

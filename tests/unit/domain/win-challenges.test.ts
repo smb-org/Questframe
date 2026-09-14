@@ -23,7 +23,11 @@ import {
   formatChallengeStand,
   selectVisible,
 } from "../../../src/modules/win-challenges/domain/visibility";
-import { displayedMsFor } from "../../../src/modules/win-challenges/ui/timer";
+import {
+  displayedMsFor,
+  formatRemaining,
+  remainingFor,
+} from "../../../src/modules/win-challenges/ui/timer";
 
 const now = "2026-08-30T12:00:00.000Z" as const;
 const nowMilliseconds = Date.parse(now);
@@ -74,6 +78,16 @@ describe("Win-Challenges-Domain", () => {
     expect(displayedMsFor("down", 60_000, 12_345)).toBe(12_345);
     expect(displayedMsFor("up", 60_000, 12_345)).toBe(47_655);
     expect(displayedMsFor("up", 60_000, 0)).toBe(60_000);
+    expect(displayedMsFor("down", 60_000, -1_000)).toBe(-1_000);
+    expect(displayedMsFor("up", 60_000, -1_000)).toBe(60_000);
+  });
+
+  it("formatiert Überzeit mit Pluszeichen und behält sie bei laufenden und pausierten Timern", () => {
+    expect(formatRemaining(-1)).toBe("+0:01");
+    expect(formatRemaining(-61_000)).toBe("+1:01");
+    expect(formatRemaining(-3_661_000)).toBe("+1:01:01");
+    expect(remainingFor("2026-08-30T11:59:59.000Z", null, "expired", nowMilliseconds)).toBe(-1_000);
+    expect(remainingFor(null, -1_000, "paused", nowMilliseconds)).toBe(-1_000);
   });
 
   it("leitet idle, running, expired und paused mit derselben Funktion ab", () => {
@@ -160,13 +174,13 @@ describe("Win-Challenges-Domain", () => {
     });
   });
 
-  it("friert beim Abhaken eines abgelaufenen Timers genau null ein", () => {
+  it("friert beim Abhaken eines abgelaufenen Timers die Überzeit ein", () => {
     const result = applyComplete(makeChallenge({
       state: "active",
       timerEndsAt: "2026-08-30T11:59:59.000Z",
     }), now);
 
-    expect(result.challenge).toMatchObject({ state: "done", timerEndsAt: null, timerRemainMs: 0 });
+    expect(result.challenge).toMatchObject({ state: "done", timerEndsAt: null, timerRemainMs: -1_000 });
   });
 
   it("setzt beim Abhaken ohne laufenden Timer keine Restzeit", () => {
@@ -201,7 +215,9 @@ describe("Win-Challenges-Domain", () => {
     expect(stopped.challenge.timerEndsAt).toBeNull();
     expect(stopped.challenge.timerRemainMs).toBe(7_000);
     expect(stopped.event?.type).toBe("timer_stopped");
-    expect(applyStopTimer(makeChallenge(), now).event).toBeNull();
+    const neverStarted = applyStopTimer(makeChallenge(), now);
+    expect(neverStarted.event).toBeNull();
+    expect(neverStarted.challenge.timerRemainMs).toBeNull();
     for (const timer of [
       { state: "active" as const, timerEndsAt: "2026-08-30T12:00:01.000Z", timerRemainMs: null },
       { state: "pending" as const, timerEndsAt: null, timerRemainMs: 3_120 },
@@ -273,6 +289,26 @@ describe("Win-Challenges-Domain", () => {
     expect(result.event?.type).toBe("timer_started");
   });
 
+  it("behält Überzeit beim Stoppen und Fortsetzen einer Challenge", () => {
+    const stopped = applyStopTimer(makeChallenge({
+      state: "active",
+      timerEndsAt: "2026-08-30T11:59:59.000Z",
+    }), now);
+
+    expect(stopped.challenge).toMatchObject({
+      state: "pending",
+      timerEndsAt: null,
+      timerRemainMs: -1_000,
+    });
+
+    const resumed = applyStartTimer(stopped.challenge, "2026-08-30T12:00:02.000Z");
+    expect(resumed.challenge).toMatchObject({
+      state: "active",
+      timerEndsAt: "2026-08-30T12:00:01.000Z",
+      timerRemainMs: null,
+    });
+  });
+
   it("behält beim Abhaken einer pausierten Challenge die eingefrorene Restzeit", () => {
     const result = applyComplete(
       makeChallenge({ state: "pending", timerEndsAt: null, timerRemainMs: 3_120 }),
@@ -299,6 +335,21 @@ describe("Win-Challenges-Domain", () => {
     expect(applyPauseGlobal(paused.globalTimer, now)).toEqual({
       globalTimer: paused.globalTimer,
       event: null,
+    });
+  });
+
+  it("pausiert und setzt einen globalen Timer in der Überzeit mit negativem Rest fort", () => {
+    const paused = applyPauseGlobal(
+      makeGlobalTimer({ endsAt: "2026-08-30T11:59:59.000Z" }),
+      now,
+    );
+    expect(paused.globalTimer).toMatchObject({ endsAt: null, pausedRemainMs: -1_000 });
+    expect(paused.event?.type).toBe("global_paused");
+
+    const resumed = applyStartGlobal(paused.globalTimer, "2026-08-30T12:00:02.000Z");
+    expect(resumed.globalTimer).toMatchObject({
+      endsAt: "2026-08-30T12:00:01.000Z",
+      pausedRemainMs: null,
     });
   });
 

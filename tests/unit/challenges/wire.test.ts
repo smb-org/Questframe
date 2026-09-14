@@ -119,6 +119,24 @@ describe("Challenge-Quelle-Wire", () => {
     expect(parseChallengeUpdate(update())).toEqual(update());
   });
 
+  it("akzeptiert streak-reset als eigenes Challenge-Ereignis und verwirft kaputte Varianten", () => {
+    const streakReset = {
+      scope: "challenge",
+      type: "streak-reset",
+      challengeId: "challenge-1",
+    } as const;
+
+    expect(parseChallengeUpdate({ ...update(), event: streakReset })).toMatchObject({ event: streakReset });
+    expect(parseChallengeUpdate({
+      ...update(),
+      event: { ...streakReset, extra: true },
+    })).toBeNull();
+    expect(parseChallengeUpdate({
+      ...update(),
+      event: { ...streakReset, challengeId: "" },
+    })).toBeNull();
+  });
+
   it.each(challengeContractParityCases)("hält Schema und Wire-Parser bei $label paritätisch", ({ patch, accepted, label }) => {
     const challenge = { ...update().challenges[0], ...patch };
     const schemaAccepted = challengeSchema.safeParse(challenge).success;

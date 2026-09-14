@@ -212,7 +212,8 @@ const isChallengeEvent = (input: unknown): input is ChallengeEvent => {
     (input.type === "completed" ||
       input.type === "reopened" ||
       input.type === "timer_started" ||
-      input.type === "timer_stopped") &&
+      input.type === "timer_stopped" ||
+      input.type === "streak-reset") &&
     isChallengeId(input.challengeId)
   );
 };

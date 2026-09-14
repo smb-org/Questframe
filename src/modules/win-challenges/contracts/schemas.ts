@@ -139,7 +139,7 @@ const revisionSchema = custom(isRevision, "Revision muss positiv sein.");
 const eventSeqSchema = custom(isEventSeq, "Event-Sequenz muss nichtnegativ sein.");
 const pausedRemainMsSchema = custom(
   isPausedRemainMs,
-  "Pausierte Restzeit muss null oder 0–86.400.000 ms sein.",
+  "Pausierte Restzeit muss null oder -86.400.000–86.400.000 ms sein.",
 );
 const challengeStateSchema = custom(
   isChallengeState,
@@ -428,6 +428,7 @@ const challengeEventSchema = z.union([
       z.literal("reopened"),
       z.literal("timer_started"),
       z.literal("timer_stopped"),
+      z.literal("streak-reset"),
     ]),
     challengeId: challengeIdSchema,
   }),

@@ -4,6 +4,7 @@ import {
   challengeDefinitionSchema,
   challengePlacementSchema,
   challengeSchema,
+  challengeUpdateSchema,
   commandSchema,
   globalTimerSchema,
   settingsSaveRequestSchema,
@@ -35,6 +36,7 @@ import {
   isNumbered,
   isOverflowMode,
   isOverflowTempo,
+  isPausedRemainMs,
   isChallengePlacement,
   isPlacementScale,
   isPlacementX,
@@ -272,6 +274,17 @@ describe("Win-Challenges-Verträge", () => {
     }).success).toBe(false);
   });
 
+  it("validiert globale eingefrorene Überzeit symmetrisch zur 24-Stunden-Grenze", () => {
+    expect(isPausedRemainMs(-1)).toBe(true);
+    expect(isPausedRemainMs(-GLOBAL_TIMER_UP_CAP_MS)).toBe(true);
+    expect(isPausedRemainMs(-GLOBAL_TIMER_UP_CAP_MS - 1)).toBe(false);
+    expect(globalTimerSchema.safeParse({
+      totalMs: 60_000,
+      endsAt: null,
+      pausedRemainMs: -1,
+    }).success).toBe(true);
+  });
+
   it("validiert die eingefrorene Challenge-Restzeit mit derselben 6-Stunden-Grenze", () => {
     expect(isTimerRemainMs(null)).toBe(true);
     expect(isTimerRemainMs(0)).toBe(true);
@@ -282,6 +295,32 @@ describe("Win-Challenges-Verträge", () => {
     expect(isTimerRemainMs(21_600_001)).toBe(false);
     expect(challengeSchema.safeParse({ ...challenge, timerRemainMs: 21_600_000 }).success).toBe(true);
     expect(challengeSchema.safeParse({ ...challenge, timerRemainMs: 21_600_001 }).success).toBe(false);
+  });
+
+  it("validiert das eigenständige streak-reset-Ereignis im Zod-Wire-Vertrag", () => {
+    const event = {
+      scope: "challenge" as const,
+      type: "streak-reset" as const,
+      challengeId: "challenge-1",
+    };
+    const update = {
+      eventSeq: 1,
+      boardRevision: 1,
+      settingsRevision: 1,
+      settings,
+      challenges: [challenge],
+      event,
+    };
+
+    expect(challengeUpdateSchema.safeParse(update).success).toBe(true);
+    expect(challengeUpdateSchema.safeParse({
+      ...update,
+      event: { ...event, extra: true },
+    }).success).toBe(false);
+    expect(challengeUpdateSchema.safeParse({
+      ...update,
+      event: { ...event, challengeId: "" },
+    }).success).toBe(false);
   });
 
   it("verbietet gleichzeitig laufende und pausierte Challenge-Timer", () => {

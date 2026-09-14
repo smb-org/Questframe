@@ -251,7 +251,7 @@ export const isPausedRemainMs = (value: unknown): value is number | null =>
   value === null ||
   (typeof value === "number" &&
     Number.isSafeInteger(value) &&
-    value >= 0 &&
+    value >= -GLOBAL_TIMER_UP_CAP_MS &&
     value <= GLOBAL_TIMER_UP_CAP_MS);
 
 export const isRevision = (value: unknown): value is number =>

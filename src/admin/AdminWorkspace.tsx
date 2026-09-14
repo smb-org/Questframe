@@ -189,7 +189,7 @@ const liveGlobalTimerStatus = (update: ChallengeUpdate | null, now: number): { s
   const remainingMs = remainingFor(timer.endsAt, timer.pausedRemainMs, state, now);
   const displayedMs = displayedMsFor(mode, timer.totalMs, remainingMs);
   if (state === "expired") {
-    return { state, label: mode === "up" ? formatRemaining(displayedMs) : "abgelaufen" };
+    return { state, label: formatRemaining(displayedMs) };
   }
   if (state === "idle") return { state, label: "bereit" };
   return {

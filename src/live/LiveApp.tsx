@@ -128,7 +128,7 @@ const optimisticPatchFor = (
     const timerRemainMs = timerState === "running" || timerState === "paused"
       ? remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, Date.now())
       : timerState === "expired"
-        ? 0
+        ? remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, Date.now())
         : null;
     return {
       currentCount,
@@ -145,7 +145,7 @@ const optimisticPatchFor = (
     const timerRemainMs = timerState === "running" || timerState === "paused"
       ? remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, Date.now())
       : timerState === "expired"
-        ? 0
+        ? remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, Date.now())
         : null;
     return {
       state: "done",
@@ -230,15 +230,13 @@ const ChallengeRow = ({
   const timerState = hasTimer ? deriveChallengeTimerState(challenge, now) : "idle";
   const remainingMs = remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, now);
   const timerCritical = timerIsCritical(timerState, remainingMs);
-  const timeText = timerState === "expired"
-    ? "abgelaufen"
-    : formatRemaining(timerState === "idle" ? challenge.timerTotalMs ?? 0 : remainingMs);
+  const timeText = formatRemaining(timerState === "idle" ? challenge.timerTotalMs ?? 0 : remainingMs);
   const showTime = done
     ? challenge.timerRemainMs !== null
     : timerState === "running" || timerState === "paused" || timerState === "expired";
   const timeAriaLabel = done
     ? `Rest bei Abschluss ${formatRemaining(remainingMs)}`
-    : timerState === "expired" ? "Timer abgelaufen" : `Restzeit ${timeText}`;
+    : timerState === "expired" ? `Timer abgelaufen: ${timeText}` : `Restzeit ${timeText}`;
   return (
     <article
       className={`live-page__challenge-row${pinned ? " live-page__challenge-row--pinned" : ""}${done ? " live-page__challenge-row--done" : ""}${pending ? " live-page__challenge-row--pending" : ""}`}

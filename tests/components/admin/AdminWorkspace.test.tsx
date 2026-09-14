@@ -778,7 +778,7 @@ describe("Admin workspace shell", () => {
         event: null,
       });
     });
-    expect(await screen.findByText("abgelaufen")).toBeInTheDocument();
+    expect(await screen.findByText(/^\+/)).toBeInTheDocument();
 
     act(() => {
       onChallengeUpdate?.({

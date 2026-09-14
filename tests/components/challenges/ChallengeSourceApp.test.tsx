@@ -1063,6 +1063,9 @@ describe("ChallengeSourceApp", () => {
       const expired = timedChallenge("expired", {
         timerEndsAt: new Date(fixedNow - 1_000).toISOString(),
       });
+      const overtime = timedChallenge("overtime", {
+        timerRemainMs: -1_000,
+      });
       const done = timedChallenge("done", {
         state: "done",
         timerRemainMs: 45_000,
@@ -1070,7 +1073,10 @@ describe("ChallengeSourceApp", () => {
       });
       const withoutTimer = challenge("without-timer", "without-timer", "pending", 0);
 
-      render(<ChallengeLog now={fixedNow} update={sourceUpdate({ challenges: [running, paused, expired, done, withoutTimer] })} />);
+      render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+        challenges: [running, paused, expired, overtime, done, withoutTimer],
+        settings: { ...message().settings, maxVisible: 6 },
+      })} />);
 
       const row = (id: string): HTMLElement => {
         const element = document.querySelector<HTMLElement>(`[data-challenge-id="${id}"]`);
@@ -1099,6 +1105,11 @@ describe("ChallengeSourceApp", () => {
       expect(expiredRow.style.getPropertyValue("--wc-timer-total")).toBe("120000ms");
       expect(expiredRow.style.getPropertyValue("--wc-timer-delay")).toBe("-120000ms");
       expect(expiredRow.style.getPropertyValue("--wc-timer-scale")).toBe("0");
+
+      const overtimeRow = row("overtime");
+      expect(overtimeRow).toHaveAttribute("data-timer-state", "paused");
+      expect(overtimeRow.style.getPropertyValue("--wc-timer-scale")).toBe("0");
+      expect(overtimeRow.querySelector(".challenge-source__time")).toHaveTextContent("Ⅱ +0:01");
 
       const doneRow = row("done");
       expect(doneRow).not.toHaveAttribute("data-timer-state");
@@ -1186,8 +1197,19 @@ describe("ChallengeSourceApp", () => {
         timerEndsAt: new Date(fixedNow - 1_000).toISOString(),
       }],
     })} />);
-    expect(document.querySelector(".challenge-source__time")).toHaveTextContent("0:00");
+    expect(document.querySelector(".challenge-source__time")).toHaveTextContent("+0:01");
     expect(document.querySelector(".challenge-source__time")).toHaveAttribute("data-state", "expired");
+  });
+
+  it("zeigt einen abgelaufenen globalen Timer als Überzeit ohne kritischen Alarm", () => {
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      settings: { ...message().settings, globalTimer: globalTimer("expired") },
+    })} />);
+
+    const timer = screen.getByLabelText("Globaler Timer: +0:01, abgelaufen");
+    expect(timer).toHaveTextContent("+0:01");
+    expect(timer).toHaveAttribute("data-state", "expired");
+    expect(timer).toHaveAttribute("data-critical", "false");
   });
 
   it("zeigt erledigte Challenges auch bei laufendem globalem Timer", () => {
