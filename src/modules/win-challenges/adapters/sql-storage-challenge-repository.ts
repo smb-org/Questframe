@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { allocateControlKey } from "../domain/control-keys";
 import {
   challengeDefinitionSchema,
   challengePlacementSchema,
@@ -69,9 +70,14 @@ type MetaRow = {
 type ChallengeRow = {
   id: string;
   title: string;
+  kind: string;
+  unit: string | null;
+  control_key: string;
   target_count: number | null;
   timer_total_ms: number | null;
   sort_order: number;
+  step: number;
+  best_count: number;
   hidden: number;
   current_count: number;
   state: string;
@@ -238,9 +244,14 @@ const parseChallenge = (row: ChallengeRow): Challenge =>
   challengeSchema.parse({
     id: row.id,
     title: row.title,
+    kind: row.kind,
+    unit: row.unit,
+    controlKey: row.control_key,
     targetCount: row.target_count,
     timerTotalMs: row.timer_total_ms,
     sortOrder: row.sort_order,
+    step: row.step,
+    bestCount: row.best_count,
     hidden: row.hidden === 1,
     currentCount: row.current_count,
     state: row.state,
@@ -341,6 +352,15 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       }
 
       const existingById = new Map(current.challenges.map((challenge) => [challenge.id, challenge]));
+      const persistedControlKeys = new Set(current.challenges.map((challenge) => challenge.controlKey));
+      const retiredControlKeys = definitions.some((definition) => !("id" in definition))
+        ? new Set(
+            this.execute<{ control_key: string }>(
+              `SELECT control_key FROM ${this.table("retired_keys")}`,
+            ).map(({ control_key }) => control_key),
+          )
+        : new Set<string>();
+      const allocatedControlKeys = new Set<string>();
       const seenIds = new Set<string>();
       const seenClientIds = new Set<string>();
       const generatedIds = new Map<string, string>();
@@ -361,17 +381,23 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         }
         seenClientIds.add(definition.clientId);
         const generatedId = crypto.randomUUID();
+        const controlKey = allocateControlKey([
+          persistedControlKeys,
+          allocatedControlKeys,
+          retiredControlKeys,
+        ]);
+        allocatedControlKeys.add(controlKey);
         generatedIds.set(definition.clientId, generatedId);
         return {
           definition,
           existing: undefined,
-          challenge: mergeDefinition(null, definition, input.now, generatedId),
+          challenge: mergeDefinition(null, definition, input.now, generatedId, controlKey),
         };
       });
       const normalized = normalizeSortOrder(merged.map(({ challenge }) => challenge));
       const normalizedById = new Map(normalized.map((challenge) => [challenge.id, challenge]));
       const finalIds = normalized.map(({ id }) => id);
-      this.deleteMissingChallenges(finalIds);
+      this.deleteMissingChallenges(finalIds, current.challenges);
       for (const entry of merged) {
         const challenge = normalizedById.get(entry.challenge.id);
         if (challenge === undefined) throw new Error("Challenge-Normalisierung fehlgeschlagen.");
@@ -540,7 +566,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     };
   }
 
-  private table(name: "meta" | "challenges" | "commands" | "dock_tokens"): string {
+  private table(name: "meta" | "challenges" | "commands" | "dock_tokens" | "retired_keys"): string {
     return `${this.tablePrefix}${name}`;
   }
 
@@ -773,14 +799,28 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     });
   }
 
-  private deleteMissingChallenges(ids: readonly string[]): void {
+  private deleteMissingChallenges(
+    ids: readonly string[],
+    currentChallenges: readonly Pick<Challenge, "id" | "controlKey">[],
+  ): void {
+    const finalIds = new Set(ids);
+    const missingControlKeys = currentChallenges
+      .filter(({ id }) => !finalIds.has(id))
+      .map(({ controlKey }) => controlKey);
+    if (missingControlKeys.length > 0) {
+      this.execute<Pick<ChallengeRow, "control_key">>(
+        `INSERT OR IGNORE INTO ${this.table("retired_keys")}(control_key) VALUES ${missingControlKeys.map(() => "(?)").join(", ")}`,
+        ...missingControlKeys,
+      );
+    } else {
+      return;
+    }
     if (ids.length === 0) {
       this.execute<ChallengeRow>(`DELETE FROM ${this.table("challenges")}`);
       return;
     }
-    const placeholders = ids.map(() => "?").join(", ");
     this.execute<ChallengeRow>(
-      `DELETE FROM ${this.table("challenges")} WHERE id NOT IN (${placeholders})`,
+      `DELETE FROM ${this.table("challenges")} WHERE id NOT IN (${ids.map(() => "?").join(", ")})`,
       ...ids,
     );
   }
@@ -789,14 +829,19 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     assertChallengeTimerInvariant(challenge);
     this.execute<ChallengeRow>(
       `INSERT INTO ${this.table("challenges")}(
-        id, title, target_count, timer_total_ms, sort_order,
-        hidden, current_count, state, timer_ends_at, timer_remain_ms, completed_at, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, title, kind, unit, control_key, target_count, timer_total_ms, sort_order,
+        step, best_count, hidden, current_count, state, timer_ends_at, timer_remain_ms, completed_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       challenge.id,
       challenge.title,
+      challenge.kind,
+      challenge.unit,
+      challenge.controlKey,
       challenge.targetCount,
       challenge.timerTotalMs,
       challenge.sortOrder,
+      challenge.step,
+      challenge.bestCount,
       challenge.hidden ? 1 : 0,
       challenge.currentCount,
       challenge.state,
@@ -813,13 +858,16 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     if (sameRuntime(existing, challenge)) {
       this.execute<ChallengeRow>(
         `UPDATE ${this.table("challenges")} SET
-          title = ?, target_count = ?, timer_total_ms = ?,
-          sort_order = ?, hidden = ?, updated_at = ?
+          title = ?, kind = ?, unit = ?, target_count = ?, timer_total_ms = ?,
+          sort_order = ?, step = ?, hidden = ?, updated_at = ?
          WHERE id = ?`,
         challenge.title,
+        challenge.kind,
+        challenge.unit,
         challenge.targetCount,
         challenge.timerTotalMs,
         challenge.sortOrder,
+        challenge.step,
         challenge.hidden ? 1 : 0,
         challenge.updatedAt,
         challenge.id,
@@ -828,13 +876,16 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     }
     this.execute<ChallengeRow>(
       `UPDATE ${this.table("challenges")} SET
-        title = ?, target_count = ?, timer_total_ms = ?, sort_order = ?,
+        title = ?, kind = ?, unit = ?, target_count = ?, timer_total_ms = ?, sort_order = ?, step = ?,
         hidden = ?, current_count = ?, state = ?, timer_ends_at = ?, timer_remain_ms = ?, completed_at = ?, updated_at = ?
        WHERE id = ?`,
       challenge.title,
+      challenge.kind,
+      challenge.unit,
       challenge.targetCount,
       challenge.timerTotalMs,
       challenge.sortOrder,
+      challenge.step,
       challenge.hidden ? 1 : 0,
       challenge.currentCount,
       challenge.state,

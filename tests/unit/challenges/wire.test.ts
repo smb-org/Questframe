@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
+import { challengeSchema } from "../../../src/modules/win-challenges/contracts/schemas";
 import {
   accountForChallengeUpdate,
   parseChallengeUpdate,
@@ -33,9 +34,14 @@ const update = (): ChallengeUpdate => ({
   challenges: [{
     id: "challenge-1",
     title: "Eine Challenge",
+    kind: "counter",
+    unit: null,
+    controlKey: "K7RP",
     targetCount: 10,
     timerTotalMs: 10_000,
     sortOrder: 0,
+    step: 1,
+    bestCount: 0,
     hidden: false,
     currentCount: 2,
     state: "pending",
@@ -48,9 +54,44 @@ const update = (): ChallengeUpdate => ({
   event: null,
 });
 
+const challengeContractParityCases = [
+  { label: "gültiger Counter", patch: {}, accepted: true },
+  { label: "Tick ohne Ziel", patch: { kind: "tick", targetCount: null }, accepted: true },
+  { label: "Streak mit Ziel", patch: { kind: "streak", targetCount: 1 }, accepted: true },
+  { label: "Messwert mit Einheit und Ziel", patch: { kind: "measure", unit: "kg", targetCount: 1 }, accepted: true },
+  { label: "unbekannter Typ", patch: { kind: "timer" }, accepted: false },
+  { label: "numerischer Typ", patch: { kind: 1 }, accepted: false },
+  { label: "Einheit als Zahl", patch: { unit: 1 }, accepted: false },
+  { label: "zu lange Einheit", patch: { unit: "x".repeat(13) }, accepted: false },
+  { label: "kleingeschriebener Control-Key", patch: { controlKey: "k7rp" }, accepted: false },
+  { label: "zu langer Control-Key", patch: { controlKey: "K7RPP" }, accepted: false },
+  { label: "Control-Key als Zahl", patch: { controlKey: 1234 }, accepted: false },
+  { label: "Schrittweite null", patch: { step: 0 }, accepted: false },
+  { label: "Schrittweite als String", patch: { step: "1" }, accepted: false },
+  { label: "Schrittweite über Maximum", patch: { step: 1_000_001 }, accepted: false },
+  { label: "negativer Bestwert", patch: { bestCount: -1 }, accepted: false },
+  { label: "Bestwert über Maximum", patch: { bestCount: 1_000 }, accepted: false },
+  { label: "Bestwert als String", patch: { bestCount: "0" }, accepted: false },
+  { label: "Tick mit Ziel", patch: { kind: "tick", targetCount: 1 }, accepted: false },
+  { label: "Streak ohne Ziel", patch: { kind: "streak", targetCount: null }, accepted: false },
+  { label: "Messwert ohne Ziel", patch: { kind: "measure", targetCount: null, unit: "kg" }, accepted: false },
+  { label: "Messwert ohne Einheit", patch: { kind: "measure", targetCount: 1, unit: null }, accepted: false },
+  { label: "Counter mit Einheit", patch: { kind: "counter", unit: "kg" }, accepted: false },
+] as const;
+
 describe("Challenge-Quelle-Wire", () => {
   it("nimmt eine gültige challenge_update-Nachricht an", () => {
     expect(parseChallengeUpdate(update())).toEqual(update());
+  });
+
+  it.each(challengeContractParityCases)("hält Schema und Wire-Parser bei $label paritätisch", ({ patch, accepted, label }) => {
+    const challenge = { ...update().challenges[0], ...patch };
+    const schemaAccepted = challengeSchema.safeParse(challenge).success;
+    const wireAccepted = parseChallengeUpdate({ ...update(), challenges: [challenge] }) !== null;
+
+    expect(schemaAccepted, `challengeSchema: ${label}`).toBe(accepted);
+    expect(wireAccepted, `parseChallengeUpdate: ${label}`).toBe(accepted);
+    expect(wireAccepted).toBe(schemaAccepted);
   });
 
   it("akzeptiert 24 Stunden nur für den globalen Timer", () => {
@@ -122,6 +163,10 @@ describe("Challenge-Quelle-Wire", () => {
     expect(parseChallengeUpdate({
       ...current,
       challenges: [{ ...withRemain, timerRemainMs: -1 }],
+    })).toMatchObject({ challenges: [{ timerRemainMs: -1 }] });
+    expect(parseChallengeUpdate({
+      ...current,
+      challenges: [{ ...withRemain, timerRemainMs: -21_600_001 }],
     })).toBeNull();
     expect(parseChallengeUpdate({
       ...current,

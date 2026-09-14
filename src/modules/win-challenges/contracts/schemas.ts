@@ -7,7 +7,13 @@ import {
   DEFAULT_CHALLENGE_PLACEMENT,
   MAX_CHALLENGES,
   MAX_COUNT,
+  MAX_CHALLENGE_STEP,
+  MAX_CHALLENGE_UNIT_GRAPHEMES,
   MAX_VISIBLE_ROWS,
+  isChallengeKind,
+  isChallengeStep,
+  isChallengeUnit,
+  isControlKey,
   isChallengeId,
   isChallengeState,
   isChallengeStyleId,
@@ -74,7 +80,7 @@ const timerTotalMsSchema = custom(
 );
 const timerRemainMsSchema = custom(
   isTimerRemainMs,
-  "Eingefrorene Restzeit muss null oder 0–21.600.000 ms sein.",
+  "Eingefrorene Restzeit muss null oder -21.600.000–21.600.000 ms sein.",
 );
 const globalTimerTotalMsSchema = custom(
   isGlobalTimerTotalMs,
@@ -94,6 +100,16 @@ const maxVisibleSchema = custom(
 const placementXSchema = custom(isPlacementX, "X-Position muss eine Ganzzahl von 0–384 sein.");
 const placementYSchema = custom(isPlacementY, "Y-Position muss eine Ganzzahl von 0–216 sein.");
 const placementScaleSchema = custom(isPlacementScale, "Skalierung muss 0,75–2,00 in 0,01-Schritten sein.");
+const challengeKindSchema = custom(isChallengeKind, "Challenge-Typ ist ungültig.");
+const challengeUnitSchema = z.union([
+  normalized(
+    isChallengeUnit,
+    `Einheit muss normalisiert 1–${String(MAX_CHALLENGE_UNIT_GRAPHEMES)} Grapheme lang sein.`,
+  ),
+  z.null(),
+]);
+const controlKeySchema = custom(isControlKey, "Steuer-Key muss aus vier gültigen Zeichen bestehen.");
+const challengeStepSchema = custom(isChallengeStep, `Schrittweite muss 1–${String(MAX_CHALLENGE_STEP)} sein.`);
 
 export const challengePlacementSchema = z.strictObject({
   x: placementXSchema,
@@ -143,26 +159,72 @@ const globalTimerModeSchema = custom(isGlobalTimerMode, "Globaler Timer-Modus is
 const numberedSchema = custom(isNumbered, "Nummerierung muss ein Boolean sein.");
 const commandIdSchema = custom(isCommandId, "Kommando-ID muss eine UUID sein.");
 
+const validateChallengeKindSemantics = (
+  value: { kind: "tick" | "counter" | "streak" | "measure"; targetCount: number | null; unit: string | null },
+  context: z.RefinementCtx,
+): void => {
+  if (value.kind === "tick" && value.targetCount !== null) {
+    context.addIssue({
+      code: "custom",
+      path: ["targetCount"],
+      message: "Ein Tick braucht kein Ziel.",
+    });
+  }
+  if ((value.kind === "streak" || value.kind === "measure") && value.targetCount === null) {
+    context.addIssue({
+      code: "custom",
+      path: ["targetCount"],
+      message: `${value.kind === "streak" ? "Eine Streak" : "Ein Messwert"} braucht ein Ziel.`,
+    });
+  }
+  if (value.kind === "measure" && value.unit === null) {
+    context.addIssue({
+      code: "custom",
+      path: ["unit"],
+      message: "Ein Messwert braucht eine Einheit.",
+    });
+  }
+  if (value.kind !== "measure" && value.unit !== null) {
+    context.addIssue({
+      code: "custom",
+      path: ["unit"],
+      message: "Eine Einheit ist nur für Messwerte erlaubt.",
+    });
+  }
+};
+
 const challengeDefinitionFields = {
   title: challengeTitleSchema,
+  kind: challengeKindSchema.default("counter"),
+  unit: challengeUnitSchema.default(null),
   targetCount: targetCountSchema,
   timerTotalMs: timerTotalMsSchema,
   sortOrder: sortOrderSchema,
+  step: challengeStepSchema.default(1),
   hidden: z.boolean().default(false),
 } as const;
 
-export const challengeDefinitionSchema = z.union([
-  z.strictObject({ id: challengeIdSchema, ...challengeDefinitionFields }),
-  z.strictObject({ clientId: clientIdSchema, ...challengeDefinitionFields }),
-]);
+export const challengeDefinitionSchema = z
+  .union([
+    z.strictObject({ id: challengeIdSchema, ...challengeDefinitionFields }),
+    z.strictObject({ clientId: clientIdSchema, ...challengeDefinitionFields }),
+  ])
+  .superRefine((value, context) => {
+    validateChallengeKindSemantics(value, context);
+  });
 
 export const challengeSchema = z
   .strictObject({
     id: challengeIdSchema,
     title: challengeTitleSchema,
+    kind: challengeKindSchema,
+    unit: challengeUnitSchema,
+    controlKey: controlKeySchema,
     targetCount: targetCountSchema,
     timerTotalMs: timerTotalMsSchema,
     sortOrder: sortOrderSchema,
+    step: challengeStepSchema,
+    bestCount: currentCountSchema,
     hidden: custom(isHidden, "Ausgeblendet muss ein Boolean sein."),
     currentCount: currentCountSchema,
     state: challengeStateSchema,
@@ -173,6 +235,7 @@ export const challengeSchema = z
     updatedAt: instantSchema,
   })
   .superRefine((value, context) => {
+    validateChallengeKindSemantics(value, context);
     if (value.timerEndsAt !== null && value.timerRemainMs !== null) {
       context.addIssue({
         code: "custom",

@@ -17,6 +17,8 @@ import {
   isChallengeSurfaceOpacity,
   isChallengeTextEmphasis,
   isCurrentCount,
+  isChallengeUnit,
+  isChallengeStep,
   isDoneOrder,
   isDelta,
   isGlobalTimerMode,
@@ -43,17 +45,25 @@ import {
 const definition = {
   clientId: "client-1",
   title: "Eine Challenge",
+  kind: "counter" as const,
+  unit: null,
   targetCount: 10,
   timerTotalMs: 10_000,
   sortOrder: 0,
+  step: 1,
 };
 
 const challenge = {
   id: "challenge-1",
   title: "Eine Challenge",
+  kind: "counter" as const,
+  unit: null,
+  controlKey: "K7RP",
   targetCount: 10,
   timerTotalMs: 10_000,
   sortOrder: 0,
+  step: 1,
+  bestCount: 0,
   hidden: false,
   currentCount: 0,
   state: "pending" as const,
@@ -88,6 +98,40 @@ const settings = {
 };
 
 describe("Win-Challenges-Verträge", () => {
+  it("validiert die Typregeln für Ziel und Einheit", () => {
+    expect(challengeDefinitionSchema.safeParse({ ...definition, kind: "tick", targetCount: null }).success).toBe(true);
+    expect(challengeDefinitionSchema.safeParse({ ...definition, kind: "tick", targetCount: 1 }).success).toBe(false);
+    expect(challengeDefinitionSchema.safeParse({ ...definition, kind: "counter", targetCount: null }).success).toBe(true);
+    expect(challengeDefinitionSchema.safeParse({ ...definition, kind: "streak", targetCount: 1 }).success).toBe(true);
+    expect(challengeDefinitionSchema.safeParse({ ...definition, kind: "streak", targetCount: null }).success).toBe(false);
+    expect(challengeDefinitionSchema.safeParse({
+      ...definition,
+      kind: "measure",
+      targetCount: 1,
+      unit: "  e\u0301  ",
+    }).success).toBe(true);
+    expect(challengeDefinitionSchema.parse({
+      ...definition,
+      kind: "measure",
+      targetCount: 1,
+      unit: "  e\u0301  ",
+    }).unit).toBe("é");
+    expect(challengeDefinitionSchema.safeParse({ ...definition, kind: "measure", targetCount: 1, unit: null }).success).toBe(false);
+    expect(challengeDefinitionSchema.safeParse({ ...definition, kind: "counter", unit: "m" }).success).toBe(false);
+  });
+
+  it("hält Einheiten und Schrittweiten an den skalaren Prädikaten", () => {
+    expect(isChallengeUnit("x".repeat(12))).toBe(true);
+    expect(isChallengeUnit("x".repeat(13))).toBe(false);
+    expect(isChallengeUnit("  ")).toBe(false);
+    expect(isChallengeStep(1)).toBe(true);
+    expect(isChallengeStep(1_000_000)).toBe(true);
+    expect(isChallengeStep(1_000_001)).toBe(false);
+    expect(isChallengeStep(0)).toBe(false);
+    expect(challengeDefinitionSchema.safeParse({ ...definition, step: 1_000_000 }).success).toBe(true);
+    expect(challengeDefinitionSchema.safeParse({ ...definition, step: 1_000_001 }).success).toBe(false);
+  });
+
   it("erzwingt die kritische Titel-Grenzwerttabelle durch Prädikat und Schema", () => {
     const cases = [
       { label: "Emoji bis zur UTF-16-Grenze", value: "🧭".repeat(80), accepted: true },
@@ -150,7 +194,9 @@ describe("Win-Challenges-Verträge", () => {
     expect(isTimerRemainMs(null)).toBe(true);
     expect(isTimerRemainMs(0)).toBe(true);
     expect(isTimerRemainMs(21_600_000)).toBe(true);
-    expect(isTimerRemainMs(-1)).toBe(false);
+    expect(isTimerRemainMs(-1)).toBe(true);
+    expect(isTimerRemainMs(-21_600_000)).toBe(true);
+    expect(isTimerRemainMs(-21_600_001)).toBe(false);
     expect(isTimerRemainMs(21_600_001)).toBe(false);
     expect(challengeSchema.safeParse({ ...challenge, timerRemainMs: 21_600_000 }).success).toBe(true);
     expect(challengeSchema.safeParse({ ...challenge, timerRemainMs: 21_600_001 }).success).toBe(false);

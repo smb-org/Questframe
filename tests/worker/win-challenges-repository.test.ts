@@ -39,6 +39,7 @@ const resetModuleTables = async (): Promise<void> => {
   await runInDurableObject(stub, (_instance, state) => {
     runMigrations(state.storage.sql, "worker-test");
     state.storage.sql.exec("DELETE FROM wc_challenges");
+    state.storage.sql.exec("DELETE FROM wc_retired_keys");
     state.storage.sql.exec("DELETE FROM wc_commands");
     state.storage.sql.exec("DELETE FROM wc_dock_tokens");
     state.storage.sql.exec(
@@ -71,18 +72,24 @@ const readGlobalTimerRow = async (): Promise<GlobalTimerRow> =>
 const definition = (title: string, sortOrder: number): ChallengeDefinition => ({
   clientId: `client-${String(sortOrder)}`,
   title,
+  kind: "counter",
+  unit: null,
   targetCount: 10,
   timerTotalMs: 60_000,
   sortOrder,
+  step: 1,
   hidden: false,
 });
 
 const definitionFor = (challenge: Challenge, title: string): ChallengeDefinition => ({
   id: challenge.id,
   title,
+  kind: challenge.kind,
+  unit: challenge.unit,
   targetCount: challenge.targetCount,
   timerTotalMs: challenge.timerTotalMs,
   sortOrder: challenge.sortOrder,
+  step: challenge.step,
   hidden: challenge.hidden,
 });
 
@@ -168,11 +175,13 @@ describe("win-challenges repository and migration", () => {
     expect(result.versions).toContain(14);
     expect(result.versions).toContain(15);
     expect(result.versions).toContain(16);
+    expect(result.versions).toContain(17);
     expect(result.tables).toEqual([
       "wc_challenges",
       "wc_commands",
       "wc_dock_tokens",
       "wc_meta",
+      "wc_retired_keys",
     ]);
     expect(result.columns).toEqual([
       "singleton",
@@ -206,9 +215,15 @@ describe("win-challenges repository and migration", () => {
     expect(result.challengeColumns).toEqual([
       "id",
       "title",
+      "kind",
+      "unit",
+      "control_key",
       "target_count",
       "timer_total_ms",
       "sort_order",
+      "step",
+      "best_count",
+      "hidden",
       "current_count",
       "state",
       "timer_ends_at",
@@ -216,7 +231,6 @@ describe("win-challenges repository and migration", () => {
       "completed_at",
       "created_at",
       "updated_at",
-      "hidden",
     ]);
     expect(result.meta).toMatchObject({
       event_seq: 0,
@@ -720,6 +734,139 @@ describe("win-challenges repository and migration", () => {
     });
   });
 
+  it("vergibt serverseitige Steuer-Keys für alle neuen Geschwister", async () => {
+    const saved = await inRepository((repository) =>
+      repository.saveBoard({
+        baseBoardRevision: 1,
+        definitions: [definition("Eins", 0), definition("Zwei", 1), definition("Drei", 2)],
+        now,
+      }),
+    );
+    const keys = saved.snapshot.challenges.map(({ controlKey }) => controlKey);
+
+    expect(keys).toHaveLength(3);
+    expect(new Set(keys.map((key) => key.toUpperCase())).size).toBe(3);
+    for (const key of keys) expect(key).toMatch(/^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{4}$/);
+  });
+
+  it("behält den Steuer-Key beim Umbenennen und schreibt gelöschte Keys als Tombstones", async () => {
+    const created = await inRepository((repository) =>
+      repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Original", 0)], now }),
+    );
+    const seeded = onlyChallenge(created.snapshot.challenges);
+    const renamed = await inRepository((repository) =>
+      repository.saveBoard({
+        baseBoardRevision: created.snapshot.boardRevision,
+        definitions: [definitionFor(seeded, "Umbenannt")],
+        now: future,
+      }),
+    );
+
+    expect(onlyChallenge(renamed.snapshot.challenges).controlKey).toBe(seeded.controlKey);
+
+    await inRepository((repository) =>
+      repository.saveBoard({ baseBoardRevision: renamed.snapshot.boardRevision, definitions: [], now: future }),
+    );
+    const retired = await runInDurableObject(stub, (_instance, state) =>
+      state.storage.sql.exec<{ control_key: string }>("SELECT control_key FROM wc_retired_keys").toArray(),
+    );
+
+    expect(retired).toEqual([{ control_key: seeded.controlKey }]);
+  });
+
+  it("löscht bei einer Teilaktualisierung genau zwei von fünf Challenges", async () => {
+    const created = await inRepository((repository) =>
+      repository.saveBoard({
+        baseBoardRevision: 1,
+        definitions: [
+          definition("Eins", 0),
+          definition("Zwei", 1),
+          definition("Drei", 2),
+          definition("Vier", 3),
+          definition("Fünf", 4),
+        ],
+        now,
+      }),
+    );
+    const removed = [created.snapshot.challenges[1], created.snapshot.challenges[3]];
+    const kept = [created.snapshot.challenges[0], created.snapshot.challenges[2], created.snapshot.challenges[4]];
+    if (removed.some((challenge) => challenge === undefined) || kept.some((challenge) => challenge === undefined)) {
+      throw new Error("Fünf Challenges wurden nicht angelegt.");
+    }
+    const removedChallenges = removed.filter((challenge): challenge is Challenge => challenge !== undefined);
+    const keptChallenges = kept.filter((challenge): challenge is Challenge => challenge !== undefined);
+
+    const updated = await inRepository((repository) =>
+      repository.saveBoard({
+        baseBoardRevision: created.snapshot.boardRevision,
+        definitions: keptChallenges.map((challenge) => definitionFor(challenge, challenge.title)),
+        now: future,
+      }),
+    );
+    const retired = await runInDurableObject(stub, (_instance, state) =>
+      state.storage.sql.exec<{ control_key: string }>("SELECT control_key FROM wc_retired_keys ORDER BY rowid").toArray(),
+    );
+
+    expect(updated.snapshot.challenges.map(({ id }) => id)).toEqual(keptChallenges.map(({ id }) => id));
+    expect(retired).toEqual(removedChallenges.map((challenge) => ({ control_key: challenge.controlKey })));
+  });
+
+  it("hinterlässt bei einem scheiternden DELETE keinen Tombstone", async () => {
+    const created = await inRepository((repository) =>
+      repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Gesperrt", 0)], now }),
+    );
+    const challenge = onlyChallenge(created.snapshot.challenges);
+
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec("PRAGMA foreign_keys = ON");
+      state.storage.sql.exec(`
+        CREATE TABLE wc_delete_blocker (
+          challenge_id TEXT PRIMARY KEY REFERENCES wc_challenges(id)
+        );
+      `);
+      state.storage.sql.exec(
+        "INSERT INTO wc_delete_blocker(challenge_id) VALUES (?)",
+        challenge.id,
+      );
+    });
+
+    let observation: {
+      challenges: readonly { id: string }[];
+      retired: readonly { control_key: string }[];
+    } | undefined;
+    try {
+      await expect(inRepository((repository) =>
+        repository.saveBoard({ baseBoardRevision: created.snapshot.boardRevision, definitions: [], now: future }),
+      )).rejects.toThrow();
+    } finally {
+      observation = await runInDurableObject(stub, (_instance, state) => {
+        const result = {
+          challenges: state.storage.sql.exec<{ id: string }>("SELECT id FROM wc_challenges ORDER BY id").toArray(),
+          retired: state.storage.sql.exec<{ control_key: string }>("SELECT control_key FROM wc_retired_keys ORDER BY rowid").toArray(),
+        };
+        state.storage.sql.exec("PRAGMA foreign_keys = OFF");
+        state.storage.sql.exec("DROP TABLE wc_delete_blocker");
+        return result;
+      });
+    }
+
+    expect(observation).toEqual({
+      challenges: [{ id: challenge.id }],
+      retired: [],
+    });
+  });
+
+  it("lässt controlKey nicht aus einer Client-Definition setzen", async () => {
+    const clientDefinition = {
+      ...definition("Client-Key", 0),
+      controlKey: "AAAA",
+    } as unknown as ChallengeDefinition;
+
+    await expect(inRepository((repository) =>
+      repository.saveBoard({ baseBoardRevision: 1, definitions: [clientDefinition], now }),
+    )).rejects.toThrow("Ungültige Challenge-Definition.");
+  });
+
   it("liest und schreibt eine pausierte Challenge-Restzeit im Roundtrip", async () => {
     const created = await inRepository((repository) =>
       repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Roundtrip", 0)], now }),
@@ -1201,7 +1348,11 @@ describe("win-challenges repository and migration", () => {
       snapshotRead: { rowsWritten: snapshot.rowsWritten, rowsRead: snapshot.rowsRead },
     });
     expect(mutation).toMatchObject({ rowsWritten: 4, rowsRead: 5 });
-    expect(board).toMatchObject({ rowsWritten: 7, rowsRead: 15 });
+    // Migration 17 adds one case-insensitive UNIQUE-index write per new
+    // control_key (3 writes). Measured reads increase by 3, from 15 to 18.
+    // The retired-key set is loaded once per saveBoard; current.challenges
+    // supplies the tombstone candidates, so neither path adds per-candidate reads.
+    expect(board).toMatchObject({ rowsWritten: 10, rowsRead: 18 });
     expect(settings).toMatchObject({ rowsWritten: 1, rowsRead: 20 });
     expect(snapshot).toMatchObject({ rowsWritten: 0, rowsRead: 7 });
   });

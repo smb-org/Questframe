@@ -44,6 +44,9 @@ type ChallengeDraft = {
   key: string;
   identity: { id: string } | { clientId: string };
   title: string;
+  kind: Challenge["kind"];
+  unit: Challenge["unit"];
+  step: Challenge["step"];
   targetCount: number | null;
   timerTotalMs: number | null;
   sortOrder: number;
@@ -75,6 +78,9 @@ const draftFromChallenge = (challenge: Challenge): ChallengeDraft => ({
   key: challenge.id,
   identity: { id: challenge.id },
   title: challenge.title,
+  kind: challenge.kind,
+  unit: challenge.unit,
+  step: challenge.step,
   targetCount: challenge.targetCount,
   timerTotalMs: challenge.timerTotalMs,
   sortOrder: challenge.sortOrder,
@@ -92,11 +98,14 @@ const draftsFromSnapshot = (snapshot: ChallengeBoardSnapshot): ChallengeDraft[] 
 const definitionFromDraft = (draft: ChallengeDraft): ChallengeDefinition => {
   const fields = {
     title: draft.title,
+    kind: draft.kind,
+    unit: draft.unit,
     targetCount: draft.targetCount,
     timerTotalMs: draft.timerTotalMs,
     sortOrder: draft.sortOrder,
+    step: draft.step,
     hidden: draft.hidden,
-  } as const;
+  };
   return "id" in draft.identity
     ? { id: draft.identity.id, ...fields }
     : { clientId: draft.identity.clientId, ...fields };
@@ -219,6 +228,9 @@ const defaultDraft = (sortOrder: number): ChallengeDraft => ({
   key: clientIdForNewChallenge(),
   identity: { clientId: clientIdForNewChallenge() },
   title: "Neue Challenge",
+  kind: "counter",
+  unit: null,
+  step: 1,
   targetCount: null,
   timerTotalMs: null,
   sortOrder,

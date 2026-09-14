@@ -714,11 +714,24 @@ stehen zuerst.
   `MAX_COUNT = 999`; das Beispiel „1.500 Meter" scheiterte, bevor Domain-Logik
   lief. `MAX_COUNT` und das ±99-Delta werden typabhängig, durch die ganze Kette
   (Predicates, Schemas, Overlay-Parser, Repository, `LiveApp.tsx`).
-- **Migration 17 muss `wc_meta` mitnehmen.** `global_timer_ends_at` und
-  `global_timer_paused_remain_ms` liegen dort, mit einem CHECK, der Negatives
-  verbietet (`migrations.ts:126-130`). Ohne Umbau gäbe es Überzeit nur für
-  Challenge-Timer, und `adjustTimer` könnte einen Zustand erzeugen, der erst
-  beim Pausieren an der Validierung scheitert. Muster: MIGRATION_11.
+- **~~Migration 17 muss `wc_meta` mitnehmen.~~ Zurückgezogen.** Die Begründung
+  war, dort verbiete ein CHECK negative Werte für
+  `global_timer_paused_remain_ms` und SQLite könne CHECKs nicht per ALTER
+  ändern. **Diesen CHECK gibt es nicht.** Die `wc_meta`-Tabelle trägt an den
+  genannten Stellen genau zwei Tabellen-CHECKs, beide nur über die
+  Null-Kombinatorik von `global_timer_ends_at` und
+  `global_timer_paused_remain_ms`; die Nichtnegativität steht in Zod,
+  `isPausedRemainMs` (`contracts/predicates.ts`). Globale Überzeit
+  freizugeben ist damit eine Prädikatsänderung in T6, kein Schemaeingriff.
+  Migration 17 baut `wc_meta` deshalb **nicht** um — ein kompletter
+  Tabellen-Neuaufbau weniger im einzigen unumkehrbaren Schritt.
+
+  *Korrigiert am 2026-09-14, aufgefallen bei der Umsetzung von T1 und
+  unabhängig vom Zweitreview (`gpt-5.6-sol`) am Code bestätigt. Es ist die
+  zweite Behauptung dieses Eng-Reviews über einen SQL-Constraint, die der
+  Code nicht hergibt — nach der Migration-11-Klemme. Wer hier künftig eine
+  Schemaaussage liest, prüft sie an `git show HEAD:src/channel/migrations.ts`,
+  bevor er darauf baut.*
 - **N1/N2/N3 landen als ein Commit.** Einzeln ist keiner lieferbar.
 
 **Bugs, die der Plan geerbt hätte:**
@@ -785,17 +798,17 @@ SQLite-Storage-API und nachgeprüft.*
 Aus den Befunden dieses Reviews. P1 blockiert das Ausliefern, P2 gehört in
 denselben Branch, P3 ist Nacharbeit.
 
-- [ ] **T2 (P1, human: ~1,5 Tage / CC: ~1 Sitzung)** — tests — Migrations-Testgerüst mit Schema-Fixtures, Idempotenz-Lauf und Synchronitäts-Invariante
-- [ ] **T9 (P1, human: ~5 Std / CC: ~35 Min)** — registry — P1-Vertrag mit `handle()`, `ModuleId`-Erweiterbarkeit klären, Selbsttest als Vitest
-- [ ] **T1 (P1, human: ~3 Tage / CC: ~2 Sitzungen)** — migration — Migration 17 atomar über `wc_challenges` und `wc_meta`, Allocator, Sperrliste, Contracts
+- [x] **T2 (P1, human: ~1,5 Tage / CC: ~1 Sitzung)** — tests — Migrations-Testgerüst mit Schema-Fixtures, Idempotenz-Lauf und Synchronitäts-Invariante
+- [x] **T9 (P1, human: ~5 Std / CC: ~35 Min)** — registry — P1-Vertrag ohne `handle()` (kommt mit P2), `ModuleId` aus der Registry abgeleitet, Selbsttest als Vitest
+- [x] **T1 (P1, human: ~3 Tage / CC: ~2 Sitzungen)** — migration — Migration 17 atomar über `wc_challenges` (nicht `wc_meta`, siehe Korrektur), Allocator, Sperrliste, Contracts
 - [ ] **T3 (P1, human: ~2 Std / CC: ~15 Min)** — service — `canonicalCommand` auf Payload-je-Typ, Regressionstests
 - [ ] **T4 (P1, human: ~1,5 Tage / CC: ~1 Sitzung)** — domain — `measure`: Grenzen typabhängig, kein Auto-Abschluss
 - [ ] **T5 (P1, human: ~3 Std / CC: ~20 Min)** — wire — `time_sync` im Challenge-Pfad
 - [ ] **T6 (P1, human: ~2 Tage / CC: ~1,5 Sitzungen)** — domain — Überzeit vollständig plus `streak-reset`-Ereignis
-- [ ] **T7 (P2, human: ~2 Std / CC: ~15 Min)** — contracts — `kind`, `unit`, `controlKey` über `predicates.ts`
+- [x] **T7 (P2, human: ~2 Std / CC: ~15 Min)** — contracts — `kind`, `unit`, `controlKey` über `predicates.ts`
 - [ ] **T8 (P2, human: ~1 Tag / CC: ~45 Min)** — domain — Typ-Semantik plus Key-Sichtbarkeit
-- [ ] **T10 (P2, human: ~1,5 Std / CC: ~10 Min)** — repository — Allocator lädt Key-Mengen einmal pro `saveBoard`
-- [ ] **T11 (P3, human: ~15 Min / CC: ~3 Min)** — channel — echte `build_id` durchreichen
+- [x] **T10 (P2, human: ~1,5 Std / CC: ~10 Min)** — repository — Allocator lädt Key-Mengen einmal pro `saveBoard`
+- [x] **T11 (P3, human: ~15 Min / CC: ~3 Min)** — channel — echte `build_id` durchreichen
 - [ ] **T12 (P3, human: ~30 Min / CC: ~5 Min)** — styles — Zustandsklassen als `wc-is-*`
 
 ## Parallelisierung

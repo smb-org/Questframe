@@ -31,9 +31,14 @@ const nowMilliseconds = Date.parse(now);
 const makeChallenge = (overrides: Partial<Challenge> = {}): Challenge => ({
   id: "challenge-1",
   title: "Eine Challenge",
+  kind: "counter",
+  unit: null,
+  controlKey: "K7RP",
   targetCount: 10,
   timerTotalMs: 10_000,
   sortOrder: 0,
+  step: 1,
+  bestCount: 0,
   hidden: false,
   currentCount: 0,
   state: "pending",
@@ -55,9 +60,12 @@ const makeGlobalTimer = (overrides: Partial<GlobalTimer> = {}): GlobalTimer => (
 const definition = {
   id: "challenge-1",
   title: "Eine Challenge",
+  kind: "counter",
+  unit: null,
   targetCount: 10,
   timerTotalMs: 10_000,
   sortOrder: 0,
+  step: 1,
   hidden: false,
 } as const;
 
@@ -468,12 +476,15 @@ describe("Win-Challenges-Domain", () => {
     const newDefinition = {
       clientId: "client-1",
       title: definition.title,
+      kind: "counter",
+      unit: null,
       targetCount: definition.targetCount,
       timerTotalMs: definition.timerTotalMs,
       sortOrder: definition.sortOrder,
+      step: 1,
       hidden: false,
     } as const;
-    expect(mergeDefinition(null, newDefinition, now, "generated-id")).toMatchObject({
+    expect(mergeDefinition(null, newDefinition, now, "generated-id", "K7RP")).toMatchObject({
       id: "generated-id",
       currentCount: 0,
       state: "pending",

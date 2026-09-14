@@ -6,6 +6,8 @@ const challengeGraphemeSegmenter = new Intl.Segmenter("de", {
 
 export const MAX_CHALLENGES = 30 as const;
 export const MAX_COUNT = 999 as const;
+export const MAX_CHALLENGE_STEP = 1_000_000 as const;
+export const MAX_CHALLENGE_UNIT_GRAPHEMES = 12 as const;
 export const MAX_VISIBLE_ROWS = 20 as const;
 export const GLOBAL_TIMER_UP_CAP_MS = 24 * 60 * 60 * 1000;
 
@@ -64,6 +66,21 @@ export const isChallengeTitle = (value: unknown): value is string =>
 export const isHidden = (value: unknown): value is boolean =>
   typeof value === "boolean";
 
+export const isChallengeKind = (value: unknown): value is "tick" | "counter" | "streak" | "measure" =>
+  value === "tick" || value === "counter" || value === "streak" || value === "measure";
+
+export const isChallengeUnit = (value: unknown): value is string => {
+  if (typeof value !== "string") return false;
+  const normalized = normalizeChallengeText(value);
+  return normalized.length > 0 && graphemeLength(normalized) <= MAX_CHALLENGE_UNIT_GRAPHEMES;
+};
+
+export const isControlKey = (value: unknown): value is string =>
+  typeof value === "string" && /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{4}$/.test(value);
+
+export const isChallengeStep = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= MAX_CHALLENGE_STEP;
+
 export const isTargetCount = (value: unknown): value is number | null =>
   value === null ||
   (typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= MAX_COUNT);
@@ -82,7 +99,7 @@ export const isTimerRemainMs = (value: unknown): value is number | null =>
   value === null ||
   (typeof value === "number" &&
     Number.isSafeInteger(value) &&
-    value >= 0 &&
+    value >= -21_600_000 &&
     value <= 21_600_000);
 
 export const isGlobalTimerTotalMs = (value: unknown): value is number | null =>

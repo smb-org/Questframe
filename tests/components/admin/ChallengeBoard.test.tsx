@@ -22,9 +22,14 @@ const challenge = (
 ): ChallengeBoardSnapshot["challenges"][number] => ({
   id,
   title,
+  kind: "counter",
+  unit: null,
+  controlKey: "K7RP",
   targetCount: 10,
   timerTotalMs: null,
   sortOrder: 0,
+  step: 1,
+  bestCount: 0,
   hidden: false,
   currentCount: 0,
   state: "pending",
@@ -167,6 +172,26 @@ describe("ChallengeBoard", () => {
       title: "Fünfmal bellen",
     });
     expect(save.mock.calls[0]?.[0].challenges[0]).not.toHaveProperty("description");
+  });
+
+  it("erhaelt kind, unit und step bei einer unbeteiligten Aenderung", async () => {
+    const user = userEvent.setup();
+    const initial = snapshot([
+      challenge("streak", "Serie", { kind: "streak", unit: null, step: 1, sortOrder: 0 }),
+      challenge("measure", "Messwert", { kind: "measure", unit: "kg", step: 5, sortOrder: 1 }),
+    ]);
+    const save = vi.fn<ChallengeBoardApi["save"]>().mockResolvedValue(responseFor(initial));
+    const { triggerSave } = renderBoard(initial, save);
+
+    const streakTitle = await screen.findByDisplayValue("Serie");
+    await user.clear(streakTitle);
+    await user.type(streakTitle, "Serie 2.0");
+    await triggerSave();
+
+    expect(save.mock.calls[0]?.[0].challenges).toEqual([
+      expect.objectContaining({ id: "streak", kind: "streak", unit: null, step: 1 }),
+      expect.objectContaining({ id: "measure", kind: "measure", unit: "kg", step: 5 }),
+    ]);
   });
 
   it("wendet clientId zu id an und sendet danach nur die echte ID", async () => {

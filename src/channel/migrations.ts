@@ -1,3 +1,5 @@
+import { allocateControlKey } from "../modules/win-challenges/domain/control-keys";
+
 const MIGRATION_1 = `
 CREATE TABLE IF NOT EXISTS _sql_schema_migrations (
   version INTEGER PRIMARY KEY,
@@ -327,6 +329,101 @@ const MIGRATION_14_PENALTY_TEXT = "ALTER TABLE wc_meta ADD COLUMN penalty_text T
 const MIGRATION_15_PENALTY_LABEL = "ALTER TABLE wc_meta ADD COLUMN penalty_label TEXT NOT NULL DEFAULT 'STRAFE';";
 const MIGRATION_16_TEXT_EMPHASIS = "ALTER TABLE wc_meta ADD COLUMN text_emphasis TEXT NOT NULL DEFAULT 'auto' CHECK (text_emphasis IN ('auto','strong','plain'));";
 
+type Migration17ChallengeRow = {
+  id: string;
+  title: string;
+  target_count: number | null;
+  timer_total_ms: number | null;
+  sort_order: number;
+  hidden: number;
+  current_count: number;
+  state: string;
+  timer_ends_at: string | null;
+  timer_remain_ms: number | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+const MIGRATION_17_CHALLENGE_TABLE = `
+CREATE TABLE wc_challenges_migration_17 (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('tick', 'counter', 'streak', 'measure')),
+  unit TEXT,
+  control_key TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  target_count INTEGER,
+  timer_total_ms INTEGER,
+  sort_order INTEGER NOT NULL,
+  step INTEGER NOT NULL DEFAULT 1 CHECK (step >= 1),
+  best_count INTEGER NOT NULL,
+  hidden INTEGER NOT NULL CHECK (hidden IN (0, 1)),
+  current_count INTEGER NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('pending', 'active', 'done')),
+  timer_ends_at TEXT,
+  timer_remain_ms INTEGER CHECK (timer_remain_ms BETWEEN -21600000 AND 21600000),
+  completed_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK (
+    (kind = 'measure' AND unit IS NOT NULL)
+    OR (kind <> 'measure' AND unit IS NULL)
+  ),
+  CHECK (timer_ends_at IS NULL OR timer_remain_ms IS NULL)
+);
+CREATE TABLE IF NOT EXISTS wc_retired_keys (
+  control_key TEXT PRIMARY KEY COLLATE NOCASE
+);
+`;
+
+const migrateChallenges17 = (sql: SqlStorage): void => {
+  sql.exec("DROP TABLE IF EXISTS wc_challenges_migration_17");
+  const legacyRows = sql
+    .exec<Migration17ChallengeRow>(
+      `SELECT id, title, target_count, timer_total_ms, sort_order, hidden, current_count, state,
+        timer_ends_at, timer_remain_ms, completed_at, created_at, updated_at
+       FROM wc_challenges ORDER BY rowid`,
+    )
+    .toArray();
+  const persistedKeys = new Set<string>();
+  const allocatedKeys = new Set<string>();
+  const retiredKeys = new Set<string>();
+  const migratedRows = legacyRows.map((row) => {
+    const controlKey = allocateControlKey([persistedKeys, allocatedKeys, retiredKeys]);
+    allocatedKeys.add(controlKey);
+    return { ...row, controlKey };
+  });
+  const insertChallenge = `INSERT INTO wc_challenges_migration_17(
+  id, title, kind, unit, control_key, target_count, timer_total_ms, sort_order,
+  step, best_count, hidden, current_count, state, timer_ends_at, timer_remain_ms,
+  completed_at, created_at, updated_at
+) VALUES (?, ?, 'counter', NULL, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?);`;
+  sql.exec(MIGRATION_17_CHALLENGE_TABLE);
+  for (const row of migratedRows) {
+    sql.exec(
+      insertChallenge,
+      row.id,
+      row.title,
+      row.controlKey,
+      row.target_count,
+      row.timer_total_ms,
+      row.sort_order,
+      row.current_count,
+      row.hidden,
+      row.current_count,
+      row.state,
+      row.timer_ends_at,
+      row.timer_remain_ms,
+      row.completed_at,
+      row.created_at,
+      row.updated_at,
+    );
+  }
+  sql.exec(`
+DROP TABLE wc_challenges;
+ALTER TABLE wc_challenges_migration_17 RENAME TO wc_challenges;`);
+};
+
 export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
   sql.exec(MIGRATION_1);
   const versionOneWasApplied = sql
@@ -541,6 +638,18 @@ export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
     sql.exec(
       "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
       16,
+      buildId,
+      new Date().toISOString(),
+    );
+  }
+  const versionSeventeenWasApplied = sql
+    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 17")
+    .toArray().length > 0;
+  if (!versionSeventeenWasApplied) {
+    migrateChallenges17(sql);
+    sql.exec(
+      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
+      17,
       buildId,
       new Date().toISOString(),
     );

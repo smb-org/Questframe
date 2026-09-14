@@ -217,7 +217,7 @@ const mapZodIssues = (error: z.ZodError): Record<string, string> =>
 export class ChannelObject extends DurableObject<AppEnv> {
   constructor(ctx: DurableObjectState, env: AppEnv) {
     super(ctx, env);
-    runMigrations(ctx.storage.sql, "v1");
+    runMigrations(ctx.storage.sql, env.CF_VERSION_METADATA.id);
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
 

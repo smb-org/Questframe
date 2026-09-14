@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 
 import { runMigrations } from "../../src/channel/migrations";
 import MIGRATIONS_SOURCE from "../../src/channel/migrations.ts?raw";
+import CONTROL_KEYS_SOURCE from "../../src/modules/win-challenges/domain/control-keys.ts?raw";
+import { MAX_CHALLENGES } from "../../src/modules/win-challenges/contracts/predicates";
 import {
   readSchemaSnapshot,
   withHistoricalDatabase as withHarnessDatabase,
@@ -12,6 +14,7 @@ import {
 
 const FIXTURE_TIMESTAMP = "2026-08-30T12:00:00.000Z";
 const HISTORICAL_VERSIONS = Array.from({ length: 16 }, (_, index) => index + 1) as HistoricalSchemaVersion[];
+const CURRENT_VERSIONS = Array.from({ length: 17 }, (_, index) => index + 1);
 const ALL_SCHEMA_VERSIONS = [0, ...HISTORICAL_VERSIONS] as HistoricalSchemaVersion[];
 const RECOVERABLE_CRASH_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16] as HistoricalSchemaVersion[];
 
@@ -258,6 +261,7 @@ const resetDatabase = (sql: SqlStorage): void => {
     "media_blobs",
     "media_leases",
     "twitch_user_cache",
+    "wc_retired_keys",
   ]) {
     sql.exec(`DROP TABLE IF EXISTS ${quoteIdentifier(tableName)}`);
   }
@@ -390,6 +394,97 @@ export const createHistoricalDatabase = (sql: SqlStorage, version: HistoricalSch
   insertMigrationLedger(sql, version);
 };
 
+const createCurrentMigration3V16Database = (sql: SqlStorage): void => {
+  resetDatabase(sql);
+  sql.exec(BASE_SCHEMA_WITHOUT_OVERLAY_ENVELOPE);
+  seedBaseData(sql);
+  sql.exec("ALTER TABLE overlay_tokens ADD COLUMN token_envelope TEXT;");
+  sql.exec(`
+    CREATE TABLE wc_meta (
+      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+      event_seq INTEGER NOT NULL,
+      board_revision INTEGER NOT NULL,
+      settings_revision INTEGER NOT NULL,
+      style_id TEXT NOT NULL,
+      theme_mode TEXT NOT NULL CHECK (theme_mode IN ('inherit', 'own')),
+      surface_opacity INTEGER NOT NULL DEFAULT 100 CHECK (surface_opacity IN (0,25,50,75,100)),
+      header_style TEXT NOT NULL DEFAULT 'default' CHECK (header_style IN ('default','inverted')),
+      text_emphasis TEXT NOT NULL DEFAULT 'auto' CHECK (text_emphasis IN ('auto','strong','plain')),
+      font_family TEXT NOT NULL DEFAULT 'theme' CHECK (font_family IN ('theme','atkinson','serif','sans','mono')),
+      font_scale REAL NOT NULL DEFAULT 1 CHECK (font_scale BETWEEN 0.75 AND 2),
+      header_title TEXT NOT NULL,
+      penalty_label TEXT NOT NULL DEFAULT 'STRAFE',
+      penalty_text TEXT NOT NULL DEFAULT '',
+      effects_enabled INTEGER NOT NULL CHECK (effects_enabled IN (0, 1)),
+      max_visible INTEGER NOT NULL DEFAULT 5 CHECK (max_visible BETWEEN 3 AND 20),
+      overflow_mode TEXT NOT NULL DEFAULT 'cut' CHECK (overflow_mode IN ('cut', 'page', 'scroll')),
+      overflow_tempo TEXT NOT NULL DEFAULT 'medium' CHECK (overflow_tempo IN ('slow', 'medium', 'fast')),
+      numbered INTEGER NOT NULL DEFAULT 0 CHECK (numbered IN (0, 1)),
+      done_order TEXT NOT NULL DEFAULT 'end' CHECK (done_order IN ('end', 'keep')),
+      global_timer_mode TEXT NOT NULL DEFAULT 'down' CHECK (global_timer_mode IN ('down', 'up')),
+      placement_x INTEGER NOT NULL DEFAULT 300 CHECK (placement_x BETWEEN 0 AND 384),
+      placement_y INTEGER NOT NULL DEFAULT 8 CHECK (placement_y BETWEEN 0 AND 216),
+      placement_scale REAL NOT NULL DEFAULT 1 CHECK (placement_scale BETWEEN 0.75 AND 2),
+      global_timer_total_ms INTEGER,
+      global_timer_ends_at TEXT,
+      global_timer_paused_remain_ms INTEGER,
+      CHECK (global_timer_ends_at IS NULL OR global_timer_paused_remain_ms IS NULL),
+      CHECK (
+        global_timer_total_ms IS NOT NULL
+        OR (global_timer_ends_at IS NULL AND global_timer_paused_remain_ms IS NULL)
+      )
+    );
+    CREATE TABLE wc_challenges (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      target_count INTEGER,
+      timer_total_ms INTEGER,
+      sort_order INTEGER NOT NULL,
+      current_count INTEGER NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('pending', 'active', 'done')),
+      timer_ends_at TEXT,
+      timer_remain_ms INTEGER CHECK (timer_remain_ms BETWEEN 0 AND 21600000),
+      completed_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (timer_ends_at IS NULL OR timer_remain_ms IS NULL)
+    );
+    CREATE TABLE wc_commands (
+      command_id TEXT PRIMARY KEY,
+      request_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE wc_dock_tokens (
+      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+      token_hash TEXT NOT NULL,
+      token_envelope TEXT,
+      fingerprint TEXT NOT NULL,
+      generation INTEGER NOT NULL,
+      request_id TEXT NOT NULL,
+      creating_session_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      last_used_at TEXT
+    );
+    INSERT INTO wc_meta(
+      singleton, event_seq, board_revision, settings_revision, style_id,
+      theme_mode, surface_opacity, header_style, text_emphasis, font_family, font_scale,
+      header_title, penalty_label, penalty_text, effects_enabled, max_visible,
+      overflow_mode, overflow_tempo, numbered, done_order, global_timer_mode,
+      placement_x, placement_y, placement_scale,
+      global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms
+    ) VALUES (
+      1, 0, 1, 1, 'plain-list', 'inherit', 100, 'default', 'auto', 'theme', 1,
+      'CHALLENGES', 'STRAFE', '', 1, 5,
+      'cut', 'medium', 0, 'end', 'down',
+      300, 8, 1, NULL, NULL, NULL
+    );
+    ALTER TABLE wc_challenges ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0 CHECK (hidden IN (0, 1));
+    ALTER TABLE wc_challenges DROP COLUMN description;
+  `);
+  insertMigrationLedger(sql, 16);
+};
+
 export const readDatabaseSnapshot = (sql: SqlStorage): DatabaseSnapshot => {
   const data: Record<string, readonly Record<string, SqlStorageValue>[]> = {};
   for (const tableName of createTableNames(sql)) {
@@ -505,6 +600,77 @@ const withHistoricalDatabase = <T>(
   },
 );
 
+type LegacyChallengeSentinel = {
+  id: string;
+  title: string;
+  target_count: number;
+  timer_total_ms: number;
+  sort_order: number;
+  current_count: number;
+  state: "pending" | "active" | "done";
+  timer_ends_at: string | null;
+  timer_remain_ms: number | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  hidden: number;
+};
+
+const makeSentinelInstant = (hour: number, index: number): string =>
+  new Date(Date.UTC(2026, 7, 30, hour, index)).toISOString();
+
+const makeMigration17Sentinels = (count: number = MAX_CHALLENGES): LegacyChallengeSentinel[] => Array.from(
+  { length: count },
+  (_, index) => ({
+    id: `sentinel-id-${String(index).padStart(2, "0")}`,
+    title: `sentinel-title-${String(index).padStart(2, "0")}`,
+    target_count: 100 + index,
+    timer_total_ms: 60_000 + index,
+    sort_order: index,
+    current_count: 400 + index,
+    state: index % 3 === 0 ? "pending" : index % 3 === 1 ? "active" : "done",
+    timer_ends_at: index % 2 === 0 ? makeSentinelInstant(12, index) : null,
+    timer_remain_ms: index % 2 === 0 ? null : 1_000 + index,
+    completed_at: makeSentinelInstant(13, index),
+    created_at: makeSentinelInstant(14, index),
+    updated_at: makeSentinelInstant(15, index),
+    hidden: index % 2,
+  }),
+);
+
+const insertMigration17Sentinels = (sql: SqlStorage, rows: readonly LegacyChallengeSentinel[]): void => {
+  sql.exec("DELETE FROM wc_challenges");
+  for (const row of rows) {
+    sql.exec(
+      `INSERT INTO wc_challenges(
+        id, title, target_count, timer_total_ms, sort_order, current_count, state,
+        timer_ends_at, timer_remain_ms, completed_at, created_at, updated_at, hidden
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      row.id,
+      row.title,
+      row.target_count,
+      row.timer_total_ms,
+      row.sort_order,
+      row.current_count,
+      row.state,
+      row.timer_ends_at,
+      row.timer_remain_ms,
+      row.completed_at,
+      row.created_at,
+      row.updated_at,
+      row.hidden,
+    );
+  }
+};
+
+const readLegacyChallengeSentinels = (sql: SqlStorage): LegacyChallengeSentinel[] => sql
+  .exec<LegacyChallengeSentinel>(
+    `SELECT id, title, target_count, timer_total_ms, sort_order, current_count, state,
+      timer_ends_at, timer_remain_ms, completed_at, created_at, updated_at, hidden
+     FROM wc_challenges ORDER BY id`,
+  )
+  .toArray();
+
 describe("Migrations-Harness", () => {
   it("haelt den vollstaendig synchronen Migrationspfad fest", () => {
     const forbiddenConstructs = [
@@ -512,9 +678,10 @@ describe("Migrations-Harness", () => {
       ["async", /\basync\b/],
       ["Promise", /\bPromise\b/],
     ] as const;
-    const violations = forbiddenConstructs
-      .filter(([, pattern]) => pattern.test(MIGRATIONS_SOURCE))
-      .map(([construct]) => construct);
+    const violations = [MIGRATIONS_SOURCE, CONTROL_KEYS_SOURCE]
+      .flatMap((source) => forbiddenConstructs
+        .filter(([, pattern]) => pattern.test(source))
+        .map(([construct]) => construct));
 
     expect(
       violations,
@@ -522,7 +689,7 @@ describe("Migrations-Harness", () => {
     ).toEqual([]);
   });
 
-  it("führt eine frische Datenbank durch die Versionen 1 bis 16", async () => {
+  it("führt eine frische Datenbank durch die Versionen 1 bis 17", async () => {
     const result = await withHistoricalDatabase(0, (sql) => {
       runMigrations(sql, "migration-harness-fresh");
       return {
@@ -547,7 +714,7 @@ describe("Migrations-Harness", () => {
       };
     });
 
-    expect(result.versions).toEqual(HISTORICAL_VERSIONS);
+    expect(result.versions).toEqual(CURRENT_VERSIONS);
     expect(result.schema.filter(({ type }) => type === "table").map(({ name }) => name)).toEqual([
       "_sql_schema_migrations",
       "audit_log",
@@ -564,6 +731,7 @@ describe("Migrations-Harness", () => {
       "wc_commands",
       "wc_dock_tokens",
       "wc_meta",
+      "wc_retired_keys",
     ]);
     expect(result.schema.find(({ name }) => name === "wc_meta")?.sql).toMatch(/surface_opacity/i);
     expect(result.schema.find(({ name }) => name === "wc_meta")?.sql).not.toMatch(/surface_mode/i);
@@ -618,6 +786,11 @@ describe("Migrations-Harness", () => {
             target_count: number | null;
             timer_total_ms: number | null;
             sort_order: number;
+            kind: string;
+            unit: string | null;
+            control_key: string;
+            step: number;
+            best_count: number;
             current_count: number;
             state: string;
             timer_ends_at: string | null;
@@ -627,7 +800,7 @@ describe("Migrations-Harness", () => {
             updated_at: string;
             hidden: number;
           }>(
-            "SELECT id, title, target_count, timer_total_ms, sort_order, current_count, state, timer_ends_at, timer_remain_ms, completed_at, created_at, updated_at, hidden FROM wc_challenges ORDER BY id",
+            "SELECT id, title, target_count, timer_total_ms, sort_order, kind, unit, control_key, step, best_count, current_count, state, timer_ends_at, timer_remain_ms, completed_at, created_at, updated_at, hidden FROM wc_challenges ORDER BY id",
           )
           .toArray(),
         meta: sql
@@ -718,13 +891,17 @@ describe("Migrations-Harness", () => {
       },
     ]);
     if (version >= 3) {
-      expect(result.challenges).toEqual([
+      expect(result.challenges).toMatchObject([
         {
           id: "fixture-active",
           title: "Aktive Challenge",
           target_count: 5,
           timer_total_ms: 90000,
           sort_order: 2,
+          kind: "counter",
+          unit: null,
+          step: 1,
+          best_count: 2,
           current_count: 2,
           state: "active",
           timer_ends_at: "2026-08-30T12:45:00.000Z",
@@ -740,6 +917,10 @@ describe("Migrations-Harness", () => {
           target_count: 3,
           timer_total_ms: 60000,
           sort_order: 1,
+          kind: "counter",
+          unit: null,
+          step: 1,
+          best_count: 3,
           current_count: 3,
           state: "done",
           timer_ends_at: null,
@@ -829,9 +1010,216 @@ describe("Migrations-Harness", () => {
       expect(result.commands).toEqual([]);
       expect(result.dockTokens).toEqual([]);
     }
-    expect(result.versions).toEqual(HISTORICAL_VERSIONS);
+    expect(result.versions).toEqual(CURRENT_VERSIONS);
     expect(result.schema.some(({ name }) => name === "wc_meta_migration_11")).toBe(false);
     expect(result.schema.find(({ name }) => name === "wc_challenges")?.sql).not.toMatch(/\bdescription\b/i);
+  });
+
+  it("führt Migration 17 für Bestandsdaten mit eindeutigen Keys und symmetrischer Überzeit-Grenze aus", async () => {
+    const result = await withHistoricalDatabase(16, (sql) => {
+      runMigrations(sql, "migration-harness-v17");
+      return {
+        challenges: sql
+          .exec<{
+            id: string;
+            kind: string;
+            unit: string | null;
+            control_key: string;
+            step: number;
+            best_count: number;
+            current_count: number;
+            timer_remain_ms: number | null;
+          }>("SELECT id, kind, unit, control_key, step, best_count, current_count, timer_remain_ms FROM wc_challenges ORDER BY id")
+          .toArray(),
+        retiredKeys: sql
+          .exec<{ control_key: string }>("SELECT control_key FROM wc_retired_keys")
+          .toArray(),
+        challengeSchema: sql
+          .exec<{ sql: string }>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'wc_challenges'")
+          .toArray()[0]?.sql,
+        metaSchema: sql
+          .exec<{ sql: string }>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'wc_meta'")
+          .toArray()[0]?.sql,
+      };
+    });
+
+    expect(result.challenges).toMatchObject([
+      {
+        id: "fixture-active",
+        kind: "counter",
+        unit: null,
+        step: 1,
+        best_count: 2,
+        current_count: 2,
+        timer_remain_ms: null,
+      },
+      {
+        id: "fixture-done",
+        kind: "counter",
+        unit: null,
+        step: 1,
+        best_count: 3,
+        current_count: 3,
+        timer_remain_ms: null,
+      },
+    ]);
+    expect(result.challenges.every(({ control_key }) => /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{4}$/.test(control_key))).toBe(true);
+    expect(new Set(result.challenges.map(({ control_key }) => control_key.toUpperCase())).size).toBe(2);
+    expect(result.retiredKeys).toEqual([]);
+    expect(result.challengeSchema).toMatch(/kind\s+TEXT\s+NOT NULL/i);
+    expect(result.challengeSchema).toMatch(/unit\s+TEXT/i);
+    expect(result.challengeSchema).toMatch(/control_key\s+TEXT\s+NOT NULL/i);
+    expect(result.challengeSchema).toMatch(/timer_remain_ms\s+INTEGER[^,]*BETWEEN\s+-21600000\s+AND\s+21600000/i);
+    expect(result.challengeSchema).toMatch(/step\s+INTEGER\s+NOT NULL[^,]*CHECK\s*\(\s*step\s*>=\s*1\s*\)/i);
+    expect(result.metaSchema).toMatch(/global_timer_paused_remain_ms\s+INTEGER/i);
+    expect(result.metaSchema).not.toMatch(/global_timer_paused_remain_ms\s+IS\s+NULL\s+OR\s+global_timer_paused_remain_ms\s*>=\s*0/i);
+  });
+
+  it.each([
+    ["historischen V16-Fixture", (sql: SqlStorage) => { createHistoricalDatabase(sql, 16); }],
+    ["heutigen MIGRATION_3-V16-Fixture", createCurrentMigration3V16Database],
+  ] as const)("überführt 30 Zeilen vollständig aus dem %s", async (_label, initialize) => {
+    const result = await withHarnessDatabase(16, (sql) => {
+      const sentinels = makeMigration17Sentinels();
+      insertMigration17Sentinels(sql, sentinels);
+      const before = readLegacyChallengeSentinels(sql);
+
+      runMigrations(sql, "migration-harness-v17-sentinels");
+
+      return {
+        before,
+        after: readLegacyChallengeSentinels(sql),
+        challenges: sql
+          .exec<{
+            id: string;
+            title: string;
+            kind: string;
+            unit: string | null;
+            control_key: string;
+            target_count: number | null;
+            timer_total_ms: number | null;
+            sort_order: number;
+            step: number;
+            best_count: number;
+            current_count: number;
+          }>(
+            `SELECT id, title, kind, unit, control_key, target_count, timer_total_ms,
+              sort_order, step, best_count, current_count
+             FROM wc_challenges ORDER BY rowid`,
+          )
+          .toArray(),
+        version17: sql
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 17")
+          .toArray(),
+      };
+    }, initialize);
+
+    expect(result.before).toHaveLength(30);
+    expect(result.after).toHaveLength(30);
+    expect(result.after).toEqual(result.before);
+    expect(result.challenges).toHaveLength(MAX_CHALLENGES);
+    expect(result.challenges.map(({ id }) => id)).toEqual(result.before.map(({ id }) => id));
+    expect(result.challenges.map(({ title }) => title)).toEqual(result.before.map(({ title }) => title));
+    expect(result.challenges.every(({ kind, unit, step }) => kind === "counter" && unit === null && step === 1)).toBe(true);
+    expect(result.challenges.map(({ target_count }) => target_count)).toEqual(result.before.map(({ target_count }) => target_count));
+    expect(result.challenges.map(({ timer_total_ms }) => timer_total_ms)).toEqual(result.before.map(({ timer_total_ms }) => timer_total_ms));
+    expect(result.challenges.map(({ sort_order }) => sort_order)).toEqual(result.before.map(({ sort_order }) => sort_order));
+    expect(result.challenges.map(({ current_count, best_count }) => [current_count, best_count])).toEqual(
+      result.before.map(({ current_count }) => [current_count, current_count]),
+    );
+    expect(new Set(result.challenges.map(({ control_key }) => control_key.toLowerCase())).size)
+      .toBe(MAX_CHALLENGES);
+    expect(result.version17).toEqual([{ version: 17 }]);
+  });
+
+  it("führt den Migration-17-Backfill auch für 120 Altzeilen ohne variable Bindingzahl aus", async () => {
+    const sentinels = makeMigration17Sentinels(120);
+    const result = await withHistoricalDatabase(16, (sql) => {
+      insertMigration17Sentinels(sql, sentinels);
+      runMigrations(sql, "migration-harness-v17-binding-limit");
+      return {
+        ids: sql.exec<{ id: string }>("SELECT id FROM wc_challenges ORDER BY id").toArray(),
+        keys: sql.exec<{ control_key: string }>("SELECT control_key FROM wc_challenges ORDER BY id").toArray(),
+        temporaryTables: sql
+          .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%_migration_17'")
+          .toArray(),
+        version17: sql
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 17")
+          .toArray(),
+      };
+    });
+
+    expect(result.ids).toEqual(sentinels.map(({ id }) => ({ id })).sort((left, right) => left.id.localeCompare(right.id)));
+    expect(result.keys).toHaveLength(120);
+    expect(new Set(result.keys.map(({ control_key }) => control_key.toLowerCase())).size).toBe(120);
+    expect(result.temporaryTables).toEqual([]);
+    expect(result.version17).toEqual([{ version: 17 }]);
+  });
+
+  /*
+   * Dieser Test beweist den operativ relevanten Wiederanlauf nach einem
+   * abgefangenen Fehler: Nutzdaten kommen vollständig an, die Temp-Tabelle
+   * verschwindet und der Ledger wird genau einmal geschrieben. Die
+   * Rollback-Semantik eines abgefangenen Fehlers wird hier ausdrücklich nicht
+   * entschieden; deshalb ist Migration 17 aufräumend gebaut.
+   */
+  it("räumt nach einem Abbruch auf und lässt den vollständigen Wiederanlauf zu", async () => {
+    await withHistoricalDatabase(16, (sql) => {
+      sql.exec("PRAGMA foreign_keys = ON");
+      sql.exec(`
+        CREATE TABLE migration_17_drop_blocker (
+          challenge_id TEXT PRIMARY KEY REFERENCES wc_challenges(id)
+        );
+      `);
+      sql.exec("INSERT INTO migration_17_drop_blocker(challenge_id) VALUES ('fixture-active')");
+
+      expect(() => { runMigrations(sql, "migration-harness-v17-rollback"); }).toThrow();
+
+      sql.exec("PRAGMA foreign_keys = OFF");
+      sql.exec("DROP TABLE migration_17_drop_blocker");
+      runMigrations(sql, "migration-harness-v17-retry");
+
+      expect(readLegacyChallengeSentinels(sql)).toEqual([
+        {
+          id: "fixture-active",
+          title: "Aktive Challenge",
+          target_count: 5,
+          timer_total_ms: 90000,
+          sort_order: 2,
+          current_count: 2,
+          state: "active",
+          timer_ends_at: "2026-08-30T12:45:00.000Z",
+          timer_remain_ms: null,
+          completed_at: null,
+          created_at: FIXTURE_TIMESTAMP,
+          updated_at: FIXTURE_TIMESTAMP,
+          hidden: 0,
+        },
+        {
+          id: "fixture-done",
+          title: "Erledigte Challenge",
+          target_count: 3,
+          timer_total_ms: 60000,
+          sort_order: 1,
+          current_count: 3,
+          state: "done",
+          timer_ends_at: null,
+          timer_remain_ms: null,
+          completed_at: "2026-08-30T12:31:00.000Z",
+          created_at: FIXTURE_TIMESTAMP,
+          updated_at: FIXTURE_TIMESTAMP,
+          hidden: 0,
+        },
+      ]);
+      expect(
+        sql
+          .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%_migration_17'")
+          .toArray(),
+      ).toEqual([]);
+      expect(
+        sql.exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 17").toArray(),
+      ).toEqual([{ version: 17 }]);
+    });
   });
 
   it.each(ALL_SCHEMA_VERSIONS)("macht einen zweiten Lauf auf Stand %i zu einem echten No-op", async (version) => {

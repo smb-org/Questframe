@@ -8,6 +8,10 @@ import type {
 } from "../shared/contracts/win-challenges";
 import {
   isChallengeId,
+  isChallengeKind,
+  isChallengeStep,
+  isChallengeUnit,
+  isControlKey,
   isChallengeState,
   isChallengeStyleId,
   isChallengeTitle,
@@ -40,6 +44,7 @@ import {
   isChallengeTextEmphasis,
   isTimerTotalMs,
   isTimerRemainMs,
+  normalizeChallengeText,
   MAX_CHALLENGES,
 } from "../modules/win-challenges/contracts/predicates";
 
@@ -145,9 +150,14 @@ const parseChallenge = (input: unknown): Challenge | null => {
     !exactKeys(input, [
       "id",
       "title",
+      "kind",
+      "unit",
+      "controlKey",
       "targetCount",
       "timerTotalMs",
       "sortOrder",
+      "step",
+      "bestCount",
       "hidden",
       "currentCount",
       "state",
@@ -159,9 +169,15 @@ const parseChallenge = (input: unknown): Challenge | null => {
     ]) ||
     !isChallengeId(input.id) ||
     !isChallengeTitle(input.title) ||
+    !isChallengeKind(input.kind) ||
+    !(input.unit === null || isChallengeUnit(input.unit)) ||
+    (input.unit !== null && input.unit !== normalizeChallengeText(input.unit)) ||
+    !isControlKey(input.controlKey) ||
     !isTargetCount(input.targetCount) ||
     !isTimerTotalMs(input.timerTotalMs) ||
     !isSortOrder(input.sortOrder) ||
+    !isChallengeStep(input.step) ||
+    !isCurrentCount(input.bestCount) ||
     !isHidden(input.hidden) ||
     !isCurrentCount(input.currentCount) ||
     !isChallengeState(input.state) ||
@@ -170,7 +186,11 @@ const parseChallenge = (input: unknown): Challenge | null => {
     (input.timerEndsAt !== null && input.timerRemainMs !== null) ||
     !(input.completedAt === null || isInstant(input.completedAt)) ||
     !isInstant(input.createdAt) ||
-    !isInstant(input.updatedAt)
+    !isInstant(input.updatedAt) ||
+    (input.kind === "tick" && input.targetCount !== null) ||
+    ((input.kind === "streak" || input.kind === "measure") && input.targetCount === null) ||
+    (input.kind === "measure" && input.unit === null) ||
+    (input.kind !== "measure" && input.unit !== null)
   ) return null;
   return input as unknown as Challenge;
 };

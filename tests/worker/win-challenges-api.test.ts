@@ -31,9 +31,12 @@ const commandId = (): string => crypto.randomUUID();
 const definition = (title = "Eine Challenge"): ChallengeDefinition => ({
   clientId: `client-${title}`,
   title,
+  kind: "counter",
+  unit: null,
   targetCount: 3,
   timerTotalMs: 10_000,
   sortOrder: 0,
+  step: 1,
   hidden: false,
 });
 

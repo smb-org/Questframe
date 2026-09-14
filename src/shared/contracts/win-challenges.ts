@@ -20,13 +20,19 @@ export type ChallengeThemeId =
   | "modern-minimal";
 
 export type ChallengeState = "pending" | "active" | "done";
+export type ChallengeKind = "tick" | "counter" | "streak" | "measure";
 
 export type Challenge = {
   id: string;
   title: string;
+  kind: ChallengeKind;
+  unit: string | null;
+  controlKey: string;
   targetCount: number | null;
   timerTotalMs: number | null;
   sortOrder: number;
+  step: number;
+  bestCount: number;
   hidden: boolean;
   currentCount: number;
   state: ChallengeState;
