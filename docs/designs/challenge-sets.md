@@ -209,10 +209,11 @@ bleibt an einer Stelle.
 
 ## Open Questions
 
-1. **Wie viele Sets pro Kanal, und was passiert bei Namensgleichheit?**
-   Eine Obergrenze gehört in `predicates.ts` wie `MAX_CHALLENGES`, sonst
-   wächst die Tabelle unbegrenzt. Vorschlag: 20, umbenennen erlaubt,
-   gleicher Name überschreibt nicht sondern wird abgelehnt.
+1. ~~**Wie viele Sets pro Kanal, und was passiert bei Namensgleichheit?**~~
+   **Beantwortet mit Runde 2:** 20 eigene Sets als Konstante neben
+   `MAX_CHALLENGES`, Namen höchstens 24 Zeichen wie `penaltyLabel`, gleicher
+   Name abgelehnt statt überschrieben. Die Autosicherung liegt auf einem
+   reservierten Platz und zählt nicht gegen die Grenze.
 2. **Wächst `wc_retired_keys` unbegrenzt?** Ja, und das ist vertretbar:
    zweimal tägliches Umschalten mit 30 Zeilen ergibt rund 22.000 Einträge im
    Jahr, gegen einen Pool von 31^4 ≈ 923.000. Der Namensraum hält Jahrzehnte,
