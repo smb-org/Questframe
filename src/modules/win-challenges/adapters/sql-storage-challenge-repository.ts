@@ -5,22 +5,28 @@ import {
   challengeDefinitionSchema,
   challengePlacementSchema,
   challengeSchema,
+  challengeSetV1Schema,
   globalTimerSchema,
   settingsSchema,
   type Challenge,
+  type ChallengeSetSummary,
   type GlobalTimer,
 } from "../contracts/schemas";
 import {
   MAX_CHALLENGES,
+  MAX_CHALLENGE_SETS,
   isCurrentCountForKind,
+  isChallengeSetName,
   isDeltaForKind,
   isEventSeq,
   isGlobalTimerMode,
   isGlobalTimerTotalMs,
   isRevision,
   maxCountForKind,
+  normalizeChallengeSetName,
 } from "../contracts/predicates";
 import { mergeDefinition, normalizeSortOrder } from "../domain/definitions";
+import { encodeChallengeSet } from "../domain/set-codec";
 import type { DomainNow } from "../domain/timers";
 import {
   IdempotencyMismatchError,
@@ -29,10 +35,14 @@ import {
   ValidationError,
   type BoardSaveInput,
   type BoardSaveResult,
+  AUTO_SAVE_SET_ID,
+  AUTO_SAVE_SET_NAME,
   type ChallengeRepository,
   type ChallengeRepositorySettings,
   type ChallengeRepositoryTransaction,
   type ChallengeRuntime,
+  type ChallengeSetRecord,
+  type ChallengeSetSaveInput,
   type ChallengeSnapshot,
   type CommandIdentity,
   type CommandMutation,
@@ -116,6 +126,20 @@ type DockTokenRow = {
   last_used_at: string | null;
 };
 
+type ChallengeSetMetadataRow = {
+  id: string;
+  type: string;
+  name: string;
+  normalized_name: string;
+  has_progress: number;
+  created_at: string;
+  updated_at: string;
+};
+
+type ChallengeSetRow = ChallengeSetMetadataRow & {
+  payload: string;
+};
+
 const persistedSettingsSchema = settingsSchema.omit({ themeId: true });
 const metaRowSchema = z.strictObject({
   singleton: z.literal(1),
@@ -163,6 +187,22 @@ const dockTokenRowSchema = z.strictObject({
   created_at: z.string().min(1),
   last_used_at: z.union([z.string(), z.null()]),
 });
+const challengeSetMetadataRowSchema = z.strictObject({
+  id: z.string().min(1).max(80),
+  type: z.union([z.literal("user"), z.literal("autosave")]),
+  name: z.string().min(1).max(80),
+  normalized_name: z.string().min(1).max(80),
+  has_progress: z.union([z.literal(0), z.literal(1)]),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
+const challengeSetRowSchema = challengeSetMetadataRowSchema.extend({
+  payload: z.string().min(1),
+});
+const storedChallengeSetSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  challenges: z.array(z.unknown()).max(MAX_CHALLENGES),
+});
 
 export type SqlOperationMetrics = {
   rowsRead: number;
@@ -192,6 +232,8 @@ const toMilliseconds = (now: DomainNow): number => {
   if (!Number.isFinite(milliseconds)) throw new ValidationError("Ungültiger Zeitpunkt.");
   return milliseconds;
 };
+
+const toInstant = (now: DomainNow): string => new Date(toMilliseconds(now)).toISOString();
 
 const parseBooleanInteger = (value: number): boolean => {
   const parsed = z.union([z.literal(0), z.literal(1)]).parse(value);
@@ -297,8 +339,40 @@ const parseDockToken = (row: DockTokenRow): DockTokenRecord => {
   };
 };
 
+const parseChallengeSetMetadataRow = (row: ChallengeSetMetadataRow): ChallengeSetSummary => {
+  const parsed = challengeSetMetadataRowSchema.parse(row);
+  return {
+    id: parsed.id,
+    type: parsed.type,
+    name: parsed.name,
+    hasProgress: parsed.has_progress === 1,
+    createdAt: parsed.created_at,
+    updatedAt: parsed.updated_at,
+  };
+};
+
+const parseChallengeSetLoadRow = (row: ChallengeSetRow): {
+  metadata: ChallengeSetMetadataRow;
+  payload: string;
+} => {
+  const parsed = challengeSetRowSchema.parse(row);
+  return {
+    metadata: {
+      id: parsed.id,
+      type: parsed.type,
+      name: parsed.name,
+      normalized_name: parsed.normalized_name,
+      has_progress: parsed.has_progress,
+      created_at: parsed.created_at,
+      updated_at: parsed.updated_at,
+    },
+    payload: parsed.payload,
+  };
+};
+
 const sameRuntime = (left: Challenge, right: Challenge): boolean =>
   left.currentCount === right.currentCount &&
+  left.bestCount === right.bestCount &&
   left.state === right.state &&
   left.timerEndsAt === right.timerEndsAt &&
   left.timerRemainMs === right.timerRemainMs &&
@@ -345,6 +419,40 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     return this.readChallengeInternal(challengeId);
   }
 
+  public readSet(setId: string): ChallengeSetRecord | null {
+    return this.readSetInternal(setId);
+  }
+
+  public listSets(): ChallengeSetSummary[] {
+    return this.execute<ChallengeSetMetadataRow>(
+      // Die Liste braucht nur Metadaten. Das Payload bleibt aus der Abfrage,
+      // damit SQLite die Overflow-Seiten des einzelnen Sets nicht laden muss.
+      `SELECT id, type, name, normalized_name, has_progress, created_at, updated_at
+       FROM ${this.table("sets")} ORDER BY updated_at DESC, id ASC`,
+    ).map(parseChallengeSetMetadataRow);
+  }
+
+  public saveSet(input: ChallengeSetSaveInput): ChallengeSetRecord {
+    return this.transaction((transaction) => {
+      const current = transaction.readSnapshot();
+      return this.saveSetInTransaction(input, current);
+    });
+  }
+
+  public deleteSet(setId: string): void {
+    this.transaction(() => {
+      const existing = this.readSetMetadataInternal(setId);
+      if (existing === null) throw new NotFoundError("Set nicht gefunden.");
+      if (existing.type === "autosave") {
+        throw new ValidationError("Die Autosicherung kann nicht gelöscht werden.");
+      }
+      this.execute<ChallengeSetRow>(
+        `DELETE FROM ${this.table("sets")} WHERE id = ?`,
+        setId,
+      );
+    });
+  }
+
   public saveBoard(input: BoardSaveInput): BoardSaveResult {
     const definitions = input.definitions.map((definition) => {
       try {
@@ -361,6 +469,18 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       const current = transaction.readSnapshot();
       if (current.boardRevision !== input.baseBoardRevision) {
         throw new RevisionConflictError(current);
+      }
+      if (input.setId !== undefined && input.reason !== "set-switch") {
+        throw new ValidationError("Ein Set kann nur mit einem Set-Wechsel geladen werden.");
+      }
+      // Der Payload muss vor dem Autosave gelesen werden: Beim Laden der
+      // Autosicherung würde der folgende Upsert sonst genau sein Ziel ersetzen.
+      const loadedSet = input.setId === undefined ? null : this.readSetInternal(input.setId);
+      if (input.setId !== undefined && loadedSet === null) {
+        throw new NotFoundError("Set nicht gefunden.");
+      }
+      if (input.reason === "set-switch") {
+        this.saveAutosaveInTransaction(current, input.now);
       }
 
       const existingById = new Map(current.challenges.map((challenge) => [challenge.id, challenge]));
@@ -425,6 +545,9 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         } else {
           this.updateBoardChallenge(entry.existing, challenge);
         }
+      }
+      if (loadedSet !== null && loadedSet.summary.hasProgress) {
+        this.restoreSetProgress(loadedSet, normalized, input.now);
       }
       this.execute<MetaRow>(
         `UPDATE ${this.table("meta")} SET
@@ -590,8 +713,174 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     };
   }
 
-  private table(name: "meta" | "challenges" | "commands" | "dock_tokens" | "retired_keys"): string {
+  private table(name: "meta" | "challenges" | "commands" | "dock_tokens" | "retired_keys" | "sets"): string {
     return `${this.tablePrefix}${name}`;
+  }
+
+  private saveSetInTransaction(
+    input: ChallengeSetSaveInput,
+    current: ChallengeSnapshot,
+  ): ChallengeSetRecord {
+    const reserved = input.reserved === true;
+    const name = reserved ? AUTO_SAVE_SET_NAME : input.name.normalize("NFC").trim();
+    if (!reserved && !isChallengeSetName(name)) {
+      throw new ValidationError("Set-Name muss normalisiert 1–24 Zeichen lang sein.");
+    }
+    const requestedId = reserved ? AUTO_SAVE_SET_ID : input.setId;
+    const existing = requestedId === undefined ? null : this.readSetMetadataInternal(requestedId);
+    if (requestedId !== undefined && existing === null && !reserved) {
+      throw new NotFoundError("Set nicht gefunden.");
+    }
+    if (existing?.type === "autosave" && !reserved) {
+      throw new ValidationError("Die Autosicherung kann nicht überschrieben werden.");
+    }
+    if (!reserved && existing === null) {
+      const count = this.execute<{ count: number }>(
+        `SELECT COUNT(*) AS count FROM ${this.table("sets")} WHERE type = 'user'`,
+      )[0]?.count;
+      if (count === undefined || count >= MAX_CHALLENGE_SETS) {
+        throw new ValidationError("Es sind höchstens 20 eigene Sets erlaubt.");
+      }
+    }
+    if (!reserved) {
+      const duplicate = this.execute<{ id: string }>(
+        `SELECT id FROM ${this.table("sets")}
+         WHERE type = 'user' AND normalized_name = ? AND id <> ?`,
+        normalizeChallengeSetName(name),
+        requestedId ?? "",
+      )[0];
+      if (duplicate !== undefined) {
+        throw new ValidationError("Ein Set mit diesem Namen gibt es bereits.");
+      }
+    }
+
+    const setId = requestedId ?? crypto.randomUUID();
+    const timestamp = toInstant(input.now);
+    const createdAt = existing?.created_at ?? timestamp;
+    const includeProgress = reserved || input.includeProgress;
+    const payload = encodeChallengeSet(current, {
+      name,
+      createdAt,
+      now: input.now,
+      includeProgress,
+    });
+    const storedPayload = JSON.stringify({
+      schemaVersion: payload.schemaVersion,
+      challenges: payload.challenges,
+    });
+    if (existing === null) {
+      this.execute<ChallengeSetRow>(
+        `INSERT INTO ${this.table("sets")}(
+          id, type, name, normalized_name, has_progress, created_at, updated_at, payload
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        setId,
+        reserved ? "autosave" : "user",
+        name,
+        normalizeChallengeSetName(name),
+        includeProgress ? 1 : 0,
+        createdAt,
+        timestamp,
+        storedPayload,
+      );
+    } else {
+      this.execute<ChallengeSetRow>(
+        `UPDATE ${this.table("sets")} SET
+          type = ?, name = ?, normalized_name = ?, has_progress = ?, updated_at = ?, payload = ?
+         WHERE id = ?`,
+        reserved ? "autosave" : "user",
+        name,
+        normalizeChallengeSetName(name),
+        includeProgress ? 1 : 0,
+        timestamp,
+        storedPayload,
+        setId,
+      );
+    }
+    const summary = parseChallengeSetMetadataRow({
+      id: setId,
+      type: reserved ? "autosave" : "user",
+      name,
+      normalized_name: normalizeChallengeSetName(name),
+      has_progress: includeProgress ? 1 : 0,
+      created_at: createdAt,
+      updated_at: timestamp,
+    });
+    return { summary, payload };
+  }
+
+  private saveAutosaveInTransaction(current: ChallengeSnapshot, now: DomainNow): void {
+    this.saveSetInTransaction({
+      name: AUTO_SAVE_SET_NAME,
+      includeProgress: true,
+      reserved: true,
+      now,
+    }, current);
+  }
+
+  private readSetMetadataInternal(setId: string): ChallengeSetMetadataRow | null {
+    const row = this.execute<ChallengeSetMetadataRow>(
+      `SELECT id, type, name, normalized_name, has_progress, created_at, updated_at
+       FROM ${this.table("sets")} WHERE id = ?`,
+      setId,
+    )[0];
+    return row === undefined ? null : challengeSetMetadataRowSchema.parse(row);
+  }
+
+  private readSetInternal(setId: string): ChallengeSetRecord | null {
+    const row = this.execute<ChallengeSetRow>(
+      `SELECT id, type, name, normalized_name, has_progress, created_at, updated_at, payload
+       FROM ${this.table("sets")} WHERE id = ?`,
+      setId,
+    )[0];
+    if (row === undefined) return null;
+    const parsedRow = parseChallengeSetLoadRow(row);
+    let stored: unknown;
+    try {
+      stored = JSON.parse(parsedRow.payload) as unknown;
+    } catch {
+      throw new Error("Set-Payload ist kein gültiges JSON.");
+    }
+    const parsedStored = storedChallengeSetSchema.parse(stored);
+    const payload = challengeSetV1Schema.parse({
+      schemaVersion: parsedStored.schemaVersion,
+      name: parsedRow.metadata.name,
+      createdAt: parsedRow.metadata.created_at,
+      challenges: parsedStored.challenges,
+    });
+    const hasProgress = parsedRow.metadata.has_progress === 1;
+    if (payload.challenges.some(({ progress }) => (progress !== undefined) !== hasProgress)) {
+      throw new Error("Set-Metadaten und Set-Payload haben unterschiedliche Fortschrittsangaben.");
+    }
+    return {
+      summary: parseChallengeSetMetadataRow(parsedRow.metadata),
+      payload,
+    };
+  }
+
+  private restoreSetProgress(
+    loadedSet: ChallengeSetRecord,
+    challenges: readonly Challenge[],
+    now: DomainNow,
+  ): void {
+    const sortedPayload = [...loadedSet.payload.challenges].sort((left, right) => left.sortOrder - right.sortOrder);
+    const sortedChallenges = [...challenges].sort((left, right) => left.sortOrder - right.sortOrder);
+    if (sortedPayload.length !== sortedChallenges.length) {
+      throw new ValidationError("Der gespeicherte Stand passt nicht zur geladenen Challenge-Anzahl.");
+    }
+    for (const [index, challenge] of sortedChallenges.entries()) {
+      const progress = sortedPayload[index]?.progress;
+      if (progress === undefined) throw new ValidationError("Der gespeicherte Challenge-Stand fehlt.");
+      const restored = this.updateChallengeRuntime(challenge.id, {
+        currentCount: progress.currentCount,
+        bestCount: progress.bestCount,
+        state: progress.state,
+        timerEndsAt: null,
+        timerRemainMs: progress.timerRemainMs,
+        completedAt: progress.completedAt,
+        hidden: challenge.hidden,
+      }, toInstant(now));
+      if (restored === null) throw new NotFoundError();
+    }
   }
 
   private execute<T extends Record<string, SqlStorageValue>>(
@@ -674,7 +963,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     delta: number,
     maximum: number,
     updatedAt: string,
-    runtime?: Pick<ChallengeRuntime, "currentCount" | "state" | "timerEndsAt" | "timerRemainMs" | "completedAt" | "hidden">,
+    runtime?: Pick<ChallengeRuntime, "currentCount" | "bestCount" | "state" | "timerEndsAt" | "timerRemainMs" | "completedAt" | "hidden">,
   ): Challenge | null {
     if (runtime !== undefined) assertChallengeTimerInvariant(runtime);
     const current = this.readChallengeInternal(challengeId);
@@ -688,7 +977,10 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     ) {
       throw new ValidationError("Ungültige Zählergrenze.");
     }
-    if (runtime !== undefined && !isCurrentCountForKind(runtime.currentCount, current.kind)) {
+    if (runtime !== undefined && (
+      !isCurrentCountForKind(runtime.currentCount, current.kind) ||
+      !isCurrentCountForKind(runtime.bestCount, current.kind)
+    )) {
       throw new ValidationError("Ungültiger Zählerstand für den Challenge-Typ.");
     }
     if (runtime === undefined) {
@@ -710,10 +1002,10 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         `UPDATE ${this.table("challenges")} SET
           current_count = MIN(MAX(current_count + ?, 0), ?), best_count = MAX(best_count, ?), state = ?,
           timer_ends_at = ?, timer_remain_ms = ?, completed_at = ?, hidden = ?, updated_at = ?
-         WHERE id = ? AND state <> 'done'`,
+        WHERE id = ? AND state <> 'done'`,
         delta,
         maximum,
-        runtime.currentCount,
+        runtime.bestCount,
         runtime.state,
         runtime.timerEndsAt,
         runtime.timerRemainMs,
@@ -734,7 +1026,10 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     assertChallengeTimerInvariant(runtime);
     const current = this.readChallengeInternal(challengeId);
     if (current === null) return null;
-    if (!isCurrentCountForKind(runtime.currentCount, current.kind)) {
+    if (
+      !isCurrentCountForKind(runtime.currentCount, current.kind) ||
+      !isCurrentCountForKind(runtime.bestCount, current.kind)
+    ) {
       throw new ValidationError("Ungültiger Zählerstand für den Challenge-Typ.");
     }
     this.execute<ChallengeRow>(
@@ -742,7 +1037,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         current_count = ?, best_count = MAX(best_count, ?), state = ?, timer_ends_at = ?, timer_remain_ms = ?, completed_at = ?, hidden = ?, updated_at = ?
        WHERE id = ?`,
       runtime.currentCount,
-      runtime.currentCount,
+      runtime.bestCount,
       runtime.state,
       runtime.timerEndsAt,
       runtime.timerRemainMs,

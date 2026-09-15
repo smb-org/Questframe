@@ -17,12 +17,19 @@ import {
   boardSaveRequestSchema,
   boardSaveResponseSchema,
   challengeBoardSnapshotSchema,
+  challengeSetDeleteResponseSchema,
+  challengeSetListResponseSchema,
+  challengeSetResponseSchema,
+  challengeSetSaveRequestSchema,
   commandResponseSchema,
   settingsSaveRequestSchema,
   settingsSaveResponseSchema,
   type BoardSaveRequest,
   type BoardSaveResponse,
   type ChallengeBoardSnapshot,
+  type ChallengeSetResponse,
+  type ChallengeSetListResponse,
+  type ChallengeSetSaveRequest,
   type Command,
   type CommandResponse,
   type SettingsSaveRequest,
@@ -110,6 +117,27 @@ export class BrowserAdminApi implements AdminApi {
     const request = boardSaveRequestSchema.parse(input);
     const response = await this.requestJson("/api/challenges/board", "PUT", request);
     return boardSaveResponseSchema.parse(await response.json());
+  }
+
+  async listChallengeSets(): Promise<ChallengeSetListResponse> {
+    const response = await this.request("/api/challenges/sets", { method: "GET" }, false);
+    return challengeSetListResponseSchema.parse(await response.json());
+  }
+
+  async getChallengeSet(setId: string): Promise<ChallengeSetResponse> {
+    const response = await this.request(`/api/challenges/sets/${encodeURIComponent(setId)}`, { method: "GET" }, false);
+    return challengeSetResponseSchema.parse(await response.json());
+  }
+
+  async saveChallengeSet(input: ChallengeSetSaveRequest): Promise<ChallengeSetResponse> {
+    const request = challengeSetSaveRequestSchema.parse(input);
+    const response = await this.requestJson("/api/challenges/sets", "POST", request);
+    return challengeSetResponseSchema.parse(await response.json());
+  }
+
+  async deleteChallengeSet(setId: string): Promise<string> {
+    const response = await this.request(`/api/challenges/sets/${encodeURIComponent(setId)}`, { method: "DELETE" }, true);
+    return challengeSetDeleteResponseSchema.parse(await response.json()).id;
   }
 
   async saveChallengeSettings(input: SettingsSaveRequest): Promise<SettingsSaveResponse> {

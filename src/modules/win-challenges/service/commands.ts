@@ -1,5 +1,5 @@
 import type { BoardEvent, ChallengeEvent, GlobalTimerEvent } from "../contracts/events";
-import type { Command, Challenge } from "../contracts/schemas";
+import type { ChallengeSetSummary, Command, Challenge } from "../contracts/schemas";
 import type { ChallengeUpdate } from "../../../shared/contracts/win-challenges";
 import {
   applyComplete,
@@ -26,6 +26,8 @@ import {
   type ChallengeSnapshot,
   type ChallengeRuntime,
   type ChallengeRepositoryTransaction,
+  type ChallengeSetRecord,
+  type ChallengeSetSaveInput,
   type SettingsSaveResult,
 } from "../repository/challenge-repository";
 
@@ -206,6 +208,7 @@ const validateChallengeKindCommand = (
 
 const runtimeOf = (challenge: Challenge): ChallengeRuntime => ({
   currentCount: challenge.currentCount,
+  bestCount: challenge.bestCount,
   state: challenge.state,
   timerEndsAt: challenge.timerEndsAt,
   timerRemainMs: challenge.timerRemainMs,
@@ -239,6 +242,7 @@ const challengeMutation = (
       transition.event.type === "completed"
         ? {
             currentCount: transition.challenge.currentCount,
+            bestCount: transition.challenge.bestCount,
             state: transition.challenge.state,
             timerEndsAt: transition.challenge.timerEndsAt,
             timerRemainMs: transition.challenge.timerRemainMs,
@@ -343,6 +347,22 @@ export class WinChallengesService {
     input: Omit<Parameters<ChallengeRepository["saveSettings"]>[0], "now">,
   ): SettingsSaveResult {
     return this.repository.saveSettings({ ...input, now: this.clock() });
+  }
+
+  public listSets(): ChallengeSetSummary[] {
+    return this.repository.listSets();
+  }
+
+  public readSet(setId: string): ChallengeSetRecord | null {
+    return this.repository.readSet(setId);
+  }
+
+  public saveSet(input: Omit<ChallengeSetSaveInput, "now">): ChallengeSetRecord {
+    return this.repository.saveSet({ ...input, now: this.clock() });
+  }
+
+  public deleteSet(setId: string): void {
+    this.repository.deleteSet(setId);
   }
 
   public async executeCommand(command: Command): Promise<CommandExecutionResult> {

@@ -7,7 +7,7 @@ import { createSqlStorageChallengeRepository, type SqlStorageChallengeRepository
 import { MAX_COUNT } from "../../src/modules/win-challenges/contracts/predicates";
 import { createWinChallenges, hashChallengeCommand } from "../../src/modules/win-challenges/service/commands";
 import { IdempotencyMismatchError } from "../../src/modules/win-challenges/repository/challenge-repository";
-import type { Challenge, ChallengeDefinition } from "../../src/modules/win-challenges/contracts/schemas";
+import type { Challenge, ChallengeDefinition, ChallengeSetSummary } from "../../src/modules/win-challenges/contracts/schemas";
 
 const now = "2026-08-30T12:00:00.000Z";
 const future = "2026-08-30T13:00:00.000Z";
@@ -41,6 +41,7 @@ const resetModuleTables = async (): Promise<void> => {
     state.storage.sql.exec("DELETE FROM wc_challenges");
     state.storage.sql.exec("DELETE FROM wc_retired_keys");
     state.storage.sql.exec("DELETE FROM wc_commands");
+    state.storage.sql.exec("DELETE FROM wc_sets");
     state.storage.sql.exec("DELETE FROM wc_dock_tokens");
     state.storage.sql.exec(
       `UPDATE wc_meta SET
@@ -183,6 +184,7 @@ describe("win-challenges repository and migration", () => {
       "wc_dock_tokens",
       "wc_meta",
       "wc_retired_keys",
+      "wc_sets",
     ]);
     expect(result.columns).toEqual([
       "singleton",
@@ -732,6 +734,7 @@ describe("win-challenges repository and migration", () => {
           seeded.id,
           {
             currentCount: 4,
+            bestCount: 4,
             state: "active",
             timerEndsAt: future,
             timerRemainMs: null,
@@ -766,6 +769,163 @@ describe("win-challenges repository and migration", () => {
       timerEndsAt: future,
       completedAt: null,
     });
+  });
+
+  it("speichert, listet und lädt Sets mit optionalem Fortschritt", async () => {
+    const created = await inRepository((repository) => repository.saveBoard({
+      baseBoardRevision: 1,
+      definitions: [definition("Mit Stand", 0)],
+      now,
+    }));
+    const challenge = onlyChallenge(created.snapshot.challenges);
+    await inRepository((repository) => {
+      repository.transaction((transaction) => {
+        const updated = transaction.updateChallengeRuntime(challenge.id, {
+          currentCount: 7,
+          bestCount: 9,
+          state: "pending",
+          timerEndsAt: null,
+          timerRemainMs: -2_000,
+          completedAt: null,
+          hidden: false,
+        }, now);
+        if (updated === null) throw new Error("Challenge fehlt.");
+      });
+    });
+
+    const saved = await inRepository((repository) => repository.saveSet({
+      name: "  Mit Stand  ",
+      includeProgress: true,
+      now,
+    }));
+    expect(saved.summary).toMatchObject({ name: "Mit Stand", hasProgress: true, type: "user" });
+    expect(saved.payload.name).toBe("Mit Stand");
+    expect(saved.payload.challenges[0]?.progress).toMatchObject({ currentCount: 7, bestCount: 9, timerRemainMs: -2_000 });
+
+    const listed = await inRepository<ChallengeSetSummary[]>((repository) => repository.listSets());
+    expect(listed).toEqual([expect.objectContaining({ id: saved.summary.id, name: "Mit Stand", hasProgress: true })]);
+    const loaded = await inRepository((repository) => repository.readSet(saved.summary.id));
+    expect(loaded?.payload.challenges[0]?.progress).toMatchObject({ currentCount: 7, bestCount: 9 });
+  });
+
+  it("lehnt den 21. Benutzersatz und normalisierte Dubletten ab, zählt die Autosicherung aber nicht", async () => {
+    for (let index = 0; index < 20; index += 1) {
+      await inRepository((repository) => repository.saveSet({
+        name: `Set ${String(index)}`,
+        includeProgress: false,
+        now,
+      }));
+    }
+    await expect(inRepository((repository) => repository.saveSet({ name: "Set 20", includeProgress: false, now }))).rejects.toMatchObject({ code: "validation_failed" });
+    await expect(inRepository((repository) => repository.saveSet({ name: "  SET 0 ", includeProgress: false, now }))).rejects.toMatchObject({ code: "validation_failed" });
+    const auto = await inRepository((repository) => repository.saveSet({ name: "Letzter Stand vor dem Laden", includeProgress: true, reserved: true, now }));
+    expect(auto.summary.type).toBe("autosave");
+    const listed = await inRepository<ChallengeSetSummary[]>((repository) => repository.listSets());
+    expect(listed.filter(({ type }) => type === "user")).toHaveLength(20);
+  });
+
+  it("sichert und lädt einen Set-Stand atomar mit Bestwert und negativer Restzeit", async () => {
+    const first = await inRepository((repository) => repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Erstes Board", 0)], now }));
+    const firstChallenge = onlyChallenge(first.snapshot.challenges);
+    await inRepository((repository) => {
+      repository.transaction((transaction) => {
+        transaction.updateChallengeRuntime(firstChallenge.id, {
+          currentCount: 6,
+          bestCount: 8,
+          state: "pending",
+          timerEndsAt: null,
+          timerRemainMs: -3_000,
+          completedAt: null,
+          hidden: false,
+        }, now);
+      });
+    });
+    const set = await inRepository((repository) => repository.saveSet({ name: "Erstes Board", includeProgress: true, now }));
+    const second = await inRepository((repository) => repository.saveBoard({
+      baseBoardRevision: first.snapshot.boardRevision,
+      definitions: [definition("Zweites Board", 0)],
+      now,
+    }));
+    const restored = await inRepository((repository) => repository.saveBoard({
+      baseBoardRevision: second.snapshot.boardRevision,
+      definitions: [definition("Erstes Board", 0)],
+      reason: "set-switch",
+      setId: set.summary.id,
+      now,
+    }));
+    expect(onlyChallenge(restored.snapshot.challenges)).toMatchObject({ currentCount: 6, bestCount: 8, timerRemainMs: -3_000, timerEndsAt: null });
+    expect(restored.snapshot.eventSeq).toBe(second.snapshot.eventSeq + 1);
+  });
+
+  it("startet beim Laden eines Sets ohne Stand alle Laufzeitwerte bei null", async () => {
+    const first = await inRepository((repository) => repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Ohne Stand", 0)], now }));
+    const firstChallenge = onlyChallenge(first.snapshot.challenges);
+    await inRepository((repository) => {
+      repository.transaction((transaction) => {
+        transaction.updateChallengeRuntime(firstChallenge.id, {
+          currentCount: 6,
+          bestCount: 8,
+          state: "pending",
+          timerEndsAt: null,
+          timerRemainMs: -3_000,
+          completedAt: null,
+          hidden: false,
+        }, now);
+      });
+    });
+    const set = await inRepository((repository) => repository.saveSet({ name: "Ohne Stand", includeProgress: false, now }));
+    const second = await inRepository((repository) => repository.saveBoard({
+      baseBoardRevision: first.snapshot.boardRevision,
+      definitions: [definition("Andere Auswahl", 0)],
+      now,
+    }));
+    const loaded = await inRepository((repository) => repository.saveBoard({
+      baseBoardRevision: second.snapshot.boardRevision,
+      definitions: [definition("Ohne Stand", 0)],
+      reason: "set-switch",
+      setId: set.summary.id,
+      now,
+    }));
+    expect(onlyChallenge(loaded.snapshot.challenges)).toMatchObject({
+      currentCount: 0,
+      bestCount: 0,
+      state: "pending",
+      timerEndsAt: null,
+      timerRemainMs: null,
+      completedAt: null,
+    });
+  });
+
+  it("liest die Autosicherung vor dem Überschreiben und stellt sie beim eigenen Laden wieder her", async () => {
+    const first = await inRepository((repository) => repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Vorher", 0)], now }));
+    const auto = await inRepository((repository) => repository.saveSet({ name: "Letzter Stand vor dem Laden", includeProgress: true, reserved: true, now }));
+    const second = await inRepository((repository) => repository.saveBoard({ baseBoardRevision: first.snapshot.boardRevision, definitions: [definition("Nachher", 0)], now }));
+    const restored = await inRepository((repository) => repository.saveBoard({
+      baseBoardRevision: second.snapshot.boardRevision,
+      definitions: [definition("Vorher", 0)],
+      reason: "set-switch",
+      setId: auto.summary.id,
+      now,
+    }));
+    expect(onlyChallenge(restored.snapshot.challenges).title).toBe("Vorher");
+    const autoAfter = await inRepository((repository) => repository.readSet(auto.summary.id));
+    expect(autoAfter?.payload.challenges[0]?.title).toBe("Nachher");
+  });
+
+  it("rollt Autosicherung, Board-Ersatz und Restore bei einem Fehler gemeinsam zurück", async () => {
+    const first = await inRepository((repository) => repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Vorher", 0)], now }));
+    const set = await inRepository((repository) => repository.saveSet({ name: "Ziel", includeProgress: true, now }));
+    await expect(inRepository((repository) => repository.saveBoard({
+      baseBoardRevision: first.snapshot.boardRevision,
+      definitions: [{ ...definition("Ungültig", 0), kind: "measure", unit: null }],
+      reason: "set-switch",
+      setId: set.summary.id,
+      now,
+    }))).rejects.toMatchObject({ code: "validation_failed" });
+    const after = await inRepository((repository) => repository.readSnapshot());
+    expect(onlyChallenge(after.challenges).title).toBe("Vorher");
+    expect(after.boardRevision).toBe(first.snapshot.boardRevision);
+    expect(await inRepository((repository) => repository.readSet("autosave"))).toBeNull();
   });
 
   it("erhöht event_seq nur beim Set-Wechsel und rollt den Sprung mit dem Board zurück", async () => {
@@ -825,6 +985,7 @@ describe("win-challenges repository and migration", () => {
           seeded.id,
           {
             currentCount: 4,
+            bestCount: 4,
             state: "active",
             timerEndsAt: future,
             timerRemainMs: null,
@@ -1035,6 +1196,7 @@ describe("win-challenges repository and migration", () => {
           seeded.id,
           {
             currentCount: seeded.currentCount,
+            bestCount: seeded.bestCount,
             state: "pending",
             timerEndsAt: null,
             timerRemainMs: 3_120,
@@ -1260,6 +1422,7 @@ describe("win-challenges repository and migration", () => {
         challenge.id,
         {
           currentCount: 1_500,
+          bestCount: 1_500,
           state: "pending",
           timerEndsAt: null,
           timerRemainMs: null,

@@ -62,6 +62,7 @@ const resetModuleTables = async (): Promise<void> => {
     runMigrations(state.storage.sql, "worker-test-api");
     state.storage.sql.exec("DELETE FROM wc_challenges");
     state.storage.sql.exec("DELETE FROM wc_commands");
+    state.storage.sql.exec("DELETE FROM wc_sets");
     state.storage.sql.exec(
       `UPDATE wc_meta SET
         event_seq = 0, board_revision = 1, settings_revision = 1,
@@ -750,5 +751,59 @@ describe("Win-Challenges-API", () => {
     expect(response.status).toBe(200);
     expectExactKeys(body, ["eventSeq", "boardRevision", "settingsRevision", "settings", "challenges"]);
     expect(body.challenges).toEqual([]);
+  });
+
+  it("verwaltet Server-Sets über die Session und liefert beim Laden den Payload", async () => {
+    const board = await saveBoard([definition()]);
+    expect(board.status).toBe(200);
+
+    const saved = await fetchWorker("/api/challenges/sets", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({ name: "API-Set", includeProgress: false }),
+    });
+    expect(saved.status).toBe(200);
+    const savedBody = await saved.json<{
+      summary: { id: string; type: string; name: string; hasProgress: boolean };
+      set: { name: string; challenges: unknown[] };
+    }>();
+    expect(savedBody.summary).toMatchObject({ type: "user", name: "API-Set", hasProgress: false });
+    expect(savedBody.set).toMatchObject({ name: "API-Set" });
+
+    const listed = await fetchWorker("/api/challenges/sets", { headers: authenticatedHeaders() });
+    expect(listed.status).toBe(200);
+    const listedBody = await listed.json<{ sets: Array<Record<string, unknown>> }>();
+    expect(listedBody.sets).toEqual([expect.objectContaining({ id: savedBody.summary.id, name: "API-Set" })]);
+    expect(listedBody.sets[0]).not.toHaveProperty("payload");
+
+    const loaded = await fetchWorker(`/api/challenges/sets/${encodeURIComponent(savedBody.summary.id)}`, {
+      headers: authenticatedHeaders(),
+    });
+    expect(loaded.status).toBe(200);
+    expect(await loaded.json<{ set: { name: string; challenges: unknown[] } }>()).toMatchObject({
+      set: { name: "API-Set" },
+    });
+
+    const deleted = await fetchWorker(`/api/challenges/sets/${encodeURIComponent(savedBody.summary.id)}`, {
+      method: "DELETE",
+      headers: authenticatedHeaders(),
+    });
+    expect(deleted.status).toBe(200);
+  });
+
+  it("verweigert dem Dock-Token jede Set-Verwaltung", async () => {
+    const dockHeaders = new Headers(authenticatedHeaders());
+    dockHeaders.set("x-dock-token", "dock-token");
+    const routes: Array<[string, string, string?]> = [
+      ["GET", "/api/challenges/sets"],
+      ["GET", "/api/challenges/sets/autosave"],
+      ["POST", "/api/challenges/sets", JSON.stringify({ name: "Dock", includeProgress: false })],
+      ["DELETE", "/api/challenges/sets/autosave"],
+    ];
+    for (const [method, path, body] of routes) {
+      const response = await fetchWorker(path, { method, headers: dockHeaders, body: body ?? null });
+      expect(response.status, `${method} ${path}`).toBe(403);
+      expect(await response.json<{ error: { code: string } }>()).toMatchObject({ error: { code: "forbidden" } });
+    }
   });
 });

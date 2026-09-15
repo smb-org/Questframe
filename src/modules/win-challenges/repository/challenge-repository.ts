@@ -1,5 +1,12 @@
 import type { ChallengeEvent, GlobalTimerEvent } from "../contracts/events";
-import type { Challenge, ChallengeDefinition, GlobalTimer, Settings } from "../contracts/schemas";
+import type {
+  Challenge,
+  ChallengeDefinition,
+  ChallengeSetSummary,
+  ChallengeSetV1,
+  GlobalTimer,
+  Settings,
+} from "../contracts/schemas";
 import type { DomainError, DomainNow } from "../domain/timers";
 
 export type ChallengeRepositorySettings = Omit<Settings, "themeId">;
@@ -22,6 +29,7 @@ export type BoardSaveInput = {
   baseBoardRevision: number;
   definitions: readonly ChallengeDefinition[];
   reason?: BoardSaveReason;
+  setId?: string;
   now: DomainNow;
 };
 
@@ -49,8 +57,24 @@ export type CommandRecord = CommandIdentity;
 
 export type ChallengeRuntime = Pick<
   Challenge,
-  "currentCount" | "state" | "timerEndsAt" | "timerRemainMs" | "completedAt" | "hidden"
+  "currentCount" | "bestCount" | "state" | "timerEndsAt" | "timerRemainMs" | "completedAt" | "hidden"
 >;
+
+export type ChallengeSetSaveInput = {
+  name: string;
+  includeProgress: boolean;
+  setId?: string;
+  reserved?: boolean;
+  now: DomainNow;
+};
+
+export type ChallengeSetRecord = {
+  summary: ChallengeSetSummary;
+  payload: ChallengeSetV1;
+};
+
+export const AUTO_SAVE_SET_ID = "autosave" as const;
+export const AUTO_SAVE_SET_NAME = "Letzter Stand vor dem Laden" as const;
 
 export type CommandMutation<T> = {
   value: T;
@@ -132,7 +156,7 @@ export interface ChallengeRepositoryTransaction {
     delta: number,
     maximum: number,
     updatedAt: string,
-    runtime?: Pick<ChallengeRuntime, "currentCount" | "state" | "timerEndsAt" | "timerRemainMs" | "completedAt" | "hidden">,
+    runtime?: Pick<ChallengeRuntime, "currentCount" | "bestCount" | "state" | "timerEndsAt" | "timerRemainMs" | "completedAt" | "hidden">,
   ): Challenge | null;
   updateChallengeRuntime(
     challengeId: string,
@@ -161,4 +185,8 @@ export interface ChallengeRepository {
   readDockToken(): DockTokenRecord | null;
   upsertDockToken(token: DockTokenRecord): void;
   deleteDockToken(): void;
+  readSet(setId: string): ChallengeSetRecord | null;
+  saveSet(input: ChallengeSetSaveInput): ChallengeSetRecord;
+  listSets(): ChallengeSetSummary[];
+  deleteSet(setId: string): void;
 }

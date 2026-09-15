@@ -11,6 +11,8 @@ const challengeGraphemeSegmenter = new Intl.Segmenter("de", {
 });
 
 export const MAX_CHALLENGES = 30 as const;
+export const MAX_CHALLENGE_SETS = 20 as const;
+export const MAX_CHALLENGE_SET_NAME_GRAPHEMES = 24 as const;
 export const MAX_COUNT = 999 as const;
 export const MAX_CHALLENGE_STEP = 1_000_000 as const;
 export const MAX_MEASURE_COUNT = MAX_CHALLENGE_STEP;
@@ -53,6 +55,11 @@ const graphemeLength = (value: string): number =>
 export const normalizeChallengeText = (value: string): string =>
   value.normalize("NFC").trim();
 
+// Die Anzeige behält Groß-/Kleinschreibung; dieser Schlüssel wird für die
+// Dublettenprüfung bewusst unabhängig von der Schreibweise gespeichert.
+export const normalizeChallengeSetName = (value: string): string =>
+  normalizeChallengeText(value).toLocaleLowerCase("de-DE");
+
 const isNormalizedText = (
   value: unknown,
   minimum: number,
@@ -69,6 +76,9 @@ const isNormalizedText = (
 
 export const isChallengeTitle = (value: unknown): value is string =>
   isNormalizedText(value, 1, 160);
+
+export const isChallengeSetName = (value: unknown): value is string =>
+  isNormalizedText(value, 1, MAX_CHALLENGE_SET_NAME_GRAPHEMES);
 
 export const isHidden = (value: unknown): value is boolean =>
   typeof value === "boolean";

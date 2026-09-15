@@ -19,13 +19,17 @@ import { downloadChallengeSet, readChallengeSetFile } from "../../../admin/ui/ch
 import {
   boardSaveRequestSchema,
   challengeBoardSnapshotSchema,
+  challengeSetNameSchema,
   type BoardSaveRequest,
   type BoardSaveResponse,
   type ChallengeBoardSnapshot,
   type ChallengeDefinition,
   type Challenge,
+  type ChallengeSetSummary,
+  type ChallengeSetV1,
 } from "../contracts/schemas";
 import { maxCountForKind } from "../contracts/predicates";
+import type { ChallengeSetProgress } from "../domain/set-codec";
 
 export type ChallengeBoardSubscription = {
   onChallengeUpdate: (update: ChallengeUpdate) => void;
@@ -35,6 +39,10 @@ export type ChallengeBoardSubscription = {
 export type ChallengeBoardApi = {
   load: () => Promise<ChallengeBoardSnapshot>;
   save: (request: BoardSaveRequest) => Promise<BoardSaveResponse>;
+  listSets?: () => Promise<ChallengeSetSummary[]>;
+  getSet?: (setId: string) => Promise<ChallengeSetV1>;
+  saveSet?: (request: { name: string; includeProgress: boolean; setId?: string }) => Promise<ChallengeSetSummary>;
+  deleteSet?: (setId: string) => Promise<string>;
   subscribe?: (callbacks: ChallengeBoardSubscription) => () => void;
 };
 
@@ -57,14 +65,25 @@ type ChallengeDraft = {
   sortOrder: number;
   hidden: boolean;
   currentCount: number;
+  bestCount: number;
   state: Challenge["state"];
   timerEndsAt: string | null;
+  timerRemainMs: number | null;
+  completedAt: string | null;
 };
 
 type MergeNotice = {
   key: string;
   kind: "retained-count" | "clamped-count" | "timer-removed" | "timer-changed";
   message: string;
+};
+
+type ActiveSet = {
+  id: string | null;
+  name: string;
+  fileName: string | null;
+  type: "file" | "user" | "autosave";
+  hasProgress: boolean;
 };
 
 const snapshotFromUpdate = (update: ChallengeUpdate): ChallengeBoardSnapshot => {
@@ -91,8 +110,11 @@ const draftFromChallenge = (challenge: Challenge): ChallengeDraft => ({
   sortOrder: challenge.sortOrder,
   hidden: challenge.hidden,
   currentCount: challenge.currentCount,
+  bestCount: challenge.bestCount,
   state: challenge.state,
   timerEndsAt: challenge.timerEndsAt,
+  timerRemainMs: challenge.timerRemainMs,
+  completedAt: challenge.completedAt,
 });
 
 const draftsFromSnapshot = (snapshot: ChallengeBoardSnapshot): ChallengeDraft[] =>
@@ -100,9 +122,12 @@ const draftsFromSnapshot = (snapshot: ChallengeBoardSnapshot): ChallengeDraft[] 
     .sort((left, right) => left.sortOrder - right.sortOrder)
     .map(draftFromChallenge);
 
-const draftsFromDefinitions = (definitions: readonly ChallengeDefinition[]): ChallengeDraft[] =>
-  definitions.map((definition, sortOrder) => {
+const draftsFromDefinitions = (
+  definitions: readonly ChallengeDefinition[],
+  progress: readonly (ChallengeSetProgress | null)[] | null = null,
+): ChallengeDraft[] => definitions.map((definition, sortOrder) => {
     const clientId = "clientId" in definition ? definition.clientId : clientIdForNewChallenge();
+    const savedProgress = progress?.[sortOrder] ?? null;
     return {
       key: clientId,
       identity: { clientId },
@@ -114,9 +139,12 @@ const draftsFromDefinitions = (definitions: readonly ChallengeDefinition[]): Cha
       timerTotalMs: definition.timerTotalMs,
       sortOrder,
       hidden: definition.hidden,
-      currentCount: 0,
-      state: "pending",
+      currentCount: savedProgress?.currentCount ?? 0,
+      bestCount: savedProgress?.bestCount ?? 0,
+      state: savedProgress?.state ?? "pending",
       timerEndsAt: null,
+      timerRemainMs: savedProgress?.timerRemainMs ?? null,
+      completedAt: savedProgress?.completedAt ?? null,
     };
   });
 
@@ -134,13 +162,13 @@ const challengeForSetExport = (
   timerTotalMs: draft.timerTotalMs,
   sortOrder: draft.sortOrder,
   step: draft.step,
-  bestCount: saved?.bestCount ?? 0,
+  bestCount: saved?.bestCount ?? draft.bestCount,
   hidden: draft.hidden,
   currentCount: draft.currentCount,
   state: draft.state,
   timerEndsAt: draft.timerEndsAt,
-  timerRemainMs: null,
-  completedAt: saved?.completedAt ?? null,
+  timerRemainMs: draft.timerRemainMs,
+  completedAt: saved?.completedAt ?? draft.completedAt,
   createdAt: saved?.createdAt ?? now,
   updatedAt: saved?.updatedAt ?? now,
 });
@@ -286,8 +314,11 @@ const defaultDraft = (sortOrder: number): ChallengeDraft => ({
   sortOrder,
   hidden: false,
   currentCount: 0,
+  bestCount: 0,
   state: "pending",
   timerEndsAt: null,
+  timerRemainMs: null,
+  completedAt: null,
 });
 
 type ChallengeRowLayout = "stacked" | "compact";
@@ -749,6 +780,66 @@ const ChallengeSetImportConfirmation = ({
   );
 };
 
+type PendingServerSet = {
+  id: string;
+  payload: ChallengeSetV1;
+  summary: ChallengeSetSummary | null;
+};
+
+const ChallengeSetLoadConfirmation = ({
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  pending: PendingServerSet | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) => {
+  const confirmRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (pending !== null) confirmRef.current?.focus();
+  }, [pending]);
+
+  if (pending === null) return null;
+  const progressLabel = pending.summary?.hasProgress === true
+    ? "mit Stand"
+    : "ohne Stand";
+  return (
+    <div className="effect-backdrop" role="presentation" onMouseDown={onCancel}>
+      <section
+        aria-describedby="challenge-set-load-preview-copy"
+        aria-labelledby="challenge-set-load-preview-heading"
+        aria-modal="true"
+        className="effect-flyover challenge-set-confirm-flyover"
+        onMouseDown={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        <header className="effect-flyover-header">
+          <div>
+            <span className="eyebrow">Server-Set</span>
+            <h2 id="challenge-set-load-preview-heading">Set laden?</h2>
+          </div>
+          <button aria-label="Set-Vorschau schließen" className="icon-button" onClick={onCancel} type="button"><X size={18} /></button>
+        </header>
+        <div className="challenge-set-confirm-copy" id="challenge-set-load-preview-copy">
+          <strong>{pending.payload.name}</strong>
+          <p>{String(pending.payload.challenges.length)} Aufgaben · {progressLabel}</p>
+          <ul className="challenge-set-preview-list">
+            {pending.payload.challenges.slice(0, 6).map((challenge) => <li key={`${pending.id}-${String(challenge.sortOrder)}`}>{challenge.title}</li>)}
+            {pending.payload.challenges.length > 6 && <li>und {String(pending.payload.challenges.length - 6)} weitere …</li>}
+          </ul>
+          <p>Der Entwurf im Board wird ersetzt. Die Veröffentlichung erfolgt erst über die globale Speicherleiste.</p>
+        </div>
+        <footer className="effect-actions">
+          <button className="button button--quiet" onClick={onCancel} type="button">Abbrechen</button>
+          <button className="button button--primary" onClick={onConfirm} ref={confirmRef} type="button">Set in Entwurf laden</button>
+        </footer>
+      </section>
+    </div>
+  );
+};
+
 export const ChallengeBoard = ({
   api,
   onOnlineChange,
@@ -770,11 +861,18 @@ export const ChallengeBoard = ({
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [activeSet, setActiveSet] = useState<{ name: string; fileName: string } | null>(null);
+  const [activeSet, setActiveSet] = useState<ActiveSet | null>(null);
   const [setFileState, setSetFileState] = useState<"idle" | "reading">("idle");
   const [setFileError, setSetFileError] = useState("");
   const [setFileMessage, setSetFileMessage] = useState("");
   const [pendingSetSwitch, setPendingSetSwitch] = useState(false);
+  const [pendingSetId, setPendingSetId] = useState<string | null>(null);
+  const [serverSets, setServerSets] = useState<ChallengeSetSummary[]>([]);
+  const [setSelection, setSetSelection] = useState("");
+  const [setName, setSetName] = useState("");
+  const [includeProgress, setIncludeProgress] = useState(true);
+  const [setBusy, setSetBusy] = useState(false);
+  const [pendingServerSet, setPendingServerSet] = useState<PendingServerSet | null>(null);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [draggedKey, setDraggedKey] = useState<string | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
@@ -792,8 +890,8 @@ export const ChallengeBoard = ({
   }, [drafts, snapshot]);
 
   const dirty = useMemo(
-    () => snapshot !== null && !sameDefinitions(drafts, draftsFromSnapshot(snapshot)),
-    [drafts, snapshot],
+    () => snapshot !== null && (pendingSetSwitch || !sameDefinitions(drafts, draftsFromSnapshot(snapshot))),
+    [drafts, pendingSetSwitch, snapshot],
   );
   const notices = useMemo(
     () => (snapshot === null ? [] : noticesFor(drafts, snapshot)),
@@ -822,6 +920,8 @@ export const ChallengeBoard = ({
       setDrafts(draftsFromSnapshot(incoming));
       setActiveSet(null);
       setPendingSetSwitch(false);
+      setPendingSetId(null);
+      setSetSelection("");
       setSetFileError("");
       setSetFileMessage("");
       setConflict(null);
@@ -834,6 +934,8 @@ export const ChallengeBoard = ({
     setDrafts(draftsFromSnapshot(next));
     setActiveSet(null);
     setPendingSetSwitch(false);
+    setPendingSetId(null);
+    setSetSelection("");
     setSetFileError("");
     setSetFileMessage("");
     setConflict(null);
@@ -860,6 +962,30 @@ export const ChallengeBoard = ({
       disposed = true;
     };
   }, [api, applySnapshot]);
+
+  const reloadSets = useCallback(async (): Promise<void> => {
+    if (api.listSets === undefined) return;
+    try {
+      setServerSets(await api.listSets());
+    } catch {
+      setSetFileError("Gespeicherte Sets konnten nicht geladen werden.");
+    }
+  }, [api]);
+
+  useEffect(() => {
+    if (api.listSets === undefined) return;
+    let disposed = false;
+    api.listSets()
+      .then((sets) => {
+        if (!disposed) setServerSets(sets);
+      })
+      .catch(() => {
+        if (!disposed) setSetFileError("Gespeicherte Sets konnten nicht geladen werden.");
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [api]);
 
   useEffect(() => {
     if (api.subscribe === undefined) return;
@@ -888,8 +1014,11 @@ export const ChallengeBoard = ({
       const result = await readChallengeSetFile(file);
       const decoded = decodeChallengeSet(result.payload);
       setDrafts(draftsFromDefinitions(decoded.definitions));
-      setActiveSet({ name: result.payload.name, fileName: result.fileName });
+      setActiveSet({ id: null, name: result.payload.name, fileName: result.fileName, type: "file", hasProgress: false });
       setPendingSetSwitch(true);
+      setPendingSetId(null);
+      setSetSelection("");
+      setSetName(result.payload.name);
       setMessage("");
       setError("");
       setSetFileMessage(`Set-Datei geladen: ${result.fileName}. Entwurf noch nicht veröffentlicht.`);
@@ -916,6 +1045,110 @@ export const ChallengeBoard = ({
     const file = pendingImportFile;
     setPendingImportFile(null);
     if (file !== null) void readImportedSet(file);
+  };
+
+  const loadServerSet = async (setId: string): Promise<void> => {
+    if (api.getSet === undefined || setId === "") return;
+    if (dirty && !window.confirm("Der Set-Entwurf ersetzt ungespeicherte Board-Änderungen. Fortfahren?")) {
+      setSetSelection(activeSet?.id ?? "");
+      return;
+    }
+    setSetBusy(true);
+    setSetFileError("");
+    setSetFileMessage("");
+    try {
+      const payload = await api.getSet(setId);
+      setPendingServerSet({
+        id: setId,
+        payload,
+        summary: serverSets.find((set) => set.id === setId) ?? null,
+      });
+      setMessage("");
+      setError("");
+      setSetFileMessage("Vorschau bereit. Das Set wurde noch nicht in den Entwurf geladen.");
+    } catch (caught) {
+      setSetFileError(caught instanceof Error ? caught.message : "Set konnte nicht geladen werden.");
+      setSetSelection(activeSet?.id ?? "");
+    } finally {
+      setSetBusy(false);
+    }
+  };
+
+  const cancelServerSetLoad = (): void => {
+    setPendingServerSet(null);
+    setSetSelection(activeSet?.id ?? "");
+  };
+
+  const confirmServerSetLoad = (): void => {
+    if (pendingServerSet === null) return;
+    const { id, payload, summary } = pendingServerSet;
+    const decoded = decodeChallengeSet(payload, { preserveProgress: true });
+    setDrafts(draftsFromDefinitions(decoded.definitions, decoded.progress));
+    setActiveSet({
+      id,
+      name: payload.name,
+      fileName: null,
+      type: summary?.type ?? "user",
+      hasProgress: summary?.hasProgress ?? payload.challenges.some(({ progress }) => progress !== undefined),
+    });
+    setSetName(payload.name);
+    setPendingSetId(id);
+    setPendingSetSwitch(true);
+    setPendingServerSet(null);
+    setMessage("");
+    setError("");
+    setSetFileMessage("Server-Set geladen. Entwurf noch nicht veröffentlicht.");
+  };
+
+  const saveServerSet = async (): Promise<void> => {
+    if (api.saveSet === undefined || drafts.length === 0 || setBusy || !effectiveOnline) return;
+    const parsedName = challengeSetNameSchema.safeParse(setName);
+    if (!parsedName.success) {
+      setSetFileError("Set-Name muss 1–24 Zeichen lang sein.");
+      return;
+    }
+    setSetBusy(true);
+    setSetFileError("");
+    setSetFileMessage("");
+    try {
+      if (dirty) {
+        const boardResult = await save();
+        if (!boardResult.ok) return;
+      }
+      const summary = await api.saveSet({
+        name: parsedName.data,
+        includeProgress,
+        ...(activeSet?.type === "user" && activeSet.id !== null ? { setId: activeSet.id } : {}),
+      });
+      setActiveSet({ id: summary.id, name: summary.name, fileName: null, type: summary.type, hasProgress: summary.hasProgress });
+      setSetSelection(summary.id);
+      setSetName(summary.name);
+      setSetFileMessage("Set gespeichert.");
+      await reloadSets();
+    } catch (caught) {
+      setSetFileError(caught instanceof Error ? caught.message : "Set konnte nicht gespeichert werden.");
+    } finally {
+      setSetBusy(false);
+    }
+  };
+
+  const deleteServerSet = async (): Promise<void> => {
+    if (api.deleteSet === undefined || activeSet?.type !== "user" || activeSet.id === null || setBusy) return;
+    if (!window.confirm(`Set „${activeSet.name}“ löschen?`)) return;
+    setSetBusy(true);
+    setSetFileError("");
+    try {
+      await api.deleteSet(activeSet.id);
+      setActiveSet(null);
+      setSetSelection("");
+      setSetName("");
+      setSetFileMessage("Set gelöscht.");
+      await reloadSets();
+    } catch (caught) {
+      setSetFileError(caught instanceof Error ? caught.message : "Set konnte nicht gelöscht werden.");
+    } finally {
+      setSetBusy(false);
+    }
   };
 
   const exportSet = (): void => {
@@ -996,6 +1229,7 @@ export const ChallengeBoard = ({
         baseBoardRevision,
         challenges: definitionsFromDrafts(drafts),
         ...(pendingSetSwitch ? { reason: "set-switch" } : {}),
+        ...(pendingSetId === null ? {} : { setId: pendingSetId }),
       });
       const response = await api.save(request);
       // Derselbe Revisions-Guard wie in applyChallengeUpdate: waehrend unsere Antwort
@@ -1014,6 +1248,7 @@ export const ChallengeBoard = ({
         setConflict(null);
       }
       setPendingSetSwitch(false);
+      setPendingSetId(null);
       setSetFileMessage(activeSet === null ? "" : "Entwurf veröffentlicht.");
       setMessage(`Board gespeichert · Revision ${String(response.snapshot.boardRevision)}.`);
       return { ok: true, conflict: false };
@@ -1097,8 +1332,75 @@ export const ChallengeBoard = ({
           </strong>
           {activeSet === null
             ? <small>Sichere das aktuelle Board als Datei.</small>
-            : <small>Datei: {activeSet.fileName}</small>}
+            : activeSet.type === "file"
+              ? <small>Datei: {activeSet.fileName}</small>
+              : <small>{activeSet.type === "autosave" ? "Autosicherung" : "Server-Set"}{activeSet.hasProgress ? " · mit Stand" : " · ohne Stand"}</small>}
         </div>
+        {api.listSets !== undefined && api.getSet !== undefined && (
+          <div className="challenge-set-server-controls">
+            <label>
+              <span className="challenge-set-control-label">Gespeicherte Sets</span>
+              <select
+                aria-label="Gespeichertes Set laden"
+                disabled={setBusy || saving || setFileState === "reading"}
+                onChange={(event) => {
+                  setSetSelection(event.currentTarget.value);
+                  void loadServerSet(event.currentTarget.value);
+                }}
+                value={setSelection}
+              >
+                <option value="">Set laden …</option>
+                {serverSets.map((set) => (
+                  <option key={set.id} value={set.id}>
+                    {set.name}{set.hasProgress ? " · mit Stand" : " · ohne Stand"}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {api.saveSet !== undefined && (
+              <>
+                <label>
+                  <span className="challenge-set-control-label">Name</span>
+                  <input
+                    aria-label="Name des Server-Sets"
+                    maxLength={24}
+                    onChange={(event) => setSetName(event.currentTarget.value)}
+                    placeholder="Neues Set"
+                    type="text"
+                    value={setName}
+                  />
+                </label>
+                <label className="challenge-set-progress-toggle">
+                  <input
+                    checked={includeProgress}
+                    onChange={(event) => setIncludeProgress(event.currentTarget.checked)}
+                    type="checkbox"
+                  />
+                  <span>Stand mitspeichern</span>
+                </label>
+                <button
+                  className="button button--quiet challenge-set-action"
+                  disabled={drafts.length === 0 || setBusy || saving || !effectiveOnline}
+                  onClick={() => void saveServerSet()}
+                  type="button"
+                >
+                  Set speichern
+                </button>
+                {api.deleteSet !== undefined && activeSet?.type === "user" && (
+                  <button
+                    aria-label="Aktives Server-Set löschen"
+                    className="button button--quiet challenge-set-action"
+                    disabled={setBusy || saving || !effectiveOnline}
+                    onClick={() => void deleteServerSet()}
+                    type="button"
+                  >
+                    <Trash2 size={16} /> Löschen
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
         <div className="challenge-set-actions">
           <input
             accept="application/json,.json"
@@ -1138,6 +1440,11 @@ export const ChallengeBoard = ({
         onCancel={() => setPendingImportFile(null)}
         onConfirm={confirmImport}
         triggerRef={setImportTriggerRef}
+      />
+      <ChallengeSetLoadConfirmation
+        onCancel={cancelServerSetLoad}
+        onConfirm={confirmServerSetLoad}
+        pending={pendingServerSet}
       />
 
       {conflict !== null && (

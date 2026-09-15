@@ -9,13 +9,14 @@ import { MAX_CHALLENGES } from "../../src/modules/win-challenges/contracts/predi
 import {
   readSchemaSnapshot,
   prepareVersion17Database,
+  prepareVersion18Database,
   withHistoricalDatabase as withHarnessDatabase,
   type SchemaSnapshot,
 } from "./migrations-harness";
 
 const FIXTURE_TIMESTAMP = "2026-08-30T12:00:00.000Z";
 const HISTORICAL_VERSIONS = Array.from({ length: 16 }, (_, index) => index + 1) as HistoricalSchemaVersion[];
-const CURRENT_VERSIONS = Array.from({ length: 18 }, (_, index) => index + 1);
+const CURRENT_VERSIONS = Array.from({ length: 19 }, (_, index) => index + 1);
 const ALL_SCHEMA_VERSIONS = [0, ...HISTORICAL_VERSIONS] as HistoricalSchemaVersion[];
 const RECOVERABLE_CRASH_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16] as HistoricalSchemaVersion[];
 
@@ -262,6 +263,7 @@ const resetDatabase = (sql: SqlStorage): void => {
     "media_blobs",
     "media_leases",
     "twitch_user_cache",
+    "wc_sets",
     "wc_retired_keys",
   ]) {
     sql.exec(`DROP TABLE IF EXISTS ${quoteIdentifier(tableName)}`);
@@ -690,7 +692,7 @@ describe("Migrations-Harness", () => {
     ).toEqual([]);
   });
 
-  it("führt eine frische Datenbank durch die Versionen 1 bis 18", async () => {
+  it("führt eine frische Datenbank durch die Versionen 1 bis 19", async () => {
     const result = await withHistoricalDatabase(0, (sql) => {
       runMigrations(sql, "migration-harness-fresh");
       return {
@@ -734,6 +736,7 @@ describe("Migrations-Harness", () => {
       "wc_dock_tokens",
       "wc_meta",
       "wc_retired_keys",
+      "wc_sets",
     ]);
     expect(result.schema.find(({ name }) => name === "wc_meta")?.sql).toMatch(/surface_opacity/i);
     expect(result.schema.find(({ name }) => name === "wc_meta")?.sql).not.toMatch(/surface_mode/i);
@@ -790,6 +793,58 @@ describe("Migrations-Harness", () => {
     expect(result.first.meta).toEqual(result.second.meta);
     expect(result.first.versions).toEqual(result.second.versions);
     expect(result.first.schema).toEqual(result.second.schema);
+  });
+
+  it("führt Migration 19 vom Stand 18 additiv aus und erhält Bestandsdaten bei erneutem Lauf", async () => {
+    const result = await withHistoricalDatabase(16, (sql) => {
+      prepareVersion18Database(sql);
+      const before = {
+        channelState: sql.exec("SELECT * FROM channel_state").toArray(),
+        challenges: sql.exec("SELECT * FROM wc_challenges ORDER BY id").toArray(),
+        meta: sql.exec("SELECT * FROM wc_meta").toArray(),
+        versions: sql
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .toArray()
+          .map(({ version }) => version),
+      };
+      runMigrations(sql, "migration-harness-v19");
+      const first = {
+        channelState: sql.exec("SELECT * FROM channel_state").toArray(),
+        challenges: sql.exec("SELECT * FROM wc_challenges ORDER BY id").toArray(),
+        meta: sql.exec("SELECT * FROM wc_meta").toArray(),
+        versions: sql
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .toArray()
+          .map(({ version }) => version),
+        sets: sql.exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'wc_sets'").toArray(),
+        columns: sql.exec<{ name: string }>("PRAGMA table_info(wc_sets)").toArray().map(({ name }) => name),
+      };
+      runMigrations(sql, "migration-harness-v19-rerun");
+      return { before, first, second: {
+        channelState: sql.exec("SELECT * FROM channel_state").toArray(),
+        challenges: sql.exec("SELECT * FROM wc_challenges ORDER BY id").toArray(),
+        meta: sql.exec("SELECT * FROM wc_meta").toArray(),
+        versions: sql
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .toArray()
+          .map(({ version }) => version),
+        schema: readSchemaSnapshot(sql),
+      } };
+    });
+
+    expect(result.before.versions).toEqual([...Array.from({ length: 18 }, (_, index) => index + 1)]);
+    expect(result.first.versions).toEqual(CURRENT_VERSIONS);
+    expect(result.first.sets).toEqual([{ name: "wc_sets" }]);
+    expect(result.first.columns).toEqual([
+      "id", "type", "name", "normalized_name", "has_progress", "created_at", "updated_at", "payload",
+    ]);
+    expect(result.first.channelState).toEqual(result.before.channelState);
+    expect(result.first.challenges).toEqual(result.before.challenges);
+    expect(result.first.meta).toEqual(result.before.meta);
+    expect(result.second.channelState).toEqual(result.first.channelState);
+    expect(result.second.challenges).toEqual(result.first.challenges);
+    expect(result.second.meta).toEqual(result.first.meta);
+    expect(result.second.versions).toEqual(result.first.versions);
   });
 
   it.each(HISTORICAL_VERSIONS)("überführt eine Datenbank auf Stand %i ohne Nutzdatenverlust", async (version) => {

@@ -330,6 +330,30 @@ const MIGRATION_15_PENALTY_LABEL = "ALTER TABLE wc_meta ADD COLUMN penalty_label
 const MIGRATION_16_TEXT_EMPHASIS = "ALTER TABLE wc_meta ADD COLUMN text_emphasis TEXT NOT NULL DEFAULT 'auto' CHECK (text_emphasis IN ('auto','strong','plain'));";
 const MIGRATION_18_KEY_VISIBLE = "ALTER TABLE wc_meta ADD COLUMN key_visible INTEGER NOT NULL DEFAULT 0 CHECK (key_visible IN (0,1));";
 
+const MIGRATION_19_SETS = `
+CREATE TABLE IF NOT EXISTS wc_sets (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL CHECK (type IN ('user', 'autosave')),
+  name TEXT NOT NULL,
+  normalized_name TEXT NOT NULL,
+  has_progress INTEGER NOT NULL CHECK (has_progress IN (0, 1)),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  payload TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS wc_sets_user_name_idx
+  ON wc_sets(normalized_name) WHERE type = 'user';
+CREATE INDEX IF NOT EXISTS wc_sets_updated_idx ON wc_sets(updated_at DESC);
+`;
+
+const hasChallengeSetsTable = (sql: SqlStorage): boolean =>
+  sql
+    .exec<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'wc_sets'",
+    )
+    .toArray()
+    .length > 0;
+
 type Migration17ChallengeRow = {
   id: string;
   title: string;
@@ -663,6 +687,18 @@ export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
     sql.exec(
       "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
       18,
+      buildId,
+      new Date().toISOString(),
+    );
+  }
+  const versionNineteenWasApplied = sql
+    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 19")
+    .toArray().length > 0;
+  if (!versionNineteenWasApplied) {
+    if (!hasChallengeSetsTable(sql)) sql.exec(MIGRATION_19_SETS);
+    sql.exec(
+      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
+      19,
       buildId,
       new Date().toISOString(),
     );

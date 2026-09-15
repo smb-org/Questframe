@@ -551,15 +551,28 @@ const worker = {
 
     const challengeRoutes: Record<string, { pathname: string; protection: "read" | "editor" | "command" }> = {
       "GET /api/challenges": { pathname: "/challenges", protection: "read" },
+      "GET /api/challenges/sets": { pathname: "/challenges/sets", protection: "read" },
+      "POST /api/challenges/sets": { pathname: "/challenges/sets", protection: "editor" },
       "POST /api/challenges/commands": { pathname: "/challenges/commands", protection: "command" },
       "PUT /api/challenges/board": { pathname: "/challenges/board", protection: "editor" },
       "PUT /api/challenges/settings": { pathname: "/challenges/settings", protection: "editor" },
       "POST /api/challenges/dock-token": { pathname: "/challenges/dock-token", protection: "editor" },
       "POST /api/challenges/dock-token/rotate": { pathname: "/challenges/dock-token/rotate", protection: "editor" },
     };
-    const challengeRoute = challengeRoutes[`${request.method} ${url.pathname}`];
+    const challengeRoute = challengeRoutes[`${request.method} ${url.pathname}`]
+      ?? (url.pathname.startsWith("/api/challenges/sets/") && request.method === "GET"
+        ? { pathname: `/challenges/sets/${url.pathname.slice("/api/challenges/sets/".length)}`, protection: "read" as const }
+        : url.pathname.startsWith("/api/challenges/sets/") && request.method === "DELETE"
+          ? { pathname: `/challenges/sets/${url.pathname.slice("/api/challenges/sets/".length)}`, protection: "editor" as const }
+          : undefined);
     if (challengeRoute !== undefined) {
       const authorization = request.headers.get("authorization");
+      // `x-dock-token` ist ausschließlich ein interner Header zwischen Worker
+      // und Channel-DO. Ein öffentlicher Request darf ihn nicht nutzen, um die
+      // Session-Prüfung für Board- oder Set-Verwaltung zu umgehen.
+      if (request.headers.get("x-dock-token") !== null && challengeRoute.protection !== "command") {
+        return errorResponse(403, "forbidden", "Der Dock darf diese Route nicht verwenden.");
+      }
       const bearer = authorization?.startsWith("Bearer ") === true
         ? authorization.slice("Bearer ".length)
         : null;

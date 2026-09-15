@@ -50,6 +50,10 @@ import { runMigrations } from "./migrations";
 import { createSqlStorageChallengeRepository } from "../modules/win-challenges/adapters/sql-storage-challenge-repository";
 import {
   boardSaveRequestSchema,
+  challengeSetDeleteResponseSchema,
+  challengeSetListResponseSchema,
+  challengeSetResponseSchema,
+  challengeSetSaveRequestSchema,
   commandSchema,
   settingsSaveRequestSchema,
 } from "../modules/win-challenges/contracts/schemas";
@@ -253,6 +257,18 @@ export class ChannelObject extends DurableObject<AppEnv> {
       }
       if (request.method === "GET" && url.pathname === "/challenges") {
         return this.getChallenges(request);
+      }
+      if (request.method === "GET" && url.pathname === "/challenges/sets") {
+        return this.getChallengeSets(request);
+      }
+      if (request.method === "POST" && url.pathname === "/challenges/sets") {
+        return await this.saveChallengeSet(request);
+      }
+      if (request.method === "GET" && url.pathname.startsWith("/challenges/sets/")) {
+        return this.getChallengeSet(request, url.pathname.slice("/challenges/sets/".length));
+      }
+      if (request.method === "DELETE" && url.pathname.startsWith("/challenges/sets/")) {
+        return await this.deleteChallengeSet(request, url.pathname.slice("/challenges/sets/".length));
       }
       if (request.method === "POST" && url.pathname === "/challenges/commands") {
         return await this.runChallengeCommand(request);
@@ -682,6 +698,39 @@ export class ChannelObject extends DurableObject<AppEnv> {
     return jsonResponse(this.challengeService().readSnapshot());
   }
 
+  private getChallengeSets(request: Request): Response {
+    this.requireSetSession(request);
+    return jsonResponse(challengeSetListResponseSchema.parse({ sets: this.challengeService().listSets() }));
+  }
+
+  private getChallengeSet(request: Request, setId: string): Response {
+    this.requireSetSession(request);
+    const decodedSetId = this.decodeSetId(setId);
+    const record = this.challengeService().readSet(decodedSetId);
+    if (record === null) throw new RequestError(404, "not_found", "Set nicht gefunden.");
+    return jsonResponse(challengeSetResponseSchema.parse({ summary: record.summary, set: record.payload }));
+  }
+
+  private async saveChallengeSet(request: Request): Promise<Response> {
+    const session = this.requireSetSession(request);
+    await this.requireCsrf(request, session);
+    const input = challengeSetSaveRequestSchema.parse(await readJson(request, 1_024));
+    const record = this.challengeService().saveSet({
+      name: input.name,
+      includeProgress: input.includeProgress,
+      ...(input.setId === undefined ? {} : { setId: input.setId }),
+    });
+    return jsonResponse(challengeSetResponseSchema.parse({ summary: record.summary, set: record.payload }));
+  }
+
+  private async deleteChallengeSet(request: Request, setId: string): Promise<Response> {
+    const session = this.requireSetSession(request);
+    await this.requireCsrf(request, session);
+    const decodedSetId = this.decodeSetId(setId);
+    this.challengeService().deleteSet(decodedSetId);
+    return jsonResponse(challengeSetDeleteResponseSchema.parse({ id: decodedSetId, deleted: true }));
+  }
+
   private async runChallengeCommand(request: Request): Promise<Response> {
     const auth = await this.requireChallengeCommandAuth(request);
     const command = commandSchema.parse(await readJson(request, 32_768));
@@ -701,6 +750,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       baseBoardRevision: input.baseBoardRevision,
       definitions: input.challenges,
       ...(input.reason === undefined ? {} : { reason: input.reason }),
+      ...(input.setId === undefined ? {} : { setId: input.setId }),
     });
     this.broadcastChallengeUpdate(this.toChallengeUpdate({
       ...result.snapshot,
@@ -728,6 +778,25 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const session = this.requireSession(request);
     await this.requireCsrf(request, session);
     return "session";
+  }
+
+  private requireSetSession(request: Request): SessionRow {
+    if (request.headers.get("x-dock-token") !== null) {
+      throw new RequestError(403, "forbidden", "Der Dock darf keine Sets verwalten.");
+    }
+    return this.requireSession(request);
+  }
+
+  private decodeSetId(setId: string): string {
+    if (setId === "" || setId.includes("/")) throw new RequestError(400, "bad_request", "Set-ID fehlt.");
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(setId);
+    } catch {
+      throw new RequestError(400, "bad_request", "Set-ID ist ungültig.");
+    }
+    if (decoded === "" || decoded.includes("/")) throw new RequestError(400, "bad_request", "Set-ID ist ungültig.");
+    return decoded;
   }
 
   private async save(request: Request): Promise<Response> {

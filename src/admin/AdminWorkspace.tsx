@@ -45,6 +45,8 @@ import {
   type BoardSaveRequest,
   type BoardSaveResponse,
   type ChallengeBoardSnapshot,
+  type ChallengeSetListResponse,
+  type ChallengeSetResponse,
   type Command,
   type CommandResponse,
   type SettingsSaveRequest,
@@ -79,6 +81,10 @@ export type AdminApi = {
   lookupTwitchUser?: ((login: string) => Promise<TwitchUser>) | undefined;
   getChallengeBoard?: (() => Promise<ChallengeBoardSnapshot>) | undefined;
   saveChallengeBoard?: ((request: BoardSaveRequest) => Promise<BoardSaveResponse>) | undefined;
+  listChallengeSets?: (() => Promise<ChallengeSetListResponse>) | undefined;
+  getChallengeSet?: ((setId: string) => Promise<ChallengeSetResponse>) | undefined;
+  saveChallengeSet?: ((request: { name: string; includeProgress: boolean; setId?: string }) => Promise<ChallengeSetResponse>) | undefined;
+  deleteChallengeSet?: ((setId: string) => Promise<string>) | undefined;
   saveChallengeSettings?: ((request: SettingsSaveRequest) => Promise<SettingsSaveResponse>) | undefined;
   sendChallengeCommand?: ((command: Command) => Promise<CommandResponse>) | undefined;
   subscribe?: ((callbacks: { onState: (state: ChannelState) => void; onOnlineChange: (online: boolean) => void; onOverlayPresence: (connectedSockets: number) => void; onAudit: (entry: AuditEntry, undoTargets: UndoTarget[]) => void; onUndoTargets: (undoTargets: UndoTarget[]) => void; onChallengeUpdate?: (update: ChallengeUpdate) => void }) => () => void) | undefined;
@@ -694,7 +700,27 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
   const compositionHud = state.preview;
   const compositionBoardApi = useMemo<ChallengeBoardApi | null>(() => {
     if (api.getChallengeBoard === undefined || api.saveChallengeBoard === undefined) return null;
-    return { load: api.getChallengeBoard.bind(api), save: api.saveChallengeBoard.bind(api) };
+    const listChallengeSets = api.listChallengeSets;
+    const getChallengeSet = api.getChallengeSet;
+    const saveChallengeSet = api.saveChallengeSet;
+    const deleteChallengeSet = api.deleteChallengeSet;
+    return {
+      load: api.getChallengeBoard.bind(api),
+      save: api.saveChallengeBoard.bind(api),
+      ...(listChallengeSets === undefined ? {} : {
+        listSets: async () => (await listChallengeSets()).sets,
+      }),
+      ...(getChallengeSet === undefined ? {} : {
+        getSet: async (setId: string) => (await getChallengeSet(setId)).set,
+      }),
+      ...(saveChallengeSet === undefined ? {} : {
+        saveSet: async (request: { name: string; includeProgress: boolean; setId?: string }) =>
+          (await saveChallengeSet(request)).summary,
+      }),
+      ...(deleteChallengeSet === undefined ? {} : {
+        deleteSet: deleteChallengeSet.bind(api),
+      }),
+    };
   }, [api]);
   const challengeReady = displayedChallengeUpdate !== null && challengeCss.style === displayedChallengeUpdate.settings.styleId && (displayedChallengeUpdate.settings.themeMode === "own" || challengeCss.theme === displayedChallengeUpdate.settings.themeId);
   // Nur die Admin-Vorschau markiert das Modul hier als gedämpft. Die echte

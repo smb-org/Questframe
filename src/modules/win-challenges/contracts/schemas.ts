@@ -6,6 +6,8 @@ import {
   CHALLENGE_THEME_IDS,
   DEFAULT_CHALLENGE_PLACEMENT,
   MAX_CHALLENGES,
+  MAX_CHALLENGE_SETS,
+  MAX_CHALLENGE_SET_NAME_GRAPHEMES,
   MAX_COUNT,
   MAX_CHALLENGE_STEP,
   MAX_MEASURE_COUNT,
@@ -19,6 +21,7 @@ import {
   isChallengeState,
   isChallengeStyleId,
   isChallengeTitle,
+  isChallengeSetName,
   isClientId,
   isCommandId,
   isCurrentCount,
@@ -76,6 +79,10 @@ const normalized = <T>(
 const challengeIdSchema = custom(isChallengeId, "Challenge-ID ist erforderlich.");
 const clientIdSchema = custom(isClientId, "Client-ID ist erforderlich.");
 const challengeTitleSchema = normalized(isChallengeTitle, "Challenge muss 1–160 Zeichen lang sein.");
+export const challengeSetNameSchema = normalized(
+  isChallengeSetName,
+  `Set-Name muss normalisiert 1–${String(MAX_CHALLENGE_SET_NAME_GRAPHEMES)} Zeichen lang sein.`,
+);
 const maxCountLabel = String(MAX_MEASURE_COUNT);
 const targetCountSchema = custom(isTargetCount, `Ziel muss null oder eine Zahl von 1–${maxCountLabel} sein.`);
 const currentCountSchema = custom(isCurrentCount, `Aktueller Stand muss 0–${maxCountLabel} sein.`);
@@ -304,6 +311,38 @@ export const challengeSetV1Schema = z.strictObject({
   challenges: z.array(challengeSetChallengeSchema).max(MAX_CHALLENGES),
 });
 
+const challengeSetTypeSchema = z.union([z.literal("user"), z.literal("autosave")]);
+const challengeSetIdSchema = z.string().min(1).max(80);
+
+export const challengeSetSummarySchema = z.strictObject({
+  id: challengeSetIdSchema,
+  type: challengeSetTypeSchema,
+  name: z.string().min(1).max(80),
+  hasProgress: z.boolean(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+});
+
+export const challengeSetListResponseSchema = z.strictObject({
+  sets: z.array(challengeSetSummarySchema).max(MAX_CHALLENGE_SETS + 1),
+});
+
+export const challengeSetResponseSchema = z.strictObject({
+  summary: challengeSetSummarySchema,
+  set: challengeSetV1Schema,
+});
+
+export const challengeSetSaveRequestSchema = z.strictObject({
+  name: challengeSetNameSchema,
+  includeProgress: z.boolean(),
+  setId: challengeSetIdSchema.optional(),
+});
+
+export const challengeSetDeleteResponseSchema = z.strictObject({
+  id: challengeSetIdSchema,
+  deleted: z.literal(true),
+});
+
 export const challengeSchema = z
   .strictObject({
     id: challengeIdSchema,
@@ -426,6 +465,7 @@ export const boardSaveRequestSchema = z.strictObject({
   baseBoardRevision: revisionSchema,
   challenges: z.array(challengeDefinitionSchema).max(MAX_CHALLENGES),
   reason: z.literal("set-switch").optional(),
+  setId: challengeSetIdSchema.optional(),
 });
 
 export const challengeBoardSnapshotSchema = z.strictObject({
@@ -558,6 +598,10 @@ export type Challenge = z.infer<typeof challengeSchema>;
 export type ChallengeDefinition = z.infer<typeof challengeDefinitionSchema>;
 export type ChallengeSetV1 = z.infer<typeof challengeSetV1Schema>;
 export type ChallengeSetV1Challenge = ChallengeSetV1["challenges"][number];
+export type ChallengeSetSummary = z.infer<typeof challengeSetSummarySchema>;
+export type ChallengeSetSaveRequest = z.infer<typeof challengeSetSaveRequestSchema>;
+export type ChallengeSetResponse = z.infer<typeof challengeSetResponseSchema>;
+export type ChallengeSetListResponse = z.infer<typeof challengeSetListResponseSchema>;
 export type GlobalTimer = z.infer<typeof globalTimerSchema>;
 export type Settings = z.infer<typeof settingsSchema>;
 export type Command = z.infer<typeof commandSchema>;

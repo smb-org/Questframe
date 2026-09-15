@@ -76,6 +76,18 @@ export const withHistoricalDatabase = async <T>(
  */
 export const prepareVersion17Database = (sql: SqlStorage): void => {
   runMigrations(sql, "migration-harness-prepare-v17");
-  sql.exec("DELETE FROM _sql_schema_migrations WHERE version = 18");
+  sql.exec("DELETE FROM _sql_schema_migrations WHERE version >= 18");
+  sql.exec("DROP TABLE IF EXISTS wc_sets");
   sql.exec("ALTER TABLE wc_meta DROP COLUMN key_visible");
+};
+
+/**
+ * Baut aus dem aktuellen V17-Fixture einen echten Stand 18 für isolierte
+ * Migration-19-Tests. Migration 19 fügt ausschließlich die Tabelle
+ * `wc_sets` hinzu; ihre Rücknahme ist reines Test-Fixture-Setup.
+ */
+export const prepareVersion18Database = (sql: SqlStorage): void => {
+  runMigrations(sql, "migration-harness-prepare-v18");
+  sql.exec("DELETE FROM _sql_schema_migrations WHERE version >= 19");
+  sql.exec("DROP TABLE IF EXISTS wc_sets");
 };
