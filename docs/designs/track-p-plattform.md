@@ -76,11 +76,28 @@ restore(ctx, snapshot: string): void;  // und zurückschreiben
 Der Host besitzt Tabelle, Sequenz, Pruning und die Undo-Route. Das Modul
 besitzt den Inhalt des Snapshots und weiß als einziges, was er bedeutet.
 
-**Der Hebel, der das billig macht:** Undo ist noch gar nicht freigeschaltet.
-`channel-object.ts:911` lehnt jede Undo-Anfrage mit 403 ab, solange
-`getReleaseCapabilities(env.RELEASE_STAGE).undo` falsch ist. Der Umbau trifft
-also keinen Nutzer. Das ist das Zeitfenster, in dem diese Entscheidung ohne
-Migrationsschmerz umsetzbar ist — nach der Freischaltung wäre sie teuer.
+**Korrektur vom 2026-09-17.** Eine frühere Fassung dieses Abschnitts nannte
+als Hebel, Undo sei noch gar nicht freigeschaltet, der Umbau treffe also
+keinen Nutzer. Das ist falsch. `channel-object.ts:911` sperrt Undo nur bei
+`RELEASE_STAGE === "v1a"` (`state.ts:314–330`), und `wrangler.jsonc` setzt in
+**allen drei** Umgebungen `"RELEASE_STAGE": "v1b"` (Zeilen 49, 114, 174).
+Undo ist überall an.
+
+**Was das für P6a bedeutet.** Es gibt produktive `state_history`-Zeilen, und
+Nutzer können sie heute über die Undo-Route erreichen. Der Umbau ist damit
+eine echte Datenmigration, kein freies Zeitfenster:
+
+- Bestandszeilen brauchen `module_id = 'hud'` als Backfill.
+- `channel_seq` muss für Bestandszeilen aus der vorhandenen `revision`-
+  Ordnung abgeleitet werden, monoton und lückenlos genug, dass die
+  Undo-Reihenfolge erhalten bleibt.
+- Die Undo-Route darf während der Migration nicht in einen Zwischenzustand
+  greifen. Da Migrationen im DO synchron laufen, ist das gegeben — aber nur,
+  solange der Backfill ohne `await` auskommt und ohne CASE-Konstrukt, das
+  mit der Zeilenzahl wächst (100-Parameter-Grenze).
+
+Damit ist P6a teurer als beim Schreiben angenommen und rückt in der
+Risikobewertung neben P4, statt darunter.
 
 **Check:** ein Test, der eine HUD-Mutation und eine Challenge-Mutation
 verschränkt, zweimal undo fährt und prüft, dass beide Module in der richtigen
@@ -122,9 +139,12 @@ Vorschlag.
 einer Zählung, nicht aus einem Durchstich. Vor der Umsetzung einen
 Fantasie-Modul-Test schreiben und *daran* messen, was fehlt.
 
-**P6a hat eine Modellfrage, keine Implementierungsfrage.** Wenn das Review
-die Achse anders schneidet, ändert sich P6 mit. Deshalb steht P6a vor P6 und
-nicht daneben.
+**P6a hat eine Modellfrage und eine Datenfrage.** Die Modellfrage: wenn das
+Review die Achse anders schneidet, ändert sich P6 mit — deshalb steht P6a vor
+P6 und nicht daneben. Die Datenfrage kam durch die Korrektur oben dazu: Undo
+ist in allen Umgebungen aktiv, der Backfill von `state_history` läuft gegen
+Daten, die Nutzer erreichen können. P6a und P4 sind damit die beiden
+Schritte, die einen Storage-Snapshot vorher brauchen.
 
 ## Nicht in Scope
 
