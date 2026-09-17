@@ -77,7 +77,6 @@ const challengesModule = {
   budgetKeys: [
     "Challenge-Quelle",
     "Live-Seite",
-    "Challenge-Theme-Chunk (variantMax)",
     "Challenge-Style-Chunk (variantMax)",
   ],
 } as const satisfies OverlayModuleDefinition;

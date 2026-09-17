@@ -15,7 +15,7 @@ const challengeUpdate: ChallengeUpdate = {
   settingsRevision: 1,
   settings: {
     styleId: "plain-list",
-    themeMode: "inherit",
+    themeMode: "own",
     surfaceOpacity: 100,
     headerStyle: "default",
     textEmphasis: "auto",
@@ -27,7 +27,6 @@ const challengeUpdate: ChallengeUpdate = {
     effectsEnabled: true,
     maxVisible: 5,
     overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
-    themeId: "trail-wood",
     globalTimer: null,
     placement: { x: 30, y: 8, scale: 1 },
   },

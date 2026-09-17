@@ -292,11 +292,10 @@ Deklaration von selbst — der Build bricht, bis sie da ist.
   laufen im selben Dokument. Sie müssen sich nicht kennen, aber die Lautstärke-Summe und
   ein möglicher Gleichzeitigkeitsfall gehören einmal durchgehört. Beide respektieren
   bereits `effectsEnabled` und `prefers-reduced-motion`.
-- **Theme-Laden entfällt komplett.** `HudRenderer` importiert alle sechs HUD-Themes
-  **statisch** (`HudRenderer.tsx:11-16`). `src/challenges/theme-loader.ts` lädt exakt
-  dieselben Dateien (`../overlay/themes/<id>/theme.css`), und die `ChallengeThemeId`-Tabelle
-  deckt sich 1:1 mit den HUD-Themes. Im Composite ist der Lazy-Load damit in **beiden**
-  Modi redundant, nicht nur bei `themeMode: "inherit"` — er wird ganz übersprungen.
+- **Challenge-Theme-Laden entfällt komplett.** `HudRenderer` importiert alle sechs HUD-Themes
+  **statisch** (`HudRenderer.tsx:11-16`). Die Challenge-Quelle verwendet ihre eigenen
+  `--wc-*`-Tokens und lädt ausschließlich den gewählten Style-Chunk. Im Composite bleibt
+  das Modul dadurch unabhängig vom HUD und von dessen Theme-Registrierung.
 - **Gestaffeltes Erscheinen bleibt trotzdem.** `ChallengeSourceApp` rendert `null`, bis
   auch der **Stil**-Chunk geladen ist (`src/modules/win-challenges/styles/*`) — den
   bringt das HUD nicht mit. Das Log erscheint dadurch sichtbar später als das HUD.
@@ -391,8 +390,8 @@ Aus der zweiten Runde, ebenfalls behoben:
 - Zwei Lücken, die erst im Deployment aufgefallen wären: der WebSocket-Endpunkt in
   `worker/index.ts` und ein neues Pflichtfeld in einem `strictObject`, dessen
   Optionalität ausdrücklich das Rolling Deployment absichert.
-- Das Theme-Laden ist im Composite in **beiden** Theme-Modi redundant, nicht nur bei
-  `inherit`; die Staffelung hängt am Stil-Chunk, nicht am Theme.
+- Das Challenge-Theme-Laden ist im Composite vollständig entfallen; die Staffelung
+  hängt weiterhin am Stil-Chunk, nicht an einem HUD-Theme.
 - Widersprüchliche Watchdog-Politik („pro Störung" vs. „pro Session") in vier Zeilen.
 
 Aus der dritten Runde:

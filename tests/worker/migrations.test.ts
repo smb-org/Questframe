@@ -10,13 +10,14 @@ import {
   readSchemaSnapshot,
   prepareVersion17Database,
   prepareVersion18Database,
+  prepareVersion19Database,
   withHistoricalDatabase as withHarnessDatabase,
   type SchemaSnapshot,
 } from "./migrations-harness";
 
 const FIXTURE_TIMESTAMP = "2026-08-30T12:00:00.000Z";
 const HISTORICAL_VERSIONS = Array.from({ length: 16 }, (_, index) => index + 1) as HistoricalSchemaVersion[];
-const CURRENT_VERSIONS = Array.from({ length: 19 }, (_, index) => index + 1);
+const CURRENT_VERSIONS = Array.from({ length: 20 }, (_, index) => index + 1);
 const ALL_SCHEMA_VERSIONS = [0, ...HISTORICAL_VERSIONS] as HistoricalSchemaVersion[];
 const RECOVERABLE_CRASH_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16] as HistoricalSchemaVersion[];
 
@@ -692,7 +693,7 @@ describe("Migrations-Harness", () => {
     ).toEqual([]);
   });
 
-  it("führt eine frische Datenbank durch die Versionen 1 bis 19", async () => {
+  it("führt eine frische Datenbank durch die Versionen 1 bis 20", async () => {
     const result = await withHistoricalDatabase(0, (sql) => {
       runMigrations(sql, "migration-harness-fresh");
       return {
@@ -845,6 +846,47 @@ describe("Migrations-Harness", () => {
     expect(result.second.challenges).toEqual(result.first.challenges);
     expect(result.second.meta).toEqual(result.first.meta);
     expect(result.second.versions).toEqual(result.first.versions);
+  });
+
+  it("führt Migration 20 additiv aus, backfillt theme_mode und erhält die historische Spalte", async () => {
+    const result = await withHarnessDatabase(19, (sql) => {
+      const before = {
+        versions: sql
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .toArray()
+          .map(({ version }) => version),
+        themeMode: sql.exec<{ theme_mode: string }>("SELECT theme_mode FROM wc_meta WHERE singleton = 1").toArray(),
+        schema: readSchemaSnapshot(sql),
+      };
+      runMigrations(sql, "migration-harness-v20");
+      const first = {
+        versions: sql
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .toArray()
+          .map(({ version }) => version),
+        themeMode: sql.exec<{ theme_mode: string }>("SELECT theme_mode FROM wc_meta WHERE singleton = 1").toArray(),
+        schema: readSchemaSnapshot(sql),
+      };
+      runMigrations(sql, "migration-harness-v20-rerun");
+      return { before, first, second: {
+        versions: sql
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .toArray()
+          .map(({ version }) => version),
+        themeMode: sql.exec<{ theme_mode: string }>("SELECT theme_mode FROM wc_meta WHERE singleton = 1").toArray(),
+        schema: readSchemaSnapshot(sql),
+      } };
+    }, prepareVersion19Database);
+
+    expect(result.before.versions).toEqual(Array.from({ length: 19 }, (_, index) => index + 1));
+    expect(result.before.themeMode).toEqual([{ theme_mode: "inherit" }]);
+    expect(result.first.versions).toEqual(CURRENT_VERSIONS);
+    expect(result.first.themeMode).toEqual([{ theme_mode: "own" }]);
+    expect(result.first.schema).toEqual(result.before.schema);
+    expect(result.second).toEqual(result.first);
+    expect(result.first.schema.find(({ name }) => name === "wc_meta")?.sql).toMatch(
+      /theme_mode\s+TEXT\s+NOT NULL\s+CHECK\s*\(\s*theme_mode\s+IN\s*\(\s*'inherit'\s*,\s*'own'\s*\)\s*\)/i,
+    );
   });
 
   it.each(HISTORICAL_VERSIONS)("überführt eine Datenbank auf Stand %i ohne Nutzdatenverlust", async (version) => {
@@ -1037,7 +1079,7 @@ describe("Migrations-Harness", () => {
         board_revision: 7,
         settings_revision: 8,
         style_id: "plain-list",
-        theme_mode: "inherit",
+        theme_mode: "own",
         surface_opacity: 0,
         header_style: "default",
         text_emphasis: "auto",
@@ -1085,7 +1127,7 @@ describe("Migrations-Harness", () => {
         board_revision: 1,
         settings_revision: 1,
         style_id: "plain-list",
-        theme_mode: "inherit",
+        theme_mode: "own",
         surface_opacity: 100,
         header_style: "default",
         text_emphasis: "auto",

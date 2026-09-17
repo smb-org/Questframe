@@ -122,7 +122,7 @@ describe("Admin workspace shell", () => {
       settingsRevision: 1,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -165,7 +165,7 @@ describe("Admin workspace shell", () => {
       settingsRevision: 3,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -261,7 +261,7 @@ describe("Admin workspace shell", () => {
       boardRevision: 1,
       settingsRevision: 1,
       settings: {
-        styleId: "plain-list", themeMode: "inherit", surfaceOpacity: 100, headerStyle: "default", textEmphasis: "auto", headerTitle: "CHALLENGES", penaltyLabel: "STRAFE", penaltyText: "", effectsEnabled: true,
+        styleId: "plain-list", themeMode: "own", surfaceOpacity: 100, headerStyle: "default", textEmphasis: "auto", headerTitle: "CHALLENGES", penaltyLabel: "STRAFE", penaltyText: "", effectsEnabled: true,
         fontFamily: "theme", fontScale: 1,
         maxVisible: 8, overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null, placement: { x: 300, y: 8, scale: 1 },
@@ -302,7 +302,7 @@ describe("Admin workspace shell", () => {
       settingsRevision: 1,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -345,7 +345,7 @@ describe("Admin workspace shell", () => {
       settingsRevision: 1,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -398,7 +398,7 @@ describe("Admin workspace shell", () => {
       boardRevision: 1,
       settingsRevision: 1,
       settings: {
-        styleId: "plain-list", themeMode: "inherit", surfaceOpacity: 100, headerStyle: "default", textEmphasis: "auto", headerTitle: "CHALLENGES", penaltyLabel: "STRAFE", penaltyText: "", effectsEnabled: true,
+        styleId: "plain-list", themeMode: "own", surfaceOpacity: 100, headerStyle: "default", textEmphasis: "auto", headerTitle: "CHALLENGES", penaltyLabel: "STRAFE", penaltyText: "", effectsEnabled: true,
         fontFamily: "theme", fontScale: 1,
         maxVisible: 5, overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: { totalMs: 60_000, endsAt: new Date(Date.now() + 30_000).toISOString(), pausedRemainMs: null }, placement: { x: 300, y: 8, scale: 1 },
@@ -447,7 +447,7 @@ describe("Admin workspace shell", () => {
       settingsRevision: 1,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -499,7 +499,7 @@ describe("Admin workspace shell", () => {
       settingsRevision: 3,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -536,7 +536,7 @@ describe("Admin workspace shell", () => {
         eventSeq: 1,
         boardRevision: 2,
         settingsRevision: 4,
-        settings: { ...challengeSnapshot.settings, themeId: "trail-wood", effectsEnabled: false },
+        settings: { ...challengeSnapshot.settings, effectsEnabled: false },
         challenges: [],
         event: null,
       });
@@ -553,7 +553,7 @@ describe("Admin workspace shell", () => {
       settingsRevision: 3,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -615,7 +615,7 @@ describe("Admin workspace shell", () => {
       settingsRevision: 3,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -678,7 +678,7 @@ describe("Admin workspace shell", () => {
       settingsRevision: 1,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -732,7 +732,7 @@ describe("Admin workspace shell", () => {
       settingsRevision: 3,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -775,7 +775,6 @@ describe("Admin workspace shell", () => {
         settingsRevision: 4,
         settings: {
           ...challengeSnapshot.settings,
-          themeId: "trail-wood",
           effectsEnabled: false,
           globalTimer: { totalMs: 60_000, endsAt: "2000-01-01T00:00:00.000Z", pausedRemainMs: null },
         },
@@ -792,7 +791,6 @@ describe("Admin workspace shell", () => {
         settingsRevision: 5,
         settings: {
           ...challengeSnapshot.settings,
-          themeId: "trail-wood",
           globalTimer: { totalMs: 60_000, endsAt: null, pausedRemainMs: 30_000 },
         },
         challenges: [],
@@ -808,7 +806,6 @@ describe("Admin workspace shell", () => {
         settingsRevision: 6,
         settings: {
           ...challengeSnapshot.settings,
-          themeId: "trail-wood",
           globalTimerMode: "up",
           globalTimer: { totalMs: 60_000, endsAt: "2000-01-01T00:00:00.000Z", pausedRemainMs: null },
         },
@@ -863,7 +860,7 @@ describe("Admin workspace setup", () => {
       settingsRevision: 1,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",

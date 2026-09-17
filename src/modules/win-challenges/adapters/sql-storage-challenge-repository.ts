@@ -140,7 +140,7 @@ type ChallengeSetRow = ChallengeSetMetadataRow & {
   payload: string;
 };
 
-const persistedSettingsSchema = settingsSchema.omit({ themeId: true });
+const persistedSettingsSchema = settingsSchema;
 const metaRowSchema = z.strictObject({
   singleton: z.literal(1),
   event_seq: z.number().int().nonnegative(),

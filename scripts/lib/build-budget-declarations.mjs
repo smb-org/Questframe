@@ -1,4 +1,4 @@
-export const createBudgetDeclarations = (temporalKey, challengeThemeKeys, challengeStyleKeys, qrCodeKey) => [
+export const createBudgetDeclarations = (temporalKey, challengeStyleKeys, qrCodeKey) => [
   {
     type: "surface",
     key: "src/overlay/OverlayApp.tsx",
@@ -67,14 +67,6 @@ export const createBudgetDeclarations = (temporalKey, challengeThemeKeys, challe
     transferLabel: "Live-Seite initial static transfer",
     transferBudget: 1024 * 1024,
     transferAssets: ["shell", "font"],
-  },
-  {
-    // Im laufenden Stream wird genau eine Theme-Variante geladen. Deshalb
-    // zaehlt hier das groesste vollstaendige Theme-Chunk, nicht die Summe.
-    type: "variantMax",
-    label: "Challenge-Theme-Chunk (variantMax)",
-    keys: challengeThemeKeys,
-    budget: 64 * 1024,
   },
   {
     // Im laufenden Stream wird genau ein Aufbau geladen. Deshalb zaehlt hier

@@ -6,7 +6,6 @@ import { accountForChallengeUpdate } from "./wire";
 import { createCeremonyAudioPolicy, type CeremonyAudioPolicy } from "./audio";
 import { ceremonyFor, type ChallengeCeremony } from "./ceremonies";
 import { loadChallengeStyle, type ChallengeStyleLoader } from "./style-loader";
-import { loadChallengeTheme, type ChallengeThemeLoader } from "./theme-loader";
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
@@ -35,8 +34,6 @@ export type ChallengePresentationOptions = {
   update: ChallengeUpdate | null;
   clockOffsetMs?: number;
   loadStyle?: ChallengeStyleLoader;
-  loadTheme?: ChallengeThemeLoader;
-  loadThemes?: boolean;
 };
 
 export type ChallengePresentation = {
@@ -54,20 +51,13 @@ export const useChallengePresentation = ({
   update,
   clockOffsetMs = 0,
   loadStyle = loadChallengeStyle,
-  loadTheme = loadChallengeTheme,
-  loadThemes = true,
 }: ChallengePresentationOptions): ChallengePresentation => {
   const [localNow, setLocalNow] = useState(() => Date.now());
-  const [themeLoadState, setThemeLoadState] = useState<{ key: string | null; state: ChunkLoadState }>({
-    key: null,
-    state: "idle",
-  });
   const [styleLoadState, setStyleLoadState] = useState<{ key: string | null; state: ChunkLoadState }>({
     key: null,
     state: "idle",
   });
   const lastSeenRef = useRef(-1);
-  const themeRequestRef = useRef(0);
   const styleRequestRef = useRef(0);
   const ceremonyTimerRef = useRef<number | null>(null);
   const audioPolicyRef = useRef<CeremonyAudioPolicy | null>(null);
@@ -75,9 +65,6 @@ export const useChallengePresentation = ({
   const [activeCeremony, setActiveCeremony] = useState<(ChallengeCeremony & { eventSeq: number }) | null>(null);
   const reducedMotion = usePrefersReducedMotion();
 
-  const themeMode = update?.settings.themeMode ?? null;
-  const themeId = update?.settings.themeId ?? null;
-  const themeKey = themeMode === null || themeId === null ? null : `${themeMode}:${themeId}`;
   const styleId = update?.settings.styleId ?? null;
 
   useEffect(() => {
@@ -93,20 +80,6 @@ export const useChallengePresentation = ({
       setStyleLoadState({ key: styleId, state: "failed" });
     });
   }, [loadStyle, styleId]);
-
-  useEffect(() => {
-    const request = themeRequestRef.current + 1;
-    themeRequestRef.current = request;
-    if (!loadThemes || themeKey === null || themeId === null || themeMode === null || themeMode === "own") return;
-
-    void loadTheme(themeId).then(() => {
-      if (themeRequestRef.current !== request) return;
-      setThemeLoadState({ key: themeKey, state: "ready" });
-    }).catch(() => {
-      if (themeRequestRef.current !== request) return;
-      setThemeLoadState({ key: themeKey, state: "failed" });
-    });
-  }, [loadTheme, loadThemes, themeId, themeKey, themeMode]);
 
   useEffect(() => {
     const timer = window.setInterval(() => { setLocalNow(Date.now()); }, 1_000);
@@ -176,14 +149,9 @@ export const useChallengePresentation = ({
   const styleReady = update !== null
     && styleLoadState.key === styleId
     && styleLoadState.state === "ready";
-  const themeReady = update !== null && (
-    !loadThemes
-    || update.settings.themeMode === "own"
-    || (themeLoadState.key === themeKey && themeLoadState.state === "ready")
-  );
 
   return {
-    ready: styleReady && themeReady,
+    ready: styleReady,
     now: localNow + clockOffsetMs,
     clockOffsetMs,
     reducedMotion,

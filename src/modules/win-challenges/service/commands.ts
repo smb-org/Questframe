@@ -32,7 +32,7 @@ import {
 } from "../repository/challenge-repository";
 
 export type ChallengeUpdatePayload = Omit<ChallengeUpdate, "settings"> & {
-  settings: Omit<ChallengeUpdate["settings"], "themeId">;
+  settings: ChallengeUpdate["settings"];
   event: ChallengeEvent | GlobalTimerEvent | BoardEvent | null;
 };
 

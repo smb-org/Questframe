@@ -87,13 +87,11 @@ type ActiveSet = {
 };
 
 const snapshotFromUpdate = (update: ChallengeUpdate): ChallengeBoardSnapshot => {
-  const { themeId: _themeId, ...settings } = update.settings;
-  void _themeId;
   return {
     eventSeq: update.eventSeq,
     boardRevision: update.boardRevision,
     settingsRevision: update.settingsRevision,
-    settings,
+    settings: update.settings,
     challenges: update.challenges,
   };
 };

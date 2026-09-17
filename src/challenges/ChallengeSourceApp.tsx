@@ -21,7 +21,6 @@ import {
   TIME_SYNC_INTERVAL_MS,
 } from "../shared/time-sync";
 import { loadChallengeStyle, type ChallengeStyleLoader } from "./style-loader";
-import { loadChallengeTheme, type ChallengeThemeLoader } from "./theme-loader";
 import { useChallengePresentation } from "./useChallengePresentation";
 
 const PARSE_RELOAD_STORAGE_KEY = "wc-parse-reload-at";
@@ -40,23 +39,20 @@ const reloadAfterWireParseFailure = (reload: () => void): void => {
 };
 
 type ChallengeSourceAppProps = {
-  // Beide Loader bleiben injizierbar, damit die Quelle Rennen und Fehler testet.
+  // Der Style-Loader bleibt injizierbar, damit die Quelle Rennen und Fehler testet.
   loadStyle?: ChallengeStyleLoader;
-  // Der Loader bleibt injizierbar, damit das Render-Gate auch Fehler und Rennen testet.
-  loadTheme?: ChallengeThemeLoader;
   reloadPage?: () => void;
 };
 
 export const ChallengeSourceApp = ({
   loadStyle = loadChallengeStyle,
-  loadTheme = loadChallengeTheme,
   reloadPage = reloadWindow,
 }: ChallengeSourceAppProps = {}) => {
   const [update, setUpdate] = useState<ChallengeUpdate | null>(null);
   const [clockOffsetMs, setClockOffsetMs] = useState(0);
   // Der Hash ändert sich zur Laufzeit nicht; einmal beim Mount auslesen genügt.
   const [placementAtOrigin] = useState(placementAtOriginFromLocation);
-  const presentation = useChallengePresentation({ update, clockOffsetMs, loadStyle, loadTheme });
+  const presentation = useChallengePresentation({ update, clockOffsetMs, loadStyle });
   const { acceptUpdate } = presentation;
 
   useEffect(() => {

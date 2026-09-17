@@ -69,7 +69,7 @@ const HOST_BUDGET_KEYS: readonly string[] = [
 const HOST_DIRECT_BUDGET_KEYS: readonly string[] = ["Worker bundle", "Audio total"];
 
 const REAL_BUDGET_DECLARATION_LABELS: ReadonlySet<string> = new Set(
-  createBudgetDeclarations("temporal-entry", ["theme-entry"], ["style-entry"], "qr-entry")
+  createBudgetDeclarations("temporal-entry", ["style-entry"], "qr-entry")
     .flatMap((declaration) => (declaration.label === undefined ? [] : [declaration.label])),
 );
 const REAL_BUDGET_KEYS: ReadonlySet<string> = new Set([

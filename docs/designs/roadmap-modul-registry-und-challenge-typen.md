@@ -69,7 +69,7 @@ Oberfläche. Für neue Challenge-Typen bindet die **Challenge-Quelle mit
 `/overlay/all` zieht beide, dort zählt die Summe.
 
 Praktisch heißt das: die drei Listenstile werden dynamisch geladen
-(`style-loader.ts`, `theme-loader.ts`), typabhängige CSS-Signale kosten das
+(`style-loader.ts`), typabhängige CSS-Signale kosten das
 Basis-Bundle also fast nichts. Der Korrekturposten liegt bei den neuen
 DOM-Signalen und der `+MM:SS`-Anzeige, und der ist klein.
 
@@ -107,8 +107,8 @@ mitlösen — dort wären es zwei Baustellen auf einmal.
   `/overlay/all`. Siehe Kollision 2.
 - Das geteilte Theme-System ist Absicht: sechs Namen (trail-wood,
   field-journal, forged-compass, classic-simple, modern-compact,
-  modern-minimal) tragen HUD-Unitframe und Challenge-Themes gemeinsam, plus
-  `themeMode: "inherit" | "own"`.
+  modern-minimal) tragen HUD-Unitframe und Challenge-Themes gemeinsam; das
+  Challenge-Modul verwendet nur noch `themeMode: "own"`.
 - Selbst-Deploy bleibt. Kein neues Secret, kein neuer Scope, keine zusätzliche
   Setup-Hürde für Forks.
 - Board- und Settings-Revisionen sind konfliktgeschützt.
@@ -515,11 +515,11 @@ globale Overlay-Gate bleibt als Summenprüfung daneben.
    einer pro Modul. Das ist der teuerste Teil von P6 und wird jetzt bezahlt,
    weil die Challenges sonst dauerhaft ohne Undo bleiben.
 6. ~~**Was passiert mit `themeMode: "inherit"`?**~~ **`inherit` entfällt.**
-   Es bleibt nur `own`. Heute setzt `ChallengeLog.tsx:362` bei `inherit` allein
-   die Klasse `hud-theme--<id>`, die ohne registriertes HUD ins Leere greift.
+   Es bleibt nur `own`. Heute setzte `ChallengeLog.tsx:362` bei `inherit` allein
+   die Klasse `hud-theme--<id>`, die ohne registriertes HUD ins Leere griff.
    Der Preis ist, dass Themes an zwei Stellen gepflegt werden; dafür hängt das
-   Challenge-Modul nicht mehr am HUD. Braucht eine Migration (`theme_mode`-
-   CHECK und Backfill auf `own`) und den Wegfall des Schalters im Admin.
+   Challenge-Modul nicht mehr am HUD. Migration 20 backfillt `theme_mode` additiv
+   auf `own`; Spalte und historischer CHECK bleiben unverändert.
 7. ~~**Wird die Registry je durch ein drittes Modul belegt?**~~ **Ja, konkret
    geplant.** Damit ist Track P keine Aufräumarbeit, sondern Plattformarbeit:
    P2, P5 und P6 müssen die HTTP-Fassade, die Socket-Maschinerie und den

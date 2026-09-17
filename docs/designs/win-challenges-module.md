@@ -129,7 +129,7 @@ CREATE TABLE wc_meta (
   board_revision     INTEGER NOT NULL,  -- Konflikt nur für Board-Saves
   settings_revision  INTEGER NOT NULL,  -- Konflikt nur für Settings-Saves, getrennt
   style_id           TEXT    NOT NULL,  -- ChallengeStyleId, bestimmt nur den AUFBAU
-  theme_mode         TEXT    NOT NULL CHECK (theme_mode IN ('inherit', 'own')),
+  theme_mode         TEXT    NOT NULL CHECK (theme_mode IN ('inherit', 'own')), -- historischer CHECK; Migration 20 backfillt auf "own"
   surface_mode       TEXT    NOT NULL CHECK (surface_mode IN ('surface', 'bare')),
   header_title       TEXT    NOT NULL,  -- 1..24, Vorgabe "CHALLENGES"
   effects_enabled    INTEGER NOT NULL CHECK (effects_enabled IN (0, 1)),
@@ -290,7 +290,6 @@ challenge_update {
     styleId, themeMode, surfaceMode, headerTitle, effectsEnabled, maxVisible,
     overflowMode, overflowTempo, numbered, doneOrder,
     globalTimerMode,                  // "down" = Restzeit, "up" = verstrichene Zeit
-    themeId,                       // aktive HUD-Variante, nur relevant bei themeMode "inherit"
     globalTimer: null | {           // null = Feature aus
       totalMs: number,
       endsAt: string | null,        // absoluter Instant, null wenn nicht laufend
@@ -657,46 +656,14 @@ damit ohne HUD lauffähig und sieht ohne HUD gut aus:
 `--wc-surface`, `--wc-line`, `--wc-text`, `--wc-muted`, `--wc-accent`, `--wc-ok`,
 `--wc-font-ui`, `--wc-font-display`, `--wc-row-height`
 
-`wc_meta.theme_mode` steuert, was darüberliegt:
+`wc_meta.theme_mode` bleibt als Datenbankspalte und historischer CHECK erhalten, ist im
+Vertrag aber auf **`own`** verengt. Migration 20 setzt bestehende Zeilen additiv auf
+`own`, ohne einen Tabellen-Rebuild auszulösen.
 
-- **`inherit`** (Vorgabe in diesem Projekt): Das Log übernimmt die Materialwelt der aktiven
-  HUD-Variante.
-- **`own`**: Das Standardtheme des Moduls steht.
-
-**Wie `inherit` wirklich funktioniert, und warum die naheliegende Lösung falsch war.**
-Die Challenge-Quelle ist ein **eigenes Dokument**. Sie erbt vom HUD kein einziges CSS-Byte.
-Die HUD-Themes liegen im statischen CSS-Chunk von `HudRenderer` und ihre Variablen sind
-unter `.hud-theme--…` gebunden (`src/overlay/HudRenderer.tsx:10`). Eine Brücken-Datei, die
-`--wc-*` auf `--hud-*` mappt, würde im Challenge-Dokument auf Variablen zeigen, die dort
-gar nicht existieren.
-
-Der tragfähige Weg:
-
-1. `challenge_update.settings.themeId` trägt die aktive HUD-Variante über die Leitung.
-2. Die Challenge-Quelle lädt die zugehörige `themes/<variante>/theme.css` als dynamischen
-   Chunk in ihr **eigenes** Dokument und setzt dieselbe `.hud-theme--…`-Klasse.
-3. Die Brücken-Regeln mappen `--wc-*` auf die dann vorhandenen `--hud-*`.
-4. Ein Themewechsel im HUD braucht **kein** eigenes Event: `themeId` steckt im
-   Settings-Teil, kommt also mit dem nächsten `challenge_update` ohnehin an. Das ist
-   nötig, weil die Challenge-Quelle bewusst kein `state_committed` empfängt.
-
-**CSS wird nie entladen.** Ein einmal importierter Chunk bleibt im langlebigen
-OBS-Dokument aktiv. Ein Wechsel `inherit → own` kann deshalb nicht dadurch wirken, dass
-die Brücke "nicht geladen wird". **Alle Brücken- und Style-Regeln müssen über
-`[data-theme-mode="inherit"]` und `[data-style="…"]` am Wurzelelement gescoped sein.**
-Umschalten heißt dann Attribut umsetzen, nicht Datei weglassen.
-
-**Render-Gate.** Zustand kann über den Socket eintreffen, bevor der dynamische CSS-Chunk
-da ist. Ungestylter Inhalt wäre live im Bild. Die Quelle rendert deshalb erst, wenn Style
-und, bei `inherit`, Theme-CSS geladen sind. Schlägt ein Chunk fehl, bleibt die Quelle
-transparent statt ungestylt zu erscheinen, und ein überholter Import wird verworfen statt
-angewendet.
-
-Damit sind es nicht 18 Kombinationen aus drei Styles und sechs Varianten, sondern drei
-**Aufbauten** in der Materialwelt, die der Streamer ohnehin gewählt hat. `ChallengeStyleId`
-bestimmt ausschließlich die Struktur: `plain-list`, `plain-bullets`, `quest-log`.
-Das folgt exakt der Slot-Architektur, die `DESIGN.md` für `hud.css`
-vorschreibt, eine Ebene höher.
+Die Challenge-Quelle ist ein eigenes Dokument und konsumiert ausschließlich ihre eigenen
+`--wc-*`-Tokens. Sie lädt nur den gewählten Style-Chunk (`plain-list`, `plain-bullets`
+oder `quest-log`); HUD-Theme-IDs, HUD-Klassen und HUD-CSS werden weder übertragen noch
+nachgeladen. Dadurch bleibt das Modul auch ohne registriertes HUD vollständig lauffähig.
 
 ### Lesbarkeit über beliebigem Video
 
@@ -864,7 +831,6 @@ Audiodateien in ihren übertragenen Bytes.
 | Challenge-Quelle initialer Transfer | 273,33 KiB | 512,00 KiB |
 | Live-Seite initiales JavaScript | 65,57 KiB | 200,00 KiB |
 | Live-Seite initialer Transfer | 115,40 KiB | 1.024,00 KiB |
-| Challenge-Theme-Chunk, `variantMax` | 1,36 KiB | 64,00 KiB |
 | Challenge-Style-Chunk, `variantMax` | 2,32 KiB | 64,00 KiB |
 
 Alle Prüfungen des Budgetberichts sind bestanden.
@@ -967,9 +933,9 @@ Mutationen und die eigene Challenge-Quelle vollständig ab.
   └── Budget-Gate deckt beide neuen Einstiegspunkte ab
 
 [+] Theming
-  ├── inherit laedt die Theme-CSS der aktiven Variante ins eigene Dokument
-  ├── Themewechsel im HUD erreicht die Quelle ueber settings.themeId
-  ├── inherit → own wirkt per data-Attribut, nicht per Nichtladen
+  ├── die Quelle verwendet ausschliesslich ihre eigenen WC-Tokens
+  ├── themeMode akzeptiert nur own
+  ├── es gibt keinen HUD-Theme-Loader und keine HUD-Klasse an der Quelle
   └── CSS-Chunk-Fehler → transparent statt ungestylt
 
 COVERAGE gesamt: 74/74  |  CRITICAL: 13  |  E2E: 4
@@ -1105,7 +1071,7 @@ zu erben, weil das HUD abschaltbar ist und in einem Zielprodukt gar nicht existi
 ein zweiter gezielter Durchgang. 6 eigene Findings plus 12 aus einer zweiten Outside Voice,
 darunter fünf Blocker. **Vier der fünf Blocker waren Folgen von Entscheidungen aus diesem
 Tag selbst:** Die eigene Browserquelle und der eigene Socket-Tag zusammen hatten die
-Challenge-Quelle von der Theme-Information abgeschnitten, die `inherit` braucht; die Regel
+  Challenge-Quelle von der nicht mehr benötigten HUD-Theme-Information entkoppelt; die Regel
 "Zielzustand statt Rechnung" hatte einen abgelaufenen Timer eingesperrt, aus dem die
 Live-Seite keinen Ausweg hatte; und der Pfad `/overlay/challenges` kollidierte mit dem
 bestehenden Präfix-Test in `main.tsx`. Dazu ein Sequenzfehler, der beim ersten lokalen

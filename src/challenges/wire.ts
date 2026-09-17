@@ -43,7 +43,6 @@ import {
   isRevision,
   isSortOrder,
   isTargetCountForKind,
-  isThemeId,
   isThemeMode,
   isChallengeSurfaceOpacity,
   isChallengeTextEmphasis,
@@ -119,7 +118,6 @@ const parseSettings = (input: unknown): ChallengeSettings | null => {
       "keyVisible",
       "doneOrder",
       "globalTimerMode",
-      "themeId",
       "globalTimer",
       "placement",
     ]) ||
@@ -141,7 +139,6 @@ const parseSettings = (input: unknown): ChallengeSettings | null => {
     !isKeyVisible(input.keyVisible) ||
     !isDoneOrder(input.doneOrder) ||
     !isGlobalTimerMode(input.globalTimerMode) ||
-    !isThemeId(input.themeId) ||
     !isChallengePlacement(input.placement) ||
     !isRecord(input.placement) ||
     !exactKeys(input.placement, ["x", "y", "scale"])

@@ -1,7 +1,6 @@
 /*
  * Eigenstaendiges CSS der Challenge-Quelle. Der Root traegt data-style und
- * data-theme-mode, damit spaeter geladene Chunks keine alten Regeln durch
- * blosse Abwesenheit wieder aktivieren koennen.
+ * data-theme-mode fuer die eigenen Darstellungs-Presets.
  */
 :is(
   .challenge-source[data-style="plain-list"],
@@ -68,58 +67,9 @@
 }
 
 /*
- * Theme-CSS wird in das eigene Challenge-Dokument importiert. Diese Regeln
- * greifen nur mit inherit und nur am Challenge-Root. Der Import wird nie
- * entladen; ein Wechsel auf own wird deshalb ausschliesslich ueber Attribute
- * wirksam, nicht ueber das Weglassen einer Datei.
- */
-:is(
-  .challenge-source[data-style="plain-list"],
-  .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="quest-log"]
-)[data-theme-mode="inherit"].hud-theme--trail-wood,
-:is(
-  .challenge-source[data-style="plain-list"],
-  .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="quest-log"]
-)[data-theme-mode="inherit"].hud-theme--field-journal,
-:is(
-  .challenge-source[data-style="plain-list"],
-  .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="quest-log"]
-)[data-theme-mode="inherit"].hud-theme--forged-compass,
-:is(
-  .challenge-source[data-style="plain-list"],
-  .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="quest-log"]
-)[data-theme-mode="inherit"].hud-theme--classic-simple,
-:is(
-  .challenge-source[data-style="plain-list"],
-  .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="quest-log"]
-)[data-theme-mode="inherit"].hud-theme--modern-compact,
-:is(
-  .challenge-source[data-style="plain-list"],
-  .challenge-source[data-style="plain-bullets"],
-  .challenge-source[data-style="quest-log"]
-)[data-theme-mode="inherit"].hud-theme--modern-minimal {
-  --wc-surface: var(--hud-panel, rgba(13, 16, 19, 0.88));
-  --wc-line: var(--hud-line, rgba(213, 170, 87, 0.42));
-  --wc-text: var(--hud-text, #eef1ef);
-  --wc-muted: var(--hud-title-color, #929da3);
-  --wc-accent: var(--hud-name-color, #d5aa57);
-  --wc-ok: var(--hud-health-healthy, #5ed08a);
-  --wc-font-ui: var(--hud-font-ui, "Atkinson Hyperlegible Next", sans-serif);
-  --wc-font-display: var(--hud-name-font, Georgia, "Times New Roman", serif);
-  --wc-row-height: var(--hud-row-height, 33px);
-  --wc-progress-track: var(--hud-trough-bg, rgba(146, 157, 163, 0.24));
-}
-
-/*
  * Zwei gekoppelte Presets: bare schaltet die groesseren Schriftgrade fuer
  * transparente Flaechen, strong schaltet Gewicht und Halo unabhaengig davon.
- * Die hoehere Spezifitaet ist noetig, damit die Attribute auch nach einem
- * geladenen Theme-Chunk gewinnen.
+ * Die hoehere Spezifitaet haelt die Presets gegenueber den Root-Tokens stabil.
  */
 :is(
   .challenge-source[data-style="plain-list"],
@@ -151,8 +101,7 @@
 }
 
 /* Schriftstacks kommen ausschließlich vom eigenen Origin; es gibt keinen
- * Google-Fonts-Import und keine externe Font-URL. Theme lässt die HUD-Werte
- * unverändert und erhält damit das bisherige Verhalten. */
+ * Google-Fonts-Import und keine externe Font-URL. */
 :is(
   .challenge-source[data-style="plain-list"],
   .challenge-source[data-style="plain-bullets"],

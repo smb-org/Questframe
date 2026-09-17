@@ -3,7 +3,6 @@ import { z } from "zod";
 import type { ChallengeEvent, GlobalTimerEvent } from "./events";
 import {
   CHALLENGE_STYLE_IDS,
-  CHALLENGE_THEME_IDS,
   DEFAULT_CHALLENGE_PLACEMENT,
   MAX_CHALLENGES,
   MAX_CHALLENGE_SETS,
@@ -53,7 +52,6 @@ import {
   isSortOrder,
   isTargetCount,
   isTargetCountForKind,
-  isThemeId,
   isThemeMode,
   isChallengeSurfaceOpacity,
   isChallengeTextEmphasis,
@@ -156,10 +154,6 @@ const challengeStateSchema = custom(
 const styleIdSchema = custom(
   isChallengeStyleId,
   `Style muss einer dieser Werte sein: ${CHALLENGE_STYLE_IDS.join(", ")}.`,
-);
-const themeIdSchema = custom(
-  isThemeId,
-  `Theme muss einer dieser Werte sein: ${CHALLENGE_THEME_IDS.join(", ")}.`,
 );
 const themeModeSchema = custom(isThemeMode, "Theme-Modus ist ungültig.");
 const surfaceOpacitySchema = custom(isChallengeSurfaceOpacity, "Flächenopazität ist ungültig.");
@@ -417,12 +411,9 @@ export const settingsSchema = z.strictObject({
   keyVisible: keyVisibleSchema,
   doneOrder: doneOrderSchema,
   globalTimerMode: globalTimerModeSchema,
-  themeId: themeIdSchema,
   globalTimer: z.union([globalTimerSchema, z.null()]),
   placement: challengePlacementSchema.default(DEFAULT_CHALLENGE_PLACEMENT),
 });
-
-const challengeRepositorySettingsSchema = settingsSchema.omit({ themeId: true });
 
 const challengeCommandBase = {
   commandId: commandIdSchema,
@@ -472,7 +463,7 @@ export const challengeBoardSnapshotSchema = z.strictObject({
   eventSeq: eventSeqSchema,
   boardRevision: revisionSchema,
   settingsRevision: revisionSchema,
-  settings: challengeRepositorySettingsSchema,
+  settings: settingsSchema,
   challenges: z.array(challengeSchema).max(MAX_CHALLENGES),
 });
 
@@ -489,7 +480,7 @@ export const commandResponseSchema = z.strictObject({
   eventSeq: eventSeqSchema,
   replayed: z.boolean(),
   challenge: challengeSchema.optional(),
-  settings: challengeRepositorySettingsSchema.optional(),
+  settings: settingsSchema.optional(),
 });
 
 export const settingsSaveRequestSchema = z.strictObject({

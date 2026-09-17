@@ -11,14 +11,6 @@ export type ChallengeFontFamily = "theme" | "atkinson" | "serif" | "sans" | "mon
 export type ChallengeSurfaceOpacity = 0 | 25 | 50 | 75 | 100;
 export type ChallengeTextEmphasis = "auto" | "strong" | "plain";
 
-export type ChallengeThemeId =
-  | "trail-wood"
-  | "field-journal"
-  | "forged-compass"
-  | "classic-simple"
-  | "modern-compact"
-  | "modern-minimal";
-
 export type ChallengeState = "pending" | "active" | "done";
 export type ChallengeKind = "tick" | "counter" | "streak" | "measure";
 
@@ -57,7 +49,7 @@ export type ChallengePlacement = {
 
 export type ChallengeSettings = {
   styleId: ChallengeStyleId;
-  themeMode: "inherit" | "own";
+  themeMode: "own";
   surfaceOpacity: ChallengeSurfaceOpacity;
   headerStyle: "default" | "inverted";
   textEmphasis: ChallengeTextEmphasis;
@@ -74,7 +66,6 @@ export type ChallengeSettings = {
   keyVisible: boolean;
   doneOrder: ChallengeDoneOrder;
   globalTimerMode: GlobalTimerMode;
-  themeId: ChallengeThemeId;
   globalTimer: GlobalTimer | null;
   placement: ChallengePlacement;
 };

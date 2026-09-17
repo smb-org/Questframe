@@ -34,7 +34,6 @@ import type {
   ChallengeSurfaceOpacity,
   ChallengeStyleId,
   ChallengeTextEmphasis,
-  ChallengeThemeId,
   ChallengeUpdate,
   GlobalTimerMode,
   ChallengeOverflowMode,
@@ -113,11 +112,6 @@ const loadCompositionChallengeStyle = async (styleId: ChallengeStyleId): Promise
   await loadChallengeStyle(styleId);
 };
 
-const loadCompositionChallengeTheme = async (themeId: ChallengeThemeId): Promise<void> => {
-  const { loadChallengeTheme } = await import("../challenges/theme-loader");
-  await loadChallengeTheme(themeId);
-};
-
 type ChallengeSettingsDraft = Pick<ChallengeSettings, "styleId" | "surfaceOpacity" | "headerStyle" | "textEmphasis" | "fontFamily" | "fontScale" | "headerTitle" | "penaltyLabel" | "penaltyText" | "effectsEnabled" | "maxVisible" | "overflowMode" | "overflowTempo" | "numbered" | "keyVisible" | "doneOrder"> & {
   globalTimerMode: GlobalTimerMode | "off";
   globalTimerTotalMs: number | null;
@@ -151,15 +145,14 @@ const settingsDraftFrom = (settings: ChallengeSettingsDraftSource): ChallengeSet
 const sameChallengeSettingsDraft = (left: ChallengeSettingsDraft | null, right: ChallengeSettingsDraft): boolean =>
   left !== null && left.styleId === right.styleId && left.surfaceOpacity === right.surfaceOpacity && left.headerStyle === right.headerStyle && left.textEmphasis === right.textEmphasis && left.fontFamily === right.fontFamily && left.fontScale === right.fontScale && left.headerTitle === right.headerTitle && left.penaltyLabel === right.penaltyLabel && left.penaltyText === right.penaltyText && left.effectsEnabled === right.effectsEnabled && left.maxVisible === right.maxVisible && left.overflowMode === right.overflowMode && left.overflowTempo === right.overflowTempo && left.numbered === right.numbered && left.keyVisible === right.keyVisible && left.doneOrder === right.doneOrder && left.globalTimerMode === right.globalTimerMode && left.globalTimerTotalMs === right.globalTimerTotalMs;
 
-const challengeSettingsWithDraft = (settings: ChallengeSettings, draft: ChallengeSettingsDraft | null, themeId: ChallengeThemeId): ChallengeSettings => {
-  if (draft === null) return { ...settings, themeId };
+const challengeSettingsWithDraft = (settings: ChallengeSettings, draft: ChallengeSettingsDraft | null): ChallengeSettings => {
+  if (draft === null) return settings;
   const globalTimerTotalMs = draft.globalTimerMode === "up"
     ? GLOBAL_TIMER_UP_CAP_MS
     : draft.globalTimerTotalMs;
   const timerDurationChanged = globalTimerTotalMs !== (settings.globalTimer?.totalMs ?? null);
   return {
     ...settings,
-    themeId,
     styleId: draft.styleId,
     surfaceOpacity: draft.surfaceOpacity,
     headerStyle: draft.headerStyle,
@@ -261,9 +254,7 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
   }, [api, applyRemoteSnapshot]);
   useEffect(() => {
     if (challengeUpdate === null) return;
-    const { themeId: _themeId, ...settings } = challengeUpdate.settings;
-    void _themeId;
-    applyRemoteSnapshot({ eventSeq: challengeUpdate.eventSeq, boardRevision: challengeUpdate.boardRevision, settingsRevision: challengeUpdate.settingsRevision, settings, challenges: challengeUpdate.challenges });
+    applyRemoteSnapshot({ eventSeq: challengeUpdate.eventSeq, boardRevision: challengeUpdate.boardRevision, settingsRevision: challengeUpdate.settingsRevision, settings: challengeUpdate.settings, challenges: challengeUpdate.challenges });
   }, [applyRemoteSnapshot, challengeUpdate]);
   const saveChallengeSettings = api.saveChallengeSettings?.bind(api);
   const dirty = snapshot !== null && settingsDraft !== null && effectivePlacement !== null && (!sameChallengeSettingsDraft(settingsDraft, settingsDraftFrom(snapshot.settings)) || !sameChallengePlacement(effectivePlacement, snapshot.settings.placement));
@@ -618,27 +609,23 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
   const [activeTab, setActiveTab] = useState<AdminWorkspaceId>(initialTab);
   const draggingRef = useRef<{ kind: "hud" | "challenges"; pointerId: number } | null>(null);
   const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
-  const [challengeCss, setChallengeCss] = useState<{ style: string | null; theme: string | null }>({ style: null, theme: null });
+  const [challengeCss, setChallengeCss] = useState<{ style: string | null }>({ style: null });
   const obsSetupTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [settingsHandle, setSettingsHandle] = useState<ModuleSaveHandle | null>(null);
   const [boardHandle, setBoardHandle] = useState<ChallengeBoardSaveHandle | null>(null);
   const state = useHudEditorState({ initialBootstrap, api, onChallengeUpdate: setChallengeUpdate });
-  const committedThemeId = state.committed.themeId;
   useEffect(() => {
     if (api.getChallengeBoard === undefined) return;
     let disposed = false;
-    void api.getChallengeBoard().then((snapshot) => { if (!disposed) setChallengeUpdate((current) => current ?? { eventSeq: snapshot.eventSeq, boardRevision: snapshot.boardRevision, settingsRevision: snapshot.settingsRevision, settings: { ...snapshot.settings, themeId: committedThemeId }, challenges: snapshot.challenges, event: null }); }).catch(() => undefined);
+    void api.getChallengeBoard().then((snapshot) => { if (!disposed) setChallengeUpdate((current) => current ?? { eventSeq: snapshot.eventSeq, boardRevision: snapshot.boardRevision, settingsRevision: snapshot.settingsRevision, settings: snapshot.settings, challenges: snapshot.challenges, event: null }); }).catch(() => undefined);
     return () => { disposed = true; };
-  }, [api, committedThemeId]);
-  const displayedChallengeUpdate = useMemo(() => challengeUpdate === null ? null : { ...challengeUpdate, settings: challengeSettingsWithDraft(challengeUpdate.settings, challengeSettingsDraft, committedThemeId) }, [challengeSettingsDraft, challengeUpdate, committedThemeId]);
+  }, [api]);
+  const displayedChallengeUpdate = useMemo(() => challengeUpdate === null ? null : { ...challengeUpdate, settings: challengeSettingsWithDraft(challengeUpdate.settings, challengeSettingsDraft) }, [challengeSettingsDraft, challengeUpdate]);
   useEffect(() => {
     const styleId = displayedChallengeUpdate?.settings.styleId ?? null;
-    const themeMode = displayedChallengeUpdate?.settings.themeMode ?? null;
-    const themeId = displayedChallengeUpdate?.settings.themeId ?? null;
     let disposed = false;
     if (styleId === null) return () => { disposed = true; };
-    void loadCompositionChallengeStyle(styleId).then(() => { if (!disposed) setChallengeCss((current) => ({ ...current, style: styleId })); }).catch(() => undefined);
-    if (themeMode !== "own" && themeId !== null) void loadCompositionChallengeTheme(themeId).then(() => { if (!disposed) setChallengeCss((current) => ({ ...current, theme: themeId })); }).catch(() => undefined);
+    void loadCompositionChallengeStyle(styleId).then(() => { if (!disposed) setChallengeCss({ style: styleId }); }).catch(() => undefined);
     return () => { disposed = true; };
   }, [displayedChallengeUpdate]);
   const getPointerStagePoint = (event: React.PointerEvent<HTMLElement>) => {
@@ -722,7 +709,7 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
       }),
     };
   }, [api]);
-  const challengeReady = displayedChallengeUpdate !== null && challengeCss.style === displayedChallengeUpdate.settings.styleId && (displayedChallengeUpdate.settings.themeMode === "own" || challengeCss.theme === displayedChallengeUpdate.settings.themeId);
+  const challengeReady = displayedChallengeUpdate !== null && challengeCss.style === displayedChallengeUpdate.settings.styleId;
   // Nur die Admin-Vorschau markiert das Modul hier als gedämpft. Die echte
   // Sammel-Overlay-Ausgabe bleibt unverändert; /overlay und /overlay/challenges
   // funktionieren als Einzel-URLs unabhängig vom Sammel-Overlay.

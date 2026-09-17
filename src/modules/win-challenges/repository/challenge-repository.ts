@@ -9,7 +9,7 @@ import type {
 } from "../contracts/schemas";
 import type { DomainError, DomainNow } from "../domain/timers";
 
-export type ChallengeRepositorySettings = Omit<Settings, "themeId">;
+export type ChallengeRepositorySettings = Settings;
 
 export type BoardSaveReason = "set-switch";
 

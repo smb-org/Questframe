@@ -91,3 +91,14 @@ export const prepareVersion18Database = (sql: SqlStorage): void => {
   sql.exec("DELETE FROM _sql_schema_migrations WHERE version >= 19");
   sql.exec("DROP TABLE IF EXISTS wc_sets");
 };
+
+/**
+ * Baut aus dem aktuellen V19-Fixture einen echten Stand 19 für isolierte
+ * Migration-20-Tests. Der alte Theme-Wert wird nach dem Vorlauf bewusst
+ * wiederhergestellt; Migration 20 muss ihn additiv auf `own` setzen.
+ */
+export const prepareVersion19Database = (sql: SqlStorage): void => {
+  runMigrations(sql, "migration-harness-prepare-v19");
+  sql.exec("DELETE FROM _sql_schema_migrations WHERE version >= 20");
+  sql.exec("UPDATE wc_meta SET theme_mode = 'inherit' WHERE singleton = 1");
+};

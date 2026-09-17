@@ -73,7 +73,6 @@ export const CompositeApp = ({
   const presentation = useChallengePresentation({
     update: challengeUpdate,
     loadStyle,
-    loadThemes: false,
   });
   const { acceptUpdate, setEffectsEnabled } = presentation;
 
@@ -264,13 +263,10 @@ export const CompositeApp = ({
     <HudRenderer state={hudState} nowMilliseconds={presentation.now} mediaUrls={mediaUrls} />
   ) : null;
   const challengesVisible = hudState?.compositeChallengesVisible ?? lastKnownChallengesVisible;
-  const displayedChallengeUpdate = useMemo(() => challengeUpdate === null || hudState === null
-    ? challengeUpdate
-    : { ...challengeUpdate, settings: { ...challengeUpdate.settings, themeId: hudState.themeId } }, [challengeUpdate, hudState]);
   const challenges = challengesVisible
-    && displayedChallengeUpdate !== null
+    && challengeUpdate !== null
     && presentation.ready ? (
-      <ChallengeCeremonyStage presentation={presentation} update={displayedChallengeUpdate} />
+      <ChallengeCeremonyStage presentation={presentation} update={challengeUpdate} />
     ) : null;
 
   if (hud === null && challenges === null) return null;

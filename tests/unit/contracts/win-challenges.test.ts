@@ -19,6 +19,7 @@ import {
   isChallengeFontScale,
   isChallengeSurfaceOpacity,
   isChallengeTextEmphasis,
+  isThemeMode,
   isCurrentCount,
   isCurrentCountForKind,
   isChallengeUnit,
@@ -86,7 +87,7 @@ const challenge = {
 
 const settings = {
   styleId: "plain-list" as const,
-  themeMode: "inherit" as const,
+  themeMode: "own" as const,
   surfaceOpacity: 100 as const,
   headerStyle: "default" as const,
   textEmphasis: "auto" as const,
@@ -103,12 +104,18 @@ const settings = {
   keyVisible: false,
   doneOrder: "end" as const,
   globalTimerMode: "down" as const,
-  themeId: "trail-wood" as const,
   globalTimer: null,
   placement: { x: 300, y: 8, scale: 1 },
 };
 
 describe("Win-Challenges-Verträge", () => {
+  it("erlaubt beim Theme-Modus ausschließlich own", () => {
+    expect(isThemeMode("own")).toBe(true);
+    expect(isThemeMode("inherit")).toBe(false);
+    expect(settingsSchema.safeParse(settings).success).toBe(true);
+    expect(settingsSchema.safeParse({ ...settings, themeMode: "inherit" }).success).toBe(false);
+  });
+
   it("nimmt den optionalen Set-Wechsel-Grund an und lehnt andere Gründe ab", () => {
     const request = {
       baseBoardRevision: 1,
@@ -271,8 +278,7 @@ describe("Win-Challenges-Verträge", () => {
       pausedRemainMs: GLOBAL_TIMER_UP_CAP_MS,
     }).success).toBe(true);
 
-    const { themeId: _themeId, globalTimer: _globalTimer, ...saveFields } = settings;
-    void _themeId;
+    const { globalTimer: _globalTimer, ...saveFields } = settings;
     void _globalTimer;
     expect(settingsSaveRequestSchema.safeParse({
       baseSettingsRevision: 1,

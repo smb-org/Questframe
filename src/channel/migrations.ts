@@ -346,6 +346,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS wc_sets_user_name_idx
 CREATE INDEX IF NOT EXISTS wc_sets_updated_idx ON wc_sets(updated_at DESC);
 `;
 
+const MIGRATION_20_THEME_MODE = "UPDATE wc_meta SET theme_mode = 'own';";
+
 const hasChallengeSetsTable = (sql: SqlStorage): boolean =>
   sql
     .exec<{ name: string }>(
@@ -699,6 +701,20 @@ export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
     sql.exec(
       "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
       19,
+      buildId,
+      new Date().toISOString(),
+    );
+  }
+  const versionTwentyWasApplied = sql
+    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 20")
+    .toArray().length > 0;
+  if (!versionTwentyWasApplied) {
+    // Die Spalte und ihr historischer CHECK bleiben unverändert. Das additive
+    // Backfill macht aus jedem bestehenden Wert den einzigen Vertragswert.
+    sql.exec(MIGRATION_20_THEME_MODE);
+    sql.exec(
+      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
+      20,
       buildId,
       new Date().toISOString(),
     );

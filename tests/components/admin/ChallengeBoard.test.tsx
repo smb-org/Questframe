@@ -51,7 +51,7 @@ const snapshot = (
   settingsRevision: 1,
   settings: {
     styleId: "plain-list",
-    themeMode: "inherit",
+    themeMode: "own",
     surfaceOpacity: 100,
     headerStyle: "default",
     textEmphasis: "auto",
@@ -238,7 +238,7 @@ describe("ChallengeBoard", () => {
     const external = snapshot([challenge("other", "Andere Challenge")], 3);
     const emitExternalUpdate = callbacks.onChallengeUpdate;
     if (emitExternalUpdate === undefined) throw new Error("Subscription wurde nicht registriert.");
-    act(() => emitExternalUpdate({ ...external, settings: { ...external.settings, themeId: "trail-wood" }, event: null }));
+    act(() => emitExternalUpdate({ ...external, settings: external.settings, event: null }));
 
     await waitFor(() => expect(screen.queryByText("Elden Ring Bingo")).not.toBeInTheDocument());
     expect(screen.getByDisplayValue("Andere Challenge")).toBeInTheDocument();
@@ -318,7 +318,7 @@ describe("ChallengeBoard", () => {
     ]);
     const update = {
       ...initial,
-      settings: { ...initial.settings, themeId: "trail-wood" as const, numbered: true },
+      settings: { ...initial.settings, numbered: true },
       event: null,
     };
     render(<ChallengeBoard api={{ load: vi.fn(() => Promise.resolve(initial)), save: vi.fn() }} challengeUpdate={update} />);
@@ -555,7 +555,7 @@ describe("ChallengeBoard", () => {
     await user.type(title, "Mein Entwurf");
     onUpdate?.({
       ...incoming,
-      settings: { ...incoming.settings, themeId: "trail-wood" },
+      settings: incoming.settings,
       event: null,
     });
 
@@ -591,7 +591,7 @@ describe("ChallengeBoard", () => {
     const echoed = challenge("server-id", "Neue Challenge", { targetCount: null });
     const incoming = snapshot([echoed], 2);
     act(() => {
-      onUpdate?.({ ...incoming, settings: { ...incoming.settings, themeId: "trail-wood" }, event: null });
+      onUpdate?.({ ...incoming, settings: incoming.settings, event: null });
     });
 
     expect(screen.queryByText("Jemand anderes hat das Board gespeichert.")).not.toBeInTheDocument();
@@ -628,7 +628,7 @@ describe("ChallengeBoard", () => {
     render(<ChallengeBoard api={api} />);
 
     await waitFor(() => expect(onUpdate).toBeDefined());
-    onUpdate?.({ ...incoming, settings: { ...incoming.settings, themeId: "trail-wood" }, event: null });
+    onUpdate?.({ ...incoming, settings: incoming.settings, event: null });
     resolveLoad?.(initial);
     expect(await screen.findByDisplayValue("Aus Socket")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("Aus Load")).not.toBeInTheDocument();
@@ -666,7 +666,7 @@ describe("ChallengeBoard", () => {
     // per se noch unversöhnte Revision ein (z.B. von einem zweiten Editor) – das Board
     // erkennt zurecht einen echten Konflikt, weil unser lokaler Entwurf davon abweicht.
     const incoming = snapshot([challenge("one", "Fremde Änderung")], 3);
-    onUpdate?.({ ...incoming, settings: { ...incoming.settings, themeId: "trail-wood" }, event: null });
+    onUpdate?.({ ...incoming, settings: incoming.settings, event: null });
     expect(await screen.findByText("Jemand anderes hat das Board gespeichert.")).toBeInTheDocument();
 
     // Jetzt kommt die verspätete Antwort für unseren (jetzt veralteten) Request rein –

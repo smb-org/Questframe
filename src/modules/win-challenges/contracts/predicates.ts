@@ -32,15 +32,6 @@ export const CHALLENGE_STYLE_IDS = [
   "quest-log",
 ] as const;
 
-export const CHALLENGE_THEME_IDS = [
-  "trail-wood",
-  "field-journal",
-  "forged-compass",
-  "classic-simple",
-  "modern-compact",
-  "modern-minimal",
-] as const;
-
 export const CHALLENGE_FONT_FAMILIES = [
   "theme",
   "atkinson",
@@ -232,12 +223,7 @@ export const isChallengeStyleId = (value: unknown): value is (typeof CHALLENGE_S
   typeof value === "string" &&
   (CHALLENGE_STYLE_IDS as readonly string[]).includes(value);
 
-export const isThemeId = (value: unknown): value is (typeof CHALLENGE_THEME_IDS)[number] =>
-  typeof value === "string" &&
-  (CHALLENGE_THEME_IDS as readonly string[]).includes(value);
-
-export const isThemeMode = (value: unknown): value is "inherit" | "own" =>
-  value === "inherit" || value === "own";
+export const isThemeMode = (value: unknown): value is "own" => value === "own";
 
 export const isChallengeSurfaceOpacity = (value: unknown): value is ChallengeSurfaceOpacity =>
   value === 0 || value === 25 || value === 50 || value === 75 || value === 100;

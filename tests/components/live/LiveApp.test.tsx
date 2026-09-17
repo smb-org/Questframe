@@ -65,7 +65,7 @@ const message = (currentCount = 3): ChallengeUpdate => ({
   settingsRevision: 1,
   settings: {
     styleId: "plain-list",
-    themeMode: "inherit",
+    themeMode: "own",
     surfaceOpacity: 100,
     headerStyle: "default",
     textEmphasis: "auto",
@@ -78,7 +78,6 @@ const message = (currentCount = 3): ChallengeUpdate => ({
     maxVisible: 5,
     overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end",
     globalTimerMode: "down",
-    themeId: "trail-wood",
     globalTimer: null,
     placement: { x: 300, y: 8, scale: 1 },
   },

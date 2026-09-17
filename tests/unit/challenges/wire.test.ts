@@ -15,7 +15,7 @@ const update = (): ChallengeUpdate => ({
   settingsRevision: 1,
   settings: {
     styleId: "plain-list",
-    themeMode: "inherit",
+    themeMode: "own",
     surfaceOpacity: 100,
     headerStyle: "default",
     textEmphasis: "auto",
@@ -28,7 +28,6 @@ const update = (): ChallengeUpdate => ({
     maxVisible: 5,
     overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end",
     globalTimerMode: "down",
-    themeId: "trail-wood",
     globalTimer: null,
     placement: { x: 300, y: 8, scale: 1 },
   },
@@ -117,6 +116,18 @@ describe("Challenge-Quelle-Wire", () => {
 
   it("nimmt eine gültige challenge_update-Nachricht an", () => {
     expect(parseChallengeUpdate(update())).toEqual(update());
+  });
+
+  it("verwirft inherit und die alte Challenge-themeId", () => {
+    const current = update();
+    expect(parseChallengeUpdate({
+      ...current,
+      settings: { ...current.settings, themeMode: "inherit" },
+    })).toBeNull();
+    expect(parseChallengeUpdate({
+      ...current,
+      settings: { ...current.settings, themeId: "trail-wood" },
+    })).toBeNull();
   });
 
   it("akzeptiert streak-reset als eigenes Challenge-Ereignis und verwirft kaputte Varianten", () => {

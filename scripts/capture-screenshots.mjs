@@ -390,7 +390,7 @@ const configureChallengeView = async (page, tabId, csrfToken) => {
     body: JSON.stringify({
       baseSettingsRevision: current.settingsRevision,
       styleId: "plain-list",
-      themeMode: "inherit",
+      themeMode: "own",
       surfaceMode: "surface",
       headerStyle: "default",
       headerTitle: "Win-Challenges",

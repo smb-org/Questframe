@@ -46,7 +46,7 @@ const resetModuleTables = async (): Promise<void> => {
     state.storage.sql.exec(
       `UPDATE wc_meta SET
         event_seq = 0, board_revision = 1, settings_revision = 1,
-        style_id = 'plain-list', theme_mode = 'inherit', surface_opacity = 100,
+        style_id = 'plain-list', theme_mode = 'own', surface_opacity = 100,
         font_family = 'theme', font_scale = 1,
         header_title = 'CHALLENGES', penalty_label = 'STRAFE', penalty_text = '', effects_enabled = 1, max_visible = 5,
         overflow_mode = 'cut', overflow_tempo = 'medium', numbered = 0, key_visible = 0, done_order = 'end',
@@ -241,7 +241,7 @@ describe("win-challenges repository and migration", () => {
       board_revision: 1,
       settings_revision: 1,
       style_id: "plain-list",
-      theme_mode: "inherit",
+      theme_mode: "own",
       surface_opacity: 100,
       header_style: "default",
       text_emphasis: "auto",
@@ -1288,7 +1288,7 @@ describe("win-challenges repository and migration", () => {
       repository.saveSettings({
         baseSettingsRevision: before.settingsRevision,
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -1329,7 +1329,7 @@ describe("win-challenges repository and migration", () => {
       repository.saveSettings({
         baseSettingsRevision: before.settingsRevision,
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -1567,7 +1567,7 @@ describe("win-challenges repository and migration", () => {
       repository.saveSettings({
         baseSettingsRevision: created.snapshot.settingsRevision,
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -1718,7 +1718,7 @@ describe("win-challenges repository and migration", () => {
         repository.saveSettings({
           baseSettingsRevision: board.result.snapshot.settingsRevision,
           styleId: "plain-list",
-          themeMode: "inherit",
+          themeMode: "own",
           surfaceOpacity: 100,
           headerStyle: "default",
           textEmphasis: "auto",

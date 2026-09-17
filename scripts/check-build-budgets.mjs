@@ -47,12 +47,6 @@ if (temporalKeyCandidates.length !== 1) {
 }
 const [temporalKey] = temporalKeyCandidates;
 const challengeSourceDynamicImports = collectDynamicImports(challengeSourceKey);
-const challengeThemeKeys = [...challengeSourceDynamicImports].filter((key) => (
-  manifest[key]?.name === "theme"
-));
-if (challengeThemeKeys.length !== 6) {
-  throw new Error(`Expected six dynamic Challenge-Theme-Chunks, found ${String(challengeThemeKeys.length)}.`);
-}
 const challengeStyleKeys = [...challengeSourceDynamicImports].filter((key) => (
   manifest[key]?.src?.startsWith("src/modules/win-challenges/styles/") && manifest[key]?.isDynamicEntry === true
 )) ?? [];
@@ -67,14 +61,13 @@ if (qrCodeKeyCandidates.length !== 1) {
 const [qrCodeKey] = qrCodeKeyCandidates;
 const sharedChallengeLoaderKeys = [
   "src/challenges/style-loader.ts",
-  "src/challenges/theme-loader.ts",
 ].filter((key) => manifest[key] !== undefined);
 const budgetDeclarations = [
-  ...createBudgetDeclarations(temporalKey, challengeThemeKeys, challengeStyleKeys, qrCodeKey),
+  ...createBudgetDeclarations(temporalKey, challengeStyleKeys, qrCodeKey),
   ...sharedChallengeLoaderKeys.map((key) => ({
     type: "exempt",
     key,
-    reason: "Der Loader ist ein kleiner geteilter Bruecken-Chunk; seine konkreten Style- und Theme-Varianten werden separat als variantMax gemessen.",
+    reason: "Der Loader ist ein kleiner geteilter Bruecken-Chunk; seine konkreten Style-Varianten werden separat als variantMax gemessen.",
   })),
 ];
 

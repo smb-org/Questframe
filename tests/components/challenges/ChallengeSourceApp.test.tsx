@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChallengeSourceApp } from "../../../src/challenges/ChallengeSourceApp";
 import { ChallengeLog } from "../../../src/modules/win-challenges/ui/ChallengeLog";
-import type { ChallengeStyleId, ChallengeThemeId, ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
+import type { ChallengeStyleId, ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
 import { OVERLAY_SOCKET_PROTOCOL } from "../../../src/shared/contracts/protocol";
 
 const token = "A".repeat(43);
@@ -97,7 +97,7 @@ const message = (): ChallengeUpdate => ({
   settingsRevision: 1,
   settings: {
     styleId: "plain-list",
-    themeMode: "inherit",
+    themeMode: "own",
     surfaceOpacity: 100,
     headerStyle: "default",
     textEmphasis: "auto",
@@ -110,7 +110,6 @@ const message = (): ChallengeUpdate => ({
     maxVisible: 5,
     overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end",
     globalTimerMode: "down",
-    themeId: "trail-wood",
     globalTimer: null,
     placement: { x: 300, y: 8, scale: 1 },
   },
@@ -151,7 +150,7 @@ const deferred = (): { promise: Promise<void>; resolve: () => void; reject: (rea
   let rejectPromise: (reason?: Error) => void = () => undefined;
   const promise = new Promise<void>((resolve, reject) => {
     resolvePromise = resolve;
-    rejectPromise = (reason = new Error("Theme-Chunk fehlgeschlagen")) => reject(reason);
+    rejectPromise = (reason = new Error("Style-Chunk fehlgeschlagen")) => reject(reason);
   });
   return { promise, resolve: resolvePromise, reject: rejectPromise };
 };
@@ -180,7 +179,7 @@ describe("ChallengeSourceApp", () => {
   it("lässt die Anzeige ohne time_sync-Antwort weiterlaufen", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(fixedNow);
-    render(<ChallengeSourceApp loadStyle={() => Promise.resolve()} loadTheme={() => Promise.resolve()} />);
+    render(<ChallengeSourceApp loadStyle={() => Promise.resolve()} />);
     const socket = FakeWebSocket.instances[0];
     await act(async () => {
       await Promise.resolve();
@@ -205,7 +204,7 @@ describe("ChallengeSourceApp", () => {
   it("rechnet absolute Timer mit dem gemessenen Uhr-Offset", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(fixedNow);
-    render(<ChallengeSourceApp loadStyle={() => Promise.resolve()} loadTheme={() => Promise.resolve()} />);
+    render(<ChallengeSourceApp loadStyle={() => Promise.resolve()} />);
     const socket = FakeWebSocket.instances[0];
     await act(async () => {
       await Promise.resolve();
@@ -773,24 +772,6 @@ describe("ChallengeSourceApp", () => {
     expect(tick?.play).toHaveBeenCalledTimes(1);
   });
 
-  it("hält die Quelle bis zum Theme-Chunk transparent", async () => {
-    const theme = deferred();
-    const loadTheme = vi.fn(() => theme.promise);
-    render(<ChallengeSourceApp loadTheme={loadTheme} />);
-    const socket = FakeWebSocket.instances[0];
-
-    await deliver(socket, message());
-    expect(document.body).not.toHaveTextContent("Offene Challenge");
-    expect(loadTheme).toHaveBeenCalledWith("trail-wood");
-
-    await act(async () => {
-      theme.resolve();
-      await theme.promise;
-    });
-    expect(screen.getByText("Offene Challenge")).toBeInTheDocument();
-    expect(document.querySelector(".challenge-source")).toHaveClass("hud-theme--trail-wood");
-  });
-
   it("hält die Quelle bis zum Style-Chunk transparent", async () => {
     const style = deferred();
     const loadStyle = vi.fn(() => style.promise);
@@ -850,100 +831,7 @@ describe("ChallengeSourceApp", () => {
     expect(document.querySelector(".challenge-source")).toHaveAttribute("data-style", "quest-log");
   });
 
-  it("bleibt bei einem fehlgeschlagenen Theme-Chunk transparent", async () => {
-    const theme = deferred();
-    const loadTheme = vi.fn(() => theme.promise);
-    render(<ChallengeSourceApp loadTheme={loadTheme} />);
-    const socket = FakeWebSocket.instances[0];
-
-    await deliver(socket, message());
-    await act(async () => {
-      theme.reject();
-      await expect(theme.promise).rejects.toThrow("Theme-Chunk fehlgeschlagen");
-    });
-    expect(document.body).not.toHaveTextContent("Offene Challenge");
-  });
-
-  it("verwirft einen überholten Theme-Import", async () => {
-    const themes = new Map<ChallengeThemeId, ReturnType<typeof deferred>>();
-    const loadTheme = vi.fn((themeId: ChallengeThemeId) => {
-      const request = deferred();
-      themes.set(themeId, request);
-      return request.promise;
-    });
-    render(<ChallengeSourceApp loadTheme={loadTheme} />);
-    const socket = FakeWebSocket.instances[0];
-
-    await deliver(socket, message());
-    await deliver(socket, sourceUpdate({
-      settings: { ...message().settings, themeId: "modern-compact" },
-    }));
-
-    await act(async () => {
-      themes.get("modern-compact")?.resolve();
-      await themes.get("modern-compact")?.promise;
-    });
-    expect(document.querySelector(".challenge-source")).toHaveClass("hud-theme--modern-compact");
-
-    await act(async () => {
-      themes.get("trail-wood")?.resolve();
-      await themes.get("trail-wood")?.promise;
-    });
-    expect(document.querySelector(".challenge-source")).toHaveClass("hud-theme--modern-compact");
-    expect(document.querySelector(".challenge-source")).not.toHaveClass("hud-theme--trail-wood");
-  });
-
-  it("schaltet von inherit auf own um, obwohl der geladene Theme-Chunk bleibt", async () => {
-    const theme = deferred();
-    const loadTheme = vi.fn(() => theme.promise);
-    render(<ChallengeSourceApp loadTheme={loadTheme} />);
-    const socket = FakeWebSocket.instances[0];
-
-    await deliver(socket, message());
-    await act(async () => {
-      theme.resolve();
-      await theme.promise;
-    });
-    expect(document.querySelector(".challenge-source")).toHaveClass("hud-theme--trail-wood");
-
-    await deliver(socket, sourceUpdate({
-      settings: { ...message().settings, themeMode: "own" },
-    }));
-    expect(screen.getByText("Offene Challenge")).toBeInTheDocument();
-    expect(document.querySelector(".challenge-source")).not.toHaveClass("hud-theme--trail-wood");
-  });
-
-  it("lädt einen Theme-Wechsel allein über das nächste challenge_update", async () => {
-    const themes = new Map<ChallengeThemeId, ReturnType<typeof deferred>>();
-    const loadTheme = vi.fn((themeId: ChallengeThemeId) => {
-      const request = deferred();
-      themes.set(themeId, request);
-      return request.promise;
-    });
-    render(<ChallengeSourceApp loadTheme={loadTheme} />);
-    const socket = FakeWebSocket.instances[0];
-
-    await deliver(socket, message());
-    await act(async () => {
-      themes.get("trail-wood")?.resolve();
-      await themes.get("trail-wood")?.promise;
-    });
-
-    await deliver(socket, sourceUpdate({
-      eventSeq: 1,
-      settings: { ...message().settings, themeId: "field-journal" },
-    }));
-    expect(loadTheme).toHaveBeenLastCalledWith("field-journal");
-    expect(document.body).not.toHaveTextContent("Offene Challenge");
-
-    await act(async () => {
-      themes.get("field-journal")?.resolve();
-      await themes.get("field-journal")?.promise;
-    });
-    await waitFor(() => expect(document.querySelector(".challenge-source")).toHaveClass("hud-theme--field-journal"));
-  });
-
-  it("rendert im eigenen Theme ohne HUD-Theme-Import mit den Modul-Tokens", () => {
+  it("rendert mit den eigenen Modul-Tokens ohne HUD-Theme-Kopplung", () => {
     const current = message();
     render(<ChallengeLog now={fixedNow} update={sourceUpdate({
       settings: { ...current.settings, themeMode: "own" },
@@ -951,7 +839,6 @@ describe("ChallengeSourceApp", () => {
 
     const source = document.querySelector(".challenge-source");
     expect(source).toHaveAttribute("data-theme-mode", "own");
-    expect(source).not.toHaveClass("hud-theme--trail-wood");
     expect(source).toHaveAttribute("data-style", "plain-list");
   });
 

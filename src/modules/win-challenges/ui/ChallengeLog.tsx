@@ -359,7 +359,7 @@ export const ChallengeLog = ({
   return (
     <Root
       aria-label={ariaLabel ?? "Challenge-Quelle"}
-      className={`challenge-source${update.settings.themeMode === "inherit" ? ` hud-theme--${update.settings.themeId}` : ""}${className === undefined ? "" : ` ${className}`}`}
+      className={`challenge-source${className === undefined ? "" : ` ${className}`}`}
       data-style={update.settings.styleId}
       data-overflow-mode={effectiveMode}
       data-numbered={update.settings.numbered ? "true" : "false"}
@@ -369,7 +369,6 @@ export const ChallengeLog = ({
       data-header-style={update.settings.headerStyle}
       data-font-family={update.settings.fontFamily}
       data-theme-mode={update.settings.themeMode}
-      data-theme-id={update.settings.themeId}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

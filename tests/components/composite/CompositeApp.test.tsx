@@ -59,7 +59,7 @@ const update: ChallengeUpdate = {
   settingsRevision: 1,
   settings: {
     styleId: "plain-list",
-    themeMode: "inherit",
+    themeMode: "own",
     surfaceOpacity: 100,
     headerStyle: "default",
     textEmphasis: "auto",
@@ -71,7 +71,6 @@ const update: ChallengeUpdate = {
     effectsEnabled: true,
     maxVisible: 5,
     overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
-    themeId: "trail-wood",
     globalTimer: null,
     placement: { x: 30, y: 8, scale: 1.25 },
   },
@@ -153,18 +152,6 @@ describe("CompositeApp", () => {
     await waitFor(() => expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument());
     expect(document.querySelector(".hud-root")).toHaveStyle({ "--hud-x": "42px", "--hud-y": "24px" });
     expect(document.querySelector(".challenge-source")).toHaveStyle({ "--wc-x": "150px", "--wc-y": "40px", "--wc-scale": "1.25" });
-  });
-
-  it("spiegelt das HUD-Theme in ein geerbtes Challenge-Update", async () => {
-    render(<CompositeApp loadStyle={() => Promise.resolve()} />);
-    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
-    const socket = FakeWebSocket.instances[0] as FakeWebSocket;
-
-    await deliver(socket, { type: "snapshot", state: { ...state, themeId: "field-journal" } });
-    await deliver(socket, update);
-
-    await waitFor(() => expect(document.querySelector(".challenge-source")).toHaveClass("hud-theme--field-journal"));
-    expect(document.querySelector(".challenge-source")).toHaveAttribute("data-theme-id", "field-journal");
   });
 
   it("wendet Mitgliedschaft und overlayEnabled unabhängig auf die Module an", async () => {

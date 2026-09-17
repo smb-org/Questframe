@@ -10,9 +10,8 @@ export type ChallengeCeremonyStageProps = {
 };
 
 // Zeremonie-Wrapper: identisches Markup für ChallengeSourceApp und
-// CompositeApp. Was die beiden Flächen als `update` übergeben, unterscheidet
-// sich (CompositeApp spiegelt z.B. die HUD-themeId hinein) — das bleibt
-// bewusst Sache des jeweiligen Aufrufers, nicht dieser Komponente.
+// CompositeApp. Die jeweiligen Aufrufer entscheiden, wann ein Update angezeigt
+// wird; diese Komponente bleibt frei von Modulkopplungen.
 export const ChallengeCeremonyStage = ({
   presentation,
   update,
