@@ -38,6 +38,11 @@ Nicht verhandelbar ist nur `P3 ──► P4`: Namespaces in einen imperativen
 Runner einzuziehen bedeutet, jeden handgeschriebenen Wächter einzeln
 anzufassen. Deklarativ ist es eine Spalte im Eintrag.
 
+**Diese Reihenfolge ist nach der Code-Prüfung nicht mehr haltbar.** P2 hängt
+über die beiden Dock-Token-Routen an P5 (Befund 3 unten). Entweder P2 liefert
+nur acht der zehn Routen und der Rest wartet auf P5, oder P5 rückt vor P2.
+Das ist die erste Frage fürs Review.
+
 `P6a ──► P6` ist ebenfalls fest: das HUD kann erst wandern, wenn Undo und
 Audit nicht mehr an ihm hängen. Sonst wandern sie mit und müssen später
 zurückgeholt werden.
@@ -103,6 +108,63 @@ Risikobewertung neben P4, statt darunter.
 verschränkt, zweimal undo fährt und prüft, dass beide Module in der richtigen
 Reihenfolge zurückgehen — und dass `channel_seq` nach einem Undo weiterzählt
 statt zurückzuspringen.
+
+### Befunde aus der Code-Prüfung (2026-09-17)
+
+Drei Dinge, die der Entwurf oben nicht hatte. Alle am Code nachgeprüft.
+
+**1. `deleteCollectibleMedia` blockiert eine modulneutrale `state_history`.**
+`channel-object.ts:1797–1801` liest *jede* Zeile der Tabelle und parst sie mit
+`channelStateSchema.parse(...)`, um referenzierte Portrait-Hashes vor dem
+Löschen zu schützen. Sobald ein Challenge-Snapshot in derselben Tabelle liegt,
+wirft dieser Parse. Der Fehler schlägt nicht beim Undo auf, sondern im
+Medien-Aufräumpfad beim Portrait-Upload — also weit weg von der Ursache.
+
+P6a muss diese Schleife also mitnehmen: entweder auf `module_id = 'hud'`
+filtern, oder das Hash-Schützen über eine Modulfunktion abfragen statt über
+ein hartes Schema. Der Filter ist die kleinere Änderung und reicht, solange
+nur das HUD Medien referenziert.
+
+**2. Die Undo-Tiefe ist 20 Zeilen, kanalweit.**
+`pruneHistoryAndAudit` (`channel-object.ts:1755–1758`) hält
+`ORDER BY revision DESC LIMIT 20`. Teilen sich zwei Module diese Tabelle,
+teilen sie sich die zwanzig Plätze: eine Serie von Challenge-Klicks drückt die
+HUD-Historie heraus. Das Limit muss damit pro Modul gelten, nicht pro Tabelle
+— oder deutlich steigen. Entscheidung gehört ins Review, nicht in die
+Umsetzung.
+
+Nebenbefund: `uploadMedia` (`channel-object.ts:1205–1221`) löscht bei
+Platzmangel gezielt die *älteste* History-Zeile. Auch dieser Pfad braucht
+nach P6a einen Modulbezug, sonst opfert ein Portrait-Upload fremde Historie.
+
+**3. P2 ist nicht rein delegierend — und hängt an P5.**
+Der Entwurf oben sagt „Diff klein, der Code delegiert bereits". Das gilt für
+acht der zehn Challenge-Routen. Nicht für `mutateDockToken`
+(`channel-object.ts:1102–1168`, die Routen `/challenges/dock-token` und
+`…/rotate`): die Methode gleicht Idempotenz über `requestId`/`generation` ab,
+mutiert Token-Zustand direkt und ruft bei Rotation
+`revokeTokenSockets("dock", …)`. `revokeTokenSockets` wiederum ist mit
+`overlay` und `composite` geteilt und damit nicht isoliert verschiebbar.
+
+**Folge für die Reihenfolge:** P2 kann nicht vollständig vor P5 fertig werden.
+Entweder P2 liefert acht Routen und lässt die beiden Dock-Token-Routen bis
+nach P5 beim Host, oder P5 rückt vor P2. Der Entwurf oben behauptet eine
+Unabhängigkeit, die nicht besteht.
+
+**Bestätigt, keine Änderung nötig:**
+- `state_history.revision` ist `PRIMARY KEY` und identisch mit
+  `channel_state.revision`; `snapshot_json` ist `JSON.stringify(ChannelState)`
+  (`migrations.ts:18–23`, `channel-object.ts:1681–1689`).
+- Die Zahl 31 für die tag-spezifischen Stellen stimmt. Präzisierung: 15 Zeilen
+  mit `"challenge"`, 21 mit `"dock"`, 5 mit beiden. `webSocketMessage` und
+  `webSocketClose` gehören *nicht* dazu — sie reichen `tag` und
+  `attachment.kind` generisch durch. Der Entwurf oben zählt sie fälschlich mit.
+- `channel_seq` wäre nicht doppelt. Es gibt heute keinen Zähler, der über
+  Modulgrenzen monoton ist: `revision` gehört dem HUD, `board_revision`,
+  `settings_revision` und `event_seq` liegen auf `wc_meta` und sind
+  modullokal.
+- `RELEASE_STAGE` wird nirgends zur Laufzeit überschrieben; der Wert kommt
+  ausschließlich aus `wrangler.jsonc`. Die Korrektur oben steht.
 
 **Offen, für das Review:** ob ein Undo über eine Modulgrenze hinweg
 überhaupt erwünscht ist, oder ob der Stack zwar zentral geführt, aber pro
