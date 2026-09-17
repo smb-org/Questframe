@@ -507,21 +507,27 @@ globale Overlay-Gate bleibt als Summenprüfung daneben.
 4. Braucht `streak` einen sichtbaren Rekordwert („Best: 4"), oder ist der Fall
    auf null genug Drama?
 
-**Plattform:**
+**Plattform: am 2026-09-17 entschieden, nicht mehr offen.**
 
-5. **Wem gehören Undo und Audit-Log?** Heute HUD-gebunden. Host-Dienst mit
-   modulneutralem Eintragstyp wäre sauberer, ist aber der teuerste Teil von
-   P6. **Vorgabe, falls die Entscheidung ausbleibt:** beide bleiben beim HUD,
-   `audit_log` und `state_history` wandern als explizite HUD-Tabellen mit.
-   Die Challenges haben dann weiterhin kein Undo — heutiger Zustand, kein
-   Rückschritt — und P6 bleibt lieferbar.
-6. **Was passiert mit `themeMode: "inherit"`,** wenn das HUD-Modul nicht
-   registriert ist? Braucht ein definiertes Verhalten.
-7. **Wird die Registry je durch ein drittes Modul belegt?** Der ganze Nutzen
-   von Track P hängt daran. Ohne drittes Modul ist es Aufräumarbeit.
-8. **Bleibt der Deploy einer?** Ein Modul abzuschalten spart heute keinen
-   Cloudflare-Account. Ob „HUD optional" ein Build-Flag, ein
-   Laufzeit-Schalter oder ein Deploy-Unterschied ist, ist offen.
+5. ~~**Wem gehören Undo und Audit-Log?**~~ **Der Plattform.** `state_history`
+   und `audit_log` bleiben im Kanal, jedes Modul meldet Einträge über einen
+   modulneutralen Eintragstyp an. Ein Undo-Stack für den ganzen Kanal, nicht
+   einer pro Modul. Das ist der teuerste Teil von P6 und wird jetzt bezahlt,
+   weil die Challenges sonst dauerhaft ohne Undo bleiben.
+6. ~~**Was passiert mit `themeMode: "inherit"`?**~~ **`inherit` entfällt.**
+   Es bleibt nur `own`. Heute setzt `ChallengeLog.tsx:362` bei `inherit` allein
+   die Klasse `hud-theme--<id>`, die ohne registriertes HUD ins Leere greift.
+   Der Preis ist, dass Themes an zwei Stellen gepflegt werden; dafür hängt das
+   Challenge-Modul nicht mehr am HUD. Braucht eine Migration (`theme_mode`-
+   CHECK und Backfill auf `own`) und den Wegfall des Schalters im Admin.
+7. ~~**Wird die Registry je durch ein drittes Modul belegt?**~~ **Ja, konkret
+   geplant.** Damit ist Track P keine Aufräumarbeit, sondern Plattformarbeit:
+   P2, P5 und P6 müssen die HTTP-Fassade, die Socket-Maschinerie und den
+   HUD-Slice modulneutral machen, bevor Modul 3 kommt.
+8. ~~**Bleibt der Deploy einer?**~~ **Ja, ein Worker, ein DO.** Module werden
+   nicht einzeln deploybar. P7 (Budget-Besitz pro Modul) ist damit
+   Buchhaltung innerhalb eines gemeinsamen Budgets, keine Trennlinie —
+   und „HUD optional" ist kein Deploy-Unterschied.
 
 ## Success Criteria
 
@@ -608,8 +614,9 @@ Danach, in einem eigenen Review: **P2** (Challenge-Fassade), **P3**
 
 Erwogen und ausdrücklich zurückgestellt:
 
-- **P2 bis P7.** Aus dem Review-Umfang herausgenommen; P6 hängt an der offenen
-  Undo-Frage, P7 an Budget-Besitz, den es noch nicht gibt. Eigenes Review.
+- **P2 bis P7.** Aus dem Review-Umfang dieses Dokuments herausgenommen.
+  Die vier Plattformfragen (5 bis 8) sind seit 2026-09-17 beantwortet, damit
+  ist Track P planbar — aber in einem eigenen Review.
 - **Chat-Ingress, EventSub, Predictions, Auto-Clip.** Reihenfolge-Entscheidung
   nach Track N, kein Teil dieses Builds. Siehe The Assignment.
 - **Nachkommastellen bei `measure`.** Ganzzahlen bleiben; 12,5 kg wäre ein
