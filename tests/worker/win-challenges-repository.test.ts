@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { runMigrations } from "../../src/channel/migrations";
+import { runMigrations, legacyNamespaceForVersion } from "../../src/channel/migrations";
 import { createSqlStorageChallengeRepository, type SqlStorageChallengeRepository } from "../../src/modules/win-challenges/adapters/sql-storage-challenge-repository";
 import { MAX_COUNT } from "../../src/modules/win-challenges/contracts/predicates";
 import { createWinChallenges, hashChallengeCommand } from "../../src/modules/win-challenges/service/commands";
@@ -113,7 +113,7 @@ describe("win-challenges repository and migration", () => {
   it("runs the win-challenges migrations idempotently and seeds the complete rows", async () => {
     const result = await runInDurableObject(stub, (_instance, state) => ({
       versions: state.storage.sql
-        .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+        .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE namespace = ? ORDER BY version", "challenges")
         .toArray()
         .map(({ version }) => version),
       tables: state.storage.sql
@@ -272,8 +272,8 @@ describe("win-challenges repository and migration", () => {
       runMigrations(state.storage.sql, "worker-test-before-penalty-label");
       state.storage.sql.exec("ALTER TABLE wc_meta DROP COLUMN penalty_label");
       state.storage.sql.exec("ALTER TABLE wc_meta DROP COLUMN text_emphasis");
-      state.storage.sql.exec("DELETE FROM _sql_schema_migrations WHERE version = 15");
-      state.storage.sql.exec("DELETE FROM _sql_schema_migrations WHERE version = 16");
+      state.storage.sql.exec("DELETE FROM _sql_schema_migrations WHERE namespace = ? AND version = 15", legacyNamespaceForVersion(15));
+      state.storage.sql.exec("DELETE FROM _sql_schema_migrations WHERE namespace = ? AND version = 16", legacyNamespaceForVersion(16));
       runMigrations(state.storage.sql, "worker-test-penalty-label");
       return {
         label: state.storage.sql
@@ -283,7 +283,7 @@ describe("win-challenges repository and migration", () => {
           .exec<{ text_emphasis: string }>("SELECT text_emphasis FROM wc_meta WHERE singleton = 1")
           .toArray()[0]?.text_emphasis,
         versions: state.storage.sql
-          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE namespace = ? ORDER BY version", "challenges")
           .toArray()
           .map(({ version }) => version),
       };
@@ -347,7 +347,7 @@ describe("win-challenges repository and migration", () => {
         fontSettings: state.storage.sql.exec<{ font_family: string; font_scale: number }>("SELECT font_family, font_scale FROM wc_meta WHERE singleton = 1").toArray()[0],
         surfaceOpacity: state.storage.sql.exec<{ surface_opacity: number }>("SELECT surface_opacity FROM wc_meta WHERE singleton = 1").toArray()[0]?.surface_opacity,
         surfaceColumns: state.storage.sql.exec<{ name: string }>("PRAGMA table_info(wc_meta)").toArray().map(({ name }) => name),
-        versions: state.storage.sql.exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version").toArray().map(({ version }) => version),
+        versions: state.storage.sql.exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE namespace = ? ORDER BY version", "challenges").toArray().map(({ version }) => version),
       };
     });
 
@@ -465,7 +465,10 @@ describe("win-challenges repository and migration", () => {
       runMigrations(state.storage.sql, "worker-test-migration-11-second-run");
       return {
         versions: state.storage.sql
-          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .exec<{ version: number }>(
+            "SELECT version FROM _sql_schema_migrations WHERE namespace = ? ORDER BY version",
+            legacyNamespaceForVersion(3),
+          )
           .toArray()
           .map(({ version }) => version),
         meta: state.storage.sql.exec<{
@@ -710,7 +713,10 @@ describe("win-challenges repository and migration", () => {
         future,
         seeded.id,
       );
-      state.storage.sql.exec("DELETE FROM _sql_schema_migrations WHERE version = 4");
+      state.storage.sql.exec(
+        "DELETE FROM _sql_schema_migrations WHERE namespace = ? AND version = 4",
+        legacyNamespaceForVersion(4),
+      );
       runMigrations(state.storage.sql, "worker-test-migration-4");
       return state.storage.sql
         .exec<{ timer_ends_at: string | null }>(

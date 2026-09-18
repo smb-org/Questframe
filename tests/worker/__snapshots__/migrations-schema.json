@@ -81,7 +81,7 @@
     "type": "table",
     "name": "state_history",
     "tbl_name": "state_history",
-    "sql": "CREATE TABLE state_history ( revision INTEGER PRIMARY KEY , snapshot_json TEXT NOT NULL , created_at TEXT NOT NULL , summary TEXT NOT NULL )"
+    "sql": "CREATE TABLE state_history ( channel_seq INTEGER NOT NULL PRIMARY KEY , module_id TEXT NOT NULL , revision INTEGER NOT NULL , snapshot_json TEXT NOT NULL , created_at TEXT NOT NULL , summary TEXT NOT NULL )"
   },
   {
     "type": "table",

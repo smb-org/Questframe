@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
-import { runMigrations } from "../../src/channel/migrations";
+import { runMigrations, legacyNamespaceForVersion } from "../../src/channel/migrations";
 import MIGRATIONS_SOURCE from "../../src/channel/migrations.ts?raw";
 import CONTROL_KEYS_SOURCE from "../../src/modules/win-challenges/domain/control-keys.ts?raw";
 import { MAX_CHALLENGES } from "../../src/modules/win-challenges/contracts/predicates";
@@ -17,7 +17,24 @@ import {
 
 const FIXTURE_TIMESTAMP = "2026-08-30T12:00:00.000Z";
 const HISTORICAL_VERSIONS = Array.from({ length: 16 }, (_, index) => index + 1) as HistoricalSchemaVersion[];
-const CURRENT_VERSIONS = Array.from({ length: 20 }, (_, index) => index + 1);
+// Vollständiger Ledger sortiert nach (namespace, version): "challenges" kommt
+// lexikographisch vor "host", darum zuerst die Challenge-Versionen 3..20,
+// danach die Host-Versionen 1..3.
+/**
+ * Der vollständige Ledger nach `ORDER BY namespace, version`. Die Liste trägt
+ * nur Versionsnummern, deshalb steht hier ausgeschrieben, was sie bedeutet:
+ * erst `challenges` 3 bis 20, dann `host` 1 bis 3 — "challenges" sortiert
+ * lexikographisch vor "host". Die 3 kommt zweimal vor, weil Versionsnummern
+ * pro Namespace zählen: `challenges`/3 legt die wc_-Tabellen an, `host`/3 baut
+ * `state_history` um. Wer hier eine vermeintliche Dublette wegkürzt, macht den
+ * Test blind für eine fehlende Host-Migration.
+ */
+const CURRENT_VERSIONS = [
+  ...Array.from({ length: 18 }, (_, index) => index + 3),
+  1,
+  2,
+  3,
+];
 const ALL_SCHEMA_VERSIONS = [0, ...HISTORICAL_VERSIONS] as HistoricalSchemaVersion[];
 const RECOVERABLE_CRASH_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16] as HistoricalSchemaVersion[];
 
@@ -699,7 +716,7 @@ describe("Migrations-Harness", () => {
       return {
         schema: readSchemaSnapshot(sql),
         versions: sql
-          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY namespace, version")
           .toArray()
           .map(({ version }) => version),
         meta: sql
@@ -808,6 +825,7 @@ describe("Migrations-Harness", () => {
       ...Array.from({ length: 18 }, (_, index) => ({ namespace: "challenges", version: index + 3 })),
       { namespace: "host", version: 1 },
       { namespace: "host", version: 2 },
+      { namespace: "host", version: 3 },
     ]);
     expect(result.tables).toEqual([
       "_sql_schema_migrations",
@@ -839,7 +857,7 @@ describe("Migrations-Harness", () => {
       runMigrations(sql, "migration-harness-v18");
       const read = () => ({
         versions: sql
-          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY namespace, version")
           .toArray()
           .map(({ version }) => version),
         keyColumn: sql
@@ -882,7 +900,7 @@ describe("Migrations-Harness", () => {
         challenges: sql.exec("SELECT * FROM wc_challenges ORDER BY id").toArray(),
         meta: sql.exec("SELECT * FROM wc_meta").toArray(),
         versions: sql
-          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY namespace, version")
           .toArray()
           .map(({ version }) => version),
       };
@@ -892,7 +910,7 @@ describe("Migrations-Harness", () => {
         challenges: sql.exec("SELECT * FROM wc_challenges ORDER BY id").toArray(),
         meta: sql.exec("SELECT * FROM wc_meta").toArray(),
         versions: sql
-          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY namespace, version")
           .toArray()
           .map(({ version }) => version),
         sets: sql.exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'wc_sets'").toArray(),
@@ -904,14 +922,14 @@ describe("Migrations-Harness", () => {
         challenges: sql.exec("SELECT * FROM wc_challenges ORDER BY id").toArray(),
         meta: sql.exec("SELECT * FROM wc_meta").toArray(),
         versions: sql
-          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY namespace, version")
           .toArray()
           .map(({ version }) => version),
         schema: readSchemaSnapshot(sql),
       } };
     });
 
-    expect(result.before.versions).toEqual([...Array.from({ length: 18 }, (_, index) => index + 1)]);
+    expect(result.before.versions).toEqual([...Array.from({ length: 16 }, (_, index) => index + 3), 1, 2, 3]);
     expect(result.first.versions).toEqual(CURRENT_VERSIONS);
     expect(result.first.sets).toEqual([{ name: "wc_sets" }]);
     expect(result.first.columns).toEqual([
@@ -930,7 +948,7 @@ describe("Migrations-Harness", () => {
     const result = await withHarnessDatabase(19, (sql) => {
       const before = {
         versions: sql
-          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY namespace, version")
           .toArray()
           .map(({ version }) => version),
         themeMode: sql.exec<{ theme_mode: string }>("SELECT theme_mode FROM wc_meta WHERE singleton = 1").toArray(),
@@ -939,7 +957,7 @@ describe("Migrations-Harness", () => {
       runMigrations(sql, "migration-harness-v20");
       const first = {
         versions: sql
-          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY namespace, version")
           .toArray()
           .map(({ version }) => version),
         themeMode: sql.exec<{ theme_mode: string }>("SELECT theme_mode FROM wc_meta WHERE singleton = 1").toArray(),
@@ -948,7 +966,7 @@ describe("Migrations-Harness", () => {
       runMigrations(sql, "migration-harness-v20-rerun");
       return { before, first, second: {
         versions: sql
-          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY namespace, version")
           .toArray()
           .map(({ version }) => version),
         themeMode: sql.exec<{ theme_mode: string }>("SELECT theme_mode FROM wc_meta WHERE singleton = 1").toArray(),
@@ -956,7 +974,7 @@ describe("Migrations-Harness", () => {
       } };
     }, prepareVersion19Database);
 
-    expect(result.before.versions).toEqual(Array.from({ length: 19 }, (_, index) => index + 1));
+    expect(result.before.versions).toEqual([...Array.from({ length: 17 }, (_, index) => index + 3), 1, 2, 3]);
     expect(result.before.themeMode).toEqual([{ theme_mode: "inherit" }]);
     expect(result.first.versions).toEqual(CURRENT_VERSIONS);
     expect(result.first.themeMode).toEqual([{ theme_mode: "own" }]);
@@ -983,8 +1001,17 @@ describe("Migrations-Harness", () => {
           }>("SELECT singleton, revision, overlay_enabled, state_json, updated_at, updated_by_id, updated_by_name FROM channel_state WHERE singleton = 1")
           .toArray()[0],
         stateHistory: sql
-          .exec<{ revision: number; snapshot_json: string; created_at: string; summary: string }>(
-            "SELECT revision, snapshot_json, created_at, summary FROM state_history WHERE revision = 7",
+          .exec<{
+            channel_seq: number;
+            module_id: string;
+            revision: number;
+            snapshot_json: string;
+            created_at: string;
+            summary: string;
+          }>(
+            "SELECT channel_seq, module_id, revision, snapshot_json, created_at, summary FROM state_history WHERE module_id = ? AND revision = ?",
+            "hud",
+            7,
           )
           .toArray()[0],
         auditLog: sql
@@ -1077,7 +1104,7 @@ describe("Migrations-Harness", () => {
           )
           .toArray(),
         versions: sql
-          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY namespace, version")
           .toArray()
           .map(({ version: appliedVersion }) => appliedVersion),
         schema: readSchemaSnapshot(sql),
@@ -1094,6 +1121,8 @@ describe("Migrations-Harness", () => {
       updated_by_name: "Fixture",
     });
     expect(result.stateHistory).toEqual({
+      channel_seq: 7,
+      module_id: "hud",
       revision: 7,
       snapshot_json: '{"fixture":true}',
       created_at: FIXTURE_TIMESTAMP,
@@ -1331,7 +1360,10 @@ describe("Migrations-Harness", () => {
           )
           .toArray(),
         version17: sql
-          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 17")
+          .exec<{ version: number }>(
+            "SELECT version FROM _sql_schema_migrations WHERE namespace = ? AND version = 17",
+            legacyNamespaceForVersion(17),
+          )
           .toArray(),
       };
     }, initialize);
@@ -1366,7 +1398,10 @@ describe("Migrations-Harness", () => {
           .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%_migration_17'")
           .toArray(),
         version17: sql
-          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 17")
+          .exec<{ version: number }>(
+            "SELECT version FROM _sql_schema_migrations WHERE namespace = ? AND version = 17",
+            legacyNamespaceForVersion(17),
+          )
           .toArray(),
       };
     });
@@ -1439,7 +1474,12 @@ describe("Migrations-Harness", () => {
           .toArray(),
       ).toEqual([]);
       expect(
-        sql.exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 17").toArray(),
+        sql
+          .exec<{ version: number }>(
+            "SELECT version FROM _sql_schema_migrations WHERE namespace = ? AND version = 17",
+            legacyNamespaceForVersion(17),
+          )
+          .toArray(),
       ).toEqual([{ version: 17 }]);
     });
   });
@@ -1462,7 +1502,11 @@ describe("Migrations-Harness", () => {
       }).not.toThrow();
       expect(
         state.storage.sql
-          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = ?", version)
+          .exec<{ version: number }>(
+            "SELECT version FROM _sql_schema_migrations WHERE namespace = ? AND version = ?",
+            legacyNamespaceForVersion(version),
+            version,
+          )
           .toArray(),
       ).toHaveLength(1);
     });

@@ -1,5 +1,11 @@
 import { allocateControlKey } from "../modules/win-challenges/domain/control-keys";
 
+/**
+ * Versionsnummern zählen PRO NAMESPACE und sind nur zusammen mit dem
+ * Namespace eindeutig: `challenges`/Version 3 und `host`/Version 3 existieren
+ * gleichzeitig. Wer den Ledger (`_sql_schema_migrations`) ohne `namespace`
+ * abfragt oder löscht, bekommt bzw. trifft Zeilen aus fremden Namespaces.
+ */
 type Migration = {
   namespace: MigrationNamespace;
   version: number;
@@ -10,7 +16,7 @@ type Migration = {
   | { run: (sql: SqlStorage) => void; statements?: never }
 );
 
-type MigrationNamespace = "host" | "hud" | "challenges";
+export type MigrationNamespace = "host" | "hud" | "challenges";
 
 const splitSqlStatements = (sql: string): readonly string[] => {
   const statements: string[] = [];
@@ -393,6 +399,54 @@ CREATE INDEX IF NOT EXISTS wc_sets_updated_idx ON wc_sets(updated_at DESC);
 
 const MIGRATION_20_THEME_MODE = "UPDATE wc_meta SET theme_mode = 'own';";
 
+const hasStateHistoryModuleColumns = (sql: SqlStorage): boolean => {
+  const columns = sql
+    .exec<{ name: string }>("PRAGMA table_info(state_history)")
+    .toArray()
+    .map(({ name }) => name);
+  return columns.includes("module_id") && columns.includes("channel_seq");
+};
+
+/**
+ * `channel_seq` ist der Primärschlüssel, weil er die unveränderliche Identität
+ * eines Eintrags in der zentralen Plattform-Timeline ist. `(module_id,
+ * revision)` würde zwar Modulrevisionen unterscheiden, aber eine zentrale
+ * Ordnung nur als nicht abgesichertes Nebenfeld führen; zwei Module könnten
+ * dieselbe Sequenznummer erhalten. Die Durable Object-Transaktion vergibt den
+ * nächsten Wert später atomar aus `MAX(channel_seq) + 1`.
+ *
+ * Der Bestands-Backfill übernimmt `revision` direkt als `channel_seq`. Die
+ * HUD-Revisionen sind bereits monoton, damit bleibt die alte Undo-Reihenfolge
+ * exakt erhalten und der Backfill braucht unabhängig von der Zeilenzahl nur
+ * einen gebundenen Modulwert statt einer wachsenden CASE- oder Binding-Liste.
+ */
+const migrateStateHistory = (sql: SqlStorage): void => {
+  sql.exec("DROP TABLE IF EXISTS state_history_migration_3");
+  sql.exec(`
+    CREATE TABLE state_history_migration_3 (
+      channel_seq INTEGER NOT NULL PRIMARY KEY,
+      module_id TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      snapshot_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      summary TEXT NOT NULL
+    )
+  `);
+  sql.exec(
+    `INSERT INTO state_history_migration_3(
+      channel_seq, module_id, revision, snapshot_json, created_at, summary
+    )
+    SELECT revision, ?, revision, snapshot_json, created_at, summary
+    FROM state_history
+    ORDER BY revision`,
+    "hud",
+  );
+  sql.exec("DROP INDEX IF EXISTS history_created_idx");
+  sql.exec("DROP TABLE state_history");
+  sql.exec("ALTER TABLE state_history_migration_3 RENAME TO state_history");
+  sql.exec("CREATE INDEX history_created_idx ON state_history(created_at DESC)");
+};
+
 const hasChallengeSetsTable = (sql: SqlStorage): boolean =>
   sql
     .exec<{ name: string }>(
@@ -529,9 +583,23 @@ const LEGACY_NAMESPACE_RANGES: readonly {
   { namespace: "challenges", firstVersion: 3, lastVersion: 20 },
 ];
 
+/**
+ * Ordnet eine historische globale Versionsnummer (Alt-Stand vor der
+ * Namespace-Spalte, also 1 bis 20) ihrem festen Namespace zu. Einzige Stelle,
+ * an der diese Regel steht — Tests nutzen sie statt sie zu duplizieren.
+ */
+export const legacyNamespaceForVersion = (version: number): MigrationNamespace => {
+  const range = LEGACY_NAMESPACE_RANGES.find(
+    ({ firstVersion, lastVersion }) => version >= firstVersion && version <= lastVersion,
+  );
+  if (range === undefined) throw new Error(`Keine Legacy-Namespace-Zuordnung für Version ${String(version)}`);
+  return range.namespace;
+};
+
 const MIGRATIONS: readonly Migration[] = [
   { namespace: "host", version: 1, statements: splitSqlStatements(MIGRATION_1) },
   { namespace: "host", version: 2, guard: hasOverlayTokenEnvelope, statements: splitSqlStatements(MIGRATION_2) },
+  { namespace: "host", version: 3, guard: hasStateHistoryModuleColumns, run: migrateStateHistory },
   { namespace: "challenges", version: 3, statements: splitSqlStatements(MIGRATION_3) },
   { namespace: "challenges", version: 4, guard: hasChallengeHidden, statements: splitSqlStatements(MIGRATION_4) },
   { namespace: "challenges", version: 4, statements: [MIGRATION_4_TIMER_CLEANUP] },

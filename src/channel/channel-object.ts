@@ -125,6 +125,7 @@ const limits = {
   maxMediaBytes: 8_388_608,
 } as const;
 const maxMediaBlobs = 32;
+const HUD_MODULE_ID = "hud";
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -784,7 +785,8 @@ export class ChannelObject extends DurableObject<AppEnv> {
     }
     const history = this.ctx.storage.sql
       .exec<{ snapshot_json: string }>(
-        "SELECT snapshot_json FROM state_history WHERE revision = ?",
+        "SELECT snapshot_json FROM state_history WHERE module_id = ? AND revision = ?",
+        HUD_MODULE_ID,
         input.targetRevision,
       )
       .toArray()[0];
@@ -1002,8 +1004,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
       let prunedHistory = false;
       while (existing === undefined && !this.mediaHasRoomFor(bytes.byteLength)) {
         const oldest = this.ctx.storage.sql
-          .exec<{ revision: number }>(
-            "SELECT revision FROM state_history ORDER BY revision ASC LIMIT 1",
+          .exec<{ channel_seq: number }>(
+            "SELECT channel_seq FROM state_history WHERE module_id = ? ORDER BY revision ASC LIMIT 1",
+            HUD_MODULE_ID,
           )
           .toArray()[0];
         if (oldest === undefined) {
@@ -1014,8 +1017,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
           );
         }
         this.ctx.storage.sql.exec(
-          "DELETE FROM state_history WHERE revision = ?",
-          oldest.revision,
+          "DELETE FROM state_history WHERE module_id = ? AND channel_seq = ?",
+          HUD_MODULE_ID,
+          oldest.channel_seq,
         );
         prunedHistory = true;
         this.deleteCollectibleMedia(now);
@@ -1472,12 +1476,31 @@ export class ChannelObject extends DurableObject<AppEnv> {
   }
 
   private insertHistory(state: ChannelState, summary: string): void {
+    // Ein ChannelObject serialisiert diese Berechnung in transactionSync; eine
+    // eigene Sequenz-Tabelle wird erst nötig, wenn mehrere unabhängig
+    // transaktionierende Schreiber in dieselbe Timeline schreiben.
+    const nextChannelSeq = this.ctx.storage.sql
+      .exec<{ channel_seq: number }>(
+        "SELECT COALESCE(MAX(channel_seq), 0) + 1 AS channel_seq FROM state_history",
+      )
+      .toArray()[0]?.channel_seq;
+    if (nextChannelSeq === undefined) throw new Error("Konnte keine Kanalsequenz für state_history vergeben.");
     this.ctx.storage.sql.exec(
-      "INSERT OR IGNORE INTO state_history(revision, snapshot_json, created_at, summary) VALUES (?, ?, ?, ?)",
+      `INSERT INTO state_history(
+        channel_seq, module_id, revision, snapshot_json, created_at, summary
+      )
+      SELECT ?, ?, ?, ?, ?, ?
+      WHERE NOT EXISTS (
+        SELECT 1 FROM state_history WHERE module_id = ? AND revision = ?
+      )`,
+      nextChannelSeq,
+      HUD_MODULE_ID,
       state.revision,
       JSON.stringify(state),
       state.updatedAt,
       summary,
+      HUD_MODULE_ID,
+      state.revision,
     );
   }
 
@@ -1540,7 +1563,8 @@ export class ChannelObject extends DurableObject<AppEnv> {
   private getUndoTargets(): UndoTarget[] {
     return this.ctx.storage.sql
       .exec<{ revision: number; created_at: string; summary: string }>(
-        "SELECT revision, created_at, summary FROM state_history ORDER BY revision DESC LIMIT 20",
+        "SELECT revision, created_at, summary FROM state_history WHERE module_id = ? ORDER BY revision DESC LIMIT 20",
+        HUD_MODULE_ID,
       )
       .toArray()
       .map((row) => ({
@@ -1552,7 +1576,16 @@ export class ChannelObject extends DurableObject<AppEnv> {
 
   private pruneHistoryAndAudit(): void {
     this.ctx.storage.sql.exec(
-      "DELETE FROM state_history WHERE revision NOT IN (SELECT revision FROM state_history ORDER BY revision DESC LIMIT 20)",
+      `DELETE FROM state_history
+       WHERE module_id = ?
+         AND channel_seq NOT IN (
+           SELECT channel_seq FROM state_history
+           WHERE module_id = ?
+           ORDER BY revision DESC
+           LIMIT 20
+         )`,
+      HUD_MODULE_ID,
+      HUD_MODULE_ID,
     );
     const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000).toISOString();
     this.ctx.storage.sql.exec(
@@ -1593,8 +1626,13 @@ export class ChannelObject extends DurableObject<AppEnv> {
     if (current !== undefined) {
       protectState(channelStateDraftSchema.parse(JSON.parse(current.state_json)));
     }
+    // Ein weiteres Modul mit Medienbezug muss diesen Schutzpfad ebenfalls
+    // erweitern; nur HUD-Snapshots enthalten derzeit Portrait-Hashes.
     for (const row of this.ctx.storage.sql
-      .exec<{ snapshot_json: string }>("SELECT snapshot_json FROM state_history")
+      .exec<{ snapshot_json: string }>(
+        "SELECT snapshot_json FROM state_history WHERE module_id = ?",
+        HUD_MODULE_ID,
+      )
       .toArray()) {
       protectState(channelStateSchema.parse(JSON.parse(row.snapshot_json)));
     }

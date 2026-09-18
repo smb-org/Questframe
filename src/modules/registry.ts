@@ -121,8 +121,9 @@ export type ModuleHandler = (request: Request, ctx: ModuleContext) => Promise<Re
 
 /**
  * Tabellenbesitz als explizite Liste oder als Präfix. Ein reines Präfix
- * reicht nicht für jedes Modul: das HUD trägt historische Namen
- * (`channel_state`, `state_history`, `audit_log`) ohne gemeinsames Präfix.
+ * reicht nicht für jedes Modul: Die Host-Plattform trägt die querschnittlichen
+ * historischen Namen (`state_history`, `audit_log`), das HUD selbst nur
+ * `channel_state`.
  */
 export type ModuleTables =
   | { kind: "prefix"; prefix: string }
@@ -144,7 +145,7 @@ type OverlayModuleDefinition = {
 };
 
 /**
- * HUD: `ChannelState`, `readState`/`writeState`, Undo. Sockets/Routen laut
+ * HUD: `ChannelState`, `readState`/`writeState`, modulbezogenes Undo. Sockets/Routen laut
  * `channel-object.ts` — `/ws/overlay` erhält nur `state_committed`
  * (`broadcastState`), nie Challenge-Updates. `/ws/editor` und `/ws/composite`
  * bedienen beide Module gemeinsam und gehören deshalb keinem der beiden
@@ -158,7 +159,7 @@ const hudModule = {
   socketDefinitions: HUD_SOCKET_DEFINITIONS,
   tables: {
     kind: "explicit",
-    tables: ["channel_state", "state_history", "audit_log"],
+    tables: ["channel_state"],
   },
   // Die HUD-Nachrichten (`state_committed`) tragen kein `scope`-Feld.
   wireScopes: [],

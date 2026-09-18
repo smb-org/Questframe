@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
 
-import { runMigrations } from "../../src/channel/migrations";
+import { runMigrations, legacyNamespaceForVersion } from "../../src/channel/migrations";
 
 export type SqliteMasterRow = {
   type: string;
@@ -76,7 +76,7 @@ export const withHistoricalDatabase = async <T>(
  */
 export const prepareVersion17Database = (sql: SqlStorage): void => {
   runMigrations(sql, "migration-harness-prepare-v17");
-  sql.exec("DELETE FROM _sql_schema_migrations WHERE version >= 18");
+  sql.exec("DELETE FROM _sql_schema_migrations WHERE namespace = ? AND version >= 18", legacyNamespaceForVersion(18));
   sql.exec("DROP TABLE IF EXISTS wc_sets");
   sql.exec("ALTER TABLE wc_meta DROP COLUMN key_visible");
 };
@@ -88,7 +88,7 @@ export const prepareVersion17Database = (sql: SqlStorage): void => {
  */
 export const prepareVersion18Database = (sql: SqlStorage): void => {
   runMigrations(sql, "migration-harness-prepare-v18");
-  sql.exec("DELETE FROM _sql_schema_migrations WHERE version >= 19");
+  sql.exec("DELETE FROM _sql_schema_migrations WHERE namespace = ? AND version >= 19", legacyNamespaceForVersion(19));
   sql.exec("DROP TABLE IF EXISTS wc_sets");
 };
 
@@ -99,6 +99,6 @@ export const prepareVersion18Database = (sql: SqlStorage): void => {
  */
 export const prepareVersion19Database = (sql: SqlStorage): void => {
   runMigrations(sql, "migration-harness-prepare-v19");
-  sql.exec("DELETE FROM _sql_schema_migrations WHERE version >= 20");
+  sql.exec("DELETE FROM _sql_schema_migrations WHERE namespace = ? AND version >= 20", legacyNamespaceForVersion(20));
   sql.exec("UPDATE wc_meta SET theme_mode = 'inherit' WHERE singleton = 1");
 };

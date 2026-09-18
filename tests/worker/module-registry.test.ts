@@ -14,6 +14,10 @@ import CHANNEL_OBJECT_SOURCE from "../../src/channel/channel-object.ts?raw";
 import CHALLENGE_FACADE_SOURCE from "../../src/modules/win-challenges/adapters/http-facade.ts?raw";
 import WIRE_CONTRACT_SOURCE from "../../src/shared/contracts/win-challenges.ts?raw";
 import SCHEMAS_SOURCE from "../../src/modules/win-challenges/contracts/schemas.ts?raw";
+import MIGRATIONS_TEST_SOURCE from "./migrations.test.ts?raw";
+import MIGRATIONS_HARNESS_TEST_SOURCE from "./migrations-harness.ts?raw";
+import CHANNEL_TEST_SOURCE from "./channel.test.ts?raw";
+import WIN_CHALLENGES_REPOSITORY_TEST_SOURCE from "./win-challenges-repository.test.ts?raw";
 import {
   createBudgetDeclarations,
   type BuildBudgetDeclaration,
@@ -21,7 +25,8 @@ import {
 
 /**
  * Tabellen, die `runMigrations` anlegt, aber die zu keinem Modul gehören:
- * Sessions, CSRF, OAuth, Overlay-/Dock-Tokens, Media, Twitch-Cache — plus
+ * Sessions, CSRF, OAuth, Overlay-/Dock-Tokens, Media, Twitch-Cache, die
+ * plattformweite state_history/audit_log-Historie — plus
  * `_sql_schema_migrations`, vom Eng-Review ausdrücklich als Host-Tabelle
  * ergänzt (Beschlüsse aus dem Eng-Review, 2026-09-10).
  */
@@ -34,6 +39,8 @@ const HOST_TABLES: readonly string[] = [
   "media_blobs",
   "media_leases",
   "twitch_user_cache",
+  "state_history",
+  "audit_log",
 ];
 
 /**
@@ -174,6 +181,146 @@ const REAL_LITERAL_SOCKET_TAGS = sourceValues(
 const REAL_REGISTRY_SOCKET_TAGS = sourceValues(CHANNEL_OBJECT_SOURCE, /SOCKETS\.([a-z]+)\.tag/gu);
 const REAL_SOCKET_TAGS = [...new Set([...REAL_LITERAL_SOCKET_TAGS, ...REAL_REGISTRY_SOCKET_TAGS])];
 
+/**
+ * Zerlegt Quelltext in seine String- und Template-Literale (Kommentare
+ * ausgeklammert) und liefert deren statischen Textinhalt. `${...}`-
+ * Interpolationen in Template-Literalen werden als eigener Code-Bereich
+ * behandelt (mit Klammerzählung für verschachtelte `{}`); ihr Text fließt
+ * nicht in den Literal-Inhalt ein, das umgebende Template bleibt aber ein
+ * zusammenhängender Treffer. Grundlage für den Ledger-Namespace-Wächter
+ * unten, der so auch Template-Literal-SQL (z. B. `sql.exec(\`...\`)`)
+ * erfasst, die das zeichenweise Muster des Socket-Tag-Wächters oben nicht
+ * abdeckt.
+ */
+const extractStringLiterals = (source: string): readonly string[] => {
+  const literals: string[] = [];
+  type Frame =
+    | { kind: "code" }
+    | { kind: "interpolation"; depth: number }
+    | { kind: "line-comment" }
+    | { kind: "block-comment" }
+    | { kind: "single"; value: string }
+    | { kind: "double"; value: string }
+    | { kind: "template"; value: string };
+
+  const stack: Frame[] = [{ kind: "code" }];
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    const nextCharacter = source[index + 1];
+    if (character === undefined) break;
+    const frame = stack[stack.length - 1];
+    if (frame === undefined) break;
+
+    if (frame.kind === "code" || frame.kind === "interpolation") {
+      if (character === "/" && nextCharacter === "/") {
+        stack.push({ kind: "line-comment" });
+        index += 1;
+      } else if (character === "/" && nextCharacter === "*") {
+        stack.push({ kind: "block-comment" });
+        index += 1;
+      } else if (character === "'") {
+        stack.push({ kind: "single", value: "" });
+      } else if (character === '"') {
+        stack.push({ kind: "double", value: "" });
+      } else if (character === "`") {
+        stack.push({ kind: "template", value: "" });
+      } else if (frame.kind === "interpolation" && character === "{") {
+        frame.depth += 1;
+      } else if (frame.kind === "interpolation" && character === "}") {
+        if (frame.depth === 0) stack.pop();
+        else frame.depth -= 1;
+      }
+      continue;
+    }
+
+    if (frame.kind === "line-comment") {
+      if (character === "\n") stack.pop();
+      continue;
+    }
+
+    if (frame.kind === "block-comment") {
+      if (character === "*" && nextCharacter === "/") {
+        stack.pop();
+        index += 1;
+      }
+      continue;
+    }
+
+    // Ab hier: String- oder Template-Literal. Escapes tragen nichts zur
+    // Textsuche bei, es reicht, sie zu überspringen.
+    if (character === "\\") {
+      index += 1;
+      continue;
+    }
+    if (frame.kind === "single") {
+      if (character === "'") {
+        literals.push(frame.value);
+        stack.pop();
+      } else frame.value += character;
+      continue;
+    }
+    if (frame.kind === "double") {
+      if (character === '"') {
+        literals.push(frame.value);
+        stack.pop();
+      } else frame.value += character;
+      continue;
+    }
+    if (character === "`") {
+      literals.push(frame.value);
+      stack.pop();
+    } else if (character === "$" && nextCharacter === "{") {
+      stack.push({ kind: "interpolation", depth: 0 });
+      index += 1;
+    } else {
+      frame.value += character;
+    }
+  }
+
+  return literals;
+};
+
+const LEDGER_MUTATION_PATTERN = /\b(?:FROM|INTO|UPDATE)\s+_sql_schema_migrations\b/;
+
+type NamespaceGuardException = {
+  readonly file: string;
+  readonly reason: string;
+  readonly matches: (literal: string) => boolean;
+};
+
+/**
+ * Ausnahmen vom Ledger-Namespace-Wächter unten: Fixtures, die absichtlich
+ * das alte Vor-Namespace-Ledgerschema (`version INTEGER PRIMARY KEY`, keine
+ * `namespace`-Spalte) nachbauen, um den Backfill-Pfad bzw. historische
+ * Migrationsstände zu testen. Eng genug gefasst, dass jede Ausnahme
+ * ausschließlich ihre eine begründete Stelle trifft, keine echte Lücke.
+ */
+const NAMESPACE_GUARD_EXCEPTIONS: readonly NamespaceGuardException[] = [
+  {
+    file: "migrations.test.ts",
+    reason:
+      "insertMigrationLedger baut für historische Fixtures bewusst das alte, noch Namespace-lose Ledger nach.",
+    matches: (literal) =>
+      literal === "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
+  },
+  {
+    file: "win-challenges-repository.test.ts",
+    reason:
+      "Baut testweise das alte Vor-Namespace-Ledgerschema nach (eigene CREATE TABLE ohne namespace-Spalte), um Migrationen auf einem historischen Stand zu prüfen.",
+    matches: (literal) =>
+      literal.includes("CREATE TABLE _sql_schema_migrations")
+      && literal.includes("INSERT INTO _sql_schema_migrations(version, build_id, applied_at)"),
+  },
+];
+
+const LEDGER_NAMESPACE_GUARD_TARGETS: readonly { file: string; source: string }[] = [
+  { file: "migrations.test.ts", source: MIGRATIONS_TEST_SOURCE },
+  { file: "migrations-harness.ts", source: MIGRATIONS_HARNESS_TEST_SOURCE },
+  { file: "channel.test.ts", source: CHANNEL_TEST_SOURCE },
+  { file: "win-challenges-repository.test.ts", source: WIN_CHALLENGES_REPOSITORY_TEST_SOURCE },
+];
+
 const routePrefixClaims = (prefix: string, path: string): boolean =>
   path.startsWith(prefix);
 
@@ -217,6 +364,22 @@ const collectDuplicates = (
 describe("Modul-Registry-Selbsttest", () => {
   it("verhindert Challenge- und Dock-Tag-Literale im Socket-Host", () => {
     expect(collectExactSocketTagLiterals(CHANNEL_OBJECT_SOURCE)).toEqual([]);
+  });
+
+  it("hält jede Ledger-Abfrage der Migrationstests an einen Namespace-Filter", () => {
+    const violations: string[] = [];
+    for (const { file, source } of LEDGER_NAMESPACE_GUARD_TARGETS) {
+      for (const literal of extractStringLiterals(source)) {
+        if (!LEDGER_MUTATION_PATTERN.test(literal)) continue;
+        if (literal.includes("namespace")) continue;
+        const isExcepted = NAMESPACE_GUARD_EXCEPTIONS.some(
+          (exception) => exception.file === file && exception.matches(literal),
+        );
+        if (isExcepted) continue;
+        violations.push(`${file}: ${literal}`);
+      }
+    }
+    expect(violations, "Ledger-Abfrage/-Mutation ohne Namespace-Filter gefunden").toEqual([]);
   });
 
   it("hat eindeutige Modul-IDs", () => {
