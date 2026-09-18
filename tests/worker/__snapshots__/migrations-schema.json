@@ -27,7 +27,7 @@
     "type": "table",
     "name": "_sql_schema_migrations",
     "tbl_name": "_sql_schema_migrations",
-    "sql": "CREATE TABLE _sql_schema_migrations ( version INTEGER PRIMARY KEY , build_id TEXT NOT NULL , applied_at TEXT NOT NULL )"
+    "sql": "CREATE TABLE _sql_schema_migrations ( namespace TEXT NOT NULL , version INTEGER NOT NULL , build_id TEXT NOT NULL , applied_at TEXT NOT NULL , PRIMARY KEY ( namespace , version ) )"
   },
   {
     "type": "table",

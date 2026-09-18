@@ -1,6 +1,7 @@
 import { allocateControlKey } from "../modules/win-challenges/domain/control-keys";
 
 type Migration = {
+  namespace: MigrationNamespace;
   version: number;
   /** Optionaler Idempotenz-Wächter. Liefert true, wenn der Migrationseintrag bereits angewendet ist. */
   guard?: (sql: SqlStorage) => boolean;
@@ -8,6 +9,8 @@ type Migration = {
   | { statements: readonly string[]; run?: never }
   | { run: (sql: SqlStorage) => void; statements?: never }
 );
+
+type MigrationNamespace = "host" | "hud" | "challenges";
 
 const splitSqlStatements = (sql: string): readonly string[] => {
   const statements: string[] = [];
@@ -42,9 +45,11 @@ const splitSqlStatements = (sql: string): readonly string[] => {
 
 const MIGRATION_1 = `
 CREATE TABLE IF NOT EXISTS _sql_schema_migrations (
-  version INTEGER PRIMARY KEY,
+  namespace TEXT NOT NULL,
+  version INTEGER NOT NULL,
   build_id TEXT NOT NULL,
-  applied_at TEXT NOT NULL
+  applied_at TEXT NOT NULL,
+  PRIMARY KEY (namespace, version)
 );
 CREATE TABLE IF NOT EXISTS channel_state (
   singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -500,66 +505,144 @@ const MIGRATION_17_DROP_TEMPORARY_TABLE = "DROP TABLE IF EXISTS wc_challenges_mi
 const MIGRATION_17_DROP_LEGACY_TABLE = "DROP TABLE wc_challenges";
 const MIGRATION_17_RENAME_TABLE = "ALTER TABLE wc_challenges_migration_17 RENAME TO wc_challenges";
 
+/**
+ * Migration 1 ist der einmalige Bootstrap für den Host: Sie legt den Ledger
+ * selbst, alle Host-Tabellen und die HUD-Grundtabellen an. Im tatsächlichen
+ * SQL gibt es hier noch keine `wc_`-Tabelle. Die eine Ledger-Zeile gehört
+ * deshalb `host`, damit der querschnittliche Bootstrap genau einmal verbucht
+ * wird; `hud` bleibt bis zu einer eigenen HUD-Migration bei Stand 0.
+ *
+ * Die Obergrenze 20 ist EINGEFROREN und wird nie wieder erhöht. Diese Liste
+ * beschreibt ausschließlich den Bestand vor der Namespace-Umstellung, und
+ * eine Datenbank im alten Format kann höchstens bei Version 20 stehen. Jede
+ * spätere Migration trägt ihren Namespace von Anfang an im Eintrag; der
+ * Backfill sieht sie nie, weil er bei vorhandener `namespace`-Spalte sofort
+ * zurückkehrt. Wer hier mitzählt, verschiebt Bestandszeilen in den falschen
+ * Namespace.
+ */
+const LEGACY_NAMESPACE_RANGES: readonly {
+  namespace: MigrationNamespace;
+  firstVersion: number;
+  lastVersion: number;
+}[] = [
+  { namespace: "host", firstVersion: 1, lastVersion: 2 },
+  { namespace: "challenges", firstVersion: 3, lastVersion: 20 },
+];
+
 const MIGRATIONS: readonly Migration[] = [
-  { version: 1, statements: splitSqlStatements(MIGRATION_1) },
-  { version: 2, guard: hasOverlayTokenEnvelope, statements: splitSqlStatements(MIGRATION_2) },
-  { version: 3, statements: splitSqlStatements(MIGRATION_3) },
-  { version: 4, guard: hasChallengeHidden, statements: splitSqlStatements(MIGRATION_4) },
-  { version: 4, statements: [MIGRATION_4_TIMER_CLEANUP] },
-  { version: 5, guard: hasChallengePlacement, statements: splitSqlStatements(MIGRATION_5) },
-  { version: 6, guard: (sql) => !hasChallengeDescription(sql), statements: splitSqlStatements(MIGRATION_6) },
-  { version: 7, guard: (sql) => hasChallengeMetaColumn(sql, "overflow_mode"), statements: splitSqlStatements(MIGRATION_7_OVERFLOW_MODE) },
-  { version: 7, guard: (sql) => hasChallengeMetaColumn(sql, "overflow_tempo"), statements: splitSqlStatements(MIGRATION_7_OVERFLOW_TEMPO) },
-  { version: 7, guard: (sql) => hasChallengeMetaColumn(sql, "numbered"), statements: splitSqlStatements(MIGRATION_7_NUMBERED) },
-  { version: 7, guard: (sql) => hasChallengeMetaColumn(sql, "done_order"), statements: splitSqlStatements(MIGRATION_7_DONE_ORDER) },
-  { version: 7, statements: [MIGRATION_7_STYLE_BACKFILL] },
-  { version: 8, guard: (sql) => hasChallengeMetaColumn(sql, "global_timer_mode"), statements: splitSqlStatements(MIGRATION_8_GLOBAL_TIMER_MODE) },
-  { version: 9, guard: hasChallengeTimerRemain, statements: splitSqlStatements(MIGRATION_9_CHALLENGE_TIMER_REMAIN) },
-  { version: 10, guard: (sql) => hasChallengeMetaColumn(sql, "header_style"), statements: [MIGRATION_10_HEADER_STYLE] },
+  { namespace: "host", version: 1, statements: splitSqlStatements(MIGRATION_1) },
+  { namespace: "host", version: 2, guard: hasOverlayTokenEnvelope, statements: splitSqlStatements(MIGRATION_2) },
+  { namespace: "challenges", version: 3, statements: splitSqlStatements(MIGRATION_3) },
+  { namespace: "challenges", version: 4, guard: hasChallengeHidden, statements: splitSqlStatements(MIGRATION_4) },
+  { namespace: "challenges", version: 4, statements: [MIGRATION_4_TIMER_CLEANUP] },
+  { namespace: "challenges", version: 5, guard: hasChallengePlacement, statements: splitSqlStatements(MIGRATION_5) },
+  { namespace: "challenges", version: 6, guard: (sql) => !hasChallengeDescription(sql), statements: splitSqlStatements(MIGRATION_6) },
+  { namespace: "challenges", version: 7, guard: (sql) => hasChallengeMetaColumn(sql, "overflow_mode"), statements: splitSqlStatements(MIGRATION_7_OVERFLOW_MODE) },
+  { namespace: "challenges", version: 7, guard: (sql) => hasChallengeMetaColumn(sql, "overflow_tempo"), statements: splitSqlStatements(MIGRATION_7_OVERFLOW_TEMPO) },
+  { namespace: "challenges", version: 7, guard: (sql) => hasChallengeMetaColumn(sql, "numbered"), statements: splitSqlStatements(MIGRATION_7_NUMBERED) },
+  { namespace: "challenges", version: 7, guard: (sql) => hasChallengeMetaColumn(sql, "done_order"), statements: splitSqlStatements(MIGRATION_7_DONE_ORDER) },
+  { namespace: "challenges", version: 7, statements: [MIGRATION_7_STYLE_BACKFILL] },
+  { namespace: "challenges", version: 8, guard: (sql) => hasChallengeMetaColumn(sql, "global_timer_mode"), statements: splitSqlStatements(MIGRATION_8_GLOBAL_TIMER_MODE) },
+  { namespace: "challenges", version: 9, guard: hasChallengeTimerRemain, statements: splitSqlStatements(MIGRATION_9_CHALLENGE_TIMER_REMAIN) },
+  { namespace: "challenges", version: 10, guard: (sql) => hasChallengeMetaColumn(sql, "header_style"), statements: [MIGRATION_10_HEADER_STYLE] },
   {
+    namespace: "challenges",
     version: 11,
     guard: (sql) => hasMaxVisibleRowsCheck(sql) || hasChallengeMetaColumn(sql, "surface_mode"),
     statements: splitSqlStatements(MIGRATION_11_WC_META_REBUILD),
   },
   {
+    namespace: "challenges",
     version: 11,
     guard: (sql) => hasMaxVisibleRowsCheck(sql) || !hasChallengeMetaColumn(sql, "surface_mode"),
     statements: splitSqlStatements(MIGRATION_11_WC_META_REBUILD_LEGACY_SURFACE_MODE),
   },
-  { version: 12, guard: (sql) => hasChallengeMetaColumn(sql, "font_family"), statements: [MIGRATION_12_FONT_FAMILY] },
-  { version: 12, guard: (sql) => hasChallengeMetaColumn(sql, "font_scale"), statements: [MIGRATION_12_FONT_SCALE] },
+  { namespace: "challenges", version: 12, guard: (sql) => hasChallengeMetaColumn(sql, "font_family"), statements: [MIGRATION_12_FONT_FAMILY] },
+  { namespace: "challenges", version: 12, guard: (sql) => hasChallengeMetaColumn(sql, "font_scale"), statements: [MIGRATION_12_FONT_SCALE] },
   {
+    namespace: "challenges",
     version: 13,
     guard: (sql) => hasChallengeMetaColumn(sql, "surface_opacity") || !hasChallengeMetaColumn(sql, "surface_mode"),
     statements: [MIGRATION_13_SURFACE_OPACITY_ADD],
   },
   {
+    namespace: "challenges",
     version: 13,
     guard: (sql) => !(hasChallengeMetaColumn(sql, "surface_opacity") && hasChallengeMetaColumn(sql, "surface_mode")),
     statements: [MIGRATION_13_SURFACE_OPACITY_BACKFILL],
   },
   {
+    namespace: "challenges",
     version: 13,
     guard: (sql) => !(hasChallengeMetaColumn(sql, "surface_opacity") && hasChallengeMetaColumn(sql, "surface_mode")),
     statements: [MIGRATION_13_SURFACE_MODE_DROP],
   },
-  { version: 14, guard: (sql) => hasChallengeMetaColumn(sql, "penalty_text"), statements: [MIGRATION_14_PENALTY_TEXT] },
-  { version: 15, guard: (sql) => hasChallengeMetaColumn(sql, "penalty_label"), statements: [MIGRATION_15_PENALTY_LABEL] },
-  { version: 16, guard: (sql) => hasChallengeMetaColumn(sql, "text_emphasis"), statements: [MIGRATION_16_TEXT_EMPHASIS] },
-  { version: 17, run: migrateChallenges17 },
-  { version: 18, guard: (sql) => hasChallengeMetaColumn(sql, "key_visible"), statements: [MIGRATION_18_KEY_VISIBLE] },
-  { version: 19, guard: hasChallengeSetsTable, statements: splitSqlStatements(MIGRATION_19_SETS) },
-  { version: 20, statements: [MIGRATION_20_THEME_MODE] },
+  { namespace: "challenges", version: 14, guard: (sql) => hasChallengeMetaColumn(sql, "penalty_text"), statements: [MIGRATION_14_PENALTY_TEXT] },
+  { namespace: "challenges", version: 15, guard: (sql) => hasChallengeMetaColumn(sql, "penalty_label"), statements: [MIGRATION_15_PENALTY_LABEL] },
+  { namespace: "challenges", version: 16, guard: (sql) => hasChallengeMetaColumn(sql, "text_emphasis"), statements: [MIGRATION_16_TEXT_EMPHASIS] },
+  { namespace: "challenges", version: 17, run: migrateChallenges17 },
+  { namespace: "challenges", version: 18, guard: (sql) => hasChallengeMetaColumn(sql, "key_visible"), statements: [MIGRATION_18_KEY_VISIBLE] },
+  { namespace: "challenges", version: 19, guard: hasChallengeSetsTable, statements: splitSqlStatements(MIGRATION_19_SETS) },
+  { namespace: "challenges", version: 20, statements: [MIGRATION_20_THEME_MODE] },
 ];
 
-const migrationVersionWasApplied = (sql: SqlStorage, version: number): boolean =>
+const migrationLedgerColumns = (sql: SqlStorage): readonly string[] =>
   sql
-    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = ?", version)
+    .exec<{ name: string }>("PRAGMA table_info(_sql_schema_migrations)")
+    .toArray()
+    .map(({ name }) => name);
+
+const rebuildMigrationLedgerColumns = (sql: SqlStorage): readonly string[] =>
+  sql
+    .exec<{ name: string }>("PRAGMA table_info(_sql_schema_migrations_namespaced)")
+    .toArray()
+    .map(({ name }) => name);
+
+const backfillLegacyMigrationLedger = (sql: SqlStorage): void => {
+  const currentLedgerColumns = migrationLedgerColumns(sql);
+  const rebuildLedgerColumns = rebuildMigrationLedgerColumns(sql);
+
+  if (currentLedgerColumns.includes("namespace")) return;
+  if (currentLedgerColumns.length === 0 && rebuildLedgerColumns.length > 0) {
+    sql.exec("ALTER TABLE _sql_schema_migrations_namespaced RENAME TO _sql_schema_migrations");
+    return;
+  }
+  if (currentLedgerColumns.length === 0) return;
+
+  sql.exec(`
+    CREATE TABLE IF NOT EXISTS _sql_schema_migrations_namespaced (
+      namespace TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      build_id TEXT NOT NULL,
+      applied_at TEXT NOT NULL,
+      PRIMARY KEY (namespace, version)
+    )
+  `);
+  for (const { namespace, firstVersion, lastVersion } of LEGACY_NAMESPACE_RANGES) {
+    sql.exec(
+      "INSERT OR IGNORE INTO _sql_schema_migrations_namespaced(namespace, version, build_id, applied_at) SELECT ?, version, build_id, applied_at FROM _sql_schema_migrations WHERE version BETWEEN ? AND ?",
+      namespace,
+      firstVersion,
+      lastVersion,
+    );
+  }
+  sql.exec("DROP TABLE _sql_schema_migrations");
+  sql.exec("ALTER TABLE _sql_schema_migrations_namespaced RENAME TO _sql_schema_migrations");
+};
+
+const migrationVersionWasApplied = (sql: SqlStorage, namespace: MigrationNamespace, version: number): boolean =>
+  sql
+    .exec<{ version: number }>(
+      "SELECT version FROM _sql_schema_migrations WHERE namespace = ? AND version = ?",
+      namespace,
+      version,
+    )
     .toArray().length > 0;
 
-const recordMigration = (sql: SqlStorage, version: number, buildId: string): void => {
+const recordMigration = (sql: SqlStorage, namespace: MigrationNamespace, version: number, buildId: string): void => {
   sql.exec(
-    "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
+    "INSERT INTO _sql_schema_migrations(namespace, version, build_id, applied_at) VALUES (?, ?, ?, ?)",
+    namespace,
     version,
     buildId,
     new Date().toISOString(),
@@ -567,14 +650,21 @@ const recordMigration = (sql: SqlStorage, version: number, buildId: string): voi
 };
 
 export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
+  backfillLegacyMigrationLedger(sql);
+
   for (let index = 0; index < MIGRATIONS.length;) {
+    const namespace = MIGRATIONS[index]?.namespace;
     const version = MIGRATIONS[index]?.version;
-    if (version === undefined) break;
+    if (namespace === undefined || version === undefined) break;
 
     const firstEntry = index;
-    while (index < MIGRATIONS.length && MIGRATIONS[index]?.version === version) index += 1;
+    while (
+      index < MIGRATIONS.length
+      && MIGRATIONS[index]?.namespace === namespace
+      && MIGRATIONS[index]?.version === version
+    ) index += 1;
     const entries = MIGRATIONS.slice(firstEntry, index);
-    const versionWasApplied = version === 1 ? false : migrationVersionWasApplied(sql, version);
+    const versionWasApplied = version === 1 ? false : migrationVersionWasApplied(sql, namespace, version);
 
     if (!versionWasApplied) {
       for (const migration of entries) {
@@ -586,8 +676,8 @@ export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
 
     // Migration 1 muss vor dem ersten Ledger-Check die Ledger-Tabelle anlegen.
     // Danach gilt auch für sie dieselbe Eintragslogik wie für alle Folgemigrationen.
-    if (version === 1 ? !migrationVersionWasApplied(sql, version) : !versionWasApplied) {
-      recordMigration(sql, version, buildId);
+    if (version === 1 ? !migrationVersionWasApplied(sql, namespace, version) : !versionWasApplied) {
+      recordMigration(sql, namespace, version, buildId);
     }
   }
 };

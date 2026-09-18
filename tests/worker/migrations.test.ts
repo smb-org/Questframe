@@ -755,6 +755,84 @@ describe("Migrations-Harness", () => {
     });
   });
 
+  it("backfillt das alte globale Ledger idempotent in Namespace-Zähler", async () => {
+    const result = await withHistoricalDatabase(16, (sql) => {
+      const legacyLedgerColumns = sql.exec<{ name: string }>("PRAGMA table_info(_sql_schema_migrations)").toArray().map(({ name }) => name);
+      expect(legacyLedgerColumns).toEqual(["version", "build_id", "applied_at"]);
+
+      runMigrations(sql, "migration-harness-namespace-backfill");
+      const first = readDatabaseSnapshot(sql);
+      const firstLedger = sql
+        .exec<{ namespace: string; version: number }>(
+          "SELECT namespace, version FROM _sql_schema_migrations ORDER BY namespace, version",
+        )
+        .toArray();
+      const tables = sql
+        .exec<{ name: string }>(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        )
+        .toArray()
+        .map(({ name }) => name);
+
+      runMigrations(sql, "migration-harness-namespace-backfill-second");
+      const second = readDatabaseSnapshot(sql);
+
+      const otherNamespacesBefore = sql
+        .exec<{ namespace: string; version: number; build_id: string; applied_at: string }>(
+          "SELECT namespace, version, build_id, applied_at FROM _sql_schema_migrations WHERE namespace <> ? ORDER BY namespace, version",
+          "challenges",
+        )
+        .toArray();
+      sql.exec("DELETE FROM _sql_schema_migrations WHERE namespace = ? AND version = ?", "challenges", 20);
+      sql.exec("UPDATE wc_meta SET theme_mode = 'inherit' WHERE singleton = 1");
+      runMigrations(sql, "migration-harness-namespace-backfill-added-migration");
+      const otherNamespacesAfter = sql
+        .exec<{ namespace: string; version: number; build_id: string; applied_at: string }>(
+          "SELECT namespace, version, build_id, applied_at FROM _sql_schema_migrations WHERE namespace <> ? ORDER BY namespace, version",
+          "challenges",
+        )
+        .toArray();
+
+      return {
+        first,
+        second,
+        firstLedger,
+        tables,
+        otherNamespacesBefore,
+        otherNamespacesAfter,
+        themeMode: sql.exec<{ theme_mode: string }>("SELECT theme_mode FROM wc_meta WHERE singleton = 1").toArray(),
+      };
+    });
+
+    expect(result.firstLedger).toEqual([
+      ...Array.from({ length: 18 }, (_, index) => ({ namespace: "challenges", version: index + 3 })),
+      { namespace: "host", version: 1 },
+      { namespace: "host", version: 2 },
+    ]);
+    expect(result.tables).toEqual([
+      "_sql_schema_migrations",
+      "audit_log",
+      "channel_state",
+      "csrf_tokens",
+      "editor_sessions",
+      "media_blobs",
+      "media_leases",
+      "oauth_nonces",
+      "overlay_tokens",
+      "state_history",
+      "twitch_user_cache",
+      "wc_challenges",
+      "wc_commands",
+      "wc_dock_tokens",
+      "wc_meta",
+      "wc_retired_keys",
+      "wc_sets",
+    ]);
+    expect(result.second).toEqual(result.first);
+    expect(result.otherNamespacesAfter).toEqual(result.otherNamespacesBefore);
+    expect(result.themeMode).toEqual([{ theme_mode: "own" }]);
+  });
+
   it("führt Migration 18 vom Stand 17 additiv aus, setzt den unsichtbaren Default und ist idempotent", async () => {
     const result = await withHistoricalDatabase(16, (sql) => {
       prepareVersion17Database(sql);
