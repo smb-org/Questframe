@@ -1,0 +1,128 @@
+[
+  {
+    "type": "index",
+    "name": "audit_created_idx",
+    "tbl_name": "audit_log",
+    "sql": "CREATE INDEX audit_created_idx ON audit_log ( created_at DESC )"
+  },
+  {
+    "type": "index",
+    "name": "history_created_idx",
+    "tbl_name": "state_history",
+    "sql": "CREATE INDEX history_created_idx ON state_history ( created_at DESC )"
+  },
+  {
+    "type": "index",
+    "name": "wc_sets_updated_idx",
+    "tbl_name": "wc_sets",
+    "sql": "CREATE INDEX wc_sets_updated_idx ON wc_sets ( updated_at DESC )"
+  },
+  {
+    "type": "index",
+    "name": "wc_sets_user_name_idx",
+    "tbl_name": "wc_sets",
+    "sql": "CREATE UNIQUE INDEX wc_sets_user_name_idx ON wc_sets ( normalized_name ) WHERE type = 'user'"
+  },
+  {
+    "type": "table",
+    "name": "_sql_schema_migrations",
+    "tbl_name": "_sql_schema_migrations",
+    "sql": "CREATE TABLE _sql_schema_migrations ( version INTEGER PRIMARY KEY , build_id TEXT NOT NULL , applied_at TEXT NOT NULL )"
+  },
+  {
+    "type": "table",
+    "name": "audit_log",
+    "tbl_name": "audit_log",
+    "sql": "CREATE TABLE audit_log ( id TEXT PRIMARY KEY , revision INTEGER NOT NULL , action TEXT NOT NULL , actor_id TEXT NOT NULL , actor_name TEXT NOT NULL , summary TEXT NOT NULL , created_at TEXT NOT NULL )"
+  },
+  {
+    "type": "table",
+    "name": "channel_state",
+    "tbl_name": "channel_state",
+    "sql": "CREATE TABLE channel_state ( singleton INTEGER PRIMARY KEY CHECK ( singleton = 1 ) , revision INTEGER NOT NULL , overlay_enabled INTEGER NOT NULL CHECK ( overlay_enabled IN ( 0 , 1 ) ) , state_json TEXT NOT NULL , updated_at TEXT NOT NULL , updated_by_id TEXT NOT NULL , updated_by_name TEXT NOT NULL )"
+  },
+  {
+    "type": "table",
+    "name": "csrf_tokens",
+    "tbl_name": "csrf_tokens",
+    "sql": "CREATE TABLE csrf_tokens ( session_hash TEXT NOT NULL , tab_id TEXT NOT NULL , token_hash TEXT NOT NULL , previous_token_hash TEXT , previous_expires_at TEXT , PRIMARY KEY ( session_hash , tab_id ) )"
+  },
+  {
+    "type": "table",
+    "name": "editor_sessions",
+    "tbl_name": "editor_sessions",
+    "sql": "CREATE TABLE editor_sessions ( session_hash TEXT PRIMARY KEY , twitch_user_id TEXT NOT NULL , display_name TEXT NOT NULL , generation INTEGER NOT NULL , role_checked_at TEXT NOT NULL , idle_expires_at TEXT NOT NULL , absolute_expires_at TEXT NOT NULL , access_token_envelope TEXT , refresh_token_envelope TEXT , token_expires_at TEXT )"
+  },
+  {
+    "type": "table",
+    "name": "media_blobs",
+    "tbl_name": "media_blobs",
+    "sql": "CREATE TABLE media_blobs ( content_hash TEXT PRIMARY KEY , mime_type TEXT NOT NULL , width INTEGER NOT NULL , height INTEGER NOT NULL , byte_length INTEGER NOT NULL , bytes BLOB NOT NULL , created_at TEXT NOT NULL )"
+  },
+  {
+    "type": "table",
+    "name": "media_leases",
+    "tbl_name": "media_leases",
+    "sql": "CREATE TABLE media_leases ( content_hash TEXT NOT NULL , editor_session_hash TEXT NOT NULL , expires_at TEXT NOT NULL , PRIMARY KEY ( content_hash , editor_session_hash ) )"
+  },
+  {
+    "type": "table",
+    "name": "oauth_nonces",
+    "tbl_name": "oauth_nonces",
+    "sql": "CREATE TABLE oauth_nonces ( nonce_hash TEXT PRIMARY KEY , binding_hash TEXT NOT NULL , pkce_verifier TEXT NOT NULL , expires_at TEXT NOT NULL , consumed_at TEXT )"
+  },
+  {
+    "type": "table",
+    "name": "overlay_tokens",
+    "tbl_name": "overlay_tokens",
+    "sql": "CREATE TABLE overlay_tokens ( singleton INTEGER PRIMARY KEY CHECK ( singleton = 1 ) , token_hash TEXT NOT NULL , token_envelope TEXT , fingerprint TEXT NOT NULL , generation INTEGER NOT NULL , request_id TEXT NOT NULL , creating_session_hash TEXT NOT NULL , created_at TEXT NOT NULL , last_used_at TEXT )"
+  },
+  {
+    "type": "table",
+    "name": "state_history",
+    "tbl_name": "state_history",
+    "sql": "CREATE TABLE state_history ( revision INTEGER PRIMARY KEY , snapshot_json TEXT NOT NULL , created_at TEXT NOT NULL , summary TEXT NOT NULL )"
+  },
+  {
+    "type": "table",
+    "name": "twitch_user_cache",
+    "tbl_name": "twitch_user_cache",
+    "sql": "CREATE TABLE twitch_user_cache ( twitch_user_id TEXT PRIMARY KEY , login TEXT NOT NULL UNIQUE , display_name TEXT NOT NULL , portrait_url TEXT NOT NULL , fetched_at TEXT NOT NULL )"
+  },
+  {
+    "type": "table",
+    "name": "wc_challenges",
+    "tbl_name": "wc_challenges",
+    "sql": "CREATE TABLE wc_challenges ( id TEXT PRIMARY KEY , title TEXT NOT NULL , kind TEXT NOT NULL CHECK ( kind IN ( 'tick' , 'counter' , 'streak' , 'measure' ) ) , unit TEXT , control_key TEXT NOT NULL COLLATE NOCASE UNIQUE , target_count INTEGER , timer_total_ms INTEGER , sort_order INTEGER NOT NULL , step INTEGER NOT NULL DEFAULT 1 CHECK ( step >= 1 ) , best_count INTEGER NOT NULL , hidden INTEGER NOT NULL CHECK ( hidden IN ( 0 , 1 ) ) , current_count INTEGER NOT NULL , state TEXT NOT NULL CHECK ( state IN ( 'pending' , 'active' , 'done' ) ) , timer_ends_at TEXT , timer_remain_ms INTEGER CHECK ( timer_remain_ms BETWEEN -21600000 AND 21600000 ) , completed_at TEXT , created_at TEXT NOT NULL , updated_at TEXT NOT NULL , CHECK ( ( kind = 'measure' AND unit IS NOT NULL ) OR ( kind <> 'measure' AND unit IS NULL ) ) , CHECK ( timer_ends_at IS NULL OR timer_remain_ms IS NULL ) )"
+  },
+  {
+    "type": "table",
+    "name": "wc_commands",
+    "tbl_name": "wc_commands",
+    "sql": "CREATE TABLE wc_commands ( command_id TEXT PRIMARY KEY , request_hash TEXT NOT NULL , created_at TEXT NOT NULL )"
+  },
+  {
+    "type": "table",
+    "name": "wc_dock_tokens",
+    "tbl_name": "wc_dock_tokens",
+    "sql": "CREATE TABLE wc_dock_tokens ( singleton INTEGER PRIMARY KEY CHECK ( singleton = 1 ) , token_hash TEXT NOT NULL , token_envelope TEXT , fingerprint TEXT NOT NULL , generation INTEGER NOT NULL , request_id TEXT NOT NULL , creating_session_hash TEXT NOT NULL , created_at TEXT NOT NULL , last_used_at TEXT )"
+  },
+  {
+    "type": "table",
+    "name": "wc_meta",
+    "tbl_name": "wc_meta",
+    "sql": "CREATE TABLE wc_meta ( singleton INTEGER PRIMARY KEY CHECK ( singleton = 1 ) , event_seq INTEGER NOT NULL , board_revision INTEGER NOT NULL , settings_revision INTEGER NOT NULL , style_id TEXT NOT NULL , theme_mode TEXT NOT NULL CHECK ( theme_mode IN ( 'inherit' , 'own' ) ) , surface_opacity INTEGER NOT NULL DEFAULT 100 CHECK ( surface_opacity IN ( 0 , 25 , 50 , 75 , 100 ) ) , header_style TEXT NOT NULL DEFAULT 'default' CHECK ( header_style IN ( 'default' , 'inverted' ) ) , text_emphasis TEXT NOT NULL DEFAULT 'auto' CHECK ( text_emphasis IN ( 'auto' , 'strong' , 'plain' ) ) , font_family TEXT NOT NULL DEFAULT 'theme' CHECK ( font_family IN ( 'theme' , 'atkinson' , 'serif' , 'sans' , 'mono' ) ) , font_scale REAL NOT NULL DEFAULT 1 CHECK ( font_scale BETWEEN 0.75 AND 2 ) , header_title TEXT NOT NULL , penalty_label TEXT NOT NULL DEFAULT 'STRAFE' , penalty_text TEXT NOT NULL DEFAULT '' , effects_enabled INTEGER NOT NULL CHECK ( effects_enabled IN ( 0 , 1 ) ) , max_visible INTEGER NOT NULL DEFAULT 5 CHECK ( max_visible BETWEEN 3 AND 20 ) , overflow_mode TEXT NOT NULL DEFAULT 'cut' CHECK ( overflow_mode IN ( 'cut' , 'page' , 'scroll' ) ) , overflow_tempo TEXT NOT NULL DEFAULT 'medium' CHECK ( overflow_tempo IN ( 'slow' , 'medium' , 'fast' ) ) , numbered INTEGER NOT NULL DEFAULT 0 CHECK ( numbered IN ( 0 , 1 ) ) , done_order TEXT NOT NULL DEFAULT 'end' CHECK ( done_order IN ( 'end' , 'keep' ) ) , global_timer_mode TEXT NOT NULL DEFAULT 'down' CHECK ( global_timer_mode IN ( 'down' , 'up' ) ) , placement_x INTEGER NOT NULL DEFAULT 300 CHECK ( placement_x BETWEEN 0 AND 384 ) , placement_y INTEGER NOT NULL DEFAULT 8 CHECK ( placement_y BETWEEN 0 AND 216 ) , placement_scale REAL NOT NULL DEFAULT 1 CHECK ( placement_scale BETWEEN 0.75 AND 2 ) , global_timer_total_ms INTEGER , global_timer_ends_at TEXT , global_timer_paused_remain_ms INTEGER , key_visible INTEGER NOT NULL DEFAULT 0 CHECK ( key_visible IN ( 0 , 1 ) ) , CHECK ( global_timer_ends_at IS NULL OR global_timer_paused_remain_ms IS NULL ) , CHECK ( global_timer_total_ms IS NOT NULL OR ( global_timer_ends_at IS NULL AND global_timer_paused_remain_ms IS NULL ) ) )"
+  },
+  {
+    "type": "table",
+    "name": "wc_retired_keys",
+    "tbl_name": "wc_retired_keys",
+    "sql": "CREATE TABLE wc_retired_keys ( control_key TEXT PRIMARY KEY COLLATE NOCASE )"
+  },
+  {
+    "type": "table",
+    "name": "wc_sets",
+    "tbl_name": "wc_sets",
+    "sql": "CREATE TABLE wc_sets ( id TEXT PRIMARY KEY , type TEXT NOT NULL CHECK ( type IN ( 'user' , 'autosave' ) ) , name TEXT NOT NULL , normalized_name TEXT NOT NULL , has_progress INTEGER NOT NULL CHECK ( has_progress IN ( 0 , 1 ) ) , created_at TEXT NOT NULL , updated_at TEXT NOT NULL , payload TEXT NOT NULL )"
+  }
+]
