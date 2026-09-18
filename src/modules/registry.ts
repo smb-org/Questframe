@@ -13,6 +13,83 @@
  *
  */
 import { createChallengeHttpHandler } from "./win-challenges/adapters/http-facade";
+import type { SocketLimitKey } from "../shared/contracts/api";
+import { DOCK_SOCKET_PROTOCOL, OVERLAY_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
+
+type SocketDefinitionInput = {
+  readonly tag: string;
+  readonly limitKey: SocketLimitKey;
+  readonly display: boolean;
+  readonly protocol: string | null;
+};
+
+/** Gemeinsame Host-Sockets fuer Editor und Composite; sie gehoeren keinem Modul. */
+export const HOST_SOCKET_TAGS = ["editor", "composite"] as const;
+
+const HOST_SOCKET_DEFINITIONS = [
+  {
+    tag: HOST_SOCKET_TAGS[0],
+    limitKey: "maxEditorSockets",
+    display: false,
+    protocol: null,
+  },
+  {
+    tag: HOST_SOCKET_TAGS[1],
+    limitKey: "maxCompositeSockets",
+    display: true,
+    protocol: OVERLAY_SOCKET_PROTOCOL,
+  },
+] as const satisfies readonly SocketDefinitionInput[];
+
+const HUD_SOCKET_DEFINITIONS = [
+  {
+    tag: "overlay",
+    limitKey: "maxOverlaySockets",
+    display: true,
+    protocol: OVERLAY_SOCKET_PROTOCOL,
+  },
+] as const satisfies readonly SocketDefinitionInput[];
+
+const CHALLENGES_SOCKET_DEFINITIONS = [
+  {
+    tag: "challenge",
+    limitKey: "maxChallengeSockets",
+    display: true,
+    protocol: OVERLAY_SOCKET_PROTOCOL,
+  },
+  {
+    tag: "dock",
+    limitKey: "maxDockSockets",
+    display: true,
+    protocol: DOCK_SOCKET_PROTOCOL,
+  },
+] as const satisfies readonly SocketDefinitionInput[];
+
+export const SOCKET_DEFINITIONS = [
+  HOST_SOCKET_DEFINITIONS[0],
+  ...HUD_SOCKET_DEFINITIONS,
+  HOST_SOCKET_DEFINITIONS[1],
+  ...CHALLENGES_SOCKET_DEFINITIONS,
+] as const satisfies readonly SocketDefinitionInput[];
+
+export type SocketTag = (typeof SOCKET_DEFINITIONS)[number]["tag"];
+export type SocketDefinition = (typeof SOCKET_DEFINITIONS)[number];
+export type TokenSocketDefinition = Exclude<SocketDefinition, typeof HOST_SOCKET_DEFINITIONS[0]>;
+export type TokenSocketTag = TokenSocketDefinition["tag"];
+
+/** Alle Anzeige-Sockets werden ueber das display-Flag der Registry bestimmt. */
+export const DISPLAY_SOCKET_TAGS = SOCKET_DEFINITIONS
+  .filter((definition) => definition.display)
+  .map(({ tag }) => tag) as readonly SocketTag[];
+
+/** Direkter Zugriff fuer Host-Code, ohne Tag-Literale in channel-object.ts. */
+export const SOCKETS = {
+  editor: HOST_SOCKET_DEFINITIONS[0],
+  composite: HOST_SOCKET_DEFINITIONS[1],
+  overlay: HUD_SOCKET_DEFINITIONS[0],
+  challenge: CHALLENGES_SOCKET_DEFINITIONS[0],
+  dock: CHALLENGES_SOCKET_DEFINITIONS[1],
+} as const satisfies { [tag in SocketTag]: SocketDefinition };
 
 export type ModuleContext = {
   sql: SqlStorage;
@@ -23,9 +100,9 @@ export type ModuleContext = {
   requireSessionAndCsrf: (request: Request) => Promise<void>;
   requireDockToken: (request: Request) => Promise<void>;
   /** Sendet an alle Sockets mit diesen Tags. */
-  broadcast: (tags: readonly string[], payload: unknown) => void;
+  broadcast: (tags: readonly SocketTag[], payload: unknown) => void;
   /** Schließt alle Sockets mit diesem Tag. */
-  revokeTokenSockets: (tag: string) => void;
+  revokeTokenSockets: (tag: SocketTag) => void;
 };
 
 export type ModuleHandler = (request: Request, ctx: ModuleContext) => Promise<Response | null>;
@@ -44,7 +121,8 @@ type OverlayModuleDefinition = {
   /** DO-interne Routenpräfixe, z.B. ["/challenges"]. Nicht die öffentliche `/api/*`-Oberfläche. */
   routePrefixes: readonly string[];
   socketPaths: readonly string[];
-  socketTags: readonly string[];
+  socketTags: readonly SocketTag[];
+  socketDefinitions: readonly SocketDefinition[];
   tables: ModuleTables;
   wireScopes: readonly string[];
   migrationNamespace: string;
@@ -64,7 +142,8 @@ const hudModule = {
   id: "hud",
   routePrefixes: ["/state", "/overlay-visibility"],
   socketPaths: ["/ws/overlay"],
-  socketTags: ["overlay"],
+  socketTags: HUD_SOCKET_DEFINITIONS.map(({ tag }) => tag),
+  socketDefinitions: HUD_SOCKET_DEFINITIONS,
   tables: {
     kind: "explicit",
     tables: ["channel_state", "state_history", "audit_log"],
@@ -86,7 +165,8 @@ const challengesModuleDefinition = {
   id: "challenges",
   routePrefixes: ["/challenges"],
   socketPaths: ["/ws/challenge", "/ws/dock"],
-  socketTags: ["challenge", "dock"],
+  socketTags: CHALLENGES_SOCKET_DEFINITIONS.map(({ tag }) => tag),
+  socketDefinitions: CHALLENGES_SOCKET_DEFINITIONS,
   tables: { kind: "prefix", prefix: "wc_" },
   wireScopes: ["challenge", "global"],
   migrationNamespace: "challenges",

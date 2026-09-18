@@ -1,4 +1,4 @@
-import type { ModuleContext, ModuleHandler } from "../../registry";
+import type { ModuleContext, ModuleHandler, SocketTag } from "../../registry";
 import { jsonResponse, readJson, RequestError } from "../../../worker/http";
 import {
   boardSaveRequestSchema,
@@ -73,7 +73,7 @@ const requireChallengeCommandAuth = async (
  * Erzeugt die Challenge-HTTP-Fassade. Die Socket-Tags kommen aus dem
  * Registry-Eintrag und werden nicht in der Geschäftslogik dupliziert.
  */
-export const createChallengeHttpHandler = (socketTags: readonly string[]): ModuleHandler =>
+export const createChallengeHttpHandler = (socketTags: readonly SocketTag[]): ModuleHandler =>
   async (request, ctx): Promise<Response | null> => {
     const url = new URL(request.url);
 

@@ -27,7 +27,6 @@ import {
   type AuditEntry,
   type UndoTarget,
 } from "../shared/contracts/api";
-import { DOCK_SOCKET_PROTOCOL, OVERLAY_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
 import {
   channelStateDraftSchema,
   channelStateSchema,
@@ -55,7 +54,15 @@ import {
   RevisionConflictError,
   type DockTokenRecord,
 } from "../modules/win-challenges/repository/challenge-repository";
-import { MODULE_REGISTRY, type ModuleContext } from "../modules/registry";
+import {
+  DISPLAY_SOCKET_TAGS,
+  MODULE_REGISTRY,
+  SOCKET_DEFINITIONS,
+  SOCKETS,
+  type ModuleContext,
+  type SocketTag,
+  type TokenSocketTag,
+} from "../modules/registry";
 
 type StateRow = {
   revision: number;
@@ -90,7 +97,7 @@ type OverlayTokenRow = {
 type SocketAttachment =
   | {
       version: 1;
-      kind: "editor";
+      kind: typeof SOCKETS.editor.tag;
       connectionId: string;
       sessionRecordId: string;
       sessionGeneration: number;
@@ -99,32 +106,14 @@ type SocketAttachment =
     }
   | {
       version: 1;
-      kind: "overlay";
-      connectionId: string;
-      tokenGeneration: number;
-      connectedAt: string;
-    }
-  | {
-      version: 1;
-      kind: "composite";
-      connectionId: string;
-      tokenGeneration: number;
-      connectedAt: string;
-    }
-  | {
-      version: 1;
-      kind: "challenge";
-      connectionId: string;
-      tokenGeneration: number;
-      connectedAt: string;
-    }
-  | {
-      version: 1;
-      kind: "dock";
+      kind: TokenSocketTag;
       connectionId: string;
       tokenGeneration: number;
       connectedAt: string;
     };
+
+type PresenceSocketDefinition = typeof SOCKETS.overlay | typeof SOCKETS.composite;
+type TokenSocketDefinition = typeof SOCKETS.challenge | typeof SOCKETS.dock;
 
 const limits = {
   maxGuests: 5,
@@ -615,9 +604,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
         this.ctx.storage.sql.exec("DELETE FROM csrf_tokens WHERE session_hash = ?", hash);
         this.ctx.storage.sql.exec("DELETE FROM editor_sessions WHERE session_hash = ?", hash);
       });
-      for (const socket of this.ctx.getWebSockets("editor")) {
+      for (const socket of this.ctx.getWebSockets(SOCKETS.editor.tag)) {
         const attachment = this.readAttachment(socket);
-        if (attachment?.kind === "editor" && attachment.sessionRecordId === hash) {
+        if (attachment?.kind === SOCKETS.editor.tag && attachment.sessionRecordId === hash) {
           socket.close(4001, "session_revoked");
         }
       }
@@ -654,7 +643,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
           fingerprint: dockToken?.fingerprint ?? null,
           createdAt: dockToken?.createdAt ?? null,
           lastUsedAt: dockToken?.lastUsedAt ?? null,
-          connectedSockets: Math.min(MAX_DOCK_SOCKETS, this.ctx.getWebSockets("dock").length),
+          connectedSockets: Math.min(MAX_DOCK_SOCKETS, this.ctx.getWebSockets(SOCKETS.dock.tag).length),
           token: await this.readDockTokenValue(dockToken),
         },
       },
@@ -869,9 +858,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
         throw new RequestError(409, "idempotency_mismatch", "Token-Anfrage kann nicht wiederhergestellt werden.");
       }
       if (rotate) {
-        this.revokeTokenSockets("overlay", input.expectedGeneration);
-        this.revokeTokenSockets("composite", input.expectedGeneration);
-        this.revokeTokenSockets("challenge", input.expectedGeneration);
+        this.revokeTokenSockets(SOCKETS.overlay.tag, input.expectedGeneration);
+        this.revokeTokenSockets(SOCKETS.composite.tag, input.expectedGeneration);
+        this.revokeTokenSockets(SOCKETS.challenge.tag, input.expectedGeneration);
       }
       return jsonResponse(
         overlayTokenResponseSchema.parse({
@@ -922,9 +911,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
       createdAt,
     );
     if (rotate) {
-      this.revokeTokenSockets("overlay", currentGeneration);
-      this.revokeTokenSockets("composite", currentGeneration);
-      this.revokeTokenSockets("challenge", currentGeneration);
+      this.revokeTokenSockets(SOCKETS.overlay.tag, currentGeneration);
+      this.revokeTokenSockets(SOCKETS.composite.tag, currentGeneration);
+      this.revokeTokenSockets(SOCKETS.challenge.tag, currentGeneration);
     }
     return jsonResponse(
       overlayTokenResponseSchema.parse({
@@ -945,9 +934,8 @@ export class ChannelObject extends DurableObject<AppEnv> {
   private async flushDisplaySockets(request: Request): Promise<Response> {
     const session = this.requireSession(request);
     await this.requireCsrf(request, session);
-    const displayTags = ["overlay", "composite", "challenge", "dock"] as const;
     let closed = 0;
-    for (const tag of displayTags) {
+    for (const tag of DISPLAY_SOCKET_TAGS) {
       for (const socket of this.ctx.getWebSockets(tag)) {
         const wasOpen = socket.readyState === WebSocket.OPEN;
         try {
@@ -999,7 +987,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       if (token === null) {
         throw new RequestError(409, "idempotency_mismatch", "Token-Anfrage kann nicht wiederhergestellt werden.");
       }
-      if (rotate) this.revokeTokenSockets("dock", input.expectedGeneration);
+      if (rotate) this.revokeTokenSockets(SOCKETS.dock.tag, input.expectedGeneration);
       return jsonResponse(
         dockTokenResponseSchema.parse({
           requestId: current.requestId,
@@ -1036,7 +1024,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       createdAt,
       lastUsedAt: null,
     });
-    if (rotate) this.revokeTokenSockets("dock", currentGeneration);
+    if (rotate) this.revokeTokenSockets(SOCKETS.dock.tag, currentGeneration);
     return jsonResponse(
       dockTokenResponseSchema.parse({
         requestId: input.requestId,
@@ -1206,7 +1194,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
    * Platz aber nicht mehr blockieren.
    */
   private activeSocketCount(
-    tag: "editor" | "overlay" | "composite" | "challenge" | "dock",
+    tag: SocketTag,
   ): number {
     return this.ctx.getWebSockets(tag)
       .filter((socket) => socket.readyState === WebSocket.OPEN).length;
@@ -1231,7 +1219,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
    * mehr gleichzeitige Quellen braucht, bekommt mehr Plätze, keine Rotation.
    */
   private reclaimSocketSlots(
-    tag: "editor" | "overlay" | "composite" | "challenge" | "dock",
+    tag: SocketTag,
     socketLimit: number,
   ): number {
     // Nicht mehr offene Sockets sind zweifelsfrei weg und werden immer abgeräumt.
@@ -1276,7 +1264,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
     }
-    if (this.reclaimSocketSlots("editor", limits.maxEditorSockets) >= limits.maxEditorSockets) {
+    const definition = SOCKETS.editor;
+    const socketLimit = limits[definition.limitKey];
+    if (this.reclaimSocketSlots(definition.tag, socketLimit) >= socketLimit) {
       throw new RequestError(429, "socket_limit", "Zu viele Editor-Verbindungen.");
     }
     const session = this.requireSession(request);
@@ -1284,10 +1274,10 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
-    this.ctx.acceptWebSocket(server, ["editor"]);
+    this.ctx.acceptWebSocket(server, [definition.tag]);
     server.serializeAttachment({
       version: 1,
-      kind: "editor",
+      kind: definition.tag,
       connectionId: crypto.randomUUID(),
       sessionRecordId: session.session_hash,
       sessionGeneration: session.generation,
@@ -1304,14 +1294,14 @@ export class ChannelObject extends DurableObject<AppEnv> {
   // beiden Checks liegt das await hmacHex(...) oben, also ein TOCTOU-Fenster.
   private async connectPresenceSocket(
     request: Request,
-    tag: "overlay" | "composite",
-    socketLimit: number,
+    definition: PresenceSocketDefinition,
     limitErrorMessage: string,
   ): Promise<{ client: WebSocket; server: WebSocket }> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
     }
-    if (this.reclaimSocketSlots(tag, socketLimit) >= socketLimit) {
+    const socketLimit = limits[definition.limitKey];
+    if (this.reclaimSocketSlots(definition.tag, socketLimit) >= socketLimit) {
       throw new RequestError(429, "socket_limit", limitErrorMessage);
     }
     const token = request.headers.get("x-overlay-token");
@@ -1328,13 +1318,13 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
-    if (this.activeSocketCount(tag) >= socketLimit) {
+    if (this.activeSocketCount(definition.tag) >= socketLimit) {
       throw new RequestError(429, "socket_limit", limitErrorMessage);
     }
-    this.ctx.acceptWebSocket(server, [tag]);
+    this.ctx.acceptWebSocket(server, [definition.tag]);
     server.serializeAttachment({
       version: 1,
-      kind: tag,
+      kind: definition.tag,
       connectionId: crypto.randomUUID(),
       tokenGeneration: row.generation,
       connectedAt: nowIso(),
@@ -1346,102 +1336,95 @@ export class ChannelObject extends DurableObject<AppEnv> {
   private async connectOverlay(request: Request): Promise<Response> {
     const { client } = await this.connectPresenceSocket(
       request,
-      "overlay",
-      limits.maxOverlaySockets,
+      SOCKETS.overlay,
       "Zu viele Overlay-Verbindungen.",
     );
     this.broadcastOverlayPresence();
     return new Response(null, {
       status: 101,
       webSocket: client,
-      headers: { "sec-websocket-protocol": OVERLAY_SOCKET_PROTOCOL },
+      headers: { "sec-websocket-protocol": SOCKETS.overlay.protocol },
     });
   }
 
   private async connectComposite(request: Request): Promise<Response> {
     const { client, server } = await this.connectPresenceSocket(
       request,
-      "composite",
-      limits.maxCompositeSockets,
+      SOCKETS.composite,
       "Zu viele Composite-Verbindungen.",
     );
+    // Offener Rest aus P5: Der Begruessungs-Snapshot ist noch fest der
+    // Challenge-Snapshot. Fuer ein drittes Modul mit eigenem Token-Socket
+    // muesste ihn die Socket-Definition liefern, so wie `handle()` die Routen
+    // liefert. Solange nur Challenges und Dock ueber diesen Weg verbinden,
+    // ist das korrekt; mit P6 gehoert es an die Modulgrenze.
     server.send(JSON.stringify(createChallengeService(this.createModuleContext()).readChallengeUpdate()));
     this.broadcastOverlayPresence();
     return new Response(null, {
       status: 101,
       webSocket: client,
-      headers: { "sec-websocket-protocol": OVERLAY_SOCKET_PROTOCOL },
+      headers: { "sec-websocket-protocol": SOCKETS.composite.protocol },
+    });
+  }
+
+  private async connectTokenSocket(
+    request: Request,
+    definition: TokenSocketDefinition,
+    authorize: (request: Request) => Promise<{ generation: number }>,
+    limitErrorMessage: string,
+  ): Promise<Response> {
+    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+      throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
+    }
+    const socketLimit = limits[definition.limitKey];
+    if (this.reclaimSocketSlots(definition.tag, socketLimit) >= socketLimit) {
+      throw new RequestError(429, "socket_limit", limitErrorMessage);
+    }
+    const row = await authorize(request);
+    const pair = new WebSocketPair();
+    const client = pair[0];
+    const server = pair[1];
+    if (this.activeSocketCount(definition.tag) >= socketLimit) {
+      throw new RequestError(429, "socket_limit", limitErrorMessage);
+    }
+    this.ctx.acceptWebSocket(server, [definition.tag]);
+    server.serializeAttachment({
+      version: 1,
+      kind: definition.tag,
+      connectionId: crypto.randomUUID(),
+      tokenGeneration: row.generation,
+      connectedAt: nowIso(),
+    } satisfies SocketAttachment);
+    server.send(JSON.stringify(createChallengeService(this.createModuleContext()).readChallengeUpdate()));
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+      headers: { "sec-websocket-protocol": definition.protocol },
     });
   }
 
   private async connectChallenge(request: Request): Promise<Response> {
-    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
-      throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
-    }
-    if (this.reclaimSocketSlots("challenge", limits.maxChallengeSockets) >= limits.maxChallengeSockets) {
-      throw new RequestError(429, "socket_limit", "Zu viele Challenge-Verbindungen.");
-    }
-    const token = request.headers.get("x-overlay-token");
-    if (token === null) throw new RequestError(403, "token_invalid", "OBS-Token ungültig.");
-    const hash = await hmacHex(this.getOverlayTokenPepper(), token);
-    const row = this.getOverlayToken();
-    if (row === null || !timingSafeEqual(row.token_hash, hash)) {
-      throw new RequestError(403, "token_invalid", "OBS-Token ungültig.");
-    }
-    this.ctx.storage.sql.exec(
-      "UPDATE overlay_tokens SET last_used_at = ? WHERE singleton = 1",
-      nowIso(),
-    );
-    const pair = new WebSocketPair();
-    const client = pair[0];
-    const server = pair[1];
-    if (this.activeSocketCount("challenge") >= limits.maxChallengeSockets) {
-      throw new RequestError(429, "socket_limit", "Zu viele Challenge-Verbindungen.");
-    }
-    this.ctx.acceptWebSocket(server, ["challenge"]);
-    server.serializeAttachment({
-      version: 1,
-      kind: "challenge",
-      connectionId: crypto.randomUUID(),
-      tokenGeneration: row.generation,
-      connectedAt: nowIso(),
-    } satisfies SocketAttachment);
-    server.send(JSON.stringify(createChallengeService(this.createModuleContext()).readChallengeUpdate()));
-    return new Response(null, {
-      status: 101,
-      webSocket: client,
-      headers: { "sec-websocket-protocol": OVERLAY_SOCKET_PROTOCOL },
-    });
+    return this.connectTokenSocket(request, SOCKETS.challenge, async (challengeRequest) => {
+      const token = challengeRequest.headers.get("x-overlay-token");
+      if (token === null) throw new RequestError(403, "token_invalid", "OBS-Token ungültig.");
+      const hash = await hmacHex(this.getOverlayTokenPepper(), token);
+      const row = this.getOverlayToken();
+      if (row === null || !timingSafeEqual(row.token_hash, hash)) {
+        throw new RequestError(403, "token_invalid", "OBS-Token ungültig.");
+      }
+      this.ctx.storage.sql.exec(
+        "UPDATE overlay_tokens SET last_used_at = ? WHERE singleton = 1",
+        nowIso(),
+      );
+      return { generation: row.generation };
+    }, "Zu viele Challenge-Verbindungen.");
   }
 
   private async connectDock(request: Request): Promise<Response> {
-    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
-      throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
-    }
-    if (this.reclaimSocketSlots("dock", limits.maxDockSockets) >= limits.maxDockSockets) {
-      throw new RequestError(429, "socket_limit", "Zu viele Dock-Verbindungen.");
-    }
-    const row = await this.requireDockToken(request);
-    const pair = new WebSocketPair();
-    const client = pair[0];
-    const server = pair[1];
-    if (this.activeSocketCount("dock") >= limits.maxDockSockets) {
-      throw new RequestError(429, "socket_limit", "Zu viele Dock-Verbindungen.");
-    }
-    this.ctx.acceptWebSocket(server, ["dock"]);
-    server.serializeAttachment({
-      version: 1,
-      kind: "dock",
-      connectionId: crypto.randomUUID(),
-      tokenGeneration: row.generation,
-      connectedAt: nowIso(),
-    } satisfies SocketAttachment);
-    server.send(JSON.stringify(createChallengeService(this.createModuleContext()).readChallengeUpdate()));
-    return new Response(null, {
-      status: 101,
-      webSocket: client,
-      headers: { "sec-websocket-protocol": DOCK_SOCKET_PROTOCOL },
-    });
+    return this.connectTokenSocket(request, SOCKETS.dock, async (dockRequest) => {
+      const row = await this.requireDockToken(dockRequest);
+      return { generation: row.generation };
+    }, "Zu viele Dock-Verbindungen.");
   }
 
   override webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): void {
@@ -1450,7 +1433,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       socket.close(1011, "invalid_attachment");
       return;
     }
-    if (attachment.kind === "editor") {
+    if (attachment.kind === SOCKETS.editor.tag) {
       if (this.closeEditorSocketIfSessionRevoked(socket, attachment)) return;
     } else if (this.closeTokenSocketIfRevoked(socket, attachment)) {
       return;
@@ -1947,14 +1930,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
   private sendToSockets(sockets: WebSocket[], message: string): void {
     for (const socket of sockets) {
       const attachment = this.readAttachment(socket);
-      if (attachment?.kind === "editor") {
+      if (attachment?.kind === SOCKETS.editor.tag) {
         if (this.closeEditorSocketIfSessionRevoked(socket, attachment)) continue;
-      } else if (
-        attachment?.kind === "overlay" ||
-        attachment?.kind === "composite" ||
-        attachment?.kind === "challenge" ||
-        attachment?.kind === "dock"
-      ) {
+      } else if (attachment !== null) {
         if (this.closeTokenSocketIfRevoked(socket, attachment)) continue;
       }
       try {
@@ -1969,21 +1947,21 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const message = JSON.stringify({ type: "state_committed", state });
     this.sendToSockets(
       [
-        ...this.ctx.getWebSockets("editor"),
-        ...this.ctx.getWebSockets("overlay"),
-        ...this.ctx.getWebSockets("composite"),
+        ...this.ctx.getWebSockets(SOCKETS.editor.tag),
+        ...this.ctx.getWebSockets(SOCKETS.overlay.tag),
+        ...this.ctx.getWebSockets(SOCKETS.composite.tag),
       ],
       message,
     );
   }
 
-  private broadcast(tags: readonly string[], payload: unknown): void {
+  private broadcast(tags: readonly SocketTag[], payload: unknown): void {
     const targetTags = new Set(tags);
     // Editor und Composite tragen beide Modul-Nachrichten; sie bleiben
     // gemeinsame Host-Sockets und erhalten deshalb Challenge-Updates weiter.
-    if (tags.includes("challenge") || tags.includes("dock")) {
-      targetTags.add("editor");
-      targetTags.add("composite");
+    if (tags.includes(SOCKETS.challenge.tag) || tags.includes(SOCKETS.dock.tag)) {
+      targetTags.add(SOCKETS.editor.tag);
+      targetTags.add(SOCKETS.composite.tag);
     }
     this.sendToSockets(
       [...targetTags].flatMap((tag) => this.ctx.getWebSockets(tag)),
@@ -1992,14 +1970,14 @@ export class ChannelObject extends DurableObject<AppEnv> {
   }
 
   private revokeTokenSockets(
-    tag: string,
+    tag: SocketTag,
     tokenGeneration?: number,
   ): void {
     const message = JSON.stringify({ type: "token_revoked" });
     for (const socket of this.ctx.getWebSockets(tag)) {
       if (tokenGeneration !== undefined) {
         const attachment = this.readAttachment(socket);
-        if (attachment !== null && attachment.kind !== "editor" && attachment.tokenGeneration !== tokenGeneration) {
+        if (attachment !== null && attachment.kind !== SOCKETS.editor.tag && attachment.tokenGeneration !== tokenGeneration) {
           continue;
         }
       }
@@ -2021,12 +1999,12 @@ export class ChannelObject extends DurableObject<AppEnv> {
       type: "history_changed",
       undoTargets: this.getUndoTargets(),
     });
-    this.sendToSockets(this.ctx.getWebSockets("editor"), message);
+    this.sendToSockets(this.ctx.getWebSockets(SOCKETS.editor.tag), message);
   }
 
   private broadcastAudit(entry: AuditEntry, undoTargets: UndoTarget[]): void {
     const message = JSON.stringify({ type: "audit_appended", entry, undoTargets });
-    this.sendToSockets(this.ctx.getWebSockets("editor"), message);
+    this.sendToSockets(this.ctx.getWebSockets(SOCKETS.editor.tag), message);
   }
 
   // Wird sowohl nach einer neuen Overlay-/Composite-Verbindung als auch beim
@@ -2036,7 +2014,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
   private broadcastOverlayPresence(excludeSocket?: WebSocket): void {
     const connectedSockets = this.countPresenceSockets(excludeSocket);
     const message = JSON.stringify({ type: "overlay_presence", connectedSockets });
-    this.sendToSockets(this.ctx.getWebSockets("editor"), message);
+    this.sendToSockets(this.ctx.getWebSockets(SOCKETS.editor.tag), message);
   }
 
   // Kombinierte Overlay-/Composite-Zaehlung fuer Bootstrap-Payload und
@@ -2045,8 +2023,8 @@ export class ChannelObject extends DurableObject<AppEnv> {
   private countPresenceSockets(excludeSocket?: WebSocket): number {
     return Math.min(
       MAX_OVERLAY_SOCKETS,
-      this.ctx.getWebSockets("overlay").filter((socket) => socket !== excludeSocket).length
-        + this.ctx.getWebSockets("composite").filter((socket) => socket !== excludeSocket).length,
+      this.ctx.getWebSockets(SOCKETS.overlay.tag).filter((socket) => socket !== excludeSocket).length
+        + this.ctx.getWebSockets(SOCKETS.composite.tag).filter((socket) => socket !== excludeSocket).length,
     );
   }
 
@@ -2056,7 +2034,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
   // Gibt zurück, ob der Socket geschlossen wurde (der Aufrufer soll ihn dann überspringen).
   private closeEditorSocketIfSessionRevoked(
     socket: WebSocket,
-    attachment: Extract<SocketAttachment, { kind: "editor" }>,
+    attachment: Extract<SocketAttachment, { kind: typeof SOCKETS.editor.tag }>,
   ): boolean {
     const row = this.getSessionByHash(attachment.sessionRecordId, false);
     if (
@@ -2076,11 +2054,11 @@ export class ChannelObject extends DurableObject<AppEnv> {
 
   private closeTokenSocketIfRevoked(
     socket: WebSocket,
-    attachment: Extract<SocketAttachment, { kind: "overlay" | "composite" | "challenge" | "dock" }>,
+    attachment: Extract<SocketAttachment, { kind: TokenSocketTag }>,
   ): boolean {
     let currentGeneration: number | null = null;
     try {
-      currentGeneration = attachment.kind === "dock"
+      currentGeneration = attachment.kind === SOCKETS.dock.tag
         ? this.getDockToken()?.generation ?? null
         : this.getOverlayToken()?.generation ?? null;
     } catch {
@@ -2100,18 +2078,14 @@ export class ChannelObject extends DurableObject<AppEnv> {
   // Prueft, ob ein Attachment zu einem der beiden Presence-relevanten Socket-
   // Typen gehoert (Overlay oder Composite).
   private isPresenceSocket(attachment: SocketAttachment | null): boolean {
-    return attachment?.kind === "overlay" || attachment?.kind === "composite";
+    return attachment?.kind === SOCKETS.overlay.tag || attachment?.kind === SOCKETS.composite.tag;
   }
 
   private readAttachment(socket: WebSocket): SocketAttachment | null {
     const attachment = socket.deserializeAttachment() as Partial<SocketAttachment> | null;
     if (
       attachment?.version !== 1 ||
-      (attachment.kind !== "editor" &&
-        attachment.kind !== "overlay" &&
-        attachment.kind !== "composite" &&
-        attachment.kind !== "challenge" &&
-        attachment.kind !== "dock") ||
+      !SOCKET_DEFINITIONS.some(({ tag }) => tag === attachment.kind) ||
       typeof attachment.connectionId !== "string"
     ) {
       return null;

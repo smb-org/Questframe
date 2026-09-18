@@ -93,6 +93,8 @@ export const limitsSchema = z.strictObject({
   maxMediaBytes: z.literal(8_388_608),
 });
 
+export type SocketLimitKey = Extract<keyof z.infer<typeof limitsSchema>, `max${string}Sockets`>;
+
 export const editorSchema = z.strictObject({
   twitchUserId: twitchUserIdSchema,
   displayName: z.string().min(1).max(32),

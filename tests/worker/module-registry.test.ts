@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { runMigrations } from "../../src/channel/migrations";
-import { MODULE_REGISTRY, type ModuleContext, type ModuleTables, type OverlayModule } from "../../src/modules/registry";
+import {
+  HOST_SOCKET_TAGS as REGISTRY_HOST_SOCKET_TAGS,
+  MODULE_REGISTRY,
+  type ModuleContext,
+  type ModuleTables,
+  type OverlayModule,
+} from "../../src/modules/registry";
 import { readSchemaSnapshot, withHistoricalDatabase } from "./migrations-harness";
 
 import CHANNEL_OBJECT_SOURCE from "../../src/channel/channel-object.ts?raw";
@@ -50,7 +56,7 @@ const HOST_ROUTE_PATHS: readonly string[] = [
 
 /** Editor und Composite sind gemeinsame Host-Sockets für beide Module. */
 const HOST_SOCKET_PATHS: readonly string[] = ["/ws/editor", "/ws/composite"];
-const HOST_SOCKET_TAGS: readonly string[] = ["editor", "composite"];
+const HOST_SOCKET_TAGS: readonly string[] = REGISTRY_HOST_SOCKET_TAGS;
 
 /**
  * Deklarations-Labels aus den Build-Budget-Definitionen, die keiner der beiden
@@ -94,6 +100,59 @@ const sourceValues = (source: string, pattern: RegExp): readonly string[] => {
   return [...new Set(values)];
 };
 
+/**
+ * Sucht nur String-Literale im Code. Kommentare und Routen wie `/challenges`
+ * passieren den Wächter absichtlich; es gibt keine Ausnahme für echte Tags.
+ */
+const collectExactSocketTagLiterals = (source: string): readonly string[] => {
+  const values: string[] = [];
+  let state: "code" | "line-comment" | "block-comment" | "single-quote" | "double-quote" = "code";
+  let quoteValue = "";
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    const nextCharacter = source[index + 1];
+    if (character === undefined) break;
+    if (state === "code") {
+      if (character === "/" && nextCharacter === "/") {
+        state = "line-comment";
+        index += 1;
+      } else if (character === "/" && nextCharacter === "*") {
+        state = "block-comment";
+        index += 1;
+      } else if (character === "'") {
+        state = "single-quote";
+        quoteValue = "";
+      } else if (character === '"') {
+        state = "double-quote";
+        quoteValue = "";
+      }
+      continue;
+    }
+    if (state === "line-comment") {
+      if (character === "\n") state = "code";
+      continue;
+    }
+    if (state === "block-comment") {
+      if (character === "*" && nextCharacter === "/") {
+        state = "code";
+        index += 1;
+      }
+      continue;
+    }
+    if (character === "\\") {
+      index += 1;
+      continue;
+    }
+    if ((state === "single-quote" && character === "'") || (state === "double-quote" && character === '"')) {
+      if (quoteValue === "challenge" || quoteValue === "dock") values.push(quoteValue);
+      state = "code";
+      continue;
+    }
+    quoteValue += character;
+  }
+  return values;
+};
+
 const fetchStart = CHANNEL_OBJECT_SOURCE.indexOf("  override async fetch(request: Request): Promise<Response> {");
 const fetchEnd = CHANNEL_OBJECT_SOURCE.indexOf("  private async createDevSession(request: Request): Promise<Response> {");
 if (fetchStart < 0 || fetchEnd <= fetchStart) throw new Error("Konnte den ChannelObject-fetch-Pfad nicht abgrenzen.");
@@ -103,10 +162,12 @@ const REAL_DO_ROUTE_PATHS = [
   ...sourceValues(CHALLENGE_FACADE_SOURCE, /(?:url\.)?pathname\s*===\s*"([^"]+)"/gu),
 ];
 const REAL_SOCKET_PATHS = REAL_DO_ROUTE_PATHS.filter((path) => path.startsWith("/ws/"));
-const REAL_SOCKET_TAGS = sourceValues(
+const REAL_LITERAL_SOCKET_TAGS = sourceValues(
   CHANNEL_OBJECT_SOURCE,
   /(?:acceptWebSocket\(\s*server,\s*\[|getWebSockets\(\s*|connectPresenceSocket\(\s*request,\s*)"([^"]+)"/gu,
 );
+const REAL_REGISTRY_SOCKET_TAGS = sourceValues(CHANNEL_OBJECT_SOURCE, /SOCKETS\.([a-z]+)\.tag/gu);
+const REAL_SOCKET_TAGS = [...new Set([...REAL_LITERAL_SOCKET_TAGS, ...REAL_REGISTRY_SOCKET_TAGS])];
 
 const routePrefixClaims = (prefix: string, path: string): boolean =>
   path.startsWith(prefix);
@@ -149,6 +210,10 @@ const collectDuplicates = (
 };
 
 describe("Modul-Registry-Selbsttest", () => {
+  it("verhindert Challenge- und Dock-Tag-Literale im Socket-Host", () => {
+    expect(collectExactSocketTagLiterals(CHANNEL_OBJECT_SOURCE)).toEqual([]);
+  });
+
   it("hat eindeutige Modul-IDs", () => {
     const ids = MODULE_REGISTRY.map((module) => module.id);
     expect(new Set(ids).size).toBe(ids.length);
