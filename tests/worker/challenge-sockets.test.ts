@@ -984,8 +984,8 @@ describe("Win-Challenges-Sockets", () => {
       const closed = expectClose(dock, 4003, "token_revoked");
       await runInDurableObject(stub, (instance) => {
         const context = (
-          instance as unknown as { createModuleContext(): ModuleContext }
-        ).createModuleContext();
+          instance as unknown as { createModuleContext(moduleId: "challenges"): ModuleContext }
+        ).createModuleContext("challenges");
         challengeRepository(context, SOCKETS.dock.tag).deleteDockToken();
       });
       await closed;

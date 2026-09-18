@@ -59,6 +59,8 @@ import {
   SOCKET_DEFINITIONS,
   SOCKETS,
   type ModuleContext,
+  type ModuleId,
+  type ModuleHistoryEntry,
   type SocketTag,
   type TokenSocketTag,
 } from "../modules/registry";
@@ -317,16 +319,19 @@ export class ChannelObject extends DurableObject<AppEnv> {
     for (const module of MODULE_REGISTRY) {
       if (!module.routePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) continue;
       if (module.handle === undefined) continue;
-      const response = await module.handle(request, this.createModuleContext());
+      const response = await module.handle(request, this.createModuleContext(module.id));
       if (response !== null) return response;
     }
     return null;
   }
 
-  private createModuleContext(): ModuleContext {
+  private createModuleContext(moduleId: ModuleId): ModuleContext {
     return {
       sql: this.ctx.storage.sql,
       transactionSync: this.ctx.storage.transactionSync.bind(this.ctx.storage),
+      recordHistory: (summary) => {
+        this.recordModuleHistory(moduleId, summary);
+      },
       requireSession: (request) => {
         this.requireSession(request);
       },
@@ -654,7 +659,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       editor: { ...actorFromSession(session), role: "editor" },
       state,
       recentAudit: this.getAuditEntries(),
-      undoTargets: this.getUndoTargets(),
+      undoTargets: this.getUndoTargets(HUD_MODULE_ID),
       csrfToken,
       serverTime: nowIso(),
     });
@@ -707,13 +712,17 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const summary = summarizeChange(current, next);
     const audit = this.makeAudit(next.revision, action, session, summary, createdAt);
     this.ctx.storage.transactionSync(() => {
-      this.insertHistory(current, summary);
+      this.insertHistory(HUD_MODULE_ID, {
+        revision: current.revision,
+        json: JSON.stringify(current),
+        createdAt: current.updatedAt,
+      }, summary);
       this.writeState(next);
       this.insertAudit(audit);
       this.pruneHistoryAndAudit();
     });
     this.broadcastState(next);
-    const undoTargets = this.getUndoTargets();
+    const undoTargets = this.getUndoTargets(HUD_MODULE_ID);
     this.broadcastAudit(audit, undoTargets);
     const response = saveResponseSchema.parse({
       state: next,
@@ -734,7 +743,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
         visibilityResponseSchema.parse({
           state: current,
           auditEntry: null,
-          undoTargets: this.getUndoTargets(),
+          undoTargets: this.getUndoTargets(HUD_MODULE_ID),
           serverTime: nowIso(),
         }),
       );
@@ -751,13 +760,17 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const summary = input.enabled ? "Overlay aktiviert" : "Overlay deaktiviert";
     const audit = this.makeAudit(next.revision, action, session, summary, createdAt);
     this.ctx.storage.transactionSync(() => {
-      this.insertHistory(current, summary);
+      this.insertHistory(HUD_MODULE_ID, {
+        revision: current.revision,
+        json: JSON.stringify(current),
+        createdAt: current.updatedAt,
+      }, summary);
       this.writeState(next);
       this.insertAudit(audit);
       this.pruneHistoryAndAudit();
     });
     this.broadcastState(next);
-    const undoTargets = this.getUndoTargets();
+    const undoTargets = this.getUndoTargets(HUD_MODULE_ID);
     this.broadcastAudit(audit, undoTargets);
     return jsonResponse(
       visibilityResponseSchema.parse({
@@ -776,6 +789,53 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const session = this.requireSession(request);
     await this.requireCsrf(request, session);
     const input = undoRequestSchema.parse(await readJson(request, 1_024));
+
+    if (input.moduleId === "challenges") {
+      const context = this.createModuleContext("challenges");
+      const module = MODULE_REGISTRY.find(({ id }) => id === input.moduleId);
+      if (module?.history === undefined) {
+        throw new RequestError(404, "not_found", "Dieses Modul unterstützt kein Undo.");
+      }
+      const repository = createChallengeRepository(context, SOCKETS.dock.tag);
+      const current = repository.readSnapshot();
+      if (
+        input.baseBoardRevision !== current.boardRevision
+        || input.baseSettingsRevision !== current.settingsRevision
+        || input.baseEventSeq !== current.eventSeq
+      ) {
+        throw new RequestError(409, "revision_conflict", "Die Challenges wurden inzwischen geändert.", {
+          currentSnapshot: current,
+        });
+      }
+      const history = this.ctx.storage.sql
+        .exec<{ snapshot_json: string }>(
+          "SELECT snapshot_json FROM state_history WHERE module_id = ? AND channel_seq = ?",
+          input.moduleId,
+          input.channelSeq,
+        )
+        .toArray()[0];
+      if (history === undefined) {
+        throw new RequestError(404, "not_found", "Dieser Challenge-Zustand ist nicht mehr verfügbar.");
+      }
+      const currentEntry = module.history.snapshot(context);
+      if (currentEntry === null) throw new Error("Challenge-Zustand konnte nicht gesichert werden.");
+      const summary = `Challenge-Zustand aus Kanalsequenz ${String(input.channelSeq)} wiederhergestellt`;
+      this.ctx.storage.transactionSync(() => {
+        this.insertHistory(input.moduleId, currentEntry, summary);
+        this.pruneHistory(input.moduleId);
+      });
+      module.history.restore(context, history.snapshot_json);
+      const service = createChallengeService(context, SOCKETS.dock.tag);
+      const snapshot = service.readSnapshot();
+      this.broadcast(module.socketTags, { ...snapshot, event: null });
+      this.broadcastHistoryChanged(input.moduleId);
+      return jsonResponse({
+        snapshot,
+        undoTargets: this.getUndoTargets(input.moduleId),
+        serverTime: nowIso(),
+      });
+    }
+
     const current = normalizeStateForRead(this.getRequiredState());
     if (input.baseRevision !== current.revision) {
       throw new RequestError(409, "revision_conflict", "OBS wurde inzwischen geändert.", {
@@ -784,10 +844,10 @@ export class ChannelObject extends DurableObject<AppEnv> {
       });
     }
     const history = this.ctx.storage.sql
-      .exec<{ snapshot_json: string }>(
-        "SELECT snapshot_json FROM state_history WHERE module_id = ? AND revision = ?",
+      .exec<{ revision: number; snapshot_json: string }>(
+        "SELECT revision, snapshot_json FROM state_history WHERE module_id = ? AND channel_seq = ?",
         HUD_MODULE_ID,
-        input.targetRevision,
+        input.channelSeq,
       )
       .toArray()[0];
     if (history === undefined) {
@@ -818,17 +878,21 @@ export class ChannelObject extends DurableObject<AppEnv> {
       Object.hasOwn(rawTarget, "compositeChallengesVisible") ? null : "Challenges im Sammel-Overlay",
     ].filter((label): label is string => label !== null);
     const summary = carriedForward.length === 0
-      ? `Revision ${String(input.targetRevision)} wiederhergestellt`
-      : `Revision ${String(input.targetRevision)} wiederhergestellt (${carriedForward.join(" und ")} beibehalten)`;
+      ? `Revision ${String(history.revision)} wiederhergestellt`
+      : `Revision ${String(history.revision)} wiederhergestellt (${carriedForward.join(" und ")} beibehalten)`;
     const audit = this.makeAudit(next.revision, "undo", session, summary, createdAt);
     this.ctx.storage.transactionSync(() => {
-      this.insertHistory(current, summary);
+      this.insertHistory(HUD_MODULE_ID, {
+        revision: current.revision,
+        json: JSON.stringify(current),
+        createdAt: current.updatedAt,
+      }, summary);
       this.writeState(next);
       this.insertAudit(audit);
       this.pruneHistoryAndAudit();
     });
     this.broadcastState(next);
-    const undoTargets = this.getUndoTargets();
+    const undoTargets = this.getUndoTargets(HUD_MODULE_ID);
     this.broadcastAudit(audit, undoTargets);
     return jsonResponse(
       saveResponseSchema.parse({
@@ -1054,7 +1118,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       );
       return prunedHistory;
     });
-    if (historyChanged) this.broadcastHistoryChanged();
+    if (historyChanged) this.broadcastHistoryChanged(HUD_MODULE_ID);
     return jsonResponse(
       uploadResponseSchema.parse({
         portrait: { kind: "uploaded", contentHash },
@@ -1296,7 +1360,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     // muesste ihn die Socket-Definition liefern, so wie `handle()` die Routen
     // liefert. Solange nur Challenges und Dock ueber diesen Weg verbinden,
     // ist das korrekt; mit P6 gehoert es an die Modulgrenze.
-    server.send(JSON.stringify(createChallengeService(this.createModuleContext(), SOCKETS.dock.tag).readChallengeUpdate()));
+    server.send(JSON.stringify(createChallengeService(this.createModuleContext("challenges"), SOCKETS.dock.tag).readChallengeUpdate()));
     this.broadcastOverlayPresence();
     return new Response(null, {
       status: 101,
@@ -1333,7 +1397,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       tokenGeneration: row.generation,
       connectedAt: nowIso(),
     } satisfies SocketAttachment);
-    server.send(JSON.stringify(createChallengeService(this.createModuleContext(), SOCKETS.dock.tag).readChallengeUpdate()));
+    server.send(JSON.stringify(createChallengeService(this.createModuleContext("challenges"), SOCKETS.dock.tag).readChallengeUpdate()));
     return new Response(null, {
       status: 101,
       webSocket: client,
@@ -1475,7 +1539,20 @@ export class ChannelObject extends DurableObject<AppEnv> {
     );
   }
 
-  private insertHistory(state: ChannelState, summary: string): void {
+  private recordModuleHistory(moduleId: ModuleId, summary: string): void {
+    const module = MODULE_REGISTRY.find(({ id }) => id === moduleId);
+    if (module?.history === undefined) return;
+    const context = this.createModuleContext(moduleId);
+    const entry = module.history.snapshot(context);
+    if (entry === null) return;
+    this.ctx.storage.transactionSync(() => {
+      this.insertHistory(moduleId, entry, summary);
+      this.pruneHistory(moduleId);
+    });
+    this.broadcastHistoryChanged(moduleId);
+  }
+
+  private insertHistory(moduleId: string, entry: ModuleHistoryEntry, summary: string): void {
     // Ein ChannelObject serialisiert diese Berechnung in transactionSync; eine
     // eigene Sequenz-Tabelle wird erst nötig, wenn mehrere unabhängig
     // transaktionierende Schreiber in dieselbe Timeline schreiben.
@@ -1485,22 +1562,36 @@ export class ChannelObject extends DurableObject<AppEnv> {
       )
       .toArray()[0]?.channel_seq;
     if (nextChannelSeq === undefined) throw new Error("Konnte keine Kanalsequenz für state_history vergeben.");
+    if (moduleId === HUD_MODULE_ID) {
+      this.ctx.storage.sql.exec(
+        `INSERT INTO state_history(
+          channel_seq, module_id, revision, snapshot_json, created_at, summary
+        )
+        SELECT ?, ?, ?, ?, ?, ?
+        WHERE NOT EXISTS (
+          SELECT 1 FROM state_history WHERE module_id = ? AND revision = ?
+        )`,
+        nextChannelSeq,
+        moduleId,
+        entry.revision,
+        entry.json,
+        entry.createdAt,
+        summary,
+        moduleId,
+        entry.revision,
+      );
+      return;
+    }
     this.ctx.storage.sql.exec(
       `INSERT INTO state_history(
         channel_seq, module_id, revision, snapshot_json, created_at, summary
-      )
-      SELECT ?, ?, ?, ?, ?, ?
-      WHERE NOT EXISTS (
-        SELECT 1 FROM state_history WHERE module_id = ? AND revision = ?
-      )`,
+      ) VALUES (?, ?, ?, ?, ?, ?)`,
       nextChannelSeq,
-      HUD_MODULE_ID,
-      state.revision,
-      JSON.stringify(state),
-      state.updatedAt,
+      moduleId,
+      entry.revision,
+      entry.json,
+      entry.createdAt,
       summary,
-      HUD_MODULE_ID,
-      state.revision,
     );
   }
 
@@ -1560,33 +1651,38 @@ export class ChannelObject extends DurableObject<AppEnv> {
       );
   }
 
-  private getUndoTargets(): UndoTarget[] {
+  private getUndoTargets(moduleId: ModuleId): UndoTarget[] {
     return this.ctx.storage.sql
-      .exec<{ revision: number; created_at: string; summary: string }>(
-        "SELECT revision, created_at, summary FROM state_history WHERE module_id = ? ORDER BY revision DESC LIMIT 20",
-        HUD_MODULE_ID,
+      .exec<{ channel_seq: number; module_id: ModuleId; created_at: string; summary: string }>(
+        "SELECT channel_seq, module_id, created_at, summary FROM state_history WHERE module_id = ? ORDER BY channel_seq DESC LIMIT 20",
+        moduleId,
       )
       .toArray()
       .map((row) => ({
-        revision: row.revision,
+        channelSeq: row.channel_seq,
+        moduleId: row.module_id,
         createdAt: row.created_at,
         summary: row.summary,
       }));
   }
 
-  private pruneHistoryAndAudit(): void {
+  private pruneHistory(moduleId: string): void {
     this.ctx.storage.sql.exec(
       `DELETE FROM state_history
        WHERE module_id = ?
          AND channel_seq NOT IN (
            SELECT channel_seq FROM state_history
            WHERE module_id = ?
-           ORDER BY revision DESC
+           ORDER BY channel_seq DESC
            LIMIT 20
          )`,
-      HUD_MODULE_ID,
-      HUD_MODULE_ID,
+      moduleId,
+      moduleId,
     );
+  }
+
+  private pruneHistoryAndAudit(): void {
+    this.pruneHistory(HUD_MODULE_ID);
     const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000).toISOString();
     this.ctx.storage.sql.exec(
       "DELETE FROM audit_log WHERE created_at < ? OR id NOT IN (SELECT id FROM audit_log ORDER BY created_at DESC LIMIT 500)",
@@ -1773,7 +1869,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
   }
 
   private getDockToken(): DockTokenRecord | null {
-    return createChallengeRepository(this.createModuleContext(), SOCKETS.dock.tag).readDockToken();
+    return createChallengeRepository(this.createModuleContext("challenges"), SOCKETS.dock.tag).readDockToken();
   }
 
   private async requireDockToken(request: Request): Promise<DockTokenRecord> {
@@ -1966,10 +2062,10 @@ export class ChannelObject extends DurableObject<AppEnv> {
     }
   }
 
-  private broadcastHistoryChanged(): void {
+  private broadcastHistoryChanged(moduleId: ModuleId): void {
     const message = JSON.stringify({
       type: "history_changed",
-      undoTargets: this.getUndoTargets(),
+      undoTargets: this.getUndoTargets(moduleId),
     });
     this.sendToSockets(this.ctx.getWebSockets(SOCKETS.editor.tag), message);
   }

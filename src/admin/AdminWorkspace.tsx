@@ -72,7 +72,7 @@ export type TwitchUser = { id: string; login: string; displayName: string; profi
 export type AdminApi = {
   save: (request: SaveRequest) => Promise<SaveResponse>;
   setVisibility: (enabled: boolean) => Promise<{ state: ChannelState; auditEntry: BootstrapResponse["recentAudit"][number] | null; undoTargets: BootstrapResponse["undoTargets"]; serverTime: string }>;
-  undo?: ((baseRevision: number, targetRevision: number) => Promise<SaveResponse>) | undefined;
+  undo?: ((moduleId: "hud", channelSeq: number, baseRevision: number) => Promise<SaveResponse>) | undefined;
   mutateOverlayToken?: ((rotate: boolean, request: { requestId: string; expectedGeneration: number }) => Promise<OverlayTokenResponse>) | undefined;
   mutateDockToken?: ((rotate: boolean, request: { requestId: string; expectedGeneration: number }) => Promise<DockTokenResponse>) | undefined;
   uploadPortrait?: ((blob: Blob) => Promise<PortraitRef>) | undefined;
@@ -491,7 +491,7 @@ const ObsSetupDialog = ({ api, state, triggerRef }: { api: AdminApi; state: HudE
 const AuditRail = ({ initialBootstrap, state }: { initialBootstrap: BootstrapResponse; state: HudEditorState }) => (
   <aside className={`audit-rail ${state.auditOpen ? "is-open" : "is-collapsed"}`}>
     <button aria-controls="audit-log" aria-expanded={state.auditOpen} className="rail-heading" onClick={state.toggleAudit} type="button"><Clock3 aria-hidden="true" size={15} /><span>Änderungen</span>{state.newAuditCount > 0 && <span aria-label={`${String(state.newAuditCount)} neue Einträge`} className="audit-new-badge">{state.newAuditCount}</span>}<ChevronDown aria-hidden="true" className="audit-chevron" size={15} /></button>
-    {state.auditOpen && <div id="audit-log" className="audit-rail-content"><div className="audit-list">{state.audit.length === 0 ? <p className="empty-copy">Noch keine veröffentlichten Änderungen.</p> : state.audit.map((entry) => <article className="audit-entry" key={entry.id}><span className="audit-dot" /><div><strong>{entry.actor.displayName}</strong><p>{entry.summary}</p><time>{new Date(entry.createdAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}</time></div></article>)}</div>{initialBootstrap.capabilities.undo && state.undoTargets.length > 0 && <details className="undo-disclosure"><summary><Undo2 size={14} /> Rückgängig</summary>{state.undoTargets.slice(0, 6).map((target) => <button key={target.revision} onClick={() => void state.undo(target.revision)} type="button">Rev. {target.revision}<span>{target.summary}</span></button>)}</details>}</div>}
+    {state.auditOpen && <div id="audit-log" className="audit-rail-content"><div className="audit-list">{state.audit.length === 0 ? <p className="empty-copy">Noch keine veröffentlichten Änderungen.</p> : state.audit.map((entry) => <article className="audit-entry" key={entry.id}><span className="audit-dot" /><div><strong>{entry.actor.displayName}</strong><p>{entry.summary}</p><time>{new Date(entry.createdAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}</time></div></article>)}</div>{initialBootstrap.capabilities.undo && state.undoTargets.length > 0 && <details className="undo-disclosure"><summary><Undo2 size={14} /> Rückgängig</summary>{state.undoTargets.slice(0, 6).map((target) => <button key={target.channelSeq} onClick={() => void state.undo(target.channelSeq)} type="button">Kanal {target.channelSeq}<span>{target.summary}</span></button>)}</details>}</div>}
   </aside>
 );
 

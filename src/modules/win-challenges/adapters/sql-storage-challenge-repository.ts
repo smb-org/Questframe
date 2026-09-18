@@ -415,8 +415,60 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     return this.readSnapshotInternal();
   }
 
+  public restoreSnapshot(snapshot: ChallengeSnapshot): ChallengeSnapshot {
+    return this.transactionSync(() => {
+      const current = this.readSnapshotInternal();
+      const targetIds = snapshot.challenges.map(({ id }) => id);
+      this.deleteMissingChallenges(targetIds, current.challenges);
+      this.execute<ChallengeRow>(`DELETE FROM ${this.table("challenges")}`);
+      for (const challenge of snapshot.challenges) this.insertChallenge(challenge);
+
+      this.execute<MetaRow>(
+        `UPDATE ${this.table("meta")} SET
+          event_seq = ?, board_revision = ?, settings_revision = ?,
+          style_id = ?, theme_mode = ?, surface_opacity = ?, header_style = ?, text_emphasis = ?, font_family = ?, font_scale = ?, header_title = ?, penalty_label = ?, penalty_text = ?,
+          effects_enabled = ?, max_visible = ?, overflow_mode = ?, overflow_tempo = ?, numbered = ?, key_visible = ?, done_order = ?,
+          global_timer_mode = ?, global_timer_total_ms = ?, global_timer_ends_at = ?, global_timer_paused_remain_ms = ?,
+          placement_x = ?, placement_y = ?, placement_scale = ?
+         WHERE singleton = 1`,
+        current.eventSeq + 1,
+        current.boardRevision + 1,
+        current.settingsRevision + 1,
+        snapshot.settings.styleId,
+        snapshot.settings.themeMode,
+        snapshot.settings.surfaceOpacity,
+        snapshot.settings.headerStyle,
+        snapshot.settings.textEmphasis,
+        snapshot.settings.fontFamily,
+        snapshot.settings.fontScale,
+        snapshot.settings.headerTitle,
+        snapshot.settings.penaltyLabel,
+        snapshot.settings.penaltyText,
+        snapshot.settings.effectsEnabled ? 1 : 0,
+        snapshot.settings.maxVisible,
+        snapshot.settings.overflowMode,
+        snapshot.settings.overflowTempo,
+        snapshot.settings.numbered ? 1 : 0,
+        snapshot.settings.keyVisible ? 1 : 0,
+        snapshot.settings.doneOrder,
+        snapshot.settings.globalTimerMode,
+        snapshot.settings.globalTimer?.totalMs ?? null,
+        snapshot.settings.globalTimer?.endsAt ?? null,
+        snapshot.settings.globalTimer?.pausedRemainMs ?? null,
+        snapshot.settings.placement.x,
+        snapshot.settings.placement.y,
+        snapshot.settings.placement.scale,
+      );
+      return this.readSnapshotInternal();
+    });
+  }
+
   public readChallenge(challengeId: string): Challenge | null {
     return this.readChallengeInternal(challengeId);
+  }
+
+  public readCommand(commandId: string): CommandRecord | null {
+    return this.readCommandInternal(commandId);
   }
 
   public readSet(setId: string): ChallengeSetRecord | null {

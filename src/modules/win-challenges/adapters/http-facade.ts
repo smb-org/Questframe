@@ -1,4 +1,4 @@
-import type { ModuleContext, ModuleHandler, SocketTag } from "../../registry";
+import type { ModuleContext, ModuleHandler, ModuleHistory, SocketTag } from "../../registry";
 import { dockTokenResponseSchema, overlayTokenMutationRequestSchema } from "../../../shared/contracts/api";
 import { jsonResponse, readJson, RequestError } from "../../../worker/http";
 import {
@@ -7,10 +7,12 @@ import {
   challengeSetListResponseSchema,
   challengeSetResponseSchema,
   challengeSetSaveRequestSchema,
+  challengeBoardSnapshotSchema,
   commandSchema,
   settingsSaveRequestSchema,
+  type Command,
 } from "../contracts/schemas";
-import { createWinChallenges } from "../service/commands";
+import { createWinChallenges, hashChallengeCommand } from "../service/commands";
 import { createSqlStorageChallengeRepository } from "./sql-storage-challenge-repository";
 
 const nowIso = (): string => new Date().toISOString();
@@ -33,6 +35,36 @@ const challengeService = (ctx: ModuleContext, dockSocketTag: SocketTag) =>
   });
 
 export { challengeService };
+
+const challengeHistoryRepository = (ctx: ModuleContext) =>
+  createSqlStorageChallengeRepository({
+    sql: ctx.sql,
+    transactionSync: ctx.transactionSync,
+  });
+
+/** Die Challenges besitzen einen vollständigen Board-/Settings-Snapshot. */
+export const challengeHistory: ModuleHistory = {
+  snapshot: (ctx) => {
+    const snapshot = challengeHistoryRepository(ctx).readSnapshot();
+    return {
+      revision: Math.max(snapshot.eventSeq, snapshot.boardRevision, snapshot.settingsRevision),
+      json: JSON.stringify(snapshot),
+      createdAt: nowIso(),
+    };
+  },
+  restore: (ctx, json) => {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(json) as unknown;
+    } catch {
+      throw new Error("Challenge-Historiensnapshot ist kein gültiges JSON.");
+    }
+    challengeHistoryRepository(ctx).restoreSnapshot(challengeBoardSnapshotSchema.parse(raw));
+  },
+};
+
+const challengeCommandSummary = (command: Command): string =>
+  `Challenge-Kommando „${command.type}“ ausgeführt`;
 
 /**
  * Lehnt Dock-Token für alle Set-Routen ab. Prüft KEINE Session — jede
@@ -195,13 +227,17 @@ export const createChallengeHttpHandler = (
       if (auth === "dock" && command.scope === "global" && command.type === "resetGlobalTimer") {
         throw new RequestError(403, "forbidden", "Der Dock darf den globalen Timer nicht zurücksetzen.");
       }
-      const result = await challengeService(ctx, dockSocketTag).executeCommand(command);
+      const requestHash = await hashChallengeCommand(command);
+      const repository = challengeRepository(ctx, dockSocketTag);
+      if (repository.readCommand(command.commandId) === null) ctx.recordHistory(challengeCommandSummary(command));
+      const result = challengeService(ctx, dockSocketTag).executeCommandWithHash(command, requestHash);
       ctx.broadcast(socketTags, result.update);
       return jsonResponse(result.response);
     }
     if (request.method === "PUT" && url.pathname === "/challenges/board") {
       await ctx.requireSessionAndCsrf(request);
       const input = boardSaveRequestSchema.parse(await readJson(request, 32_768));
+      ctx.recordHistory(input.reason === "set-switch" ? "Challenge-Set gewechselt" : "Challenge-Board gespeichert");
       const result = challengeService(ctx, dockSocketTag).saveBoard({
         baseBoardRevision: input.baseBoardRevision,
         definitions: input.challenges,
@@ -219,6 +255,7 @@ export const createChallengeHttpHandler = (
     if (request.method === "PUT" && url.pathname === "/challenges/settings") {
       await ctx.requireSessionAndCsrf(request);
       const input = settingsSaveRequestSchema.parse(await readJson(request, 32_768));
+      ctx.recordHistory("Challenge-Einstellungen gespeichert");
       const result = challengeService(ctx, dockSocketTag).saveSettings(input);
       ctx.broadcast(socketTags, { ...result.snapshot, event: null });
       return jsonResponse(result);

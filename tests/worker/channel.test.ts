@@ -375,8 +375,9 @@ describe("channel worker", () => {
       method: "POST",
       headers: authenticatedHeaders(),
       body: JSON.stringify({
+        moduleId: "hud",
+        channelSeq: target?.channelSeq,
         baseRevision: bootstrap.state.revision,
-        targetRevision: target?.revision,
       }),
     });
     const body = saveResponseSchema.parse(await response.json());
@@ -419,7 +420,7 @@ describe("channel worker", () => {
 
     const history = await runInDurableObject(stub, (_instance, state) =>
       state.storage.sql
-        .exec<{ snapshot_json: string }>("SELECT snapshot_json FROM state_history WHERE revision = ?", revision)
+        .exec<{ channel_seq: number; snapshot_json: string }>("SELECT channel_seq, snapshot_json FROM state_history WHERE module_id = ? AND revision = ?", "hud", revision)
         .toArray()[0],
     );
     expect(history).toBeDefined();
@@ -439,7 +440,7 @@ describe("channel worker", () => {
       const undo = await fetchWorker("http://localhost/api/state/undo", {
         method: "POST",
         headers: authenticatedHeaders(),
-        body: JSON.stringify({ baseRevision: committed.state.revision, targetRevision: revision }),
+        body: JSON.stringify({ moduleId: "hud", channelSeq: history.channel_seq, baseRevision: committed.state.revision }),
       });
       const restored = saveResponseSchema.parse(await undo.json());
       expect(undo.status).toBe(200);
@@ -1417,8 +1418,9 @@ describe("channel worker", () => {
       method: "POST",
       headers: authenticatedHeaders(),
       body: JSON.stringify({
+        moduleId: "hud",
+        channelSeq: undoTarget.channel_seq,
         baseRevision: bootstrap.state.revision,
-        targetRevision: undoTarget.revision,
       }),
     });
     const undone = saveResponseSchema.parse(await undo.json());

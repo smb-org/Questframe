@@ -151,10 +151,11 @@ export class BrowserAdminApi implements AdminApi {
     return commandResponseSchema.parse(await response.json());
   }
 
-  async undo(baseRevision: number, targetRevision: number) {
+  async undo(moduleId: "hud", channelSeq: number, baseRevision: number) {
     const response = await this.requestJson("/api/state/undo", "POST", {
+      moduleId,
+      channelSeq,
       baseRevision,
-      targetRevision,
     });
     return saveResponseSchema.parse(await response.json());
   }

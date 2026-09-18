@@ -9,6 +9,7 @@ import {
   overlayTokenStatusSchema,
   saveRequestSchema,
   serverMessageSchema,
+  undoRequestSchema,
   visibilityRequestSchema,
 } from "../../../src/shared/contracts/api";
 import { createDefaultState } from "../../../src/shared/contracts/state";
@@ -175,7 +176,8 @@ describe("API contracts", () => {
       createdAt: "2026-08-29T12:01:00.000Z",
     };
     const undoTargets = [{
-      revision: 1,
+      channelSeq: 1,
+      moduleId: "hud" as const,
       createdAt: "2026-08-29T12:00:00.000Z",
       summary: "Startzustand",
     }];
@@ -197,6 +199,24 @@ describe("API contracts", () => {
       type: "audit_appended",
       entry: auditEntry,
       undoTargets,
+    });
+    expect(undoRequestSchema.parse({ moduleId: "hud", channelSeq: 1, baseRevision: 2 })).toEqual({
+      moduleId: "hud",
+      channelSeq: 1,
+      baseRevision: 2,
+    });
+    expect(undoRequestSchema.parse({
+      moduleId: "challenges",
+      channelSeq: 2,
+      baseBoardRevision: 3,
+      baseSettingsRevision: 4,
+      baseEventSeq: 5,
+    })).toEqual({
+      moduleId: "challenges",
+      channelSeq: 2,
+      baseBoardRevision: 3,
+      baseSettingsRevision: 4,
+      baseEventSeq: 5,
     });
     expect(() => serverMessageSchema.parse({
       type: "audit_appended",

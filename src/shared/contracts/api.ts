@@ -122,7 +122,8 @@ export const auditEntrySchema = z.strictObject({
 });
 
 export const undoTargetSchema = z.strictObject({
-  revision: z.number().int().min(1),
+  channelSeq: z.number().int().min(1),
+  moduleId: z.enum(["hud", "challenges"]),
   createdAt: z.iso.datetime({ offset: true }),
   summary: z.string().min(1).max(160),
 });
@@ -187,9 +188,16 @@ export const saveResponseSchema = z.strictObject({
 });
 
 export const undoRequestSchema = z.strictObject({
+  moduleId: z.literal("hud"),
+  channelSeq: z.number().int().min(1),
   baseRevision: z.number().int().min(1),
-  targetRevision: z.number().int().min(1),
-});
+}).or(z.strictObject({
+  moduleId: z.literal("challenges"),
+  channelSeq: z.number().int().min(1),
+  baseBoardRevision: z.number().int().min(1),
+  baseSettingsRevision: z.number().int().min(1),
+  baseEventSeq: z.number().int().nonnegative(),
+}));
 
 export const visibilityRequestSchema = z.strictObject({
   enabled: z.boolean(),

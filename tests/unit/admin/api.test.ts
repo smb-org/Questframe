@@ -195,7 +195,7 @@ describe("BrowserAdminApi", () => {
 
     await api.revalidate();
     await expect(api.setVisibility(false)).resolves.toEqual(visibility);
-    await expect(api.undo(2, 1)).resolves.toEqual(saveResponse);
+    await expect(api.undo("hud", 1, 2)).resolves.toEqual(saveResponse);
     await expect(api.mutateOverlayToken(false, {
       requestId: tokenResponse.requestId,
       expectedGeneration: 0,
@@ -279,7 +279,8 @@ describe("BrowserAdminApi", () => {
     socket?.emit("message", new Blob());
     socket?.emit("message", "not-json");
     const undoTargets = [{
-      revision: 1,
+      channelSeq: 1,
+      moduleId: "hud" as const,
       createdAt: now,
       summary: "Startzustand",
     }];

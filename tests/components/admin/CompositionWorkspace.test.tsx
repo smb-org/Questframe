@@ -198,7 +198,7 @@ describe("Kompositions-Workspace", () => {
         summary: "HUD im Sammel-Overlay: Aus · Challenges im Sammel-Overlay: Aus",
         createdAt: "2026-08-29T12:01:00.000Z",
       },
-      undoTargets: [{ revision: 2, createdAt: "2026-08-29T12:01:00.000Z", summary: "Sammel-Overlay geändert" }],
+      undoTargets: [{ channelSeq: 2, moduleId: "hud", createdAt: "2026-08-29T12:01:00.000Z", summary: "Sammel-Overlay geändert" }],
       serverTime: "2026-08-29T12:01:00.000Z",
     }));
     const undo = vi.fn<NonNullable<AdminApi["undo"]>>(() => Promise.resolve({
@@ -238,8 +238,8 @@ describe("Kompositions-Workspace", () => {
     expect(screen.getByText("HUD im Sammel-Overlay: Aus · Challenges im Sammel-Overlay: Aus")).toBeInTheDocument();
 
     await user.click(screen.getByText("Rückgängig").closest("summary") as HTMLElement);
-    await user.click(screen.getByRole("button", { name: /Rev\. 2/ }));
-    expect(undo).toHaveBeenCalledWith(2, 2);
+    await user.click(screen.getByRole("button", { name: /Kanal 2/ }));
+    expect(undo).toHaveBeenCalledWith("hud", 2, 2);
     expect(screen.getByRole("switch", { name: "HUD im Sammel-Overlay anzeigen" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("switch", { name: "Challenges im Sammel-Overlay anzeigen" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" })).toBeInTheDocument();

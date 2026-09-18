@@ -392,11 +392,16 @@ describe("Modul-Registry-Selbsttest", () => {
     expect(collectRoutePrefixOverlaps(MODULE_REGISTRY)).toEqual([]);
   });
 
-  it("hat nur beim Challenges-Modul einen optionalen HTTP-Handler", () => {
+  it("hat Handler und Historie nur beim Challenges-Modul", () => {
     const hud = MODULE_REGISTRY.find((module) => module.id === "hud");
     const challenges = MODULE_REGISTRY.find((module) => module.id === "challenges");
     expect(hud?.handle).toBeUndefined();
     expect(challenges?.handle).toEqual(expect.any(Function));
+    expect(hud?.history).toBeUndefined();
+    expect(challenges?.history).toBeDefined();
+    if (challenges?.history === undefined) throw new Error("Challenges-Historie fehlt.");
+    expect(typeof challenges.history.snapshot).toBe("function");
+    expect(typeof challenges.history.restore).toBe("function");
   });
 
   it("behandelt die beiden Dock-Token-Routen in der Fassade vor dem Body-Parse", async () => {

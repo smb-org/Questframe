@@ -6,6 +6,7 @@ import { runMigrations } from "../../src/channel/migrations";
 import { createSqlStorageChallengeRepository } from "../../src/modules/win-challenges/adapters/sql-storage-challenge-repository";
 import type { Challenge, ChallengeDefinition } from "../../src/modules/win-challenges/contracts/schemas";
 import { createWinChallenges, hashChallengeCommand } from "../../src/modules/win-challenges/service/commands";
+import { bootstrapResponseSchema, saveResponseSchema } from "../../src/shared/contracts/api";
 
 const origin = "http://localhost:5173";
 const tabId = "challenge-api-test";
@@ -751,6 +752,130 @@ describe("Win-Challenges-API", () => {
     expect(response.status).toBe(200);
     expectExactKeys(body, ["eventSeq", "boardRevision", "settingsRevision", "settings", "challenges"]);
     expect(body.challenges).toEqual([]);
+  });
+
+  it("führt HUD- und Challenge-Undo verschränkt über eine monotone Kanalsequenz", async () => {
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec("DELETE FROM state_history");
+    });
+
+    const initialHud = bootstrapResponseSchema.parse(
+      await (await fetchWorker("/api/editor/bootstrap", { headers: { cookie, "x-editor-tab": tabId } })).json(),
+    );
+    csrfToken = initialHud.csrfToken;
+    const { revision: initialRevision, overlayEnabled: _overlayEnabled, updatedAt: _updatedAt, updatedBy: _updatedBy, ...initialDraft } = initialHud.state;
+    void [_overlayEnabled, _updatedAt, _updatedBy];
+    const firstHud = await fetchWorker("/api/state", {
+      method: "PUT",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({
+        baseRevision: initialRevision,
+        state: { ...initialDraft, player: { ...initialDraft.player, hpPercent: 99 } },
+      }),
+    });
+    expect(firstHud.status).toBe(200);
+    saveResponseSchema.parse(await firstHud.json());
+
+    let challenge = await (await fetchWorker("/api/challenges", { headers: { cookie, origin } })).json<{
+      eventSeq: number;
+      boardRevision: number;
+      settingsRevision: number;
+      settings: Record<string, unknown>;
+      challenges: Challenge[];
+    }>();
+    const firstBoard = await saveBoard([definition("Challenge 0")], challenge.boardRevision);
+    expect(firstBoard.status).toBe(200);
+    // `saveBoard` antwortet mit { snapshot, createdIds }; die Revisionen
+    // stecken im Snapshot, nicht auf oberster Ebene.
+    challenge = (await firstBoard.json<{ snapshot: typeof challenge }>()).snapshot;
+
+    const secondHudBootstrap = bootstrapResponseSchema.parse(
+      await (await fetchWorker("/api/editor/bootstrap", { headers: { cookie, "x-editor-tab": tabId } })).json(),
+    );
+    csrfToken = secondHudBootstrap.csrfToken;
+    const { revision: secondRevision, overlayEnabled: _secondEnabled, updatedAt: _secondAt, updatedBy: _secondBy, ...secondDraft } = secondHudBootstrap.state;
+    void [_secondEnabled, _secondAt, _secondBy];
+    const secondHud = await fetchWorker("/api/state", {
+      method: "PUT",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({
+        baseRevision: secondRevision,
+        state: { ...secondDraft, player: { ...secondDraft.player, hpPercent: 98 } },
+      }),
+    });
+    expect(secondHud.status).toBe(200);
+    saveResponseSchema.parse(await secondHud.json());
+
+    for (let index = 1; index < 25; index += 1) {
+      const response = await saveBoard([definition(`Challenge ${String(index)}`)], challenge.boardRevision);
+      expect(response.status).toBe(200);
+      challenge = (await response.json<{ snapshot: typeof challenge }>()).snapshot;
+    }
+
+    const rowsBeforeUndo = await runInDurableObject(stub, (_instance, state) =>
+      state.storage.sql.exec<{
+        channel_seq: number;
+        module_id: string;
+        snapshot_json: string;
+      }>("SELECT channel_seq, module_id, snapshot_json FROM state_history ORDER BY channel_seq").toArray(),
+    );
+    expect(rowsBeforeUndo.filter(({ module_id }) => module_id === "hud")).toHaveLength(2);
+    expect(rowsBeforeUndo.filter(({ module_id }) => module_id === "challenges")).toHaveLength(20);
+    expect(rowsBeforeUndo.map(({ channel_seq }) => channel_seq)).toEqual(
+      rowsBeforeUndo.map(({ channel_seq }) => channel_seq).sort((left, right) => left - right),
+    );
+    const challengeTarget = rowsBeforeUndo.find(({ module_id }) => module_id === "challenges");
+    if (challengeTarget === undefined) throw new Error("Challenge-Undo-Ziel fehlt.");
+
+    const challengeUndo = await fetchWorker("/api/state/undo", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({
+        moduleId: "challenges",
+        channelSeq: challengeTarget.channel_seq,
+        baseBoardRevision: challenge.boardRevision,
+        baseSettingsRevision: challenge.settingsRevision,
+        baseEventSeq: challenge.eventSeq,
+      }),
+    });
+    expect(challengeUndo.status).toBe(200);
+    const challengeUndoBody = await challengeUndo.json<{ snapshot: typeof challenge }>();
+    expect(challengeUndoBody.snapshot.challenges[0]?.title).toBe("Challenge 4");
+
+    const hudAfterChallengeUndo = bootstrapResponseSchema.parse(
+      await (await fetchWorker("/api/editor/bootstrap", { headers: { cookie, "x-editor-tab": tabId } })).json(),
+    );
+    csrfToken = hudAfterChallengeUndo.csrfToken;
+    expect(hudAfterChallengeUndo.state.player.hpPercent).toBe(98);
+
+    const hudTargets = rowsBeforeUndo.filter(({ module_id }) => module_id === "hud");
+    const hudTarget = hudTargets[0];
+    if (hudTarget === undefined) throw new Error("HUD-Undo-Ziel fehlt.");
+    const hudUndo = await fetchWorker("/api/state/undo", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({
+        moduleId: "hud",
+        channelSeq: hudTarget.channel_seq,
+        baseRevision: hudAfterChallengeUndo.state.revision,
+      }),
+    });
+    const hudUndoBody = saveResponseSchema.parse(await hudUndo.json());
+    expect(hudUndo.status).toBe(200);
+    expect(hudUndoBody.state.player.hpPercent).toBe(100);
+
+    const challengeAfterHudUndo = await (await fetchWorker("/api/challenges", { headers: { cookie, origin } })).json<typeof challenge>();
+    expect(challengeAfterHudUndo.challenges[0]?.title).toBe("Challenge 4");
+    const rowsAfterUndo = await runInDurableObject(stub, (_instance, state) =>
+      state.storage.sql.exec<{ channel_seq: number; module_id: string }>("SELECT channel_seq, module_id FROM state_history ORDER BY channel_seq").toArray(),
+    );
+    expect(rowsAfterUndo.filter(({ module_id }) => module_id === "challenges")).toHaveLength(20);
+    expect(rowsAfterUndo.filter(({ module_id }) => module_id === "hud").length).toBeGreaterThanOrEqual(2);
+    const previousMaxChannelSeq = Math.max(...rowsBeforeUndo.map(({ channel_seq }) => channel_seq));
+    const channelSequencesAfterUndo = rowsAfterUndo.map(({ channel_seq }) => channel_seq);
+    expect(channelSequencesAfterUndo).toContain(previousMaxChannelSeq + 1);
+    expect(channelSequencesAfterUndo).toContain(previousMaxChannelSeq + 2);
+    expect(Math.max(...channelSequencesAfterUndo)).toBe(previousMaxChannelSeq + 2);
   });
 
   it("verwaltet Server-Sets über die Session und liefert beim Laden den Payload", async () => {

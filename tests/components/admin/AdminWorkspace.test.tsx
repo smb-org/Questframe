@@ -1418,7 +1418,8 @@ describe("Admin workspace publication boundary", () => {
       createdAt: "2026-08-29T12:01:00.000Z",
     };
     const undoTargets: UndoTarget[] = [{
-      revision: 1,
+      channelSeq: 1,
+      moduleId: "hud",
       createdAt: "2026-08-29T12:00:00.000Z",
       summary: "Startzustand",
     }];
@@ -1453,14 +1454,15 @@ describe("Admin workspace publication boundary", () => {
 
     await user.click(auditToggle());
     expect(screen.getAllByText(auditEntry.summary)).toHaveLength(1);
-    expect(screen.getByRole("button", { name: /Rev\. 1/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Kanal 1/ })).toBeInTheDocument();
   });
 
   it("updates undo targets from history broadcasts without changing a local draft", async () => {
     const user = userEvent.setup();
     const initial = bootstrap();
     const undoTargets: UndoTarget[] = [{
-      revision: 1,
+      channelSeq: 1,
+      moduleId: "hud",
       createdAt: "2026-08-29T12:00:00.000Z",
       summary: "Startzustand",
     }];
@@ -1480,7 +1482,7 @@ describe("Admin workspace publication boundary", () => {
 
     expect(screen.getByRole("slider", { name: "Gesundheit" })).toHaveValue("42");
     await user.click(auditToggle());
-    expect(screen.getByRole("button", { name: /Rev\. 1/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Kanal 1/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Alle speichern" })).toBeEnabled();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
@@ -1505,12 +1507,14 @@ describe("Admin workspace publication boundary", () => {
       createdAt: "2026-08-29T12:02:00.000Z",
     };
     const oldUndoTargets: UndoTarget[] = [{
-      revision: 1,
+      channelSeq: 1,
+      moduleId: "hud",
       createdAt: "2026-08-29T12:00:00.000Z",
       summary: "Altes Ziel",
     }];
     const newUndoTargets: UndoTarget[] = [{
-      revision: 2,
+      channelSeq: 2,
+      moduleId: "hud",
       createdAt: "2026-08-29T12:01:00.000Z",
       summary: "Neues Ziel",
     }];
@@ -1543,8 +1547,8 @@ describe("Admin workspace publication boundary", () => {
     });
 
     await user.click(auditToggle());
-    expect(screen.getByRole("button", { name: /Rev\. 2/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Rev\. 1/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Kanal 2/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Kanal 1/ })).not.toBeInTheDocument();
   });
 
   it("verwaltet OBS-Link, Präsenz und die sichere Ausschaltabfrage im Header", async () => {
@@ -1617,7 +1621,8 @@ describe("Admin workspace publication boundary", () => {
       createdAt: "2026-08-29T12:00:00.000Z",
     }];
     initial.undoTargets = [{
-      revision: 1,
+      channelSeq: 1,
+      moduleId: "hud",
       createdAt: "2026-08-29T12:00:00.000Z",
       summary: "Startzustand",
     }];
@@ -1731,8 +1736,8 @@ describe("Admin workspace publication boundary", () => {
     });
 
     await user.click(screen.getByText("Rückgängig").closest("summary") as HTMLElement);
-    await user.click(screen.getByRole("button", { name: /Rev. 1/ }));
-    expect(undo).toHaveBeenCalledWith(2, 1);
+    await user.click(screen.getByRole("button", { name: /Kanal 1/ }));
+    expect(undo).toHaveBeenCalledWith("hud", 1, 2);
     expect(screen.getByRole("button", { name: "Abmelden" })).toBeEnabled();
     expect(logout).not.toHaveBeenCalled();
   });

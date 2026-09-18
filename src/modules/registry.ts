@@ -12,7 +12,7 @@
  * Typänderung. Eindeutigkeit sichert der Selbsttest, nicht der Compiler.
  *
  */
-import { createChallengeHttpHandler } from "./win-challenges/adapters/http-facade";
+import { createChallengeHttpHandler, challengeHistory } from "./win-challenges/adapters/http-facade";
 import type { DockTokenRecord } from "./win-challenges/repository/challenge-repository";
 import type { SocketLimitKey } from "../shared/contracts/api";
 import { DOCK_SOCKET_PROTOCOL, OVERLAY_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
@@ -101,6 +101,8 @@ export const SOCKETS = {
 export type ModuleContext = {
   sql: SqlStorage;
   transactionSync: <T>(fn: () => T) => T;
+  /** Schreibt den aktuellen Modulzustand in den Undo-Stapel. */
+  recordHistory: (summary: string) => void;
   /** Wirft, wenn keine gültige Editor-Session anliegt. */
   requireSession: (request: Request) => void;
   /** Session und CSRF in einem Schritt; die beiden treten nie getrennt auf. */
@@ -119,6 +121,22 @@ export type ModuleContext = {
 
 export type ModuleHandler = (request: Request, ctx: ModuleContext) => Promise<Response | null>;
 
+export type ModuleHistoryEntry = {
+  /** Modulinterne Revision. Nur das Modul deutet sie. */
+  revision: number;
+  /** Serialisierter Modulzustand. */
+  json: string;
+  /** Zeitpunkt des Zustands, ISO-8601. */
+  createdAt: string;
+};
+
+export type ModuleHistory = {
+  /** Liefert den aktuellen Zustand fuer den Undo-Stapel, oder null wenn es nichts zu sichern gibt. */
+  snapshot: (ctx: ModuleContext) => ModuleHistoryEntry | null;
+  /** Schreibt einen frueheren Zustand zurueck. */
+  restore: (ctx: ModuleContext, json: string) => void;
+};
+
 /**
  * Tabellenbesitz als explizite Liste oder als Präfix. Ein reines Präfix
  * reicht nicht für jedes Modul: Die Host-Plattform trägt die querschnittlichen
@@ -129,7 +147,7 @@ export type ModuleTables =
   | { kind: "prefix"; prefix: string }
   | { kind: "explicit"; tables: readonly string[] };
 
-type OverlayModuleDefinition = {
+export type OverlayModuleDefinition = {
   id: string;
   /** DO-interne Routenpräfixe, z.B. ["/challenges"]. Nicht die öffentliche `/api/*`-Oberfläche. */
   routePrefixes: readonly string[];
@@ -140,6 +158,7 @@ type OverlayModuleDefinition = {
   wireScopes: readonly string[];
   migrationNamespace: string;
   handle?: ModuleHandler;
+  history?: ModuleHistory;
   /** Deklarations-Labels aus den Build-Budget-Definitionen. */
   budgetKeys: readonly string[];
 };
@@ -193,6 +212,7 @@ const challengesModuleDefinition = {
 const challengesModule = {
   ...challengesModuleDefinition,
   handle: createChallengeHttpHandler(challengesModuleDefinition.socketTags, SOCKETS.dock.tag),
+  history: challengeHistory,
 } as const satisfies OverlayModuleDefinition;
 
 /**

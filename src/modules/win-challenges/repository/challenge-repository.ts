@@ -173,7 +173,9 @@ export interface ChallengeRepositoryTransaction {
 export interface ChallengeRepository {
   transaction<T>(callback: (transaction: ChallengeRepositoryTransaction) => T): T;
   readSnapshot(): ChallengeSnapshot;
+  restoreSnapshot(snapshot: ChallengeSnapshot): ChallengeSnapshot;
   readChallenge(challengeId: string): Challenge | null;
+  readCommand(commandId: string): CommandRecord | null;
   saveBoard(input: BoardSaveInput): BoardSaveResult;
   saveSettings(input: SettingsSaveInputWithRevision): SettingsSaveResult;
   runCommand<T>(
