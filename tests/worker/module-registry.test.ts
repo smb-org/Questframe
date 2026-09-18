@@ -14,7 +14,10 @@ import CHANNEL_OBJECT_SOURCE from "../../src/channel/channel-object.ts?raw";
 import CHALLENGE_FACADE_SOURCE from "../../src/modules/win-challenges/adapters/http-facade.ts?raw";
 import WIRE_CONTRACT_SOURCE from "../../src/shared/contracts/win-challenges.ts?raw";
 import SCHEMAS_SOURCE from "../../src/modules/win-challenges/contracts/schemas.ts?raw";
-import { createBudgetDeclarations } from "../../scripts/lib/build-budget-declarations.mjs";
+import {
+  createBudgetDeclarations,
+  type BuildBudgetDeclaration,
+} from "../../scripts/lib/build-budget-declarations.mjs";
 
 /**
  * Tabellen, die `runMigrations` anlegt, aber die zu keinem Modul gehören:
@@ -65,19 +68,21 @@ const HOST_SOCKET_TAGS: readonly string[] = REGISTRY_HOST_SOCKET_TAGS;
  * Worker-Bundle und Audio-Summe sind direkt im Prüfer erzeugte Host-Labels.
  */
 const HOST_BUDGET_KEYS: readonly string[] = [
-  "Admin",
-  "Temporal",
-  "QR-Code Chunk",
-  "Composite-Quelle",
-  "Worker bundle",
-  "Audio total",
+  "Admin", // Gemeinsame Bedienfläche, kein einzelnes Registry-Modul.
+  "Temporal", // Geteilter Lazy-Code, der nicht zu einer Oberfläche gehört.
+  "QR-Code Chunk", // Geteilter Lazy-Code, der nicht zu einer Oberfläche gehört.
+  "Composite-Quelle", // Mischt HUD und Challenges in einem Dokument.
+  "Worker bundle", // Globales Worker-Gate aus dem Budgetprüfer.
+  "Audio total", // Globales Asset-Gate aus dem Budgetprüfer.
 ];
 
 const HOST_DIRECT_BUDGET_KEYS: readonly string[] = ["Worker bundle", "Audio total"];
 
+const labelsOf = (declarations: readonly BuildBudgetDeclaration[]): readonly string[] =>
+  declarations.flatMap((declaration) => (declaration.label === undefined ? [] : [declaration.label]));
+
 const REAL_BUDGET_DECLARATION_LABELS: ReadonlySet<string> = new Set(
-  createBudgetDeclarations("temporal-entry", ["style-entry"], "qr-entry")
-    .flatMap((declaration) => (declaration.label === undefined ? [] : [declaration.label])),
+  labelsOf(createBudgetDeclarations("temporal-entry", ["style-entry"], "qr-entry")),
 );
 const REAL_BUDGET_KEYS: ReadonlySet<string> = new Set([
   ...REAL_BUDGET_DECLARATION_LABELS,
@@ -231,21 +236,24 @@ describe("Modul-Registry-Selbsttest", () => {
     expect(challenges?.handle).toEqual(expect.any(Function));
   });
 
-  it("gibt die beiden Dock-Token-Routen an den Host zurück", async () => {
+  it("behandelt die beiden Dock-Token-Routen in der Fassade vor dem Body-Parse", async () => {
     const challenges = MODULE_REGISTRY.find((module) => module.id === "challenges");
     if (challenges?.handle === undefined) throw new Error("Challenges-Handler fehlt.");
-    await expect(
-      challenges.handle(
-        new Request("https://channel.internal/challenges/dock-token", { method: "POST" }),
-        {} as ModuleContext,
-      ),
-    ).resolves.toBeNull();
-    await expect(
-      challenges.handle(
-        new Request("https://channel.internal/challenges/dock-token/rotate", { method: "POST" }),
-        {} as ModuleContext,
-      ),
-    ).resolves.toBeNull();
+    const authError = new Error("Authentifizierung zuerst");
+    const context = {
+      requireSessionAndCsrf: () => Promise.reject(authError),
+    } as unknown as ModuleContext;
+    for (const pathname of ["/challenges/dock-token", "/challenges/dock-token/rotate"]) {
+      await expect(
+        challenges.handle(
+          new Request(`https://channel.internal${pathname}`, {
+            method: "POST",
+            body: "kein JSON",
+          }),
+          context,
+        ),
+      ).rejects.toBe(authError);
+    }
   });
 
   it("behandelt verschachtelte Routenpräfixe als Überlappung", () => {
@@ -407,7 +415,7 @@ describe("Modul-Registry-Selbsttest", () => {
     }
   });
 
-  it("budgetKeys verweisen auf real existierende Schlüssel, und kein Budget ist herrenlos", () => {
+  it("ordnet jedes echte Budget-Label genau einem Modul oder dem Host zu", () => {
     const realBudgetKeys = REAL_BUDGET_KEYS;
     expect(realBudgetKeys.size, "Konnte keine Budget-Labels aus den Deklarationen ermitteln.").toBeGreaterThan(0);
 

@@ -1,4 +1,5 @@
 import type { ModuleContext, ModuleHandler, SocketTag } from "../../registry";
+import { dockTokenResponseSchema, overlayTokenMutationRequestSchema } from "../../../shared/contracts/api";
 import { jsonResponse, readJson, RequestError } from "../../../worker/http";
 import {
   boardSaveRequestSchema,
@@ -14,20 +15,20 @@ import { createSqlStorageChallengeRepository } from "./sql-storage-challenge-rep
 
 const nowIso = (): string => new Date().toISOString();
 
-const challengeRepository = (ctx: ModuleContext) =>
+const challengeRepository = (ctx: ModuleContext, dockSocketTag: SocketTag) =>
   createSqlStorageChallengeRepository({
     sql: ctx.sql,
     transactionSync: ctx.transactionSync,
     onDockTokenDeleted: () => {
-      ctx.revokeTokenSockets("dock");
+      ctx.revokeTokenSockets(dockSocketTag);
     },
   });
 
 export { challengeRepository };
 
-const challengeService = (ctx: ModuleContext) =>
+const challengeService = (ctx: ModuleContext, dockSocketTag: SocketTag) =>
   createWinChallenges({
-    repository: challengeRepository(ctx),
+    repository: challengeRepository(ctx, dockSocketTag),
     clock: nowIso,
   });
 
@@ -69,28 +70,104 @@ const requireChallengeCommandAuth = async (
   return "session";
 };
 
+const mutateDockToken = async (
+  request: Request,
+  ctx: ModuleContext,
+  dockSocketTag: SocketTag,
+  rotate: boolean,
+): Promise<Response> => {
+  const session = await ctx.requireSessionAndCsrf(request);
+  const input = overlayTokenMutationRequestSchema.parse(await readJson(request, 2_048));
+  const repository = challengeRepository(ctx, dockSocketTag);
+  const current = repository.readDockToken();
+  const currentGeneration = current?.generation ?? 0;
+  if (
+    current !== null &&
+    current.generation === input.expectedGeneration + 1 &&
+    current.requestId === input.requestId
+  ) {
+    if (current.creatingSessionHash !== session.sessionHash) {
+      throw new RequestError(409, "idempotency_mismatch", "Token-Anfrage wurde anders wiederholt.");
+    }
+    const token = await ctx.readDockTokenValue(current);
+    if (token === null) {
+      throw new RequestError(409, "idempotency_mismatch", "Token-Anfrage kann nicht wiederhergestellt werden.");
+    }
+    if (rotate) ctx.revokeTokenSockets(dockSocketTag, input.expectedGeneration);
+    return jsonResponse(
+      dockTokenResponseSchema.parse({
+        requestId: current.requestId,
+        generation: current.generation,
+        fingerprint: current.fingerprint,
+        createdAt: current.createdAt,
+        token,
+      }),
+    );
+  }
+  if (currentGeneration !== input.expectedGeneration || (rotate ? current === null : current !== null)) {
+    throw new RequestError(409, "token_changed", "Der Dock-Tokenstatus hat sich geändert.");
+  }
+  const createdAt = nowIso();
+  const generation = currentGeneration + 1;
+  const material = await ctx.createDockTokenMaterial();
+  // Zwischen dem ersten Lesen und hier liegt `await`. Ein paralleler Request
+  // kann den Token inzwischen geändert haben, deshalb wird der Stand neu
+  // gelesen — über dasselbe Repository wie oben, nicht über den Host.
+  const currentAfterCrypto = repository.readDockToken();
+  if (
+    (currentAfterCrypto?.generation ?? 0) !== currentGeneration ||
+    (rotate ? currentAfterCrypto === null : currentAfterCrypto !== null)
+  ) {
+    throw new RequestError(409, "token_changed", "Der Dock-Tokenstatus hat sich geändert.");
+  }
+  const fingerprint = material.tokenHash.slice(0, 8).toUpperCase();
+  repository.upsertDockToken({
+    tokenHash: material.tokenHash,
+    tokenEnvelope: material.tokenEnvelope,
+    fingerprint,
+    generation,
+    requestId: input.requestId,
+    creatingSessionHash: session.sessionHash,
+    createdAt,
+    lastUsedAt: null,
+  });
+  if (rotate) ctx.revokeTokenSockets(dockSocketTag, currentGeneration);
+  return jsonResponse(
+    dockTokenResponseSchema.parse({
+      requestId: input.requestId,
+      generation,
+      fingerprint,
+      createdAt,
+      token: material.token,
+    }),
+  );
+};
+
 /**
  * Erzeugt die Challenge-HTTP-Fassade. Die Socket-Tags kommen aus dem
  * Registry-Eintrag und werden nicht in der Geschäftslogik dupliziert.
  */
-export const createChallengeHttpHandler = (socketTags: readonly SocketTag[]): ModuleHandler =>
+export const createChallengeHttpHandler = (
+  socketTags: readonly SocketTag[],
+  dockSocketTag: SocketTag,
+): ModuleHandler =>
   async (request, ctx): Promise<Response | null> => {
     const url = new URL(request.url);
 
     if (request.method === "GET" && url.pathname === "/challenges") {
       ctx.requireSession(request);
-      return jsonResponse(challengeService(ctx).readSnapshot());
+      return jsonResponse(challengeService(ctx, dockSocketTag).readSnapshot());
     }
     if (request.method === "GET" && url.pathname === "/challenges/sets") {
       requireSetSession(request);
       ctx.requireSession(request);
-      return jsonResponse(challengeSetListResponseSchema.parse({ sets: challengeService(ctx).listSets() }));
+      return jsonResponse(challengeSetListResponseSchema.parse({ sets: challengeService(ctx, dockSocketTag).listSets() }));
     }
     if (request.method === "POST" && url.pathname === "/challenges/sets") {
       requireSetSession(request);
       await ctx.requireSessionAndCsrf(request);
       const input = challengeSetSaveRequestSchema.parse(await readJson(request, 1_024));
-      const record = challengeService(ctx).saveSet({
+      const record = challengeService(ctx, dockSocketTag).saveSet({
         name: input.name,
         includeProgress: input.includeProgress,
         ...(input.setId === undefined ? {} : { setId: input.setId }),
@@ -101,7 +178,7 @@ export const createChallengeHttpHandler = (socketTags: readonly SocketTag[]): Mo
       requireSetSession(request);
       ctx.requireSession(request);
       const decodedSetId = decodeSetId(url.pathname.slice("/challenges/sets/".length));
-      const record = challengeService(ctx).readSet(decodedSetId);
+      const record = challengeService(ctx, dockSocketTag).readSet(decodedSetId);
       if (record === null) throw new RequestError(404, "not_found", "Set nicht gefunden.");
       return jsonResponse(challengeSetResponseSchema.parse({ summary: record.summary, set: record.payload }));
     }
@@ -109,7 +186,7 @@ export const createChallengeHttpHandler = (socketTags: readonly SocketTag[]): Mo
       requireSetSession(request);
       await ctx.requireSessionAndCsrf(request);
       const decodedSetId = decodeSetId(url.pathname.slice("/challenges/sets/".length));
-      challengeService(ctx).deleteSet(decodedSetId);
+      challengeService(ctx, dockSocketTag).deleteSet(decodedSetId);
       return jsonResponse(challengeSetDeleteResponseSchema.parse({ id: decodedSetId, deleted: true }));
     }
     if (request.method === "POST" && url.pathname === "/challenges/commands") {
@@ -118,14 +195,14 @@ export const createChallengeHttpHandler = (socketTags: readonly SocketTag[]): Mo
       if (auth === "dock" && command.scope === "global" && command.type === "resetGlobalTimer") {
         throw new RequestError(403, "forbidden", "Der Dock darf den globalen Timer nicht zurücksetzen.");
       }
-      const result = await challengeService(ctx).executeCommand(command);
+      const result = await challengeService(ctx, dockSocketTag).executeCommand(command);
       ctx.broadcast(socketTags, result.update);
       return jsonResponse(result.response);
     }
     if (request.method === "PUT" && url.pathname === "/challenges/board") {
       await ctx.requireSessionAndCsrf(request);
       const input = boardSaveRequestSchema.parse(await readJson(request, 32_768));
-      const result = challengeService(ctx).saveBoard({
+      const result = challengeService(ctx, dockSocketTag).saveBoard({
         baseBoardRevision: input.baseBoardRevision,
         definitions: input.challenges,
         ...(input.reason === undefined ? {} : { reason: input.reason }),
@@ -142,11 +219,15 @@ export const createChallengeHttpHandler = (socketTags: readonly SocketTag[]): Mo
     if (request.method === "PUT" && url.pathname === "/challenges/settings") {
       await ctx.requireSessionAndCsrf(request);
       const input = settingsSaveRequestSchema.parse(await readJson(request, 32_768));
-      const result = challengeService(ctx).saveSettings(input);
+      const result = challengeService(ctx, dockSocketTag).saveSettings(input);
       ctx.broadcast(socketTags, { ...result.snapshot, event: null });
       return jsonResponse(result);
     }
-
-    // Die Dock-Token-Routen bleiben beim Host, weil sie gemeinsamen Token-Zustand ändern.
+    if (request.method === "POST" && url.pathname === "/challenges/dock-token") {
+      return mutateDockToken(request, ctx, dockSocketTag, false);
+    }
+    if (request.method === "POST" && url.pathname === "/challenges/dock-token/rotate") {
+      return mutateDockToken(request, ctx, dockSocketTag, true);
+    }
     return null;
   };

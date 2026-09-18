@@ -5,7 +5,6 @@ import {
   auditEntrySchema,
   bootstrapResponseSchema,
   clientMessageSchema,
-  dockTokenResponseSchema,
   flushDisplaySocketsResponseSchema,
   MAX_COMPOSITE_SOCKETS,
   MAX_CHALLENGE_SOCKETS,
@@ -239,12 +238,6 @@ export class ChannelObject extends DurableObject<AppEnv> {
       }
       const moduleResponse = await this.dispatchModuleRequest(request, url.pathname);
       if (moduleResponse !== null) return moduleResponse;
-      if (request.method === "POST" && url.pathname === "/challenges/dock-token") {
-        return await this.mutateDockToken(request, false);
-      }
-      if (request.method === "POST" && url.pathname === "/challenges/dock-token/rotate") {
-        return await this.mutateDockToken(request, true);
-      }
       if (request.method === "PUT" && url.pathname === "/state") {
         return await this.save(request);
       }
@@ -339,6 +332,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       requireSessionAndCsrf: async (request) => {
         const session = this.requireSession(request);
         await this.requireCsrf(request, session);
+        return { sessionHash: session.session_hash };
       },
       requireDockToken: async (request) => {
         await this.requireDockToken(request);
@@ -346,8 +340,16 @@ export class ChannelObject extends DurableObject<AppEnv> {
       broadcast: (tags, payload) => {
         this.broadcast(tags, payload);
       },
-      revokeTokenSockets: (tag) => {
-        this.revokeTokenSockets(tag);
+      createDockTokenMaterial: async () => {
+        const pepper = this.getOverlayTokenPepper();
+        const token = randomToken(32);
+        const tokenHash = await hmacHex(pepper, token);
+        const tokenEnvelope = await encryptOverlayToken(token, pepper, this.env.CAPSULE_ID);
+        return { token, tokenHash, tokenEnvelope: JSON.stringify(tokenEnvelope) };
+      },
+      readDockTokenValue: (record) => this.readDockTokenValue(record),
+      revokeTokenSockets: (tag, expectedGeneration) => {
+        this.revokeTokenSockets(tag, expectedGeneration);
       },
     };
   }
@@ -968,74 +970,6 @@ export class ChannelObject extends DurableObject<AppEnv> {
     }
   }
 
-  private async mutateDockToken(request: Request, rotate: boolean): Promise<Response> {
-    const session = this.requireSession(request);
-    await this.requireCsrf(request, session);
-    const input = overlayTokenMutationRequestSchema.parse(await readJson(request, 2_048));
-    const pepper = this.getOverlayTokenPepper();
-    const current = this.getDockToken();
-    const currentGeneration = current?.generation ?? 0;
-    if (
-      current !== null &&
-      current.generation === input.expectedGeneration + 1 &&
-      current.requestId === input.requestId
-    ) {
-      if (current.creatingSessionHash !== session.session_hash) {
-        throw new RequestError(409, "idempotency_mismatch", "Token-Anfrage wurde anders wiederholt.");
-      }
-      const token = await this.readDockTokenValue(current);
-      if (token === null) {
-        throw new RequestError(409, "idempotency_mismatch", "Token-Anfrage kann nicht wiederhergestellt werden.");
-      }
-      if (rotate) this.revokeTokenSockets(SOCKETS.dock.tag, input.expectedGeneration);
-      return jsonResponse(
-        dockTokenResponseSchema.parse({
-          requestId: current.requestId,
-          generation: current.generation,
-          fingerprint: current.fingerprint,
-          createdAt: current.createdAt,
-          token,
-        }),
-      );
-    }
-    if (currentGeneration !== input.expectedGeneration || (rotate ? current === null : current !== null)) {
-      throw new RequestError(409, "token_changed", "Der Dock-Tokenstatus hat sich geändert.");
-    }
-    const createdAt = nowIso();
-    const generation = currentGeneration + 1;
-    const token = randomToken(32);
-    const tokenHash = await hmacHex(pepper, token);
-    const tokenEnvelope = await encryptOverlayToken(token, pepper, this.env.CAPSULE_ID);
-    const currentAfterCrypto = this.getDockToken();
-    if (
-      (currentAfterCrypto?.generation ?? 0) !== currentGeneration ||
-      (rotate ? currentAfterCrypto === null : currentAfterCrypto !== null)
-    ) {
-      throw new RequestError(409, "token_changed", "Der Dock-Tokenstatus hat sich geändert.");
-    }
-    const fingerprint = tokenHash.slice(0, 8).toUpperCase();
-    createChallengeRepository(this.createModuleContext()).upsertDockToken({
-      tokenHash,
-      tokenEnvelope: JSON.stringify(tokenEnvelope),
-      fingerprint,
-      generation,
-      requestId: input.requestId,
-      creatingSessionHash: session.session_hash,
-      createdAt,
-      lastUsedAt: null,
-    });
-    if (rotate) this.revokeTokenSockets(SOCKETS.dock.tag, currentGeneration);
-    return jsonResponse(
-      dockTokenResponseSchema.parse({
-        requestId: input.requestId,
-        generation,
-        fingerprint,
-        createdAt,
-        token,
-      }),
-    );
-  }
-
   private async uploadMedia(request: Request): Promise<Response> {
     const session = this.requireSession(request);
     await this.requireCsrf(request, session);
@@ -1358,7 +1292,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     // muesste ihn die Socket-Definition liefern, so wie `handle()` die Routen
     // liefert. Solange nur Challenges und Dock ueber diesen Weg verbinden,
     // ist das korrekt; mit P6 gehoert es an die Modulgrenze.
-    server.send(JSON.stringify(createChallengeService(this.createModuleContext()).readChallengeUpdate()));
+    server.send(JSON.stringify(createChallengeService(this.createModuleContext(), SOCKETS.dock.tag).readChallengeUpdate()));
     this.broadcastOverlayPresence();
     return new Response(null, {
       status: 101,
@@ -1395,7 +1329,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       tokenGeneration: row.generation,
       connectedAt: nowIso(),
     } satisfies SocketAttachment);
-    server.send(JSON.stringify(createChallengeService(this.createModuleContext()).readChallengeUpdate()));
+    server.send(JSON.stringify(createChallengeService(this.createModuleContext(), SOCKETS.dock.tag).readChallengeUpdate()));
     return new Response(null, {
       status: 101,
       webSocket: client,
@@ -1801,7 +1735,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
   }
 
   private getDockToken(): DockTokenRecord | null {
-    return createChallengeRepository(this.createModuleContext()).readDockToken();
+    return createChallengeRepository(this.createModuleContext(), SOCKETS.dock.tag).readDockToken();
   }
 
   private async requireDockToken(request: Request): Promise<DockTokenRecord> {

@@ -15,7 +15,7 @@ import {
 } from "../../src/shared/contracts/api";
 import { DOCK_SOCKET_PROTOCOL, OVERLAY_SOCKET_PROTOCOL } from "../../src/shared/contracts/protocol";
 import { challengeRepository } from "../../src/modules/win-challenges/adapters/http-facade";
-import type { ModuleContext } from "../../src/modules/registry";
+import { SOCKETS, type ModuleContext } from "../../src/modules/registry";
 
 const origin = "http://localhost:5173";
 const tabId = "challenge-socket-test";
@@ -986,7 +986,7 @@ describe("Win-Challenges-Sockets", () => {
         const context = (
           instance as unknown as { createModuleContext(): ModuleContext }
         ).createModuleContext();
-        challengeRepository(context).deleteDockToken();
+        challengeRepository(context, SOCKETS.dock.tag).deleteDockToken();
       });
       await closed;
       const noUpdate = waitForMessage(dock, (data) => data.event === null, 250);
