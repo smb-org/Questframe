@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { runMigrations } from "../../src/channel/migrations";
-import { MODULE_REGISTRY, type ModuleTables, type OverlayModule } from "../../src/modules/registry";
+import { MODULE_REGISTRY, type ModuleContext, type ModuleTables, type OverlayModule } from "../../src/modules/registry";
 import { readSchemaSnapshot, withHistoricalDatabase } from "./migrations-harness";
 
 import CHANNEL_OBJECT_SOURCE from "../../src/channel/channel-object.ts?raw";
+import CHALLENGE_FACADE_SOURCE from "../../src/modules/win-challenges/adapters/http-facade.ts?raw";
 import WIRE_CONTRACT_SOURCE from "../../src/shared/contracts/win-challenges.ts?raw";
 import SCHEMAS_SOURCE from "../../src/modules/win-challenges/contracts/schemas.ts?raw";
 import { createBudgetDeclarations } from "../../scripts/lib/build-budget-declarations.mjs";
@@ -97,7 +98,10 @@ const fetchStart = CHANNEL_OBJECT_SOURCE.indexOf("  override async fetch(request
 const fetchEnd = CHANNEL_OBJECT_SOURCE.indexOf("  private async createDevSession(request: Request): Promise<Response> {");
 if (fetchStart < 0 || fetchEnd <= fetchStart) throw new Error("Konnte den ChannelObject-fetch-Pfad nicht abgrenzen.");
 const CHANNEL_FETCH_SOURCE = CHANNEL_OBJECT_SOURCE.slice(fetchStart, fetchEnd);
-const REAL_DO_ROUTE_PATHS = sourceValues(CHANNEL_FETCH_SOURCE, /url\.pathname\s*===\s*"([^"]+)"/gu);
+const REAL_DO_ROUTE_PATHS = [
+  ...sourceValues(CHANNEL_FETCH_SOURCE, /url\.pathname\s*===\s*"([^"]+)"/gu),
+  ...sourceValues(CHALLENGE_FACADE_SOURCE, /(?:url\.)?pathname\s*===\s*"([^"]+)"/gu),
+];
 const REAL_SOCKET_PATHS = REAL_DO_ROUTE_PATHS.filter((path) => path.startsWith("/ws/"));
 const REAL_SOCKET_TAGS = sourceValues(
   CHANNEL_OBJECT_SOURCE,
@@ -153,6 +157,30 @@ describe("Modul-Registry-Selbsttest", () => {
   it("beansprucht keinen Routenpräfix doppelt", () => {
     expect(collectDuplicates(MODULE_REGISTRY, (module) => module.routePrefixes)).toEqual(new Map());
     expect(collectRoutePrefixOverlaps(MODULE_REGISTRY)).toEqual([]);
+  });
+
+  it("hat nur beim Challenges-Modul einen optionalen HTTP-Handler", () => {
+    const hud = MODULE_REGISTRY.find((module) => module.id === "hud");
+    const challenges = MODULE_REGISTRY.find((module) => module.id === "challenges");
+    expect(hud?.handle).toBeUndefined();
+    expect(challenges?.handle).toEqual(expect.any(Function));
+  });
+
+  it("gibt die beiden Dock-Token-Routen an den Host zurück", async () => {
+    const challenges = MODULE_REGISTRY.find((module) => module.id === "challenges");
+    if (challenges?.handle === undefined) throw new Error("Challenges-Handler fehlt.");
+    await expect(
+      challenges.handle(
+        new Request("https://channel.internal/challenges/dock-token", { method: "POST" }),
+        {} as ModuleContext,
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      challenges.handle(
+        new Request("https://channel.internal/challenges/dock-token/rotate", { method: "POST" }),
+        {} as ModuleContext,
+      ),
+    ).resolves.toBeNull();
   });
 
   it("behandelt verschachtelte Routenpräfixe als Überlappung", () => {

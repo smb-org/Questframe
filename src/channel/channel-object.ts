@@ -46,22 +46,16 @@ import { errorResponse, jsonResponse, readJson, RequestError } from "../worker/h
 import { hmacHex, randomToken, sha256Hex, timingSafeEqual } from "./crypto";
 import { decryptOverlayToken, encryptOverlayToken, tokenEnvelopeSchema } from "./auth/crypto";
 import { runMigrations } from "./migrations";
-import { createSqlStorageChallengeRepository } from "../modules/win-challenges/adapters/sql-storage-challenge-repository";
 import {
-  boardSaveRequestSchema,
-  challengeSetDeleteResponseSchema,
-  challengeSetListResponseSchema,
-  challengeSetResponseSchema,
-  challengeSetSaveRequestSchema,
-  commandSchema,
-  settingsSaveRequestSchema,
-} from "../modules/win-challenges/contracts/schemas";
-import { createWinChallenges, type ChallengeUpdatePayload } from "../modules/win-challenges/service/commands";
+  challengeRepository as createChallengeRepository,
+  challengeService as createChallengeService,
+} from "../modules/win-challenges/adapters/http-facade";
 import {
   ChallengeRepositoryError,
   RevisionConflictError,
   type DockTokenRecord,
 } from "../modules/win-challenges/repository/challenge-repository";
+import { MODULE_REGISTRY, type ModuleContext } from "../modules/registry";
 
 type StateRow = {
   revision: number;
@@ -254,30 +248,8 @@ export class ChannelObject extends DurableObject<AppEnv> {
       if (request.method === "GET" && url.pathname === "/editor/bootstrap") {
         return await this.bootstrap(request);
       }
-      if (request.method === "GET" && url.pathname === "/challenges") {
-        return this.getChallenges(request);
-      }
-      if (request.method === "GET" && url.pathname === "/challenges/sets") {
-        return this.getChallengeSets(request);
-      }
-      if (request.method === "POST" && url.pathname === "/challenges/sets") {
-        return await this.saveChallengeSet(request);
-      }
-      if (request.method === "GET" && url.pathname.startsWith("/challenges/sets/")) {
-        return this.getChallengeSet(request, url.pathname.slice("/challenges/sets/".length));
-      }
-      if (request.method === "DELETE" && url.pathname.startsWith("/challenges/sets/")) {
-        return await this.deleteChallengeSet(request, url.pathname.slice("/challenges/sets/".length));
-      }
-      if (request.method === "POST" && url.pathname === "/challenges/commands") {
-        return await this.runChallengeCommand(request);
-      }
-      if (request.method === "PUT" && url.pathname === "/challenges/board") {
-        return await this.saveChallengeBoard(request);
-      }
-      if (request.method === "PUT" && url.pathname === "/challenges/settings") {
-        return await this.saveChallengeSettings(request);
-      }
+      const moduleResponse = await this.dispatchModuleRequest(request, url.pathname);
+      if (moduleResponse !== null) return moduleResponse;
       if (request.method === "POST" && url.pathname === "/challenges/dock-token") {
         return await this.mutateDockToken(request, false);
       }
@@ -356,6 +328,39 @@ export class ChannelObject extends DurableObject<AppEnv> {
       });
       return errorResponse(500, "internal_error", "Interner Fehler.");
     }
+  }
+
+  private async dispatchModuleRequest(request: Request, pathname: string): Promise<Response | null> {
+    for (const module of MODULE_REGISTRY) {
+      if (!module.routePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) continue;
+      if (module.handle === undefined) continue;
+      const response = await module.handle(request, this.createModuleContext());
+      if (response !== null) return response;
+    }
+    return null;
+  }
+
+  private createModuleContext(): ModuleContext {
+    return {
+      sql: this.ctx.storage.sql,
+      transactionSync: this.ctx.storage.transactionSync.bind(this.ctx.storage),
+      requireSession: (request) => {
+        this.requireSession(request);
+      },
+      requireSessionAndCsrf: async (request) => {
+        const session = this.requireSession(request);
+        await this.requireCsrf(request, session);
+      },
+      requireDockToken: async (request) => {
+        await this.requireDockToken(request);
+      },
+      broadcast: (tags, payload) => {
+        this.broadcast(tags, payload);
+      },
+      revokeTokenSockets: (tag) => {
+        this.revokeTokenSockets(tag);
+      },
+    };
   }
 
   private async createDevSession(request: Request): Promise<Response> {
@@ -662,130 +667,6 @@ export class ChannelObject extends DurableObject<AppEnv> {
       serverTime: nowIso(),
     });
     return jsonResponse(response);
-  }
-
-  private challengeService() {
-    const repository = this.challengeRepository();
-    return createWinChallenges({
-      repository,
-      clock: nowIso,
-    });
-  }
-
-  private challengeRepository() {
-    return createSqlStorageChallengeRepository({
-      sql: this.ctx.storage.sql,
-      transactionSync: this.ctx.storage.transactionSync.bind(this.ctx.storage),
-      onDockTokenDeleted: () => {
-        this.revokeTokenSockets("dock");
-      },
-    });
-  }
-
-  private getChallenges(request: Request): Response {
-    this.requireSession(request);
-    return jsonResponse(this.challengeService().readSnapshot());
-  }
-
-  private getChallengeSets(request: Request): Response {
-    this.requireSetSession(request);
-    return jsonResponse(challengeSetListResponseSchema.parse({ sets: this.challengeService().listSets() }));
-  }
-
-  private getChallengeSet(request: Request, setId: string): Response {
-    this.requireSetSession(request);
-    const decodedSetId = this.decodeSetId(setId);
-    const record = this.challengeService().readSet(decodedSetId);
-    if (record === null) throw new RequestError(404, "not_found", "Set nicht gefunden.");
-    return jsonResponse(challengeSetResponseSchema.parse({ summary: record.summary, set: record.payload }));
-  }
-
-  private async saveChallengeSet(request: Request): Promise<Response> {
-    const session = this.requireSetSession(request);
-    await this.requireCsrf(request, session);
-    const input = challengeSetSaveRequestSchema.parse(await readJson(request, 1_024));
-    const record = this.challengeService().saveSet({
-      name: input.name,
-      includeProgress: input.includeProgress,
-      ...(input.setId === undefined ? {} : { setId: input.setId }),
-    });
-    return jsonResponse(challengeSetResponseSchema.parse({ summary: record.summary, set: record.payload }));
-  }
-
-  private async deleteChallengeSet(request: Request, setId: string): Promise<Response> {
-    const session = this.requireSetSession(request);
-    await this.requireCsrf(request, session);
-    const decodedSetId = this.decodeSetId(setId);
-    this.challengeService().deleteSet(decodedSetId);
-    return jsonResponse(challengeSetDeleteResponseSchema.parse({ id: decodedSetId, deleted: true }));
-  }
-
-  private async runChallengeCommand(request: Request): Promise<Response> {
-    const auth = await this.requireChallengeCommandAuth(request);
-    const command = commandSchema.parse(await readJson(request, 32_768));
-    if (auth === "dock" && command.scope === "global" && command.type === "resetGlobalTimer") {
-      throw new RequestError(403, "forbidden", "Der Dock darf den globalen Timer nicht zurücksetzen.");
-    }
-    const result = await this.challengeService().executeCommand(command);
-    this.broadcastChallengeUpdate(result.update);
-    return jsonResponse(result.response);
-  }
-
-  private async saveChallengeBoard(request: Request): Promise<Response> {
-    const session = this.requireSession(request);
-    await this.requireCsrf(request, session);
-    const input = boardSaveRequestSchema.parse(await readJson(request, 32_768));
-    const result = this.challengeService().saveBoard({
-      baseBoardRevision: input.baseBoardRevision,
-      definitions: input.challenges,
-      ...(input.reason === undefined ? {} : { reason: input.reason }),
-      ...(input.setId === undefined ? {} : { setId: input.setId }),
-    });
-    this.broadcastChallengeUpdate({
-      ...result.snapshot,
-      event: input.reason === "set-switch"
-        ? { scope: "board", type: "set_switched" }
-        : null,
-    });
-    return jsonResponse(result);
-  }
-
-  private async saveChallengeSettings(request: Request): Promise<Response> {
-    const session = this.requireSession(request);
-    await this.requireCsrf(request, session);
-    const input = settingsSaveRequestSchema.parse(await readJson(request, 32_768));
-    const result = this.challengeService().saveSettings(input);
-    this.broadcastChallengeUpdate({ ...result.snapshot, event: null });
-    return jsonResponse(result);
-  }
-
-  private async requireChallengeCommandAuth(request: Request): Promise<"session" | "dock"> {
-    if (request.headers.get("x-dock-token") !== null) {
-      await this.requireDockToken(request);
-      return "dock";
-    }
-    const session = this.requireSession(request);
-    await this.requireCsrf(request, session);
-    return "session";
-  }
-
-  private requireSetSession(request: Request): SessionRow {
-    if (request.headers.get("x-dock-token") !== null) {
-      throw new RequestError(403, "forbidden", "Der Dock darf keine Sets verwalten.");
-    }
-    return this.requireSession(request);
-  }
-
-  private decodeSetId(setId: string): string {
-    if (setId === "" || setId.includes("/")) throw new RequestError(400, "bad_request", "Set-ID fehlt.");
-    let decoded: string;
-    try {
-      decoded = decodeURIComponent(setId);
-    } catch {
-      throw new RequestError(400, "bad_request", "Set-ID ist ungültig.");
-    }
-    if (decoded === "" || decoded.includes("/")) throw new RequestError(400, "bad_request", "Set-ID ist ungültig.");
-    return decoded;
   }
 
   private async save(request: Request): Promise<Response> {
@@ -1145,7 +1026,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       throw new RequestError(409, "token_changed", "Der Dock-Tokenstatus hat sich geändert.");
     }
     const fingerprint = tokenHash.slice(0, 8).toUpperCase();
-    this.challengeRepository().upsertDockToken({
+    createChallengeRepository(this.createModuleContext()).upsertDockToken({
       tokenHash,
       tokenEnvelope: JSON.stringify(tokenEnvelope),
       fingerprint,
@@ -1484,7 +1365,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       limits.maxCompositeSockets,
       "Zu viele Composite-Verbindungen.",
     );
-    server.send(JSON.stringify(this.challengeService().readChallengeUpdate()));
+    server.send(JSON.stringify(createChallengeService(this.createModuleContext()).readChallengeUpdate()));
     this.broadcastOverlayPresence();
     return new Response(null, {
       status: 101,
@@ -1525,7 +1406,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       tokenGeneration: row.generation,
       connectedAt: nowIso(),
     } satisfies SocketAttachment);
-    server.send(JSON.stringify(this.challengeService().readChallengeUpdate()));
+    server.send(JSON.stringify(createChallengeService(this.createModuleContext()).readChallengeUpdate()));
     return new Response(null, {
       status: 101,
       webSocket: client,
@@ -1555,7 +1436,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       tokenGeneration: row.generation,
       connectedAt: nowIso(),
     } satisfies SocketAttachment);
-    server.send(JSON.stringify(this.challengeService().readChallengeUpdate()));
+    server.send(JSON.stringify(createChallengeService(this.createModuleContext()).readChallengeUpdate()));
     return new Response(null, {
       status: 101,
       webSocket: client,
@@ -1937,7 +1818,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
   }
 
   private getDockToken(): DockTokenRecord | null {
-    return this.challengeRepository().readDockToken();
+    return createChallengeRepository(this.createModuleContext()).readDockToken();
   }
 
   private async requireDockToken(request: Request): Promise<DockTokenRecord> {
@@ -2096,23 +1977,22 @@ export class ChannelObject extends DurableObject<AppEnv> {
     );
   }
 
-  private broadcastChallengeUpdate(
-    update: ChallengeUpdatePayload,
-  ): void {
-    const message = JSON.stringify(update);
+  private broadcast(tags: readonly string[], payload: unknown): void {
+    const targetTags = new Set(tags);
+    // Editor und Composite tragen beide Modul-Nachrichten; sie bleiben
+    // gemeinsame Host-Sockets und erhalten deshalb Challenge-Updates weiter.
+    if (tags.includes("challenge") || tags.includes("dock")) {
+      targetTags.add("editor");
+      targetTags.add("composite");
+    }
     this.sendToSockets(
-      [
-        ...this.ctx.getWebSockets("editor"),
-        ...this.ctx.getWebSockets("challenge"),
-        ...this.ctx.getWebSockets("dock"),
-        ...this.ctx.getWebSockets("composite"),
-      ],
-      message,
+      [...targetTags].flatMap((tag) => this.ctx.getWebSockets(tag)),
+      JSON.stringify(payload),
     );
   }
 
   private revokeTokenSockets(
-    tag: "overlay" | "composite" | "challenge" | "dock",
+    tag: string,
     tokenGeneration?: number,
   ): void {
     const message = JSON.stringify({ type: "token_revoked" });

@@ -14,6 +14,8 @@ import {
   type BootstrapResponse,
 } from "../../src/shared/contracts/api";
 import { DOCK_SOCKET_PROTOCOL, OVERLAY_SOCKET_PROTOCOL } from "../../src/shared/contracts/protocol";
+import { challengeRepository } from "../../src/modules/win-challenges/adapters/http-facade";
+import type { ModuleContext } from "../../src/modules/registry";
 
 const origin = "http://localhost:5173";
 const tabId = "challenge-socket-test";
@@ -981,10 +983,10 @@ describe("Win-Challenges-Sockets", () => {
       await requireMessage(dock, (data) => data.event === null, "Dock-Snapshot");
       const closed = expectClose(dock, 4003, "token_revoked");
       await runInDurableObject(stub, (instance) => {
-        const repository = (
-          instance as unknown as { challengeRepository(): { deleteDockToken(): void } }
-        ).challengeRepository();
-        repository.deleteDockToken();
+        const context = (
+          instance as unknown as { createModuleContext(): ModuleContext }
+        ).createModuleContext();
+        challengeRepository(context).deleteDockToken();
       });
       await closed;
       const noUpdate = waitForMessage(dock, (data) => data.event === null, 250);
