@@ -52,7 +52,36 @@ abgeleitet, weil `as const` optionale Member wegkürzt — deshalb trennen
 Ableitungsquelle und Zugriffssicht), und der Set-Helfer hieß
 `requireSetSession`, ohne eine Session zu prüfen (jetzt `rejectDockToken`).
 
-Offen bleibt die Reihenfolge ab P3.
+**P3 ist geliefert** (`0baa3c9`). `runMigrations` läuft über eine Liste aus
+29 Einträgen `{version, guard?, statements|run}`, 23 davon mit Wächter; die
+Datei verliert 129 Zeilen netto. Abgesichert durch einen Schema-Wächter
+(`0627929`), der vor dem Umbau 21 Schemaobjekte als Fixture eingefroren hat
+und nachweislich anschlägt — der Umbau ließ das Schema byteidentisch.
+
+Ein Riss wurde beim Nachprüfen geschlossen: die erste Fassung ließ den Runner
+`version === 17` literal kennen und fünf Statements positionell
+destrukturieren. Der Eintragstyp trägt jetzt entweder `statements` oder eine
+eigene `run`-Funktion, damit ist der Sonderfall strukturell weg.
+
+**Erster echter Deploy am 2026-09-18.** Bis dahin waren 33 Commits und fünf
+Migrationen nie gegen eine Umgebung gelaufen. Auf Staging ist das jetzt
+nachgeholt: Deploy durch, Durable Object geweckt, Migration 17 bis 20 und der
+neue Runner sind fehlerfrei im DO-Konstruktor gelaufen (`channel-object.ts:217`).
+Beweis: Anfragen an die DO-Routen antworten stabil mit `401` aus
+`requireSession` statt mit `500` — ein Wurf im Konstruktor würde jeden Request
+killen.
+
+Nicht verifiziert ist damit die *Datenkorrektheit* des Backfills (vergebene
+Steuer-Keys, umgestellte `theme_mode`-Werte). Dafür braucht es eine
+angemeldete Sitzung auf Staging.
+
+**Was das für P4 und P6a ändert:** beide brauchen laut Risikoabschnitt einen
+Storage-Snapshot, bevor sie gegen Produktionsdaten laufen. Mit einer
+bespielten Staging-Umgebung gibt es jetzt einen Ort, an dem der Backfill
+vorher geübt werden kann. Das ersetzt den Snapshot nicht, senkt aber die
+Wahrscheinlichkeit, ihn zu brauchen.
+
+Offen bleibt die Reihenfolge ab P4.
 
 `P6a ──► P6` ist ebenfalls fest: das HUD kann erst wandern, wenn Undo und
 Audit nicht mehr an ihm hängen. Sonst wandern sie mit und müssen später
