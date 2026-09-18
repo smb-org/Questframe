@@ -554,7 +554,7 @@ const MIGRATIONS: readonly Migration[] = [
 
 const migrationVersionWasApplied = (sql: SqlStorage, version: number): boolean =>
   sql
-    .exec<{ version: number }>(`SELECT version FROM _sql_schema_migrations WHERE version = ${String(version)}`)
+    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = ?", version)
     .toArray().length > 0;
 
 const recordMigration = (sql: SqlStorage, version: number, buildId: string): void => {
