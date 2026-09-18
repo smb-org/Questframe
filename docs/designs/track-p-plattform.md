@@ -38,10 +38,21 @@ Nicht verhandelbar ist nur `P3 ──► P4`: Namespaces in einen imperativen
 Runner einzuziehen bedeutet, jeden handgeschriebenen Wächter einzeln
 anzufassen. Deklarativ ist es eine Spalte im Eintrag.
 
-**Diese Reihenfolge ist nach der Code-Prüfung nicht mehr haltbar.** P2 hängt
-über die beiden Dock-Token-Routen an P5 (Befund 3 unten). Entweder P2 liefert
-nur acht der zehn Routen und der Rest wartet auf P5, oder P5 rückt vor P2.
-Das ist die erste Frage fürs Review.
+**Entschieden am 2026-09-18, P2 ist geliefert.** P2 hängt über die beiden
+Dock-Token-Routen an P5 (Befund 3 unten). Gewählt wurde die erste Variante:
+acht der zehn Routen sind gewandert, die Dock-Token-Routen bleiben bis P5
+beim Host. Der Vertrag drückt das aus, weil `handle()` `null` zurückgeben
+darf — „nicht zuständig, Host macht weiter".
+
+Geliefert in `0fb2ae0`: `src/modules/win-challenges/adapters/http-facade.ts`,
+`ModuleContext` mit sieben Host-Diensten, `channel-object.ts` 112 Zeilen
+leichter. Zwei Befunde aus der Nachprüfung stecken mit drin: `ModuleId` war
+auf eine handgepflegte Union gefallen (jetzt wieder aus der Registry
+abgeleitet, weil `as const` optionale Member wegkürzt — deshalb trennen
+Ableitungsquelle und Zugriffssicht), und der Set-Helfer hieß
+`requireSetSession`, ohne eine Session zu prüfen (jetzt `rejectDockToken`).
+
+Offen bleibt die Reihenfolge ab P3.
 
 `P6a ──► P6` ist ebenfalls fest: das HUD kann erst wandern, wenn Undo und
 Audit nicht mehr an ihm hängen. Sonst wandern sie mit und müssen später
