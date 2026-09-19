@@ -66,6 +66,35 @@ export class AdminApiError extends Error {
   }
 }
 
+type BrowserAdminUndo = {
+  (moduleId: "hud", channelSeq: number, baseRevision: number): Promise<SaveResponse>;
+  (moduleId: "challenges", channelSeq: number, baseRevision: ChallengeUndoBaseRevisions): Promise<ChallengeUndoResponse>;
+};
+
+type BrowserAdminRequestJson = (path: string, method: string, value: unknown) => Promise<Response>;
+
+const createBrowserAdminUndo = (requestJson: BrowserAdminRequestJson): BrowserAdminUndo => {
+  async function undo(moduleId: "hud", channelSeq: number, baseRevision: number): Promise<SaveResponse>;
+  async function undo(moduleId: "challenges", channelSeq: number, baseRevision: ChallengeUndoBaseRevisions): Promise<ChallengeUndoResponse>;
+  async function undo(moduleId: UndoModuleId, channelSeq: number, baseRevision: number | ChallengeUndoBaseRevisions) {
+    if (moduleId === "hud") {
+      if (typeof baseRevision !== "number") throw new Error("HUD-Undo benötigt eine HUD-Revision.");
+      const response = await requestJson("/api/state/undo", "POST", { moduleId, channelSeq, baseRevision });
+      return saveResponseSchema.parse(await response.json());
+    }
+    if (typeof baseRevision === "number") throw new Error("Challenge-Undo benötigt drei Konfliktrevisionen.");
+    const response = await requestJson("/api/state/undo", "POST", {
+      moduleId,
+      channelSeq,
+      baseBoardRevision: baseRevision.boardRevision,
+      baseSettingsRevision: baseRevision.settingsRevision,
+      baseEventSeq: baseRevision.eventSeq,
+    });
+    return challengeUndoResponseSchema.parse(await response.json());
+  }
+  return undo;
+};
+
 const getTabId = (): string => {
   const existing = sessionStorage.getItem("irl-stream-hud-editor-tab");
   if (existing !== null) return existing;
@@ -78,14 +107,14 @@ export class BrowserAdminApi implements AdminApi {
   private readonly tabId = getTabId();
   private csrfToken = "";
 
-  async bootstrap(): Promise<BootstrapResponse> {
+  bootstrap = async (): Promise<BootstrapResponse> => {
     const response = await this.request("/api/editor/bootstrap", { method: "GET" }, false);
     const parsed = bootstrapResponseSchema.parse(await response.json());
     this.csrfToken = parsed.csrfToken;
     return parsed;
-  }
+  };
 
-  async revalidate(): Promise<void> {
+  revalidate = async (): Promise<void> => {
     const response = await this.request(
       "/api/auth/revalidate",
       { method: "POST", body: "{}" },
@@ -93,118 +122,101 @@ export class BrowserAdminApi implements AdminApi {
     );
     const body = await response.json<{ csrfToken?: unknown }>();
     if (typeof body.csrfToken === "string") this.csrfToken = body.csrfToken;
-  }
+  };
 
-  async logout(): Promise<void> {
+  logout = async (): Promise<void> => {
     await this.request(
       "/auth/logout",
       { method: "POST", body: "{}" },
       true,
     );
-  }
+  };
 
-  async save(input: SaveRequest) {
+  save = async (input: SaveRequest) => {
     const response = await this.requestJson("/api/state", "PUT", input);
     return saveResponseSchema.parse(await response.json());
-  }
+  };
 
-  async setVisibility(enabled: boolean) {
+  setVisibility = async (enabled: boolean) => {
     const response = await this.requestJson("/api/overlay-visibility", "POST", { enabled });
     return visibilityResponseSchema.parse(await response.json());
-  }
+  };
 
-  async getChallengeBoard(): Promise<ChallengeBoardSnapshot> {
+  getChallengeBoard = async (): Promise<ChallengeBoardSnapshot> => {
     const response = await this.request("/api/challenges", { method: "GET" }, false);
     return challengeBoardSnapshotSchema.parse(await response.json());
-  }
+  };
 
-  async saveChallengeBoard(input: BoardSaveRequest): Promise<BoardSaveResponse> {
+  saveChallengeBoard = async (input: BoardSaveRequest): Promise<BoardSaveResponse> => {
     const request = boardSaveRequestSchema.parse(input);
     const response = await this.requestJson("/api/challenges/board", "PUT", request);
     return boardSaveResponseSchema.parse(await response.json());
-  }
+  };
 
-  async listChallengeSets(): Promise<ChallengeSetListResponse> {
+  listChallengeSets = async (): Promise<ChallengeSetListResponse> => {
     const response = await this.request("/api/challenges/sets", { method: "GET" }, false);
     return challengeSetListResponseSchema.parse(await response.json());
-  }
+  };
 
-  async getChallengeSet(setId: string): Promise<ChallengeSetResponse> {
+  getChallengeSet = async (setId: string): Promise<ChallengeSetResponse> => {
     const response = await this.request(`/api/challenges/sets/${encodeURIComponent(setId)}`, { method: "GET" }, false);
     return challengeSetResponseSchema.parse(await response.json());
-  }
+  };
 
-  async saveChallengeSet(input: ChallengeSetSaveRequest): Promise<ChallengeSetResponse> {
+  saveChallengeSet = async (input: ChallengeSetSaveRequest): Promise<ChallengeSetResponse> => {
     const request = challengeSetSaveRequestSchema.parse(input);
     const response = await this.requestJson("/api/challenges/sets", "POST", request);
     return challengeSetResponseSchema.parse(await response.json());
-  }
+  };
 
-  async deleteChallengeSet(setId: string): Promise<string> {
+  deleteChallengeSet = async (setId: string): Promise<string> => {
     const response = await this.request(`/api/challenges/sets/${encodeURIComponent(setId)}`, { method: "DELETE" }, true);
     return challengeSetDeleteResponseSchema.parse(await response.json()).id;
-  }
+  };
 
-  async saveChallengeSettings(input: SettingsSaveRequest): Promise<SettingsSaveResponse> {
+  saveChallengeSettings = async (input: SettingsSaveRequest): Promise<SettingsSaveResponse> => {
     const request = settingsSaveRequestSchema.parse(input);
     const response = await this.requestJson("/api/challenges/settings", "PUT", request);
     return settingsSaveResponseSchema.parse(await response.json());
-  }
+  };
 
-  async sendChallengeCommand(command: Command): Promise<CommandResponse> {
+  sendChallengeCommand = async (command: Command): Promise<CommandResponse> => {
     const response = await this.requestJson("/api/challenges/commands", "POST", command);
     return commandResponseSchema.parse(await response.json());
-  }
+  };
 
-  async undo(moduleId: "hud", channelSeq: number, baseRevision: number): Promise<SaveResponse>;
-  async undo(moduleId: "challenges", channelSeq: number, baseRevision: ChallengeUndoBaseRevisions): Promise<ChallengeUndoResponse>;
-  async undo(moduleId: UndoModuleId, channelSeq: number, baseRevision: number | ChallengeUndoBaseRevisions) {
-    if (moduleId === "hud") {
-      if (typeof baseRevision !== "number") throw new Error("HUD-Undo benötigt eine HUD-Revision.");
-      const response = await this.requestJson("/api/state/undo", "POST", { moduleId, channelSeq, baseRevision });
-      return saveResponseSchema.parse(await response.json());
-    }
-    if (typeof baseRevision === "number") throw new Error("Challenge-Undo benötigt drei Konfliktrevisionen.");
-    const response = await this.requestJson("/api/state/undo", "POST", {
-      moduleId,
-      channelSeq,
-      baseBoardRevision: baseRevision.boardRevision,
-      baseSettingsRevision: baseRevision.settingsRevision,
-      baseEventSeq: baseRevision.eventSeq,
-    });
-    return challengeUndoResponseSchema.parse(await response.json());
-  }
+  readonly undo = createBrowserAdminUndo((path, method, value) => this.requestJson(path, method, value));
 
-  async mutateOverlayToken(
+  mutateOverlayToken = async (
     rotate: boolean,
     input: { requestId: string; expectedGeneration: number },
-  ) {
+  ) => {
     const response = await this.requestJson(
       rotate ? "/api/overlay-token/rotate" : "/api/overlay-token",
       "POST",
       input,
     );
     return overlayTokenResponseSchema.parse(await response.json());
-  }
+  };
 
-  async mutateDockToken(
+  mutateDockToken = async (
     rotate: boolean,
     input: { requestId: string; expectedGeneration: number },
-  ) {
+  ) => {
     const response = await this.requestJson(
       rotate ? "/api/challenges/dock-token/rotate" : "/api/challenges/dock-token",
       "POST",
       input,
     );
     return dockTokenResponseSchema.parse(await response.json());
-  }
+  };
 
-  async flushDisplaySockets() {
+  flushDisplaySockets = async () => {
     const response = await this.requestJson("/api/sockets/flush", "POST", {});
     return flushDisplaySocketsResponseSchema.parse(await response.json());
-  }
+  };
 
-  async uploadPortrait(blob: Blob) {
+  uploadPortrait = async (blob: Blob) => {
     const response = await this.request(
       "/api/media",
       {
@@ -215,32 +227,32 @@ export class BrowserAdminApi implements AdminApi {
       true,
     );
     return uploadResponseSchema.parse(await response.json()).portrait;
-  }
+  };
 
-  async renewMediaLeases(contentHashes: string[]) {
+  renewMediaLeases = async (contentHashes: string[]) => {
     const response = await this.requestJson("/api/media/leases/renew", "POST", {
       contentHashes,
     });
     renewMediaLeasesResponseSchema.parse(await response.json());
-  }
+  };
 
-  async lookupTwitchUser(login: string) {
+  lookupTwitchUser = async (login: string) => {
     const response = await this.request(
       `/api/twitch/users?login=${encodeURIComponent(login)}`,
       { method: "GET" },
       false,
     );
     return twitchLookupResponseSchema.parse(await response.json()).user;
-  }
+  };
 
-  subscribe(callbacks: {
+  subscribe = (callbacks: {
     onState: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onState"];
     onOnlineChange: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onOnlineChange"];
     onOverlayPresence: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onOverlayPresence"];
     onAudit: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onAudit"];
     onUndoTargets: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onUndoTargets"];
     onChallengeUpdate?: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onChallengeUpdate"];
-  }): () => void {
+  }): () => void => {
     let disposed = false;
     let socket: WebSocket | null = null;
     let stopHeartbeat: (() => void) | null = null;
@@ -301,7 +313,7 @@ export class BrowserAdminApi implements AdminApi {
       if (timer !== null) window.clearTimeout(timer);
       socket?.close();
     };
-  }
+  };
 
   private requestJson(path: string, method: string, value: unknown): Promise<Response> {
     return this.request(
