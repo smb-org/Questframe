@@ -460,11 +460,13 @@ export const useHudEditorState = ({
   api,
   onChallengeUpdate,
   onChallengeUndoTargets,
+  onTimeOffset,
 }: {
   initialBootstrap: BootstrapResponse;
   api: AdminApi;
   onChallengeUpdate?: (update: ChallengeUpdate) => void;
   onChallengeUndoTargets?: (targets: UndoTarget[]) => void;
+  onTimeOffset?: (offsetMs: number) => void;
 }): HudEditorState => {
   const [committed, setCommitted] = useState(initialBootstrap.state);
   const [draft, setDraft] = useState(() => toDraft(initialBootstrap.state));
@@ -542,8 +544,9 @@ export const useHudEditorState = ({
       onUndoTargets: (moduleId, targets) => { if (moduleId === "hud") setUndoTargets(targets.filter((target) => target.moduleId === "hud")); else onChallengeUndoTargets?.(targets); },
     };
     if (onChallengeUpdate !== undefined) callbacks.onChallengeUpdate = onChallengeUpdate;
+    if (onTimeOffset !== undefined) callbacks.onTimeOffset = onTimeOffset;
     return api.subscribe(callbacks);
-  }, [addAuditEntry, api, applyUndoTargets, onChallengeUndoTargets, onChallengeUpdate]);
+  }, [addAuditEntry, api, applyUndoTargets, onChallengeUndoTargets, onChallengeUpdate, onTimeOffset]);
 
   const pendingLeaseHashes = useMemo(() => {
     const committedHashes = new Set(uploadedHashes(committed));
