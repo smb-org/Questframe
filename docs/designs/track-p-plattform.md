@@ -81,7 +81,51 @@ bespielten Staging-Umgebung gibt es jetzt einen Ort, an dem der Backfill
 vorher geübt werden kann. Das ersetzt den Snapshot nicht, senkt aber die
 Wahrscheinlichkeit, ihn zu brauchen.
 
-Offen bleibt die Reihenfolge ab P4.
+**Track P ist geliefert.** Stand 2026-09-19, 42 Commits auf dem Branch:
+
+| Schritt | Ergebnis |
+|---|---|
+| P1 | Registry-Vertrag, `ModuleId` aus der Registry abgeleitet |
+| P2 | zehn Challenge-Routen in `adapters/http-facade.ts`; `handle()` mit `null` als „Host macht weiter" |
+| P3 | `runMigrations` deklarativ, 29 Einträge; Schema byteidentisch |
+| P4 | Migrations-Namespaces `host`/`hud`/`challenges`, Backfill des Altbestands |
+| P5 | kein Socket-Tag-Literal mehr in `channel-object.ts`; Tags, Limit-Schlüssel und Protokolle aus der Registry |
+| P6a | `state_history` modulfähig, Undo pro Modul mit je 20 Einträgen, `snapshot`/`restore` am Vertrag |
+| P6 | HUD als zweites Modul; `channel-object.ts` von 2163 auf 1809 Zeilen |
+| P7 | jedes Budget-Label hat einen Besitzer, gegen die echte Deklarationsquelle geprüft |
+
+**Was dabei anders kam als geplant.** P5 war kleiner: `activeSocketCount`,
+`reclaimSocketSlots` und `revokeTokenSockets` nahmen `tag` längst als
+Parameter, es fehlte nur der abgeleitete Typ. Die Socket-Limits konnten
+*nicht* in die Registry wandern — sie stehen in `shared/contracts/api.ts`,
+gehen über das `limits`-Objekt im Bootstrap raus und werden mit
+Zod-Literal-Unions validiert; die Registry nennt seither den Schlüssel, nie
+den Wert. P6a wurde dagegen teurer als gedacht, weil Undo in allen
+Umgebungen aktiv ist und der Backfill echte Daten anfasst.
+
+**Drei Wächter sichern das Ergebnis**, jeder mit Negativtest als scharf
+nachgewiesen: das eingefrorene Migrationsschema, das Verbot von
+Socket-Tag-Literalen in `channel-object.ts`, und die Pflicht zum
+Namespace-Filter in jeder Ledger-Abfrage der Migrationstests. Der letzte
+entstand aus einem Befund: 24 Abfragen waren namespace-blind und nur zufällig
+grün.
+
+**Zweiter Staging-Deploy am 2026-09-19.** Diesmal lief der riskante Teil: die
+Staging-Datenbank stand auf dem alten globalen Ledger, also ist der
+P4-Namespace-Backfill dort zum ersten Mal gegen echte Daten gelaufen,
+zusammen mit dem `state_history`-Umbau. Beides fehlerfrei — die DO-Routen
+antworten stabil mit `401` statt `500`, und die drei HUD-Routen
+(`PUT /state`, `POST /overlay-visibility`, `POST /state/undo`) sind nach der
+Modulextraktion erreichbar geblieben.
+
+**Was bewusst offen bleibt:**
+- `HUD_MODULE_ID` steht an zehn Stellen im Host, unter anderem im Bootstrap.
+  „HUD als Modul" ist weiter als vorher, aber nicht modulneutral.
+- Der Begrüßungs-Snapshot beim Token-Socket ist noch fest der
+  Challenge-Snapshot. Ein drittes Modul mit eigenem Socket bräuchte ihn von
+  der Socket-Definition, so wie `handle()` die Routen liefert.
+- Die Datenkorrektheit der Backfills auf Staging ist nicht verifiziert; dafür
+  braucht es eine angemeldete Sitzung.
 
 `P6a ──► P6` ist ebenfalls fest: das HUD kann erst wandern, wenn Undo und
 Audit nicht mehr an ihm hängen. Sonst wandern sie mit und müssen später
