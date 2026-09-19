@@ -277,6 +277,78 @@ describe("channel worker", () => {
     expect(noOpBody.auditEntry).toBeNull();
   });
 
+  it("behält bei HUD-Routen Auth- und Validierungsfehler in derselben Reihenfolge", async () => {
+    // Eigener Bootstrap: `csrfToken` ist eine Modulvariable, die nur gefüllt
+    // ist, wenn zuvor ein anderer Test sie gesetzt hat. Ein Test über
+    // Fehlerreihenfolgen darf nicht von der Testreihenfolge abhängen.
+    const ownBootstrap = bootstrapResponseSchema.parse(
+      await (
+        await fetchWorker("http://localhost/api/editor/bootstrap", {
+          headers: { cookie, "x-editor-tab": "test-tab-a" },
+        })
+      ).json(),
+    );
+    const ownHeaders = (): HeadersInit => ({
+      cookie,
+      "x-editor-tab": "test-tab-a",
+      "x-csrf-token": ownBootstrap.csrfToken,
+      origin: "http://localhost:5173",
+      "content-type": "application/json",
+    });
+    // Jede Anfrage trägt den Origin: der Worker prüft ihn vor allem anderen
+    // (src/worker/index.ts:116) und würde sonst mit 403 antworten, bevor die
+    // Reihenfolge Auth → CSRF → Body-Parse überhaupt erreicht wird.
+    const unauthenticatedSave = await fetchWorker("http://localhost/api/state", {
+      method: "PUT",
+      headers: { origin: "http://localhost:5173", "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(unauthenticatedSave.status).toBe(401);
+    expect(await unauthenticatedSave.json()).toMatchObject({
+      error: { code: "unauthorized", message: "Bitte mit Twitch anmelden." },
+    });
+
+    const csrfMissingSave = await fetchWorker("http://localhost/api/state", {
+      method: "PUT",
+      headers: { cookie, "x-editor-tab": "test-tab-a", origin: "http://localhost:5173", "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(csrfMissingSave.status).toBe(403);
+    expect(await csrfMissingSave.json()).toMatchObject({
+      error: { code: "csrf_invalid", message: "Sicherheits-Token fehlt." },
+    });
+
+    const invalidSave = await fetchWorker("http://localhost/api/state", {
+      method: "PUT",
+      headers: ownHeaders(),
+      body: "{}",
+    });
+    expect(invalidSave.status).toBe(422);
+    expect(await invalidSave.json()).toMatchObject({
+      error: { code: "validation_failed", message: "Bitte Eingaben prüfen." },
+    });
+
+    const unauthenticatedVisibility = await fetchWorker("http://localhost/api/overlay-visibility", {
+      method: "POST",
+      headers: { origin: "http://localhost:5173", "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(unauthenticatedVisibility.status).toBe(401);
+    expect(await unauthenticatedVisibility.json()).toMatchObject({
+      error: { code: "unauthorized", message: "Bitte mit Twitch anmelden." },
+    });
+
+    const invalidVisibility = await fetchWorker("http://localhost/api/overlay-visibility", {
+      method: "POST",
+      headers: ownHeaders(),
+      body: "{}",
+    });
+    expect(invalidVisibility.status).toBe(422);
+    expect(await invalidVisibility.json()).toMatchObject({
+      error: { code: "validation_failed", message: "Bitte Eingaben prüfen." },
+    });
+  });
+
   it("creates and rotates a read-only overlay token idempotently", async () => {
     const firstRequest = {
       requestId: "dc95708a-645a-4bc0-9ca3-7ffbd42e6662",

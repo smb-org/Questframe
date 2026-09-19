@@ -12,6 +12,7 @@ import { readSchemaSnapshot, withHistoricalDatabase } from "./migrations-harness
 
 import CHANNEL_OBJECT_SOURCE from "../../src/channel/channel-object.ts?raw";
 import CHALLENGE_FACADE_SOURCE from "../../src/modules/win-challenges/adapters/http-facade.ts?raw";
+import HUD_FACADE_SOURCE from "../../src/modules/hud/http-facade.ts?raw";
 import WIRE_CONTRACT_SOURCE from "../../src/shared/contracts/win-challenges.ts?raw";
 import SCHEMAS_SOURCE from "../../src/modules/win-challenges/contracts/schemas.ts?raw";
 import MIGRATIONS_TEST_SOURCE from "./migrations.test.ts?raw";
@@ -172,6 +173,7 @@ const CHANNEL_FETCH_SOURCE = CHANNEL_OBJECT_SOURCE.slice(fetchStart, fetchEnd);
 const REAL_DO_ROUTE_PATHS = [
   ...sourceValues(CHANNEL_FETCH_SOURCE, /url\.pathname\s*===\s*"([^"]+)"/gu),
   ...sourceValues(CHALLENGE_FACADE_SOURCE, /(?:url\.)?pathname\s*===\s*"([^"]+)"/gu),
+  ...sourceValues(HUD_FACADE_SOURCE, /(?:url\.)?pathname\s*===\s*"([^"]+)"/gu),
 ];
 const REAL_SOCKET_PATHS = REAL_DO_ROUTE_PATHS.filter((path) => path.startsWith("/ws/"));
 const REAL_LITERAL_SOCKET_TAGS = sourceValues(
@@ -392,16 +394,25 @@ describe("Modul-Registry-Selbsttest", () => {
     expect(collectRoutePrefixOverlaps(MODULE_REGISTRY)).toEqual([]);
   });
 
-  it("hat Handler und Historie nur beim Challenges-Modul", () => {
+  it("hat Handler und Historie bei beiden Modulen", () => {
     const hud = MODULE_REGISTRY.find((module) => module.id === "hud");
     const challenges = MODULE_REGISTRY.find((module) => module.id === "challenges");
-    expect(hud?.handle).toBeUndefined();
+    expect(hud?.handle).toEqual(expect.any(Function));
     expect(challenges?.handle).toEqual(expect.any(Function));
-    expect(hud?.history).toBeUndefined();
+    expect(hud?.history).toBeDefined();
     expect(challenges?.history).toBeDefined();
+    if (hud?.history === undefined) throw new Error("HUD-Historie fehlt.");
     if (challenges?.history === undefined) throw new Error("Challenges-Historie fehlt.");
+    expect(typeof hud.history.snapshot).toBe("function");
+    expect(typeof hud.history.restore).toBe("function");
+    expect(typeof hud.history.mediaContentHashes).toBe("function");
     expect(typeof challenges.history.snapshot).toBe("function");
     expect(typeof challenges.history.restore).toBe("function");
+  });
+
+  it("hat keinen separaten HUD-Historienpfad in der Host-Historie", () => {
+    expect(CHANNEL_OBJECT_SOURCE).not.toContain("if (moduleId === HUD_MODULE_ID)");
+    expect(CHANNEL_OBJECT_SOURCE).not.toContain("../modules/hud/");
   });
 
   it("behandelt die beiden Dock-Token-Routen in der Fassade vor dem Body-Parse", async () => {

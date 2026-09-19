@@ -13,7 +13,10 @@
  *
  */
 import { createChallengeHttpHandler, challengeHistory } from "./win-challenges/adapters/http-facade";
+import { createHudModule } from "./hud/http-facade";
 import type { DockTokenRecord } from "./win-challenges/repository/challenge-repository";
+import type { AuditEntry, UndoTarget } from "../shared/contracts/api";
+import type { ChannelState } from "../shared/contracts/state";
 import type { SocketLimitKey } from "../shared/contracts/api";
 import { DOCK_SOCKET_PROTOCOL, OVERLAY_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
 
@@ -84,6 +87,15 @@ export type DockTokenMaterial = {
   tokenEnvelope: string;
 };
 
+export type ModuleActor = {
+  twitchUserId: string;
+  displayName: string;
+};
+
+export type ModuleSession = ModuleActor & {
+  sessionHash: string;
+};
+
 /** Alle Anzeige-Sockets werden ueber das display-Flag der Registry bestimmt. */
 export const DISPLAY_SOCKET_TAGS = SOCKET_DEFINITIONS
   .filter((definition) => definition.display)
@@ -101,12 +113,15 @@ export const SOCKETS = {
 export type ModuleContext = {
   sql: SqlStorage;
   transactionSync: <T>(fn: () => T) => T;
+  actor: ModuleActor | null;
+  now: () => string;
+  releaseStage: "v1a" | "v1b";
   /** Schreibt den aktuellen Modulzustand in den Undo-Stapel. */
   recordHistory: (summary: string) => void;
   /** Wirft, wenn keine gültige Editor-Session anliegt. */
-  requireSession: (request: Request) => void;
+  requireSession: (request: Request) => ModuleSession;
   /** Session und CSRF in einem Schritt; die beiden treten nie getrennt auf. */
-  requireSessionAndCsrf: (request: Request) => Promise<{ sessionHash: string }>;
+  requireSessionAndCsrf: (request: Request) => Promise<ModuleSession>;
   requireDockToken: (request: Request) => Promise<void>;
   /** Sendet an alle Sockets mit diesen Tags. */
   broadcast: (tags: readonly SocketTag[], payload: unknown) => void;
@@ -117,6 +132,18 @@ export type ModuleContext = {
   readDockTokenValue: (record: DockTokenRecord | null) => Promise<string | null>;
   /** Schließt alle Sockets mit diesem Tag. */
   revokeTokenSockets: (tag: SocketTag, expectedGeneration?: number) => void;
+  /** Erstellt und persistiert Audit-Einträge über die Host-Plattform. */
+  createAudit: (
+    revision: number,
+    action: AuditEntry["action"],
+    actor: ModuleActor,
+    summary: string,
+    createdAt: string,
+  ) => AuditEntry;
+  insertAudit: (entry: AuditEntry) => void;
+  pruneHistoryAndAudit: () => void;
+  getUndoTargets: () => UndoTarget[];
+  broadcastAudit: (entry: AuditEntry, undoTargets: UndoTarget[]) => void;
 };
 
 export type ModuleHandler = (request: Request, ctx: ModuleContext) => Promise<Response | null>;
@@ -135,6 +162,18 @@ export type ModuleHistory = {
   snapshot: (ctx: ModuleContext) => ModuleHistoryEntry | null;
   /** Schreibt einen frueheren Zustand zurueck. */
   restore: (ctx: ModuleContext, json: string) => void;
+  /** Erzeugt die unveränderte HUD-/Modulmeldung für einen Restore. */
+  restoreSummary?: (ctx: ModuleContext, json: string, revision: number) => string;
+  /** Liefert aus einem Snapshot die von der Host-Medienbereinigung zu schützenden Hashes. */
+  mediaContentHashes?: (json: string) => readonly string[];
+};
+
+export type ModuleState = {
+  ensure: (ctx: ModuleContext, actor: ModuleActor) => ChannelState;
+  read: (ctx: ModuleContext) => ChannelState | null;
+  getRequired: (ctx: ModuleContext) => ChannelState;
+  write: (ctx: ModuleContext, state: ChannelState) => void;
+  broadcast: (ctx: ModuleContext, state: ChannelState) => void;
 };
 
 /**
@@ -159,6 +198,7 @@ export type OverlayModuleDefinition = {
   migrationNamespace: string;
   handle?: ModuleHandler;
   history?: ModuleHistory;
+  state?: ModuleState;
   /** Deklarations-Labels aus den Build-Budget-Definitionen. */
   budgetKeys: readonly string[];
 };
@@ -170,7 +210,7 @@ export type OverlayModuleDefinition = {
  * bedienen beide Module gemeinsam und gehören deshalb keinem der beiden
  * (Host-Plattform, siehe Selbsttest).
  */
-const hudModule = {
+const hudModuleDefinition = {
   id: "hud",
   routePrefixes: ["/state", "/overlay-visibility"],
   socketPaths: ["/ws/overlay"],
@@ -184,6 +224,15 @@ const hudModule = {
   wireScopes: [],
   migrationNamespace: "hud",
   budgetKeys: ["Overlay"],
+} as const satisfies OverlayModuleDefinition;
+
+const hudModule = {
+  ...hudModuleDefinition,
+  ...createHudModule([
+    HOST_SOCKET_TAGS[0],
+    ...HUD_SOCKET_DEFINITIONS.map(({ tag }) => tag),
+    HOST_SOCKET_TAGS[1],
+  ]),
 } as const satisfies OverlayModuleDefinition;
 
 /**

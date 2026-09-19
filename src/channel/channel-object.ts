@@ -16,28 +16,14 @@ import {
   overlayTokenResponseSchema,
   renewMediaLeasesRequestSchema,
   renewMediaLeasesResponseSchema,
-  saveRequestSchema,
   saveResponseSchema,
   twitchLookupResponseSchema,
   undoRequestSchema,
   uploadResponseSchema,
-  visibilityRequestSchema,
-  visibilityResponseSchema,
   type AuditEntry,
   type UndoTarget,
 } from "../shared/contracts/api";
-import {
-  channelStateDraftSchema,
-  channelStateSchema,
-  createDefaultState,
-  getReleaseCapabilities,
-  normalizeStateForRead,
-  stateByteLength,
-  validateDraftForRelease,
-  type ChannelState,
-  type ChannelStateDraft,
-} from "../shared/contracts/state";
-import { EFFECT_CATALOG, getEffectDefinition, validateEffectExpiries } from "../shared/domain/effects";
+import { getReleaseCapabilities, normalizeStateForRead } from "../shared/contracts/state";
 import { inspectWebP } from "../shared/media/webp";
 import type { AppEnv } from "../worker/env";
 import { errorResponse, jsonResponse, readJson, RequestError } from "../worker/http";
@@ -59,20 +45,13 @@ import {
   SOCKET_DEFINITIONS,
   SOCKETS,
   type ModuleContext,
+  type ModuleActor,
   type ModuleId,
   type ModuleHistoryEntry,
+  type ModuleState,
   type SocketTag,
   type TokenSocketTag,
 } from "../modules/registry";
-
-type StateRow = {
-  revision: number;
-  overlay_enabled: number;
-  state_json: string;
-  updated_at: string;
-  updated_by_id: string;
-  updated_by_name: string;
-};
 
 type SessionRow = {
   session_hash: string;
@@ -136,58 +115,6 @@ const actorFromSession = (session: SessionRow) => ({
   displayName: session.display_name,
 });
 
-const draftFromState = (state: ChannelState): ChannelStateDraft => {
-  const {
-    revision: _revision,
-    overlayEnabled: _overlayEnabled,
-    updatedAt: _updatedAt,
-    updatedBy: _updatedBy,
-    ...draft
-  } = state;
-  void [_revision, _overlayEnabled, _updatedAt, _updatedBy];
-  return channelStateDraftSchema.parse(draft);
-};
-
-const filterExpiredEffectsFromDraft = (draft: ChannelStateDraft): ChannelStateDraft => {
-  const now = Date.now();
-  const effects = draft.effects
-    .filter((effect) => effect.expiresAt === null || Date.parse(effect.expiresAt) > now)
-    .map((effect, order) => ({ ...effect, order }));
-  const featuredEffectId = effects.some((effect) => effect.id === draft.featuredEffectId)
-    ? draft.featuredEffectId
-    : null;
-  return channelStateDraftSchema.parse({ ...draft, effects, featuredEffectId });
-};
-
-const summarizeChange = (before: ChannelState, after: ChannelState): string => {
-  const changes: string[] = [];
-  if (before.player.hpPercent !== after.player.hpPercent) {
-    changes.push(`HP: ${String(after.player.hpPercent)}%`);
-  }
-  if (before.player.resource.percent !== after.player.resource.percent) {
-    changes.push(`${after.player.resource.name}: ${String(after.player.resource.percent)}%`);
-  }
-  if (
-    before.placement.x !== after.placement.x ||
-    before.placement.y !== after.placement.y ||
-    before.placement.scale !== after.placement.scale
-  ) {
-    changes.push(`Position: ${String(after.placement.x)}/${String(after.placement.y)} bei ${String(Math.round(after.placement.scale * 100))}%`);
-  }
-  if (before.effects.length !== after.effects.length) {
-    changes.push(`Effekte: ${String(after.effects.length)}`);
-  }
-  if (before.player.name !== after.player.name) changes.push(`Name: ${after.player.name}`);
-  if (before.themeId !== after.themeId) changes.push(`Theme: ${after.themeId}`);
-  if (before.compositeHudVisible !== after.compositeHudVisible) {
-    changes.push(`HUD im Sammel-Overlay: ${after.compositeHudVisible ? "An" : "Aus"}`);
-  }
-  if (before.compositeChallengesVisible !== after.compositeChallengesVisible) {
-    changes.push(`Challenges im Sammel-Overlay: ${after.compositeChallengesVisible ? "An" : "Aus"}`);
-  }
-  return changes.length > 0 ? changes.join(" · ") : "HUD-Einstellungen aktualisiert";
-};
-
 const mapZodIssues = (error: z.ZodError): Record<string, string> =>
   Object.fromEntries(
     error.issues.map((issue) => [
@@ -241,12 +168,6 @@ export class ChannelObject extends DurableObject<AppEnv> {
       }
       const moduleResponse = await this.dispatchModuleRequest(request, url.pathname);
       if (moduleResponse !== null) return moduleResponse;
-      if (request.method === "PUT" && url.pathname === "/state") {
-        return await this.save(request);
-      }
-      if (request.method === "POST" && url.pathname === "/overlay-visibility") {
-        return await this.setVisibility(request);
-      }
       if (request.method === "POST" && url.pathname === "/state/undo") {
         return await this.undo(request);
       }
@@ -325,20 +246,42 @@ export class ChannelObject extends DurableObject<AppEnv> {
     return null;
   }
 
-  private createModuleContext(moduleId: ModuleId): ModuleContext {
+  private getHudModuleState(): ModuleState {
+    const module = MODULE_REGISTRY.find(({ id }) => id === HUD_MODULE_ID);
+    if (module?.state === undefined) throw new Error("HUD-State-Vertrag fehlt.");
+    return module.state;
+  }
+
+  private createModuleContext(
+    moduleId: ModuleId,
+    session?: SessionRow,
+    clock: () => string = nowIso,
+  ): ModuleContext {
     return {
       sql: this.ctx.storage.sql,
       transactionSync: this.ctx.storage.transactionSync.bind(this.ctx.storage),
+      actor: session === undefined ? null : actorFromSession(session),
+      now: clock,
+      releaseStage: this.env.RELEASE_STAGE,
       recordHistory: (summary) => {
         this.recordModuleHistory(moduleId, summary);
       },
       requireSession: (request) => {
-        this.requireSession(request);
+        const authenticated = this.requireSession(request);
+        return {
+          sessionHash: authenticated.session_hash,
+          twitchUserId: authenticated.twitch_user_id,
+          displayName: authenticated.display_name,
+        };
       },
       requireSessionAndCsrf: async (request) => {
-        const session = this.requireSession(request);
-        await this.requireCsrf(request, session);
-        return { sessionHash: session.session_hash };
+        const authenticated = this.requireSession(request);
+        await this.requireCsrf(request, authenticated);
+        return {
+          sessionHash: authenticated.session_hash,
+          twitchUserId: authenticated.twitch_user_id,
+          displayName: authenticated.display_name,
+        };
       },
       requireDockToken: async (request) => {
         await this.requireDockToken(request);
@@ -356,6 +299,18 @@ export class ChannelObject extends DurableObject<AppEnv> {
       readDockTokenValue: (record) => this.readDockTokenValue(record),
       revokeTokenSockets: (tag, expectedGeneration) => {
         this.revokeTokenSockets(tag, expectedGeneration);
+      },
+      createAudit: (revision, action, actor, summary, createdAt) =>
+        this.makeAudit(revision, action, actor, summary, createdAt),
+      insertAudit: (entry) => {
+        this.insertAudit(entry);
+      },
+      pruneHistoryAndAudit: () => {
+        this.pruneHistoryAndAudit();
+      },
+      getUndoTargets: () => this.getUndoTargets(moduleId),
+      broadcastAudit: (entry, undoTargets) => {
+        this.broadcastAudit(entry, undoTargets);
       },
     };
   }
@@ -392,7 +347,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     );
     const session = this.getSessionByHash(input.sessionHash, false);
     if (session === null) throw new Error("Session creation failed");
-    this.ensureState(session);
+    this.getHudModuleState().ensure(this.createModuleContext("hud"), actorFromSession(session));
     return jsonResponse({ ok: true });
   }
 
@@ -490,7 +445,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     );
     const session = this.getSessionByHash(input.sessionHash, false);
     if (session === null) throw new Error("OAuth session creation failed");
-    this.ensureState(session);
+    this.getHudModuleState().ensure(this.createModuleContext("hud"), actorFromSession(session));
     return jsonResponse({ ok: true, generation: 1 });
   }
 
@@ -626,7 +581,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const session = this.requireSession(request);
     const tabId = this.requireTabId(request);
     const csrfToken = await this.rotateCsrf(session.session_hash, tabId);
-    const state = normalizeStateForRead(this.ensureState(session));
+    const state = normalizeStateForRead(
+      this.getHudModuleState().ensure(this.createModuleContext("hud"), actorFromSession(session)),
+    );
     const overlayToken = this.getOverlayToken();
     const dockToken = this.getDockToken();
     const broadcasterProfile = this.getBroadcasterProfile();
@@ -666,122 +623,6 @@ export class ChannelObject extends DurableObject<AppEnv> {
     return jsonResponse(response);
   }
 
-  private async save(request: Request): Promise<Response> {
-    const session = this.requireSession(request);
-    await this.requireCsrf(request, session);
-    const input = saveRequestSchema.parse(await readJson(request, 131_072));
-    const current = normalizeStateForRead(this.getRequiredState());
-    const forceReplace = input.replaceRevision !== undefined;
-    const currentMatches = input.baseRevision === current.revision;
-    const guardedReplaceMatches =
-      forceReplace && input.replaceRevision === current.revision && input.baseRevision < current.revision;
-    if ((!forceReplace && !currentMatches) || (forceReplace && !guardedReplaceMatches)) {
-      throw new RequestError(409, "revision_conflict", "OBS wurde inzwischen geändert.", {
-        currentRevision: current.revision,
-        currentState: current,
-      });
-    }
-    let draft: ChannelStateDraft;
-    try {
-      draft = validateDraftForRelease(
-        this.canonicalizeTwitchGroup(filterExpiredEffectsFromDraft(input.state)),
-        this.env.RELEASE_STAGE,
-      );
-      validateEffectExpiries(draft.effects, current.effects);
-    } catch (error) {
-      if (error instanceof RequestError || error instanceof z.ZodError) throw error;
-      if (error instanceof Error) {
-        throw new RequestError(422, "validation_failed", error.message);
-      }
-      throw error;
-    }
-    this.validateCatalog(draft);
-    this.validateMediaReferences(draft, current, session);
-    if (stateByteLength(draft) > 65_536) {
-      throw new RequestError(413, "payload_too_large", "Der HUD-Zustand überschreitet 64 KiB.");
-    }
-    const createdAt = nowIso();
-    const next = channelStateSchema.parse({
-      ...draft,
-      revision: current.revision + 1,
-      overlayEnabled: current.overlayEnabled,
-      updatedAt: createdAt,
-      updatedBy: actorFromSession(session),
-    });
-    const action = forceReplace ? "force_replace" : "save";
-    const summary = summarizeChange(current, next);
-    const audit = this.makeAudit(next.revision, action, session, summary, createdAt);
-    this.ctx.storage.transactionSync(() => {
-      this.insertHistory(HUD_MODULE_ID, {
-        revision: current.revision,
-        json: JSON.stringify(current),
-        createdAt: current.updatedAt,
-      }, summary);
-      this.writeState(next);
-      this.insertAudit(audit);
-      this.pruneHistoryAndAudit();
-    });
-    this.broadcastState(next);
-    const undoTargets = this.getUndoTargets(HUD_MODULE_ID);
-    this.broadcastAudit(audit, undoTargets);
-    const response = saveResponseSchema.parse({
-      state: next,
-      auditEntry: audit,
-      undoTargets,
-      serverTime: createdAt,
-    });
-    return jsonResponse(response);
-  }
-
-  private async setVisibility(request: Request): Promise<Response> {
-    const session = this.requireSession(request);
-    await this.requireCsrf(request, session);
-    const input = visibilityRequestSchema.parse(await readJson(request, 1_024));
-    const current = normalizeStateForRead(this.getRequiredState());
-    if (current.overlayEnabled === input.enabled) {
-      return jsonResponse(
-        visibilityResponseSchema.parse({
-          state: current,
-          auditEntry: null,
-          undoTargets: this.getUndoTargets(HUD_MODULE_ID),
-          serverTime: nowIso(),
-        }),
-      );
-    }
-    const createdAt = nowIso();
-    const next = channelStateSchema.parse({
-      ...current,
-      revision: current.revision + 1,
-      overlayEnabled: input.enabled,
-      updatedAt: createdAt,
-      updatedBy: actorFromSession(session),
-    });
-    const action = input.enabled ? "overlay_enable" : "overlay_disable";
-    const summary = input.enabled ? "Overlay aktiviert" : "Overlay deaktiviert";
-    const audit = this.makeAudit(next.revision, action, session, summary, createdAt);
-    this.ctx.storage.transactionSync(() => {
-      this.insertHistory(HUD_MODULE_ID, {
-        revision: current.revision,
-        json: JSON.stringify(current),
-        createdAt: current.updatedAt,
-      }, summary);
-      this.writeState(next);
-      this.insertAudit(audit);
-      this.pruneHistoryAndAudit();
-    });
-    this.broadcastState(next);
-    const undoTargets = this.getUndoTargets(HUD_MODULE_ID);
-    this.broadcastAudit(audit, undoTargets);
-    return jsonResponse(
-      visibilityResponseSchema.parse({
-        state: next,
-        auditEntry: audit,
-        undoTargets,
-        serverTime: createdAt,
-      }),
-    );
-  }
-
   private async undo(request: Request): Promise<Response> {
     if (!getReleaseCapabilities(this.env.RELEASE_STAGE).undo) {
       throw new RequestError(403, "forbidden", "Undo ist in V1a noch nicht freigeschaltet.");
@@ -789,13 +630,14 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const session = this.requireSession(request);
     await this.requireCsrf(request, session);
     const input = undoRequestSchema.parse(await readJson(request, 1_024));
+    const module = MODULE_REGISTRY.find(({ id }) => id === input.moduleId);
+    if (module?.history === undefined) {
+      throw new RequestError(404, "not_found", "Dieses Modul unterstützt kein Undo.");
+    }
+    const moduleHistory = module.history;
 
     if (input.moduleId === "challenges") {
-      const context = this.createModuleContext("challenges");
-      const module = MODULE_REGISTRY.find(({ id }) => id === input.moduleId);
-      if (module?.history === undefined) {
-        throw new RequestError(404, "not_found", "Dieses Modul unterstützt kein Undo.");
-      }
+      const context = this.createModuleContext("challenges", session);
       const repository = createChallengeRepository(context, SOCKETS.dock.tag);
       const current = repository.readSnapshot();
       if (
@@ -817,14 +659,14 @@ export class ChannelObject extends DurableObject<AppEnv> {
       if (history === undefined) {
         throw new RequestError(404, "not_found", "Dieser Challenge-Zustand ist nicht mehr verfügbar.");
       }
-      const currentEntry = module.history.snapshot(context);
+      const currentEntry = moduleHistory.snapshot(context);
       if (currentEntry === null) throw new Error("Challenge-Zustand konnte nicht gesichert werden.");
       const summary = `Challenge-Zustand aus Kanalsequenz ${String(input.channelSeq)} wiederhergestellt`;
       this.ctx.storage.transactionSync(() => {
         this.insertHistory(input.moduleId, currentEntry, summary);
         this.pruneHistory(input.moduleId);
       });
-      module.history.restore(context, history.snapshot_json);
+      moduleHistory.restore(context, history.snapshot_json);
       const service = createChallengeService(context, SOCKETS.dock.tag);
       const snapshot = service.readSnapshot();
       this.broadcast(module.socketTags, { ...snapshot, event: null });
@@ -836,7 +678,10 @@ export class ChannelObject extends DurableObject<AppEnv> {
       });
     }
 
-    const current = normalizeStateForRead(this.getRequiredState());
+    if (module.state === undefined) throw new Error("HUD-State-Vertrag fehlt.");
+    const createdAt = nowIso();
+    const context = this.createModuleContext("hud", session, () => createdAt);
+    const current = normalizeStateForRead(module.state.getRequired(context));
     if (input.baseRevision !== current.revision) {
       throw new RequestError(409, "revision_conflict", "OBS wurde inzwischen geändert.", {
         currentRevision: current.revision,
@@ -853,46 +698,25 @@ export class ChannelObject extends DurableObject<AppEnv> {
     if (history === undefined) {
       throw new RequestError(404, "not_found", "Diese Revision ist nicht mehr verfügbar.");
     }
-    const rawTarget = JSON.parse(history.snapshot_json) as Record<string, unknown>;
-    const target = normalizeStateForRead(
-      channelStateSchema.parse({
-        ...rawTarget,
-        compositeHudVisible: Object.hasOwn(rawTarget, "compositeHudVisible")
-          ? rawTarget.compositeHudVisible
-          : current.compositeHudVisible,
-        compositeChallengesVisible: Object.hasOwn(rawTarget, "compositeChallengesVisible")
-          ? rawTarget.compositeChallengesVisible
-          : current.compositeChallengesVisible,
-      }),
-    );
-    const createdAt = nowIso();
-    const next = channelStateSchema.parse({
-      ...target,
-      revision: current.revision + 1,
-      overlayEnabled: current.overlayEnabled,
-      updatedAt: createdAt,
-      updatedBy: actorFromSession(session),
-    });
-    const carriedForward = [
-      Object.hasOwn(rawTarget, "compositeHudVisible") ? null : "HUD im Sammel-Overlay",
-      Object.hasOwn(rawTarget, "compositeChallengesVisible") ? null : "Challenges im Sammel-Overlay",
-    ].filter((label): label is string => label !== null);
-    const summary = carriedForward.length === 0
-      ? `Revision ${String(history.revision)} wiederhergestellt`
-      : `Revision ${String(history.revision)} wiederhergestellt (${carriedForward.join(" und ")} beibehalten)`;
-    const audit = this.makeAudit(next.revision, "undo", session, summary, createdAt);
+    const currentEntry = moduleHistory.snapshot(context);
+    if (currentEntry === null) throw new Error("HUD-Zustand konnte nicht gesichert werden.");
+    const summary = moduleHistory.restoreSummary?.(context, history.snapshot_json, history.revision)
+      ?? `Revision ${String(history.revision)} wiederhergestellt`;
+    let next: ReturnType<ModuleState["getRequired"]> | undefined;
+    let audit: AuditEntry | undefined;
     this.ctx.storage.transactionSync(() => {
-      this.insertHistory(HUD_MODULE_ID, {
-        revision: current.revision,
-        json: JSON.stringify(current),
-        createdAt: current.updatedAt,
-      }, summary);
-      this.writeState(next);
+      this.insertHistory(input.moduleId, currentEntry, summary);
+      moduleHistory.restore(context, history.snapshot_json);
+      next = normalizeStateForRead(module.state?.getRequired(context) ?? (() => {
+        throw new Error("HUD-State-Vertrag fehlt.");
+      })());
+      audit = this.makeAudit(next.revision, "undo", actorFromSession(session), summary, createdAt);
       this.insertAudit(audit);
       this.pruneHistoryAndAudit();
     });
-    this.broadcastState(next);
-    const undoTargets = this.getUndoTargets(HUD_MODULE_ID);
+    if (next === undefined || audit === undefined) throw new Error("HUD-Undo konnte nicht abgeschlossen werden.");
+    module.state.broadcast(context, next);
+    const undoTargets = this.getUndoTargets(input.moduleId);
     this.broadcastAudit(audit, undoTargets);
     return jsonResponse(
       saveResponseSchema.parse({
@@ -1286,7 +1110,10 @@ export class ChannelObject extends DurableObject<AppEnv> {
       tabId,
       connectedAt: nowIso(),
     } satisfies SocketAttachment);
-    server.send(JSON.stringify({ type: "snapshot", state: normalizeStateForRead(this.getRequiredState()) }));
+    server.send(JSON.stringify({
+      type: "snapshot",
+      state: normalizeStateForRead(this.getHudModuleState().getRequired(this.createModuleContext("hud"))),
+    }));
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -1331,7 +1158,10 @@ export class ChannelObject extends DurableObject<AppEnv> {
       tokenGeneration: row.generation,
       connectedAt: nowIso(),
     } satisfies SocketAttachment);
-    server.send(JSON.stringify({ type: "snapshot", state: normalizeStateForRead(this.getRequiredState()) }));
+    server.send(JSON.stringify({
+      type: "snapshot",
+      state: normalizeStateForRead(this.getHudModuleState().getRequired(this.createModuleContext("hud"))),
+    }));
     return { client, server };
   }
 
@@ -1485,60 +1315,6 @@ export class ChannelObject extends DurableObject<AppEnv> {
     }
   }
 
-  private ensureState(session: SessionRow): ChannelState {
-    const existing = this.readState();
-    if (existing !== null) return existing;
-    const state = createDefaultState(actorFromSession(session), nowIso());
-    this.writeState(state);
-    return state;
-  }
-
-  private readState(): ChannelState | null {
-    const row = this.ctx.storage.sql
-      .exec<StateRow>("SELECT * FROM channel_state WHERE singleton = 1")
-      .toArray()[0];
-    if (row === undefined) return null;
-    const draft = channelStateDraftSchema.parse(JSON.parse(row.state_json));
-    return channelStateSchema.parse({
-      ...draft,
-      revision: row.revision,
-      overlayEnabled: row.overlay_enabled === 1,
-      updatedAt: row.updated_at,
-      updatedBy: {
-        twitchUserId: row.updated_by_id,
-        displayName: row.updated_by_name,
-      },
-    });
-  }
-
-  private getRequiredState(): ChannelState {
-    const state = this.readState();
-    if (state === null) throw new Error("State not initialized");
-    return state;
-  }
-
-  private writeState(state: ChannelState): void {
-    const draft = draftFromState(state);
-    this.ctx.storage.sql.exec(
-      `INSERT INTO channel_state(
-        singleton, revision, overlay_enabled, state_json, updated_at, updated_by_id, updated_by_name
-      ) VALUES (1, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(singleton) DO UPDATE SET
-        revision = excluded.revision,
-        overlay_enabled = excluded.overlay_enabled,
-        state_json = excluded.state_json,
-        updated_at = excluded.updated_at,
-        updated_by_id = excluded.updated_by_id,
-        updated_by_name = excluded.updated_by_name`,
-      state.revision,
-      state.overlayEnabled ? 1 : 0,
-      JSON.stringify(draft),
-      state.updatedAt,
-      state.updatedBy.twitchUserId,
-      state.updatedBy.displayName,
-    );
-  }
-
   private recordModuleHistory(moduleId: ModuleId, summary: string): void {
     const module = MODULE_REGISTRY.find(({ id }) => id === moduleId);
     if (module?.history === undefined) return;
@@ -1562,26 +1338,6 @@ export class ChannelObject extends DurableObject<AppEnv> {
       )
       .toArray()[0]?.channel_seq;
     if (nextChannelSeq === undefined) throw new Error("Konnte keine Kanalsequenz für state_history vergeben.");
-    if (moduleId === HUD_MODULE_ID) {
-      this.ctx.storage.sql.exec(
-        `INSERT INTO state_history(
-          channel_seq, module_id, revision, snapshot_json, created_at, summary
-        )
-        SELECT ?, ?, ?, ?, ?, ?
-        WHERE NOT EXISTS (
-          SELECT 1 FROM state_history WHERE module_id = ? AND revision = ?
-        )`,
-        nextChannelSeq,
-        moduleId,
-        entry.revision,
-        entry.json,
-        entry.createdAt,
-        summary,
-        moduleId,
-        entry.revision,
-      );
-      return;
-    }
     this.ctx.storage.sql.exec(
       `INSERT INTO state_history(
         channel_seq, module_id, revision, snapshot_json, created_at, summary
@@ -1598,7 +1354,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
   private makeAudit(
     revision: number,
     action: AuditEntry["action"],
-    session: SessionRow,
+    actor: ModuleActor,
     summary: string,
     createdAt: string,
   ): AuditEntry {
@@ -1606,7 +1362,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       id: crypto.randomUUID(),
       revision,
       action,
-      actor: actorFromSession(session),
+      actor,
       summary,
       createdAt,
     });
@@ -1705,32 +1461,23 @@ export class ChannelObject extends DurableObject<AppEnv> {
 
   private deleteCollectibleMedia(now: string): void {
     const protectedHashes = new Set<string>();
-    const protectState = (state: ChannelState | ChannelStateDraft): void => {
-      const portraits = [
-        state.player.portrait,
-        state.pet?.portrait,
-        ...state.group.map((member) => member.portrait),
-      ];
-      for (const portrait of portraits) {
-        if (portrait?.kind === "uploaded") protectedHashes.add(portrait.contentHash);
-      }
-    };
+    const hud = MODULE_REGISTRY.find(({ id }) => id === HUD_MODULE_ID);
+    const mediaContentHashes = hud?.history?.mediaContentHashes;
+    if (mediaContentHashes === undefined) throw new Error("HUD-Medienvertrag fehlt.");
 
     const current = this.ctx.storage.sql
       .exec<{ state_json: string }>("SELECT state_json FROM channel_state WHERE singleton = 1")
       .toArray()[0];
     if (current !== undefined) {
-      protectState(channelStateDraftSchema.parse(JSON.parse(current.state_json)));
+      for (const contentHash of mediaContentHashes(current.state_json)) protectedHashes.add(contentHash);
     }
-    // Ein weiteres Modul mit Medienbezug muss diesen Schutzpfad ebenfalls
-    // erweitern; nur HUD-Snapshots enthalten derzeit Portrait-Hashes.
     for (const row of this.ctx.storage.sql
       .exec<{ snapshot_json: string }>(
         "SELECT snapshot_json FROM state_history WHERE module_id = ?",
         HUD_MODULE_ID,
       )
       .toArray()) {
-      protectState(channelStateSchema.parse(JSON.parse(row.snapshot_json)));
+      for (const contentHash of mediaContentHashes(row.snapshot_json)) protectedHashes.add(contentHash);
     }
     for (const lease of this.ctx.storage.sql
       .exec<{ content_hash: string }>(
@@ -1903,95 +1650,6 @@ export class ChannelObject extends DurableObject<AppEnv> {
     return { id: row.twitch_user_id, login: row.login, displayName: row.display_name };
   }
 
-  private validateCatalog(draft: ChannelStateDraft): void {
-    const knownIds = new Set(EFFECT_CATALOG.map((definition) => definition.id));
-    const knownIconIds = new Set(EFFECT_CATALOG.map((definition) => definition.iconId));
-    draft.effects.forEach((effect, index) => {
-      if (effect.catalogId !== null && !knownIds.has(effect.catalogId)) {
-        throw new RequestError(422, "validation_failed", "Unbekannter Katalogeffekt.", {
-          fieldErrors: { [`effects[${String(index)}].catalogId`]: "Effekt nicht im Katalog." },
-        });
-      }
-      if (!knownIconIds.has(effect.iconId)) {
-        throw new RequestError(422, "validation_failed", "Unbekanntes Effekt-Icon.", {
-          fieldErrors: { [`effects[${String(index)}].iconId`]: "Icon nicht im Katalog." },
-        });
-      }
-      const definition = getEffectDefinition(effect.catalogId);
-      const maximum = definition?.maxStacks ?? 1;
-      if (effect.stacks !== null && effect.stacks > maximum) {
-        throw new RequestError(422, "validation_failed", "Zu viele Effektstapel.", {
-          fieldErrors: { [`effects[${String(index)}].stacks`]: `Maximal ${String(maximum)}.` },
-        });
-      }
-    });
-  }
-
-  private validateMediaReferences(
-    draft: ChannelStateDraft,
-    current: ChannelState,
-    session: SessionRow,
-  ): void {
-    const nextPortraits = [draft.player.portrait, draft.pet?.portrait, ...draft.group.map((member) => member.portrait)];
-    const currentPortraits = [
-      current.player.portrait,
-      current.pet?.portrait,
-      ...current.group.map((member) => member.portrait),
-    ];
-    const currentHashes = new Set(
-      currentPortraits.flatMap((portrait) =>
-        portrait?.kind === "uploaded" ? [portrait.contentHash] : [],
-      ),
-    );
-    for (const portrait of nextPortraits) {
-      if (portrait?.kind !== "uploaded" || currentHashes.has(portrait.contentHash)) continue;
-      const lease = this.ctx.storage.sql
-        .exec<{ expires_at: string }>(
-          `SELECT expires_at FROM media_leases
-          WHERE content_hash = ? AND editor_session_hash = ?`,
-          portrait.contentHash,
-          session.session_hash,
-        )
-        .toArray()[0];
-      if (lease === undefined || Date.parse(lease.expires_at) <= Date.now()) {
-        throw new RequestError(403, "forbidden", "Portrait-Lease fehlt oder ist abgelaufen.");
-      }
-    }
-  }
-
-  private canonicalizeTwitchGroup(draft: ChannelStateDraft): ChannelStateDraft {
-    return channelStateDraftSchema.parse({
-      ...draft,
-      group: draft.group.map((member, index) => {
-        if (member.source !== "twitch" || member.twitchUserId === null) return member;
-        const cached = this.ctx.storage.sql
-          .exec<{
-            twitch_user_id: string;
-            display_name: string;
-            portrait_url: string;
-          }>(
-            "SELECT twitch_user_id, display_name, portrait_url FROM twitch_user_cache WHERE twitch_user_id = ?",
-            member.twitchUserId,
-          )
-          .toArray()[0];
-        if (cached === undefined) {
-          throw new RequestError(422, "validation_failed", "Twitch-Gast muss zuerst gesucht werden.", {
-            fieldErrors: { [`group[${String(index)}].twitchUserId`]: "Gastdaten nicht bestätigt." },
-          });
-        }
-        return {
-          ...member,
-          name: cached.display_name,
-          portrait: {
-            kind: "twitch" as const,
-            userId: cached.twitch_user_id,
-            url: cached.portrait_url,
-          },
-        };
-      }),
-    });
-  }
-
   // Sendet an jeden Socket einzeln: widerrufene oder abgelaufene Sockets werden
   // geschlossen statt beliefert, und ein fehlschlagender Socket darf die
   // Übertragung an die übrigen nicht abbrechen.
@@ -2009,18 +1667,6 @@ export class ChannelObject extends DurableObject<AppEnv> {
         // Ein einzelner fehlschlagender Socket darf die Übertragung an andere nicht abbrechen.
       }
     }
-  }
-
-  private broadcastState(state: ChannelState): void {
-    const message = JSON.stringify({ type: "state_committed", state });
-    this.sendToSockets(
-      [
-        ...this.ctx.getWebSockets(SOCKETS.editor.tag),
-        ...this.ctx.getWebSockets(SOCKETS.overlay.tag),
-        ...this.ctx.getWebSockets(SOCKETS.composite.tag),
-      ],
-      message,
-    );
   }
 
   private broadcast(tags: readonly SocketTag[], payload: unknown): void {
