@@ -1231,6 +1231,15 @@ export const ChallengeBoard = ({
         setActiveSet(null);
         setSetName("");
       }
+      // Zeigt der naechste Save noch auf genau dieses geloeschte Set, wuerde er als
+      // Set-Wechsel gesendet und am Server mit "Set nicht gefunden" blockiert. Ein
+      // geloeschtes Set ist kein Ziel mehr fuer einen Wechsel – der naechste Save
+      // wird dadurch wieder ein gewoehnlicher Save (siehe auch der Schutz in save()
+      // fuer den Fall, dass ein anderer Tab das Set geloescht hat).
+      if (pendingSetId === pending.id) {
+        setPendingSetId(null);
+        setPendingSetSwitch(false);
+      }
       if (setSelection === pending.id) setSetSelection("");
       setSetFileMessage("Set gelöscht.");
       await reloadSets();
@@ -1300,7 +1309,15 @@ export const ChallengeBoard = ({
     setSetFileMessage("");
   };
 
-  const save = async (replaceForeignBoard = false): Promise<{ ok: boolean; conflict: boolean; message?: string }> => {
+  // Ein Set ist nur ein gespeicherter Zustand und darf einen Board-Save nie verhindern:
+  // faellt es zwischen Laden und Speichern weg (selbst geloescht, oder von einem anderen
+  // Tab), wird ganz gewoehnlich ohne Set-Verknuepfung gespeichert statt zu blockieren.
+  const SET_LINK_DROPPED_MESSAGE = "Set-Verknüpfung entfallen: Das Set wurde zwischenzeitlich gelöscht. Board wurde trotzdem gespeichert.";
+
+  const save = async (
+    replaceForeignBoard = false,
+    forceDropSetLink = false,
+  ): Promise<{ ok: boolean; conflict: boolean; message?: string }> => {
     if (snapshot === null || !dirty || saving || !effectiveOnline) return { ok: false, conflict: false, message: "Nicht speicherbar." };
     if (conflict !== null && !replaceForeignBoard) {
       const conflictMessage = "Jemand anderes hat das Board gespeichert. Bitte eine Konfliktaktion wählen.";
@@ -1310,6 +1327,16 @@ export const ChallengeBoard = ({
     const baseBoardRevision = replaceForeignBoard && conflict !== null
       ? conflict.boardRevision
       : snapshot.boardRevision;
+    // Das hinter pendingSetId bekannte Set existiert nur, wenn es noch in der zuletzt
+    // geladenen Set-Liste auftaucht. Eine LEERE Liste ist dabei kein Beweis, dass genau
+    // dieses Set weg ist – serverSets startet als [] (noch keine Antwort da) und eine
+    // leere Liste degradiert deshalb nie auf Verdacht; nur eine nicht-leere Liste ohne
+    // diese ID ist ein echter Beleg. Ist das Set dann wirklich weg, faengt das ohnehin
+    // der 404-Retry unten. forceDropSetLink erzwingt denselben Effekt fuer genau diesen
+    // einmaligen Retry.
+    const pendingSetStillExists = pendingSetId === null || serverSets.length === 0 || serverSets.some((set) => set.id === pendingSetId);
+    const dropSetLink = forceDropSetLink || !pendingSetStillExists;
+    const setLinkWasDropped = dropSetLink && pendingSetId !== null;
     setSaving(true);
     savingRef.current = true;
     setMessage("");
@@ -1318,8 +1345,8 @@ export const ChallengeBoard = ({
       const request = boardSaveRequestSchema.parse({
         baseBoardRevision,
         challenges: definitionsFromDrafts(drafts),
-        ...(pendingSetSwitch ? { reason: "set-switch" } : {}),
-        ...(pendingSetId === null ? {} : { setId: pendingSetId }),
+        ...(pendingSetSwitch && !dropSetLink ? { reason: "set-switch" } : {}),
+        ...(pendingSetId !== null && !dropSetLink ? { setId: pendingSetId } : {}),
       });
       const response = await api.save(request);
       // Derselbe Revisions-Guard wie in applyChallengeUpdate: waehrend unsere Antwort
@@ -1339,7 +1366,9 @@ export const ChallengeBoard = ({
       }
       setPendingSetSwitch(false);
       setPendingSetId(null);
-      setSetFileMessage(activeSet === null ? "" : "Entwurf veröffentlicht.");
+      setSetFileMessage(
+        setLinkWasDropped ? SET_LINK_DROPPED_MESSAGE : activeSet === null ? "" : "Entwurf veröffentlicht.",
+      );
       setMessage(`Board gespeichert · Revision ${String(response.snapshot.boardRevision)}.`);
       return { ok: true, conflict: false };
     } catch (caught) {
@@ -1354,6 +1383,16 @@ export const ChallengeBoard = ({
         setConflict(currentSnapshot);
         setError(conflictMessage);
         return { ok: false, conflict: true, message: conflictMessage };
+      }
+      // Der Server haelt "Set nicht gefunden" hier fuer plausibel (ein anderer Tab hat
+      // es zwischen unserer letzten Set-Liste und diesem Save geloescht). Statt das
+      // Board dauerhaft zu blockieren: genau einmal ohne Set-Verknuepfung erneut
+      // speichern. forceDropSetLink verhindert einen zweiten Retry.
+      if (!forceDropSetLink && !dropSetLink && candidate.code === "not_found") {
+        // "await" statt eines nackten Promise-Returns: sonst würde der finally-Block
+        // hier unten schon vor dem Retry laufen und saving() zwischenzeitlich auf
+        // false setzen, waehrend der Retry noch unterwegs ist.
+        return await save(replaceForeignBoard, true);
       }
       const messageText = caught instanceof Error ? caught.message : "Board konnte nicht gespeichert werden.";
       setError(messageText);
