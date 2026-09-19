@@ -1,6 +1,10 @@
 import type { Challenge, GlobalTimer } from "../contracts/schemas";
 import type { ChallengeEvent, GlobalTimerEvent } from "../contracts/events";
-import { maxCountForKind, maxDeltaForKind } from "../contracts/predicates";
+import {
+  MAX_TIMER_REMAIN_MS,
+  maxCountForKind,
+  maxDeltaForKind,
+} from "../contracts/predicates";
 
 export type DomainNow = number | string;
 export type TimerState = "idle" | "running" | "paused" | "expired";
@@ -37,6 +41,10 @@ const toInstant = (now: DomainNow): string =>
 const addMilliseconds = (now: DomainNow, milliseconds: number): string =>
   new Date(toMilliseconds(now) + milliseconds).toISOString();
 
+/** Die Überzeit bleibt erkennbar; nur der exakte Betrag jenseits von sechs Stunden geht verloren. */
+export const clampTimerRemainMs = (timerRemainMs: number): number =>
+  Math.max(-MAX_TIMER_REMAIN_MS, Math.min(MAX_TIMER_REMAIN_MS, timerRemainMs));
+
 /** Die eine Ablaufableitung für Challenge- und globalen Timer. */
 export const deriveTimerState = (
   endsAt: string | null,
@@ -61,11 +69,11 @@ const withChallengeTimestamp = (now: DomainNow): Pick<Challenge, "updatedAt"> =>
 const completeChallenge = (challenge: Challenge, now: DomainNow): Challenge => {
   const timerState = deriveChallengeTimerState(challenge, now);
   const timerRemainMs = timerState === "running" && challenge.timerEndsAt !== null
-    ? Date.parse(challenge.timerEndsAt) - toMilliseconds(now)
+    ? clampTimerRemainMs(Date.parse(challenge.timerEndsAt) - toMilliseconds(now))
     : timerState === "paused"
       ? challenge.timerRemainMs
       : timerState === "expired" && challenge.timerEndsAt !== null
-        ? Date.parse(challenge.timerEndsAt) - toMilliseconds(now)
+        ? clampTimerRemainMs(Date.parse(challenge.timerEndsAt) - toMilliseconds(now))
         : null;
   return {
     ...challenge,
@@ -238,7 +246,7 @@ export function applyStopTimer(
   if (timerState !== "running" && timerState !== "expired") return { challenge, event: null };
   const timerRemainMs = challenge.timerEndsAt === null
     ? null
-    : Date.parse(challenge.timerEndsAt) - toMilliseconds(now);
+    : clampTimerRemainMs(Date.parse(challenge.timerEndsAt) - toMilliseconds(now));
   return {
     challenge: {
       ...challenge,

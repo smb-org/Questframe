@@ -12,6 +12,7 @@ import {
   applyResetStreak,
   applyResetGlobal,
   applyStopTimer,
+  clampTimerRemainMs,
   deriveTimerState,
   type DomainNow,
 } from "../../../src/modules/win-challenges/domain/timers";
@@ -96,6 +97,12 @@ describe("Win-Challenges-Domain", () => {
     expect(deriveTimerState("2026-08-30T12:00:01.000Z", null, now)).toBe("running");
     expect(deriveTimerState("2026-08-30T11:59:59.000Z", null, now)).toBe("expired");
     expect(deriveTimerState(null, 5_000, now)).toBe("paused");
+  });
+
+  it("begrenzt Restzeit auf sechs Stunden, lässt normale Überzeit aber unverändert", () => {
+    expect(clampTimerRemainMs(-21_600_001)).toBe(-21_600_000);
+    expect(clampTimerRemainMs(21_600_001)).toBe(21_600_000);
+    expect(clampTimerRemainMs(-1_000)).toBe(-1_000);
   });
 
   it("incrementiert positiv und negativ, klemmt und erzeugt bei Wirkung genau ein Event", () => {
@@ -226,6 +233,19 @@ describe("Win-Challenges-Domain", () => {
     expect(result.challenge).toMatchObject({ state: "done", timerEndsAt: null, timerRemainMs: -1_000 });
   });
 
+  it("begrenzt beim Abhaken eines stark überzogenen Timers die Überzeit", () => {
+    const result = applyComplete(makeChallenge({
+      state: "active",
+      timerEndsAt: "2026-08-30T04:00:00.000Z",
+    }), now);
+
+    expect(result.challenge).toMatchObject({
+      state: "done",
+      timerEndsAt: null,
+      timerRemainMs: -21_600_000,
+    });
+  });
+
   it("setzt beim Abhaken ohne laufenden Timer keine Restzeit", () => {
     const result = applyComplete(makeChallenge(), now);
 
@@ -350,6 +370,15 @@ describe("Win-Challenges-Domain", () => {
       timerEndsAt: "2026-08-30T12:00:01.000Z",
       timerRemainMs: null,
     });
+  });
+
+  it("begrenzt stark überzogene Restzeit beim Stoppen einer Challenge", () => {
+    const stopped = applyStopTimer(makeChallenge({
+      state: "active",
+      timerEndsAt: "2026-08-30T04:00:00.000Z",
+    }), now);
+
+    expect(stopped.challenge.timerRemainMs).toBe(-21_600_000);
   });
 
   it("behält beim Abhaken einer pausierten Challenge die eingefrorene Restzeit", () => {

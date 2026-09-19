@@ -6,6 +6,7 @@ import type {
   ChallengeSetV1Challenge,
 } from "../contracts/schemas";
 import type { DomainNow } from "./timers";
+import { clampTimerRemainMs } from "./timers";
 
 export type ChallengeSetExportOptions = {
   name: string;
@@ -37,7 +38,7 @@ const pausedRemainFor = (challenge: Challenge, now: DomainNow): number | null =>
   if (!Number.isFinite(endsAt)) {
     throw new RangeError("timerEndsAt muss ein gültiger Zeitpunkt sein.");
   }
-  return endsAt - toMilliseconds(now);
+  return clampTimerRemainMs(endsAt - toMilliseconds(now));
 };
 
 const definitionFieldsOf = (challenge: Challenge): Omit<ChallengeSetV1Challenge, "progress"> => ({

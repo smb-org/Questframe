@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import type { ChallengeBoardSnapshot, Challenge } from "../../../src/modules/win-challenges/contracts/schemas";
+import {
+  challengeSetV1Schema,
+  type ChallengeBoardSnapshot,
+  type Challenge,
+} from "../../../src/modules/win-challenges/contracts/schemas";
 import {
   decodeChallengeSet,
   encodeChallengeSet,
@@ -123,6 +127,30 @@ describe("Challenge-Set-Codec", () => {
     }), true);
 
     expect(payload.challenges[0]?.progress?.timerRemainMs).toBe(-1_000);
+  });
+
+  it("speichert und lädt stark überzogene Restzeit vertragskonform", () => {
+    const payload = encode(makeChallenge({
+      currentCount: 4,
+      bestCount: 7,
+      state: "active",
+      timerEndsAt: "2026-09-14T04:00:00.000Z",
+    }), true);
+
+    expect(payload.challenges[0]?.progress).toMatchObject({
+      state: "pending",
+      timerRemainMs: -21_600_000,
+    });
+    expect(challengeSetV1Schema.safeParse(payload).success).toBe(true);
+
+    const restored = decodeChallengeSet(payload, { preserveProgress: true });
+    expect(restored.progress).toEqual([{
+      currentCount: 4,
+      bestCount: 7,
+      state: "pending",
+      timerRemainMs: -21_600_000,
+      completedAt: null,
+    }]);
   });
 
   it("nimmt Fortschritt nur auf ausdrücklichen Schalter auf", () => {
