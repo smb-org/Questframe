@@ -10,6 +10,7 @@ import {
 import type {
   BoardSaveResponse,
   ChallengeBoardSnapshot,
+  ChallengeSetSummary,
   ChallengeSetV1,
 } from "../../../src/modules/win-challenges/contracts/schemas";
 import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
@@ -794,5 +795,149 @@ describe("ChallengeBoard", () => {
 
     // Der echte, neuere Konflikt (Revision 3) darf dadurch nicht verschwinden.
     expect(screen.getByText("Jemand anderes hat das Board gespeichert.")).toBeInTheDocument();
+  });
+
+  // Betriebsfehler: Set in den Entwurf geladen, dieses Set gelöscht, "Alle speichern"
+  // gedrückt -> das Board ließ sich nicht mehr speichern ("Set nicht gefunden."), weil
+  // pendingSetId weiter auf das gelöschte Set zeigte. Ein Set ist nur gespeicherter
+  // Zustand und darf einen Board-Save nie blockieren.
+  describe("Set-Verknüpfung darf einen Board-Save nie blockieren", () => {
+    const eldenSummary = { id: "elden", type: "user" as const, name: "Elden Ring Bingo", hasProgress: false, createdAt: instant, updatedAt: instant };
+
+    // Gemeinsames Setup aller fünf Tests dieser Gruppe: Board rendern, Server-Set "elden"
+    // aus der Liste auswählen und den Ladevorgang bestätigen, bis pendingSetId auf "elden"
+    // zeigt – der Ausgangszustand, den jeder Test hier braucht. Parametrisiert wird nur,
+    // was zwischen den Tests tatsächlich variiert:
+    // - save: die Save-Antwort(en) (Erfolg, oder eine not_found-Sequenz für den Retry)
+    // - deleteSet: wenn gesetzt, wird das geladene Set danach über die Board-UI gelöscht
+    // - listSetsAfterLoad: wenn gesetzt, trifft danach eine neue Set-Liste ein (z.B. von
+    //   einem anderen Tab) – über einen rerender mit neuer api-Referenz simuliert
+    // Was der jeweilige Test daraus prüft, bleibt bewusst im Test, nicht hier (keine
+    // expect-Aufrufe in diesem Helfer).
+    const renderBoardWithLoadedSet = async ({
+      save,
+      deleteSet,
+      listSetsAfterLoad,
+    }: {
+      save: ChallengeBoardApi["save"];
+      deleteSet?: ChallengeBoardApi["deleteSet"];
+      listSetsAfterLoad?: ChallengeSetSummary[];
+    }): Promise<{ triggerSave: () => Promise<void> }> => {
+      const user = userEvent.setup();
+      const initial = snapshot([challenge("one", "Bellen")]);
+      let handle: ChallengeBoardSaveHandle | null = null;
+      const onHandleChange = (next: ChallengeBoardSaveHandle) => { handle = next; };
+      const api: ChallengeBoardApi = {
+        load: vi.fn(() => Promise.resolve(initial)),
+        save,
+        listSets: vi.fn(() => Promise.resolve([eldenSummary])),
+        getSet: vi.fn(() => Promise.resolve(setFilePayload())),
+        ...(deleteSet === undefined ? {} : { deleteSet }),
+      };
+      const { rerender } = render(<ChallengeBoard api={api} onHandleChange={onHandleChange} />);
+
+      await user.selectOptions(await screen.findByRole("combobox", { name: "Gespeichertes Set laden" }), "elden");
+      await user.click(await screen.findByRole("button", { name: "Set in Entwurf laden" }));
+      await screen.findByDisplayValue("Importierte Challenge");
+
+      if (listSetsAfterLoad !== undefined) {
+        const apiRefetched: ChallengeBoardApi = { ...api, listSets: vi.fn(() => Promise.resolve(listSetsAfterLoad)) };
+        rerender(<ChallengeBoard api={apiRefetched} onHandleChange={onHandleChange} />);
+        await waitFor(() => {
+          if (screen.queryByRole("option", { name: /Elden Ring Bingo/ }) !== null) throw new Error("Neue Set-Liste noch nicht übernommen.");
+        });
+      }
+
+      if (deleteSet !== undefined) {
+        await user.click(await screen.findByRole("button", { name: "Aktives Server-Set löschen" }));
+        await user.click(await screen.findByRole("button", { name: "Endgültig löschen" }));
+      }
+
+      const triggerSave = () => act(async () => {
+        if (handle === null) throw new Error("Speicher-Griff noch nicht registriert.");
+        await handle.save();
+      });
+      return { triggerSave };
+    };
+
+    it("speichert nach dem Löschen des gerade geladenen Sets ganz gewöhnlich, ohne setId oder reason", async () => {
+      const saved = snapshot([challenge("one", "Bellen")], 2);
+      const save = vi.fn<ChallengeBoardApi["save"]>().mockResolvedValue(responseFor(saved));
+      const deleteSet = vi.fn<NonNullable<ChallengeBoardApi["deleteSet"]>>().mockResolvedValue("elden");
+      const { triggerSave } = await renderBoardWithLoadedSet({ save, deleteSet });
+
+      expect(deleteSet).toHaveBeenCalledWith("elden");
+      expect(await screen.findByText("Noch kein Set")).toBeInTheDocument();
+
+      await triggerSave();
+
+      expect(save).toHaveBeenCalledTimes(1);
+      expect(save.mock.calls[0]?.[0]).not.toHaveProperty("setId");
+      expect(save.mock.calls[0]?.[0]).not.toHaveProperty("reason");
+      expect(screen.getByText("Board gespeichert · Revision 2.")).toBeInTheDocument();
+      expect(screen.queryByText(/nicht gefunden/i)).not.toBeInTheDocument();
+    });
+
+    // Review-Befund: serverSets startet als [], bevor die erste listSets()-Antwort da ist.
+    // Eine leere Liste ist kein Beleg, dass genau dieses Set weg ist – nur eine nicht-leere
+    // Liste ohne die ID ist das. Ein echter Set-Wechsel darf deshalb nicht schon bei einer
+    // leeren Liste still zu einem gewöhnlichen Save degradiert werden (weder beim allerersten
+    // Laden noch waehrend eine spaetere Anfrage laeuft) – sonst faellt Autosave/Verknuepfung
+    // grundlos weg, obwohl der Server das Set moeglicherweise noch hat.
+    it("degradiert einen Set-Wechsel nicht, wenn die zuletzt bekannte Set-Liste leer ist", async () => {
+      const saved = snapshot([challenge("one", "Bellen")], 2);
+      const save = vi.fn<ChallengeBoardApi["save"]>().mockResolvedValue(responseFor(saved));
+      const { triggerSave } = await renderBoardWithLoadedSet({ save, listSetsAfterLoad: [] });
+
+      await triggerSave();
+
+      expect(save).toHaveBeenCalledTimes(1);
+      expect(save.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ setId: "elden", reason: "set-switch" }));
+      expect(screen.queryByText(/Set-Verknüpfung entfallen/)).not.toBeInTheDocument();
+    });
+
+    it("speichert gewöhnlich mit Hinweis, wenn das geladene Set laut Set-Liste eines anderen Tabs nicht mehr existiert", async () => {
+      // Nicht-leer und ohne "elden" ist der Beleg, dass genau dieses Set wirklich weg ist
+      // (eine leere Liste allein wäre das nicht, siehe der vorige Test).
+      const otherSummary = { id: "other", type: "user" as const, name: "Anderes Set", hasProgress: false, createdAt: instant, updatedAt: instant };
+      const saved = snapshot([challenge("one", "Bellen")], 2);
+      const save = vi.fn<ChallengeBoardApi["save"]>().mockResolvedValue(responseFor(saved));
+      const { triggerSave } = await renderBoardWithLoadedSet({ save, listSetsAfterLoad: [otherSummary] });
+
+      await triggerSave();
+
+      expect(save.mock.calls[0]?.[0]).not.toHaveProperty("setId");
+      expect(save.mock.calls[0]?.[0]).not.toHaveProperty("reason");
+      expect(screen.getByText(/Set-Verknüpfung entfallen/)).toBeInTheDocument();
+      expect(screen.queryByText("Jemand anderes hat das Board gespeichert.")).not.toBeInTheDocument();
+    });
+
+    it("wiederholt einen Set-Wechsel genau einmal ohne Set-Verknüpfung, wenn der Server 'Set nicht gefunden' meldet", async () => {
+      const saved = snapshot([challenge("one", "Bellen")], 2);
+      const save = vi.fn<ChallengeBoardApi["save"]>()
+        .mockRejectedValueOnce({ code: "not_found", message: "Set nicht gefunden." })
+        .mockResolvedValueOnce(responseFor(saved));
+      const { triggerSave } = await renderBoardWithLoadedSet({ save });
+
+      await triggerSave();
+
+      expect(save).toHaveBeenCalledTimes(2);
+      expect(save.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ setId: "elden", reason: "set-switch" }));
+      expect(save.mock.calls[1]?.[0]).not.toHaveProperty("setId");
+      expect(save.mock.calls[1]?.[0]).not.toHaveProperty("reason");
+      expect(screen.getByText(/Set-Verknüpfung entfallen/)).toBeInTheDocument();
+      expect(screen.getByText("Board gespeichert · Revision 2.")).toBeInTheDocument();
+      expect(screen.queryByText(/nicht gefunden/i)).not.toBeInTheDocument();
+    });
+
+    it("bricht nach einem zweiten 'Set nicht gefunden' ohne weiteren Retry mit sichtbarem Fehler ab", async () => {
+      const save = vi.fn<ChallengeBoardApi["save"]>().mockRejectedValue({ code: "not_found", message: "Set nicht gefunden." });
+      const { triggerSave } = await renderBoardWithLoadedSet({ save });
+
+      await triggerSave();
+
+      expect(save).toHaveBeenCalledTimes(2);
+      expect(await screen.findByText("Board konnte nicht gespeichert werden.")).toBeInTheDocument();
+    });
   });
 });
