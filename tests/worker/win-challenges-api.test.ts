@@ -824,6 +824,13 @@ describe("Win-Challenges-API", () => {
     expect(rowsBeforeUndo.map(({ channel_seq }) => channel_seq)).toEqual(
       rowsBeforeUndo.map(({ channel_seq }) => channel_seq).sort((left, right) => left - right),
     );
+    const loadedWithBothUndoLists = bootstrapResponseSchema.parse(
+      await (await fetchWorker("/api/editor/bootstrap", { headers: { cookie, "x-editor-tab": tabId } })).json(),
+    );
+    expect(loadedWithBothUndoLists.undoTargets).toHaveLength(2);
+    expect(loadedWithBothUndoLists.undoTargets.every(({ moduleId }) => moduleId === "hud")).toBe(true);
+    expect(loadedWithBothUndoLists.challengeUndoTargets).toHaveLength(20);
+    expect(loadedWithBothUndoLists.challengeUndoTargets.every(({ moduleId }) => moduleId === "challenges")).toBe(true);
     const challengeTarget = rowsBeforeUndo.find(({ module_id }) => module_id === "challenges");
     if (challengeTarget === undefined) throw new Error("Challenge-Undo-Ziel fehlt.");
 

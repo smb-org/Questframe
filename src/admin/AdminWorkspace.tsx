@@ -20,10 +20,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AuditEntry,
   BootstrapResponse,
+  ChallengeUndoBaseRevisions,
   DockTokenResponse,
   OverlayTokenResponse,
   SaveRequest,
   SaveResponse,
+  UndoModuleId,
   UndoTarget,
 } from "../shared/contracts/api";
 import type {
@@ -48,6 +50,7 @@ import {
   type ChallengeSetResponse,
   type Command,
   type CommandResponse,
+  type ChallengeUndoResponse,
   type SettingsSaveRequest,
   type SettingsSaveResponse,
 } from "../modules/win-challenges/contracts/schemas";
@@ -72,7 +75,10 @@ export type TwitchUser = { id: string; login: string; displayName: string; profi
 export type AdminApi = {
   save: (request: SaveRequest) => Promise<SaveResponse>;
   setVisibility: (enabled: boolean) => Promise<{ state: ChannelState; auditEntry: BootstrapResponse["recentAudit"][number] | null; undoTargets: BootstrapResponse["undoTargets"]; serverTime: string }>;
-  undo?: ((moduleId: "hud", channelSeq: number, baseRevision: number) => Promise<SaveResponse>) | undefined;
+  undo?: {
+    (moduleId: "hud", channelSeq: number, baseRevision: number): Promise<SaveResponse>;
+    (moduleId: "challenges", channelSeq: number, baseRevision: ChallengeUndoBaseRevisions): Promise<ChallengeUndoResponse>;
+  } | undefined;
   mutateOverlayToken?: ((rotate: boolean, request: { requestId: string; expectedGeneration: number }) => Promise<OverlayTokenResponse>) | undefined;
   mutateDockToken?: ((rotate: boolean, request: { requestId: string; expectedGeneration: number }) => Promise<DockTokenResponse>) | undefined;
   uploadPortrait?: ((blob: Blob) => Promise<PortraitRef>) | undefined;
@@ -86,7 +92,7 @@ export type AdminApi = {
   deleteChallengeSet?: ((setId: string) => Promise<string>) | undefined;
   saveChallengeSettings?: ((request: SettingsSaveRequest) => Promise<SettingsSaveResponse>) | undefined;
   sendChallengeCommand?: ((command: Command) => Promise<CommandResponse>) | undefined;
-  subscribe?: ((callbacks: { onState: (state: ChannelState) => void; onOnlineChange: (online: boolean) => void; onOverlayPresence: (connectedSockets: number) => void; onAudit: (entry: AuditEntry, undoTargets: UndoTarget[]) => void; onUndoTargets: (undoTargets: UndoTarget[]) => void; onChallengeUpdate?: (update: ChallengeUpdate) => void }) => () => void) | undefined;
+  subscribe?: ((callbacks: { onState: (state: ChannelState) => void; onOnlineChange: (online: boolean) => void; onOverlayPresence: (connectedSockets: number) => void; onAudit: (entry: AuditEntry, moduleId: UndoModuleId, undoTargets: UndoTarget[]) => void; onUndoTargets: (moduleId: UndoModuleId, undoTargets: UndoTarget[]) => void; onChallengeUpdate?: (update: ChallengeUpdate) => void }) => () => void) | undefined;
   logout?: (() => Promise<void>) | undefined;
 };
 
@@ -495,6 +501,50 @@ const AuditRail = ({ initialBootstrap, state }: { initialBootstrap: BootstrapRes
   </aside>
 );
 
+const ChallengeUndoRail = ({ api, canUndo, online, challengeUpdate, initialTargets, onTargetsChange, onChallengeUpdate }: { api: AdminApi; canUndo: boolean; online: boolean; challengeUpdate: ChallengeUpdate | null; initialTargets: UndoTarget[]; onTargetsChange: (targets: UndoTarget[]) => void; onChallengeUpdate: (update: ChallengeUpdate) => void }) => {
+  const undoTargets = initialTargets.filter((target) => target.moduleId === "challenges");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  if (!canUndo) return null;
+  const applyTargets = (targets: UndoTarget[]) => {
+    const ownTargets = targets.filter((target) => target.moduleId === "challenges");
+    onTargetsChange(ownTargets);
+  };
+  const undo = async (target: UndoTarget) => {
+    if (api.undo === undefined || challengeUpdate === null || saving || !online) return;
+    if (!window.confirm(`Challenge-Zustand aus Kanalsequenz ${String(target.channelSeq)} wiederherstellen?`)) return;
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await api.undo("challenges", target.channelSeq, {
+        boardRevision: challengeUpdate.boardRevision,
+        settingsRevision: challengeUpdate.settingsRevision,
+        eventSeq: challengeUpdate.eventSeq,
+      });
+      onChallengeUpdate({ ...response.snapshot, event: null });
+      applyTargets(response.undoTargets);
+      setMessage("Der Challenge-Zustand wurde wiederhergestellt.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Challenge-Undo fehlgeschlagen.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <section aria-busy={saving} aria-labelledby="challenge-undo-heading" className="challenge-undo-panel">
+      <header className="challenge-board-heading"><div><span className="eyebrow">Challenge-Modul</span><h2 id="challenge-undo-heading">Challenge-Historie</h2></div><Undo2 aria-hidden="true" size={18} /></header>
+      {error !== "" && <p className="challenge-board-error" role="alert">{error}</p>}
+      <details className="undo-disclosure" open>
+        <summary><Undo2 size={14} /> Letzte Challenge-Zustände</summary>
+        {undoTargets.length === 0 ? <p className="empty-copy">Noch keine Challenge-Änderungen.</p> : undoTargets.slice(0, 6).map((target) => <button disabled={api.undo === undefined || saving || !online || challengeUpdate === null} key={target.channelSeq} onClick={() => void undo(target)} type="button">Kanal {target.channelSeq}<span>{target.summary}</span></button>)}
+      </details>
+      <footer className="challenge-undo-status"><span aria-live="polite">{error !== "" ? error : message !== "" ? message : challengeUpdate === null ? "Challenge-Zustand wird geladen …" : ""}</span></footer>
+    </section>
+  );
+};
+
 const AdminTabs = ({ activeTab, onChange }: { activeTab: AdminWorkspaceId; onChange: (tab: AdminWorkspaceId) => void }) => {
   const tabRefs = useRef<Record<AdminWorkspaceId, HTMLButtonElement | null>>({ hud: null, challenges: null });
   const tabs: { id: AdminWorkspaceId; label: string }[] = [{ id: "hud", label: "HUD" }, { id: "challenges", label: "Challenges" }];
@@ -602,6 +652,7 @@ const GlobalSaveBar = ({ modules, online, onNavigate }: { modules: SaveAllModule
 
 const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBootstrap: BootstrapResponse; api: AdminApi; initialTab: AdminWorkspaceId }) => {
   const [challengeUpdate, setChallengeUpdate] = useState<ChallengeUpdate | null>(null);
+  const [challengeUndoTargets, setChallengeUndoTargets] = useState(initialBootstrap.challengeUndoTargets);
   const [challengeSettingsDraft, setChallengeSettingsDraft] = useState<ChallengeSettingsDraft | null>(null);
   const [challengePlacementDraft, setChallengePlacementDraft] = useState<ChallengePlacement | null>(null);
   const [previewZoom, setPreviewZoom] = useState(100);
@@ -613,7 +664,7 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
   const obsSetupTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [settingsHandle, setSettingsHandle] = useState<ModuleSaveHandle | null>(null);
   const [boardHandle, setBoardHandle] = useState<ChallengeBoardSaveHandle | null>(null);
-  const state = useHudEditorState({ initialBootstrap, api, onChallengeUpdate: setChallengeUpdate });
+  const state = useHudEditorState({ initialBootstrap, api, onChallengeUpdate: setChallengeUpdate, onChallengeUndoTargets: setChallengeUndoTargets });
   useEffect(() => {
     if (api.getChallengeBoard === undefined) return;
     let disposed = false;
@@ -725,7 +776,7 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
   if (settingsHandle !== null) saveAllModules.push({ key: "settings", label: "Einstellungen", tab: "challenges", dirty: settingsHandle.dirty, save: settingsHandle.save });
   if (boardHandle !== null) saveAllModules.push({ key: "board", label: "Board", tab: "challenges", dirty: boardHandle.dirty, save: boardHandle.save });
   return (
-    <div className="admin-app admin-app--composition"><AdminTopbar api={api} initialBootstrap={initialBootstrap} obsSetupTriggerRef={obsSetupTriggerRef} state={state} />{!state.online && <div className="offline-banner">Offline – Speichern pausiert; bestehende Werte bleiben sichtbar.</div>}<AuditRail initialBootstrap={initialBootstrap} state={state} /><ObsSetupDialog api={api} state={state} triggerRef={obsSetupTriggerRef} /><main className="composition-main"><GlobalSaveBar modules={saveAllModules} online={state.online} onNavigate={setActiveTab} /><PreviewPanel headingControls={<ModuleVisibilityControls state={state} />} hudInteraction={hudInteraction} hudMuted={!state.draft.compositeHudVisible} mediaUrls={state.previewMediaUrls} onZoomChange={setPreviewZoom} previewOverlay={!state.committed.overlayEnabled ? <div className="disabled-veil">Overlay deaktiviert</div> : undefined} state={compositionHud} themeLabel={THEME_LABELS[state.preview.themeId]} zoom={previewZoom}>{challengePreview}</PreviewPanel></main><aside className="composition-rails"><AdminTabs activeTab={activeTab} onChange={setActiveTab} />{/* Beide Tabpanels bleiben dauerhaft gemountet (ChallengeBoard-Refetch/State sonst pro Tab-Wechsel weg); nur das inaktive wird per hidden-Attribut versteckt. */}<div aria-labelledby="admin-tab-hud" className="composition-tabpanel" hidden={activeTab !== "hud"} id="admin-composition-panel-hud" role="tabpanel"><HudEditorRail api={api} initialBootstrap={initialBootstrap} state={state} /></div><div aria-labelledby="admin-tab-challenges" className="composition-tabpanel" hidden={activeTab !== "challenges"} id="admin-composition-panel-challenges" role="tabpanel"><div className="composition-challenge-rail"><ChallengeSettingsPanel api={api} challengeUpdate={challengeUpdate} online={state.online} onDraftChange={setChallengeSettingsDraft} onHandleChange={setSettingsHandle} onPlacementDraftChange={setChallengePlacementDraft} placementDraft={challengePlacementDraft} />{compositionBoardApi === null ? <section className="challenge-board-shell" role="alert"><div className="challenge-board-empty"><AlertTriangle size={22} /><strong>Challenge-Board ist in dieser Sitzung nicht verfügbar.</strong></div></section> : <ChallengeBoard api={compositionBoardApi} challengeUpdate={displayedChallengeUpdate} online={state.online} onHandleChange={setBoardHandle} />}</div></div>{activeTab === "challenges" && <CompositionSaveDock state={state} />}</aside></div>
+    <div className="admin-app admin-app--composition"><AdminTopbar api={api} initialBootstrap={initialBootstrap} obsSetupTriggerRef={obsSetupTriggerRef} state={state} />{!state.online && <div className="offline-banner">Offline – Speichern pausiert; bestehende Werte bleiben sichtbar.</div>}<AuditRail initialBootstrap={initialBootstrap} state={state} /><ObsSetupDialog api={api} state={state} triggerRef={obsSetupTriggerRef} /><main className="composition-main"><GlobalSaveBar modules={saveAllModules} online={state.online} onNavigate={setActiveTab} /><PreviewPanel headingControls={<ModuleVisibilityControls state={state} />} hudInteraction={hudInteraction} hudMuted={!state.draft.compositeHudVisible} mediaUrls={state.previewMediaUrls} onZoomChange={setPreviewZoom} previewOverlay={!state.committed.overlayEnabled ? <div className="disabled-veil">Overlay deaktiviert</div> : undefined} state={compositionHud} themeLabel={THEME_LABELS[state.preview.themeId]} zoom={previewZoom}>{challengePreview}</PreviewPanel></main><aside className="composition-rails"><AdminTabs activeTab={activeTab} onChange={setActiveTab} />{/* Beide Tabpanels bleiben dauerhaft gemountet (ChallengeBoard-Refetch/State sonst pro Tab-Wechsel weg); nur das inaktive wird per hidden-Attribut versteckt. */}<div aria-labelledby="admin-tab-hud" className="composition-tabpanel" hidden={activeTab !== "hud"} id="admin-composition-panel-hud" role="tabpanel"><HudEditorRail api={api} initialBootstrap={initialBootstrap} state={state} /></div><div aria-labelledby="admin-tab-challenges" className="composition-tabpanel" hidden={activeTab !== "challenges"} id="admin-composition-panel-challenges" role="tabpanel"><div className="composition-challenge-rail"><ChallengeUndoRail api={api} canUndo={initialBootstrap.capabilities.undo} challengeUpdate={challengeUpdate} initialTargets={challengeUndoTargets} online={state.online} onChallengeUpdate={setChallengeUpdate} onTargetsChange={setChallengeUndoTargets} /><ChallengeSettingsPanel api={api} challengeUpdate={challengeUpdate} online={state.online} onDraftChange={setChallengeSettingsDraft} onHandleChange={setSettingsHandle} onPlacementDraftChange={setChallengePlacementDraft} placementDraft={challengePlacementDraft} />{compositionBoardApi === null ? <section className="challenge-board-shell" role="alert"><div className="challenge-board-empty"><AlertTriangle size={22} /><strong>Challenge-Board ist in dieser Sitzung nicht verfügbar.</strong></div></section> : <ChallengeBoard api={compositionBoardApi} challengeUpdate={displayedChallengeUpdate} online={state.online} onHandleChange={setBoardHandle} />}</div></div>{activeTab === "challenges" && <CompositionSaveDock state={state} />}</aside></div>
   );
 };
 

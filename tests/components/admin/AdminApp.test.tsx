@@ -60,6 +60,7 @@ const bootstrap = (): BootstrapResponse => ({
   state: createDefaultState(actor, "2026-08-29T12:00:00.000Z"),
   recentAudit: [],
   undoTargets: [],
+  challengeUndoTargets: [],
   csrfToken: "csrf-token-with-enough-entropy",
   serverTime: "2026-08-29T12:00:00.000Z",
 });

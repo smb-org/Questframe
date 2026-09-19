@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { undoTargetSchema } from "../../../shared/contracts/api";
 import type { ChallengeEvent, GlobalTimerEvent } from "./events";
 import {
   CHALLENGE_STYLE_IDS,
@@ -476,6 +477,12 @@ export const settingsSaveResponseSchema = z.strictObject({
   snapshot: challengeBoardSnapshotSchema,
 });
 
+export const challengeUndoResponseSchema = z.strictObject({
+  snapshot: challengeBoardSnapshotSchema,
+  undoTargets: z.array(undoTargetSchema).max(20),
+  serverTime: z.iso.datetime({ offset: true }),
+});
+
 export const commandResponseSchema = z.strictObject({
   eventSeq: eventSeqSchema,
   replayed: z.boolean(),
@@ -600,6 +607,7 @@ export type BoardSaveRequest = z.infer<typeof boardSaveRequestSchema>;
 export type ChallengeBoardSnapshot = z.infer<typeof challengeBoardSnapshotSchema>;
 export type BoardSaveResponse = z.infer<typeof boardSaveResponseSchema>;
 export type SettingsSaveResponse = z.infer<typeof settingsSaveResponseSchema>;
+export type ChallengeUndoResponse = z.infer<typeof challengeUndoResponseSchema>;
 export type SettingsSaveRequest = z.infer<typeof settingsSaveRequestSchema>;
 export type CommandResponse = z.infer<typeof commandResponseSchema>;
 export type ChallengeUpdate = z.infer<typeof challengeUpdateSchema>;

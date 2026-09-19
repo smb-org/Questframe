@@ -132,6 +132,7 @@ describe("API contracts", () => {
       state,
       recentAudit: [],
       undoTargets: [],
+      challengeUndoTargets: [],
       csrfToken: "csrf-token-with-enough-entropy",
       serverTime: "2026-08-29T12:00:00.000Z",
     };
@@ -191,12 +192,14 @@ describe("API contracts", () => {
     expect(
       serverMessageSchema.parse({ type: "overlay_presence", connectedSockets: 10 }),
     ).toEqual({ type: "overlay_presence", connectedSockets: 10 });
-    expect(serverMessageSchema.parse({ type: "history_changed", undoTargets })).toEqual({
+    expect(serverMessageSchema.parse({ type: "history_changed", moduleId: "challenges", undoTargets })).toEqual({
       type: "history_changed",
+      moduleId: "challenges",
       undoTargets,
     });
-    expect(serverMessageSchema.parse({ type: "audit_appended", entry: auditEntry, undoTargets })).toEqual({
+    expect(serverMessageSchema.parse({ type: "audit_appended", moduleId: "hud", entry: auditEntry, undoTargets })).toEqual({
       type: "audit_appended",
+      moduleId: "hud",
       entry: auditEntry,
       undoTargets,
     });

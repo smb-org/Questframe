@@ -10,8 +10,11 @@ import {
   twitchLookupResponseSchema,
   uploadResponseSchema,
   visibilityResponseSchema,
+  type ChallengeUndoBaseRevisions,
+  type UndoModuleId,
   type BootstrapResponse,
   type SaveRequest,
+  type SaveResponse,
 } from "../shared/contracts/api";
 import {
   boardSaveRequestSchema,
@@ -22,6 +25,7 @@ import {
   challengeSetResponseSchema,
   challengeSetSaveRequestSchema,
   commandResponseSchema,
+  challengeUndoResponseSchema,
   settingsSaveRequestSchema,
   settingsSaveResponseSchema,
   type BoardSaveRequest,
@@ -32,6 +36,7 @@ import {
   type ChallengeSetSaveRequest,
   type Command,
   type CommandResponse,
+  type ChallengeUndoResponse,
   type SettingsSaveRequest,
   type SettingsSaveResponse,
 } from "../modules/win-challenges/contracts/schemas";
@@ -151,13 +156,23 @@ export class BrowserAdminApi implements AdminApi {
     return commandResponseSchema.parse(await response.json());
   }
 
-  async undo(moduleId: "hud", channelSeq: number, baseRevision: number) {
+  async undo(moduleId: "hud", channelSeq: number, baseRevision: number): Promise<SaveResponse>;
+  async undo(moduleId: "challenges", channelSeq: number, baseRevision: ChallengeUndoBaseRevisions): Promise<ChallengeUndoResponse>;
+  async undo(moduleId: UndoModuleId, channelSeq: number, baseRevision: number | ChallengeUndoBaseRevisions) {
+    if (moduleId === "hud") {
+      if (typeof baseRevision !== "number") throw new Error("HUD-Undo benötigt eine HUD-Revision.");
+      const response = await this.requestJson("/api/state/undo", "POST", { moduleId, channelSeq, baseRevision });
+      return saveResponseSchema.parse(await response.json());
+    }
+    if (typeof baseRevision === "number") throw new Error("Challenge-Undo benötigt drei Konfliktrevisionen.");
     const response = await this.requestJson("/api/state/undo", "POST", {
       moduleId,
       channelSeq,
-      baseRevision,
+      baseBoardRevision: baseRevision.boardRevision,
+      baseSettingsRevision: baseRevision.settingsRevision,
+      baseEventSeq: baseRevision.eventSeq,
     });
-    return saveResponseSchema.parse(await response.json());
+    return challengeUndoResponseSchema.parse(await response.json());
   }
 
   async mutateOverlayToken(
@@ -261,9 +276,9 @@ export class BrowserAdminApi implements AdminApi {
         if (message.data.type === "snapshot" || message.data.type === "state_committed") {
           callbacks.onState(message.data.state);
         } else if (message.data.type === "audit_appended") {
-          callbacks.onAudit(message.data.entry, message.data.undoTargets);
+          callbacks.onAudit(message.data.entry, message.data.moduleId, message.data.undoTargets);
         } else if (message.data.type === "history_changed") {
-          callbacks.onUndoTargets(message.data.undoTargets);
+          callbacks.onUndoTargets(message.data.moduleId, message.data.undoTargets);
         } else if (message.data.type === "overlay_presence") {
           callbacks.onOverlayPresence(message.data.connectedSockets);
         }

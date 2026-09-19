@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { BootstrapResponse } from "../../../src/shared/contracts/api";
+import type { BootstrapResponse, SaveResponse } from "../../../src/shared/contracts/api";
 import type { ChallengeBoardSnapshot } from "../../../src/modules/win-challenges/contracts/schemas";
 import { createDefaultState, getReleaseCapabilities, twitchUserIdSchema } from "../../../src/shared/contracts/state";
 import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
@@ -24,6 +24,7 @@ const bootstrap = (): BootstrapResponse => ({
   state: createDefaultState(actor, "2026-08-29T12:00:00.000Z"),
   recentAudit: [],
   undoTargets: [],
+  challengeUndoTargets: [],
   csrfToken: "csrf-token-with-enough-entropy",
   serverTime: "2026-08-29T12:00:00.000Z",
 });
@@ -201,19 +202,22 @@ describe("Kompositions-Workspace", () => {
       undoTargets: [{ channelSeq: 2, moduleId: "hud", createdAt: "2026-08-29T12:01:00.000Z", summary: "Sammel-Overlay geändert" }],
       serverTime: "2026-08-29T12:01:00.000Z",
     }));
-    const undo = vi.fn<NonNullable<AdminApi["undo"]>>(() => Promise.resolve({
+    const undoResponse: SaveResponse = {
       state: { ...initial.state, revision: 3 },
       auditEntry: {
         id: "audit-composite-undo",
         revision: 3,
-        action: "undo",
+        action: "undo" as const,
         actor,
         summary: "Revision 2 wiederhergestellt",
         createdAt: "2026-08-29T12:02:00.000Z",
       },
       undoTargets: [],
       serverTime: "2026-08-29T12:02:00.000Z",
-    }));
+    };
+    const undo = vi.fn((moduleId: "hud" | "challenges") => moduleId === "hud"
+      ? Promise.resolve(undoResponse)
+      : Promise.reject(new Error("Challenge-Undo ist in diesem Test nicht eingerichtet."))) as unknown as NonNullable<AdminApi["undo"]>;
     vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<AdminWorkspace api={{
       save,

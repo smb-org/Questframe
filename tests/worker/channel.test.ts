@@ -1104,11 +1104,13 @@ describe("channel worker", () => {
       const [firstAudit, secondAudit] = await Promise.all([firstAuditPromise, secondAuditPromise]);
       expect(firstAudit).toMatchObject({
         type: "audit_appended",
+        moduleId: "hud",
         entry: committed.auditEntry,
         undoTargets: committed.undoTargets,
       });
       expect(secondAudit).toMatchObject({
         type: "audit_appended",
+        moduleId: "hud",
         entry: committed.auditEntry,
         undoTargets: committed.undoTargets,
       });

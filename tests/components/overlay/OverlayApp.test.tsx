@@ -111,7 +111,7 @@ describe("OverlayApp realtime shell", () => {
     act(() => {
       socket?.emit("message", new Blob());
       socket?.emit("message", "not-json");
-      socket?.emit("message", JSON.stringify({ type: "history_changed", undoTargets: [] }));
+      socket?.emit("message", JSON.stringify({ type: "history_changed", moduleId: "hud", undoTargets: [] }));
       socket?.emit("message", JSON.stringify({ type: "state_committed", state: committed }));
     });
     expect(screen.getByTestId("player-health")).toHaveAttribute("aria-valuenow", "42");

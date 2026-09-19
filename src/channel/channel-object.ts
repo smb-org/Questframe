@@ -34,6 +34,7 @@ import {
   challengeRepository as createChallengeRepository,
   challengeService as createChallengeService,
 } from "../modules/win-challenges/adapters/http-facade";
+import { challengeUndoResponseSchema } from "../modules/win-challenges/contracts/schemas";
 import {
   ChallengeRepositoryError,
   RevisionConflictError,
@@ -310,7 +311,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       },
       getUndoTargets: () => this.getUndoTargets(moduleId),
       broadcastAudit: (entry, undoTargets) => {
-        this.broadcastAudit(entry, undoTargets);
+        this.broadcastAudit(moduleId, entry, undoTargets);
       },
     };
   }
@@ -617,6 +618,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       state,
       recentAudit: this.getAuditEntries(),
       undoTargets: this.getUndoTargets(HUD_MODULE_ID),
+      challengeUndoTargets: this.getUndoTargets("challenges"),
       csrfToken,
       serverTime: nowIso(),
     });
@@ -671,11 +673,11 @@ export class ChannelObject extends DurableObject<AppEnv> {
       const snapshot = service.readSnapshot();
       this.broadcast(module.socketTags, { ...snapshot, event: null });
       this.broadcastHistoryChanged(input.moduleId);
-      return jsonResponse({
+      return jsonResponse(challengeUndoResponseSchema.parse({
         snapshot,
         undoTargets: this.getUndoTargets(input.moduleId),
         serverTime: nowIso(),
-      });
+      }));
     }
 
     if (module.state === undefined) throw new Error("HUD-State-Vertrag fehlt.");
@@ -717,7 +719,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     if (next === undefined || audit === undefined) throw new Error("HUD-Undo konnte nicht abgeschlossen werden.");
     module.state.broadcast(context, next);
     const undoTargets = this.getUndoTargets(input.moduleId);
-    this.broadcastAudit(audit, undoTargets);
+    this.broadcastAudit(input.moduleId, audit, undoTargets);
     return jsonResponse(
       saveResponseSchema.parse({
         state: next,
@@ -1711,13 +1713,14 @@ export class ChannelObject extends DurableObject<AppEnv> {
   private broadcastHistoryChanged(moduleId: ModuleId): void {
     const message = JSON.stringify({
       type: "history_changed",
+      moduleId,
       undoTargets: this.getUndoTargets(moduleId),
     });
     this.sendToSockets(this.ctx.getWebSockets(SOCKETS.editor.tag), message);
   }
 
-  private broadcastAudit(entry: AuditEntry, undoTargets: UndoTarget[]): void {
-    const message = JSON.stringify({ type: "audit_appended", entry, undoTargets });
+  private broadcastAudit(moduleId: ModuleId, entry: AuditEntry, undoTargets: UndoTarget[]): void {
+    const message = JSON.stringify({ type: "audit_appended", moduleId, entry, undoTargets });
     this.sendToSockets(this.ctx.getWebSockets(SOCKETS.editor.tag), message);
   }
 

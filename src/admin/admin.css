@@ -166,6 +166,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .composition-tabpanel > .editor-rail .editor-scroll { max-height: none; overflow: visible; }
 .composition-challenge-rail .challenge-settings-panel, .composition-challenge-rail .challenge-board-shell { width: auto; margin: 0; border-right: 0; border-left: 0; border-radius: 0; }
 .composition-challenge-rail .challenge-settings-panel { border-top: 0; }
+.composition-challenge-rail .challenge-undo-panel { border-bottom: 1px solid var(--line); }
+.composition-challenge-rail .challenge-undo-panel .undo-disclosure { margin: 0 16px; padding-bottom: 12px; }
+.composition-challenge-rail .challenge-undo-panel .challenge-board-error, .composition-challenge-rail .challenge-undo-status { margin-right: 16px; margin-left: 16px; }
+.composition-challenge-rail .challenge-undo-status { min-height: 28px; padding-bottom: 10px; color: var(--muted); font-size: 11px; }
 .composition-challenge-rail .challenge-board-heading { padding: 0 16px; }
 .composition-challenge-rail .challenge-set-bar { margin-right: 16px; margin-left: 16px; }
 

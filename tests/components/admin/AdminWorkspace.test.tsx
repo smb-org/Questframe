@@ -44,6 +44,7 @@ const bootstrap = (): BootstrapResponse => ({
   state: createDefaultState(actor, "2026-08-29T12:00:00.000Z"),
   recentAudit: [],
   undoTargets: [],
+  challengeUndoTargets: [],
   csrfToken: "csrf-token-with-enough-entropy",
   serverTime: "2026-08-29T12:00:00.000Z",
 });
@@ -1375,7 +1376,7 @@ describe("Admin workspace publication boundary", () => {
   it("zählt neue Audit-Einträge im geschlossenen Rail und leert den Zähler beim Öffnen", async () => {
     const user = userEvent.setup();
     const initial = bootstrap();
-    let onAudit: ((entry: AuditEntry, targets: UndoTarget[]) => void) | undefined;
+    let onAudit: ((entry: AuditEntry, moduleId: "hud" | "challenges", targets: UndoTarget[]) => void) | undefined;
     render(<AdminWorkspace initialBootstrap={initial} api={{
       save: vi.fn(),
       setVisibility: vi.fn(),
@@ -1396,8 +1397,8 @@ describe("Admin workspace publication boundary", () => {
       createdAt: "2026-08-29T12:01:00.000Z",
     });
     act(() => {
-      onAudit?.(makeEntry("Neue Änderung 1", 2), []);
-      onAudit?.(makeEntry("Neue Änderung 2", 3), []);
+      onAudit?.(makeEntry("Neue Änderung 1", 2), "hud", []);
+      onAudit?.(makeEntry("Neue Änderung 2", 3), "hud", []);
     });
 
     expect(screen.getByText("2", { selector: ".audit-new-badge" })).toHaveAttribute("aria-label", "2 neue Einträge");
@@ -1423,7 +1424,7 @@ describe("Admin workspace publication boundary", () => {
       createdAt: "2026-08-29T12:00:00.000Z",
       summary: "Startzustand",
     }];
-    let onAudit: ((entry: AuditEntry, targets: UndoTarget[]) => void) | undefined;
+    let onAudit: ((entry: AuditEntry, moduleId: "hud" | "challenges", targets: UndoTarget[]) => void) | undefined;
     const save = vi.fn<AdminApi["save"]>((request) => Promise.resolve({
       state: {
         ...initial.state,
@@ -1446,11 +1447,11 @@ describe("Admin workspace publication boundary", () => {
 
     // Der Broadcast kann vor der HTTP-Antwort des auslösenden Saves eintreffen.
     if (onAudit === undefined) throw new Error("expected onAudit subscription callback");
-    act(() => onAudit?.(auditEntry, undoTargets));
+    act(() => onAudit?.(auditEntry, "hud", undoTargets));
     fireEvent.change(screen.getByRole("slider", { name: "Gesundheit" }), { target: { value: "42" } });
     await user.click(screen.getByRole("button", { name: "Alle speichern" }));
     // Danach kann er erneut eintreffen, obwohl die Antwort den Rail schon befüllt hat.
-    act(() => onAudit?.(auditEntry, undoTargets));
+    act(() => onAudit?.(auditEntry, "hud", undoTargets));
 
     await user.click(auditToggle());
     expect(screen.getAllByText(auditEntry.summary)).toHaveLength(1);
@@ -1466,7 +1467,7 @@ describe("Admin workspace publication boundary", () => {
       createdAt: "2026-08-29T12:00:00.000Z",
       summary: "Startzustand",
     }];
-    let onUndoTargets: ((targets: UndoTarget[]) => void) | undefined;
+    let onUndoTargets: ((moduleId: "hud" | "challenges", targets: UndoTarget[]) => void) | undefined;
     render(<AdminWorkspace initialBootstrap={initial} api={{
       save: vi.fn(),
       setVisibility: vi.fn(),
@@ -1478,13 +1479,112 @@ describe("Admin workspace publication boundary", () => {
 
     fireEvent.change(screen.getByRole("slider", { name: "Gesundheit" }), { target: { value: "42" } });
     if (onUndoTargets === undefined) throw new Error("expected onUndoTargets subscription callback");
-    act(() => onUndoTargets?.(undoTargets));
+    act(() => onUndoTargets?.("hud", undoTargets));
 
     expect(screen.getByRole("slider", { name: "Gesundheit" })).toHaveValue("42");
     await user.click(auditToggle());
     expect(screen.getByRole("button", { name: /Kanal 1/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Alle speichern" })).toBeEnabled();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("trennt die Undo-Listen beider Module und lädt die Challenge-Liste direkt mit", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    const initial = bootstrap();
+    initial.undoTargets = [{
+      channelSeq: 1,
+      moduleId: "hud",
+      createdAt: "2026-08-29T12:00:00.000Z",
+      summary: "HUD-Startzustand",
+    }];
+    initial.challengeUndoTargets = [{
+      channelSeq: 7,
+      moduleId: "challenges",
+      createdAt: "2026-08-29T12:01:00.000Z",
+      summary: "Challenge-Startzustand",
+    }];
+    const challengeSnapshot: ChallengeBoardSnapshot = {
+      eventSeq: 6,
+      boardRevision: 4,
+      settingsRevision: 5,
+      settings: {
+        styleId: "plain-list",
+        themeMode: "own",
+        surfaceOpacity: 100,
+        headerStyle: "default",
+        textEmphasis: "auto",
+        fontFamily: "theme",
+        fontScale: 1,
+        headerTitle: "CHALLENGES",
+        penaltyLabel: "STRAFE",
+        penaltyText: "",
+        effectsEnabled: true,
+        maxVisible: 5,
+        overflowMode: "cut",
+        overflowTempo: "medium",
+        numbered: false,
+        keyVisible: false,
+        doneOrder: "end",
+        globalTimerMode: "down",
+        globalTimer: null,
+        placement: { x: 300, y: 8, scale: 1 },
+      },
+      challenges: [],
+    };
+    const undo = vi.fn().mockResolvedValue({
+      snapshot: challengeSnapshot,
+      undoTargets: initial.challengeUndoTargets,
+      serverTime: "2026-08-29T12:02:00.000Z",
+    });
+    let onUndoTargets: ((moduleId: "hud" | "challenges", targets: UndoTarget[]) => void) | undefined;
+    const api: AdminApi = {
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      undo,
+      getChallengeBoard: vi.fn(() => Promise.resolve(challengeSnapshot)),
+      saveChallengeBoard: vi.fn(),
+      subscribe: (callbacks) => {
+        onUndoTargets = callbacks.onUndoTargets;
+        return () => undefined;
+      },
+    };
+
+    render(<AdminWorkspace api={api} initialBootstrap={initial} workspace="challenges" />);
+    const challengePanel = document.querySelector("#admin-composition-panel-challenges");
+    const auditRail = document.querySelector(".audit-rail");
+    if (!(challengePanel instanceof HTMLElement) || !(auditRail instanceof HTMLElement)) throw new Error("Admin-Bereiche fehlen.");
+    await screen.findByRole("heading", { name: "Board" });
+    expect(challengePanel).toHaveTextContent("Challenge-Startzustand");
+    await user.click(auditToggle());
+    expect(auditRail).toHaveTextContent("HUD-Startzustand");
+
+    const challengeTargets: UndoTarget[] = [{
+      channelSeq: 8,
+      moduleId: "challenges",
+      createdAt: "2026-08-29T12:02:00.000Z",
+      summary: "Challenge neu",
+    }];
+    const hudTargets: UndoTarget[] = [{
+      channelSeq: 9,
+      moduleId: "hud",
+      createdAt: "2026-08-29T12:03:00.000Z",
+      summary: "HUD neu",
+    }];
+    if (onUndoTargets === undefined) throw new Error("expected onUndoTargets subscription callback");
+    act(() => onUndoTargets?.("challenges", challengeTargets));
+    expect(auditRail).toHaveTextContent("HUD-Startzustand");
+    expect(auditRail).not.toHaveTextContent("Challenge neu");
+    act(() => onUndoTargets?.("hud", hudTargets));
+    expect(challengePanel).toHaveTextContent("Challenge neu");
+    expect(challengePanel).not.toHaveTextContent("HUD neu");
+
+    await user.click(within(challengePanel).getByRole("button", { name: /Kanal 8/ }));
+    expect(undo).toHaveBeenCalledWith("challenges", 8, {
+      boardRevision: 4,
+      settingsRevision: 5,
+      eventSeq: 6,
+    });
   });
 
   it("keeps newer undo targets when an older save response arrives late", async () => {
@@ -1518,7 +1618,7 @@ describe("Admin workspace publication boundary", () => {
       createdAt: "2026-08-29T12:01:00.000Z",
       summary: "Neues Ziel",
     }];
-    let onAudit: ((entry: AuditEntry, targets: UndoTarget[]) => void) | undefined;
+    let onAudit: ((entry: AuditEntry, moduleId: "hud" | "challenges", targets: UndoTarget[]) => void) | undefined;
     let resolveSave: ((response: SaveResponse) => void) | undefined;
     const save = vi.fn<AdminApi["save"]>(() => new Promise((resolve) => {
       resolveSave = resolve;
@@ -1535,7 +1635,7 @@ describe("Admin workspace publication boundary", () => {
     fireEvent.change(screen.getByRole("slider", { name: "Gesundheit" }), { target: { value: "42" } });
     await user.click(screen.getByRole("button", { name: "Alle speichern" }));
     if (onAudit === undefined || resolveSave === undefined) throw new Error("expected live callbacks");
-    act(() => onAudit?.(newAuditEntry, newUndoTargets));
+    act(() => onAudit?.(newAuditEntry, "hud", newUndoTargets));
     await act(async () => {
       resolveSave?.({
         state: { ...initial.state, revision: 2, updatedAt: oldAuditEntry.createdAt },
@@ -1644,19 +1744,22 @@ describe("Admin workspace publication boundary", () => {
       undoTargets: initial.undoTargets,
       serverTime: "2026-08-29T12:01:00.000Z",
     }));
-    const undo = vi.fn<NonNullable<AdminApi["undo"]>>(() => Promise.resolve({
+    const undoResponse: SaveResponse = {
       state: { ...initial.state, revision: 3 },
       auditEntry: {
         id: "audit-undo",
         revision: 3,
-        action: "undo",
+        action: "undo" as const,
         actor,
         summary: "Revision wiederhergestellt",
         createdAt: "2026-08-29T12:02:00.000Z",
       },
       undoTargets: [],
       serverTime: "2026-08-29T12:02:00.000Z",
-    }));
+    };
+    const undo = vi.fn((moduleId: "hud" | "challenges") => moduleId === "hud"
+      ? Promise.resolve(undoResponse)
+      : Promise.reject(new Error("Challenge-Undo ist in diesem Test nicht eingerichtet."))) as unknown as NonNullable<AdminApi["undo"]>;
     const mutateOverlayToken = vi.fn<NonNullable<AdminApi["mutateOverlayToken"]>>((rotate, request) => Promise.resolve({
       requestId: request.requestId,
       generation: rotate ? 2 : 1,
