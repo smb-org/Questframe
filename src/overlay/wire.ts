@@ -1,7 +1,9 @@
 import type { ChannelState, PortraitRef } from "../shared/contracts/state";
+import type { TimeSyncMessage } from "../shared/time-sync";
 
 type OverlayMessage =
   | { type: "snapshot" | "state_committed"; state: ChannelState }
+  | TimeSyncMessage
   | { type: "token_revoked" };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -23,6 +25,18 @@ const isPercent = (value: unknown): value is number => isInteger(value, 0, 100);
 
 const isInstant = (value: unknown): value is string =>
   typeof value === "string" && /^\d{4}-\d{2}-\d{2}T/.test(value) && Number.isFinite(Date.parse(value));
+
+const parseTimeSyncMessage = (input: unknown): TimeSyncMessage | null => {
+  if (
+    !isRecord(input) ||
+    !exactKeys(input, ["type", "clientTimestamp", "serverTime"]) ||
+    input.type !== "time_sync" ||
+    typeof input.clientTimestamp !== "number" ||
+    !Number.isFinite(input.clientTimestamp) ||
+    !isInstant(input.serverTime)
+  ) return null;
+  return input as TimeSyncMessage;
+};
 
 const isPortrait = (value: unknown): value is PortraitRef => {
   if (!isRecord(value) || typeof value.kind !== "string") return false;
@@ -197,6 +211,7 @@ export const parseOverlayState = (input: unknown): ChannelState | null => {
 
 export const parseOverlayMessage = (input: unknown): OverlayMessage | null => {
   if (!isRecord(input) || typeof input.type !== "string") return null;
+  if (input.type === "time_sync") return parseTimeSyncMessage(input);
   if (input.type === "token_revoked" && exactKeys(input, ["type"])) {
     return { type: "token_revoked" };
   }
