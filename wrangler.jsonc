@@ -4,6 +4,7 @@
   "main": "./src/worker/index.ts",
   "compatibility_date": "2026-08-28",
   "compatibility_flags": ["nodejs_compat"],
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
   "workers_dev": false,
   "preview_urls": false,
   "assets": {
@@ -80,6 +81,7 @@
       "durable_objects": {
         "bindings": [{ "name": "CHANNEL", "class_name": "ChannelObject" }]
       },
+      "version_metadata": { "binding": "CF_VERSION_METADATA" },
       "ratelimits": [
         {
           "name": "OVERLAY_CAPSULE_LIMITER",
@@ -139,6 +141,7 @@
       "durable_objects": {
         "bindings": [{ "name": "CHANNEL", "class_name": "ChannelObject" }]
       },
+      "version_metadata": { "binding": "CF_VERSION_METADATA" },
       "ratelimits": [
         {
           "name": "OVERLAY_CAPSULE_LIMITER",

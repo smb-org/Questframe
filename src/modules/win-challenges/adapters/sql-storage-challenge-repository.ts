@@ -1,16 +1,32 @@
 import { z } from "zod";
 
+import { allocateControlKey } from "../domain/control-keys";
 import {
   challengeDefinitionSchema,
   challengePlacementSchema,
   challengeSchema,
+  challengeSetV1Schema,
   globalTimerSchema,
   settingsSchema,
   type Challenge,
+  type ChallengeSetSummary,
   type GlobalTimer,
 } from "../contracts/schemas";
-import { MAX_CHALLENGES, MAX_COUNT, isEventSeq, isGlobalTimerMode, isGlobalTimerTotalMs, isRevision } from "../contracts/predicates";
+import {
+  MAX_CHALLENGES,
+  MAX_CHALLENGE_SETS,
+  isCurrentCountForKind,
+  isChallengeSetName,
+  isDeltaForKind,
+  isEventSeq,
+  isGlobalTimerMode,
+  isGlobalTimerTotalMs,
+  isRevision,
+  maxCountForKind,
+  normalizeChallengeSetName,
+} from "../contracts/predicates";
 import { mergeDefinition, normalizeSortOrder } from "../domain/definitions";
+import { encodeChallengeSet } from "../domain/set-codec";
 import type { DomainNow } from "../domain/timers";
 import {
   IdempotencyMismatchError,
@@ -19,10 +35,14 @@ import {
   ValidationError,
   type BoardSaveInput,
   type BoardSaveResult,
+  AUTO_SAVE_SET_ID,
+  AUTO_SAVE_SET_NAME,
   type ChallengeRepository,
   type ChallengeRepositorySettings,
   type ChallengeRepositoryTransaction,
   type ChallengeRuntime,
+  type ChallengeSetRecord,
+  type ChallengeSetSaveInput,
   type ChallengeSnapshot,
   type CommandIdentity,
   type CommandMutation,
@@ -56,6 +76,7 @@ type MetaRow = {
   overflow_mode: string;
   overflow_tempo: string;
   numbered: number;
+  key_visible: number;
   done_order: string;
   global_timer_mode: string;
   placement_x: number;
@@ -69,9 +90,14 @@ type MetaRow = {
 type ChallengeRow = {
   id: string;
   title: string;
+  kind: string;
+  unit: string | null;
+  control_key: string;
   target_count: number | null;
   timer_total_ms: number | null;
   sort_order: number;
+  step: number;
+  best_count: number;
   hidden: number;
   current_count: number;
   state: string;
@@ -100,7 +126,21 @@ type DockTokenRow = {
   last_used_at: string | null;
 };
 
-const persistedSettingsSchema = settingsSchema.omit({ themeId: true });
+type ChallengeSetMetadataRow = {
+  id: string;
+  type: string;
+  name: string;
+  normalized_name: string;
+  has_progress: number;
+  created_at: string;
+  updated_at: string;
+};
+
+type ChallengeSetRow = ChallengeSetMetadataRow & {
+  payload: string;
+};
+
+const persistedSettingsSchema = settingsSchema;
 const metaRowSchema = z.strictObject({
   singleton: z.literal(1),
   event_seq: z.number().int().nonnegative(),
@@ -121,6 +161,7 @@ const metaRowSchema = z.strictObject({
   overflow_mode: z.string(),
   overflow_tempo: z.string(),
   numbered: z.number().int(),
+  key_visible: z.number().int(),
   done_order: z.string(),
   global_timer_mode: z.string(),
   placement_x: z.number().int(),
@@ -145,6 +186,22 @@ const dockTokenRowSchema = z.strictObject({
   creating_session_hash: z.string().min(1),
   created_at: z.string().min(1),
   last_used_at: z.union([z.string(), z.null()]),
+});
+const challengeSetMetadataRowSchema = z.strictObject({
+  id: z.string().min(1).max(80),
+  type: z.union([z.literal("user"), z.literal("autosave")]),
+  name: z.string().min(1).max(80),
+  normalized_name: z.string().min(1).max(80),
+  has_progress: z.union([z.literal(0), z.literal(1)]),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
+const challengeSetRowSchema = challengeSetMetadataRowSchema.extend({
+  payload: z.string().min(1),
+});
+const storedChallengeSetSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  challenges: z.array(z.unknown()).max(MAX_CHALLENGES),
 });
 
 export type SqlOperationMetrics = {
@@ -175,6 +232,8 @@ const toMilliseconds = (now: DomainNow): number => {
   if (!Number.isFinite(milliseconds)) throw new ValidationError("Ungültiger Zeitpunkt.");
   return milliseconds;
 };
+
+const toInstant = (now: DomainNow): string => new Date(toMilliseconds(now)).toISOString();
 
 const parseBooleanInteger = (value: number): boolean => {
   const parsed = z.union([z.literal(0), z.literal(1)]).parse(value);
@@ -217,6 +276,7 @@ const parseMeta = (row: MetaRow): ChallengeSnapshot["settings"] &
     overflowMode: parsedRow.overflow_mode,
     overflowTempo: parsedRow.overflow_tempo,
     numbered: parseBooleanInteger(parsedRow.numbered),
+    keyVisible: parseBooleanInteger(parsedRow.key_visible),
     doneOrder: parsedRow.done_order,
     globalTimerMode: parsedRow.global_timer_mode,
     globalTimer,
@@ -238,9 +298,14 @@ const parseChallenge = (row: ChallengeRow): Challenge =>
   challengeSchema.parse({
     id: row.id,
     title: row.title,
+    kind: row.kind,
+    unit: row.unit,
+    controlKey: row.control_key,
     targetCount: row.target_count,
     timerTotalMs: row.timer_total_ms,
     sortOrder: row.sort_order,
+    step: row.step,
+    bestCount: row.best_count,
     hidden: row.hidden === 1,
     currentCount: row.current_count,
     state: row.state,
@@ -274,8 +339,40 @@ const parseDockToken = (row: DockTokenRow): DockTokenRecord => {
   };
 };
 
+const parseChallengeSetMetadataRow = (row: ChallengeSetMetadataRow): ChallengeSetSummary => {
+  const parsed = challengeSetMetadataRowSchema.parse(row);
+  return {
+    id: parsed.id,
+    type: parsed.type,
+    name: parsed.name,
+    hasProgress: parsed.has_progress === 1,
+    createdAt: parsed.created_at,
+    updatedAt: parsed.updated_at,
+  };
+};
+
+const parseChallengeSetLoadRow = (row: ChallengeSetRow): {
+  metadata: ChallengeSetMetadataRow;
+  payload: string;
+} => {
+  const parsed = challengeSetRowSchema.parse(row);
+  return {
+    metadata: {
+      id: parsed.id,
+      type: parsed.type,
+      name: parsed.name,
+      normalized_name: parsed.normalized_name,
+      has_progress: parsed.has_progress,
+      created_at: parsed.created_at,
+      updated_at: parsed.updated_at,
+    },
+    payload: parsed.payload,
+  };
+};
+
 const sameRuntime = (left: Challenge, right: Challenge): boolean =>
   left.currentCount === right.currentCount &&
+  left.bestCount === right.bestCount &&
   left.state === right.state &&
   left.timerEndsAt === right.timerEndsAt &&
   left.timerRemainMs === right.timerRemainMs &&
@@ -318,8 +415,94 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     return this.readSnapshotInternal();
   }
 
+  public restoreSnapshot(snapshot: ChallengeSnapshot): ChallengeSnapshot {
+    return this.transactionSync(() => {
+      const current = this.readSnapshotInternal();
+      const targetIds = snapshot.challenges.map(({ id }) => id);
+      this.deleteMissingChallenges(targetIds, current.challenges);
+      this.execute<ChallengeRow>(`DELETE FROM ${this.table("challenges")}`);
+      for (const challenge of snapshot.challenges) this.insertChallenge(challenge);
+
+      this.execute<MetaRow>(
+        `UPDATE ${this.table("meta")} SET
+          event_seq = ?, board_revision = ?, settings_revision = ?,
+          style_id = ?, theme_mode = ?, surface_opacity = ?, header_style = ?, text_emphasis = ?, font_family = ?, font_scale = ?, header_title = ?, penalty_label = ?, penalty_text = ?,
+          effects_enabled = ?, max_visible = ?, overflow_mode = ?, overflow_tempo = ?, numbered = ?, key_visible = ?, done_order = ?,
+          global_timer_mode = ?, global_timer_total_ms = ?, global_timer_ends_at = ?, global_timer_paused_remain_ms = ?,
+          placement_x = ?, placement_y = ?, placement_scale = ?
+         WHERE singleton = 1`,
+        current.eventSeq + 1,
+        current.boardRevision + 1,
+        current.settingsRevision + 1,
+        snapshot.settings.styleId,
+        snapshot.settings.themeMode,
+        snapshot.settings.surfaceOpacity,
+        snapshot.settings.headerStyle,
+        snapshot.settings.textEmphasis,
+        snapshot.settings.fontFamily,
+        snapshot.settings.fontScale,
+        snapshot.settings.headerTitle,
+        snapshot.settings.penaltyLabel,
+        snapshot.settings.penaltyText,
+        snapshot.settings.effectsEnabled ? 1 : 0,
+        snapshot.settings.maxVisible,
+        snapshot.settings.overflowMode,
+        snapshot.settings.overflowTempo,
+        snapshot.settings.numbered ? 1 : 0,
+        snapshot.settings.keyVisible ? 1 : 0,
+        snapshot.settings.doneOrder,
+        snapshot.settings.globalTimerMode,
+        snapshot.settings.globalTimer?.totalMs ?? null,
+        snapshot.settings.globalTimer?.endsAt ?? null,
+        snapshot.settings.globalTimer?.pausedRemainMs ?? null,
+        snapshot.settings.placement.x,
+        snapshot.settings.placement.y,
+        snapshot.settings.placement.scale,
+      );
+      return this.readSnapshotInternal();
+    });
+  }
+
   public readChallenge(challengeId: string): Challenge | null {
     return this.readChallengeInternal(challengeId);
+  }
+
+  public readCommand(commandId: string): CommandRecord | null {
+    return this.readCommandInternal(commandId);
+  }
+
+  public readSet(setId: string): ChallengeSetRecord | null {
+    return this.readSetInternal(setId);
+  }
+
+  public listSets(): ChallengeSetSummary[] {
+    return this.execute<ChallengeSetMetadataRow>(
+      // Die Liste braucht nur Metadaten. Das Payload bleibt aus der Abfrage,
+      // damit SQLite die Overflow-Seiten des einzelnen Sets nicht laden muss.
+      `SELECT id, type, name, normalized_name, has_progress, created_at, updated_at
+       FROM ${this.table("sets")} ORDER BY updated_at DESC, id ASC`,
+    ).map(parseChallengeSetMetadataRow);
+  }
+
+  public saveSet(input: ChallengeSetSaveInput): ChallengeSetRecord {
+    return this.transaction((transaction) => {
+      const current = transaction.readSnapshot();
+      return this.saveSetInTransaction(input, current);
+    });
+  }
+
+  public deleteSet(setId: string): void {
+    this.transaction(() => {
+      const existing = this.readSetMetadataInternal(setId);
+      if (existing === null) throw new NotFoundError("Set nicht gefunden.");
+      if (existing.type === "autosave") {
+        throw new ValidationError("Die Autosicherung kann nicht gelöscht werden.");
+      }
+      this.execute<ChallengeSetRow>(
+        `DELETE FROM ${this.table("sets")} WHERE id = ?`,
+        setId,
+      );
+    });
   }
 
   public saveBoard(input: BoardSaveInput): BoardSaveResult {
@@ -339,8 +522,29 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       if (current.boardRevision !== input.baseBoardRevision) {
         throw new RevisionConflictError(current);
       }
+      if (input.setId !== undefined && input.reason !== "set-switch") {
+        throw new ValidationError("Ein Set kann nur mit einem Set-Wechsel geladen werden.");
+      }
+      // Der Payload muss vor dem Autosave gelesen werden: Beim Laden der
+      // Autosicherung würde der folgende Upsert sonst genau sein Ziel ersetzen.
+      const loadedSet = input.setId === undefined ? null : this.readSetInternal(input.setId);
+      if (input.setId !== undefined && loadedSet === null) {
+        throw new NotFoundError("Set nicht gefunden.");
+      }
+      if (input.reason === "set-switch") {
+        this.saveAutosaveInTransaction(current, input.now);
+      }
 
       const existingById = new Map(current.challenges.map((challenge) => [challenge.id, challenge]));
+      const persistedControlKeys = new Set(current.challenges.map((challenge) => challenge.controlKey));
+      const retiredControlKeys = definitions.some((definition) => !("id" in definition))
+        ? new Set(
+            this.execute<{ control_key: string }>(
+              `SELECT control_key FROM ${this.table("retired_keys")}`,
+            ).map(({ control_key }) => control_key),
+          )
+        : new Set<string>();
+      const allocatedControlKeys = new Set<string>();
       const seenIds = new Set<string>();
       const seenClientIds = new Set<string>();
       const generatedIds = new Map<string, string>();
@@ -361,17 +565,30 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         }
         seenClientIds.add(definition.clientId);
         const generatedId = crypto.randomUUID();
+        const controlKey = allocateControlKey([
+          persistedControlKeys,
+          allocatedControlKeys,
+          retiredControlKeys,
+        ]);
+        allocatedControlKeys.add(controlKey);
         generatedIds.set(definition.clientId, generatedId);
         return {
           definition,
           existing: undefined,
-          challenge: mergeDefinition(null, definition, input.now, generatedId),
+          challenge: mergeDefinition(null, definition, input.now, generatedId, controlKey),
         };
       });
       const normalized = normalizeSortOrder(merged.map(({ challenge }) => challenge));
+      for (const challenge of normalized) {
+        try {
+          challengeSchema.parse(challenge);
+        } catch {
+          throw new ValidationError("Ungültiger Challenge-Stand für den Challenge-Typ.");
+        }
+      }
       const normalizedById = new Map(normalized.map((challenge) => [challenge.id, challenge]));
       const finalIds = normalized.map(({ id }) => id);
-      this.deleteMissingChallenges(finalIds);
+      this.deleteMissingChallenges(finalIds, current.challenges);
       for (const entry of merged) {
         const challenge = normalizedById.get(entry.challenge.id);
         if (challenge === undefined) throw new Error("Challenge-Normalisierung fehlgeschlagen.");
@@ -381,8 +598,15 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
           this.updateBoardChallenge(entry.existing, challenge);
         }
       }
+      if (loadedSet !== null && loadedSet.summary.hasProgress) {
+        this.restoreSetProgress(loadedSet, normalized, input.now);
+      }
       this.execute<MetaRow>(
-        `UPDATE ${this.table("meta")} SET board_revision = board_revision + 1 WHERE singleton = 1`,
+        `UPDATE ${this.table("meta")} SET
+           board_revision = board_revision + 1,
+           event_seq = event_seq + ?
+         WHERE singleton = 1`,
+        input.reason === "set-switch" ? 1 : 0,
       );
       const snapshot = this.readSnapshotInternal();
       return {
@@ -402,7 +626,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       this.execute<MetaRow>(
         `UPDATE ${this.table("meta")} SET
           style_id = ?, theme_mode = ?, surface_opacity = ?, header_style = ?, text_emphasis = ?, font_family = ?, font_scale = ?, header_title = ?, penalty_label = ?, penalty_text = ?,
-          effects_enabled = ?, max_visible = ?, overflow_mode = ?, overflow_tempo = ?, numbered = ?, done_order = ?,
+          effects_enabled = ?, max_visible = ?, overflow_mode = ?, overflow_tempo = ?, numbered = ?, key_visible = ?, done_order = ?,
           global_timer_mode = ?, global_timer_total_ms = ?, global_timer_ends_at = ?, global_timer_paused_remain_ms = ?,
           placement_x = ?, placement_y = ?, placement_scale = ?,
           settings_revision = settings_revision + 1
@@ -422,6 +646,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         nextSettings.overflowMode,
         nextSettings.overflowTempo,
         nextSettings.numbered ? 1 : 0,
+        nextSettings.keyVisible ? 1 : 0,
         nextSettings.doneOrder,
         nextSettings.globalTimerMode,
         nextSettings.globalTimer?.totalMs ?? null,
@@ -540,8 +765,174 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     };
   }
 
-  private table(name: "meta" | "challenges" | "commands" | "dock_tokens"): string {
+  private table(name: "meta" | "challenges" | "commands" | "dock_tokens" | "retired_keys" | "sets"): string {
     return `${this.tablePrefix}${name}`;
+  }
+
+  private saveSetInTransaction(
+    input: ChallengeSetSaveInput,
+    current: ChallengeSnapshot,
+  ): ChallengeSetRecord {
+    const reserved = input.reserved === true;
+    const name = reserved ? AUTO_SAVE_SET_NAME : input.name.normalize("NFC").trim();
+    if (!reserved && !isChallengeSetName(name)) {
+      throw new ValidationError("Set-Name muss normalisiert 1–24 Zeichen lang sein.");
+    }
+    const requestedId = reserved ? AUTO_SAVE_SET_ID : input.setId;
+    const existing = requestedId === undefined ? null : this.readSetMetadataInternal(requestedId);
+    if (requestedId !== undefined && existing === null && !reserved) {
+      throw new NotFoundError("Set nicht gefunden.");
+    }
+    if (existing?.type === "autosave" && !reserved) {
+      throw new ValidationError("Die Autosicherung kann nicht überschrieben werden.");
+    }
+    if (!reserved && existing === null) {
+      const count = this.execute<{ count: number }>(
+        `SELECT COUNT(*) AS count FROM ${this.table("sets")} WHERE type = 'user'`,
+      )[0]?.count;
+      if (count === undefined || count >= MAX_CHALLENGE_SETS) {
+        throw new ValidationError("Es sind höchstens 20 eigene Sets erlaubt.");
+      }
+    }
+    if (!reserved) {
+      const duplicate = this.execute<{ id: string }>(
+        `SELECT id FROM ${this.table("sets")}
+         WHERE type = 'user' AND normalized_name = ? AND id <> ?`,
+        normalizeChallengeSetName(name),
+        requestedId ?? "",
+      )[0];
+      if (duplicate !== undefined) {
+        throw new ValidationError("Ein Set mit diesem Namen gibt es bereits.");
+      }
+    }
+
+    const setId = requestedId ?? crypto.randomUUID();
+    const timestamp = toInstant(input.now);
+    const createdAt = existing?.created_at ?? timestamp;
+    const includeProgress = reserved || input.includeProgress;
+    const payload = encodeChallengeSet(current, {
+      name,
+      createdAt,
+      now: input.now,
+      includeProgress,
+    });
+    const storedPayload = JSON.stringify({
+      schemaVersion: payload.schemaVersion,
+      challenges: payload.challenges,
+    });
+    if (existing === null) {
+      this.execute<ChallengeSetRow>(
+        `INSERT INTO ${this.table("sets")}(
+          id, type, name, normalized_name, has_progress, created_at, updated_at, payload
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        setId,
+        reserved ? "autosave" : "user",
+        name,
+        normalizeChallengeSetName(name),
+        includeProgress ? 1 : 0,
+        createdAt,
+        timestamp,
+        storedPayload,
+      );
+    } else {
+      this.execute<ChallengeSetRow>(
+        `UPDATE ${this.table("sets")} SET
+          type = ?, name = ?, normalized_name = ?, has_progress = ?, updated_at = ?, payload = ?
+         WHERE id = ?`,
+        reserved ? "autosave" : "user",
+        name,
+        normalizeChallengeSetName(name),
+        includeProgress ? 1 : 0,
+        timestamp,
+        storedPayload,
+        setId,
+      );
+    }
+    const summary = parseChallengeSetMetadataRow({
+      id: setId,
+      type: reserved ? "autosave" : "user",
+      name,
+      normalized_name: normalizeChallengeSetName(name),
+      has_progress: includeProgress ? 1 : 0,
+      created_at: createdAt,
+      updated_at: timestamp,
+    });
+    return { summary, payload };
+  }
+
+  private saveAutosaveInTransaction(current: ChallengeSnapshot, now: DomainNow): void {
+    this.saveSetInTransaction({
+      name: AUTO_SAVE_SET_NAME,
+      includeProgress: true,
+      reserved: true,
+      now,
+    }, current);
+  }
+
+  private readSetMetadataInternal(setId: string): ChallengeSetMetadataRow | null {
+    const row = this.execute<ChallengeSetMetadataRow>(
+      `SELECT id, type, name, normalized_name, has_progress, created_at, updated_at
+       FROM ${this.table("sets")} WHERE id = ?`,
+      setId,
+    )[0];
+    return row === undefined ? null : challengeSetMetadataRowSchema.parse(row);
+  }
+
+  private readSetInternal(setId: string): ChallengeSetRecord | null {
+    const row = this.execute<ChallengeSetRow>(
+      `SELECT id, type, name, normalized_name, has_progress, created_at, updated_at, payload
+       FROM ${this.table("sets")} WHERE id = ?`,
+      setId,
+    )[0];
+    if (row === undefined) return null;
+    const parsedRow = parseChallengeSetLoadRow(row);
+    let stored: unknown;
+    try {
+      stored = JSON.parse(parsedRow.payload) as unknown;
+    } catch {
+      throw new Error("Set-Payload ist kein gültiges JSON.");
+    }
+    const parsedStored = storedChallengeSetSchema.parse(stored);
+    const payload = challengeSetV1Schema.parse({
+      schemaVersion: parsedStored.schemaVersion,
+      name: parsedRow.metadata.name,
+      createdAt: parsedRow.metadata.created_at,
+      challenges: parsedStored.challenges,
+    });
+    const hasProgress = parsedRow.metadata.has_progress === 1;
+    if (payload.challenges.some(({ progress }) => (progress !== undefined) !== hasProgress)) {
+      throw new Error("Set-Metadaten und Set-Payload haben unterschiedliche Fortschrittsangaben.");
+    }
+    return {
+      summary: parseChallengeSetMetadataRow(parsedRow.metadata),
+      payload,
+    };
+  }
+
+  private restoreSetProgress(
+    loadedSet: ChallengeSetRecord,
+    challenges: readonly Challenge[],
+    now: DomainNow,
+  ): void {
+    const sortedPayload = [...loadedSet.payload.challenges].sort((left, right) => left.sortOrder - right.sortOrder);
+    const sortedChallenges = [...challenges].sort((left, right) => left.sortOrder - right.sortOrder);
+    if (sortedPayload.length !== sortedChallenges.length) {
+      throw new ValidationError("Der gespeicherte Stand passt nicht zur geladenen Challenge-Anzahl.");
+    }
+    for (const [index, challenge] of sortedChallenges.entries()) {
+      const progress = sortedPayload[index]?.progress;
+      if (progress === undefined) throw new ValidationError("Der gespeicherte Challenge-Stand fehlt.");
+      const restored = this.updateChallengeRuntime(challenge.id, {
+        currentCount: progress.currentCount,
+        bestCount: progress.bestCount,
+        state: progress.state,
+        timerEndsAt: null,
+        timerRemainMs: progress.timerRemainMs,
+        completedAt: progress.completedAt,
+        hidden: challenge.hidden,
+      }, toInstant(now));
+      if (restored === null) throw new NotFoundError();
+    }
   }
 
   private execute<T extends Record<string, SqlStorageValue>>(
@@ -584,6 +975,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
         overflowMode: parsedMeta.overflowMode,
         overflowTempo: parsedMeta.overflowTempo,
         numbered: parsedMeta.numbered,
+        keyVisible: parsedMeta.keyVisible,
         doneOrder: parsedMeta.doneOrder,
         globalTimerMode: parsedMeta.globalTimerMode,
         globalTimer: parsedMeta.globalTimer,
@@ -623,17 +1015,35 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     delta: number,
     maximum: number,
     updatedAt: string,
-    runtime?: Pick<ChallengeRuntime, "state" | "timerEndsAt" | "timerRemainMs" | "completedAt" | "hidden">,
+    runtime?: Pick<ChallengeRuntime, "currentCount" | "bestCount" | "state" | "timerEndsAt" | "timerRemainMs" | "completedAt" | "hidden">,
   ): Challenge | null {
     if (runtime !== undefined) assertChallengeTimerInvariant(runtime);
-    if (!Number.isSafeInteger(delta) || !Number.isSafeInteger(maximum) || maximum < 0 || maximum > MAX_COUNT) {
+    const current = this.readChallengeInternal(challengeId);
+    if (current === null) return null;
+    if (
+      !Number.isSafeInteger(delta) ||
+      !isDeltaForKind(delta, current.kind) ||
+      !Number.isSafeInteger(maximum) ||
+      maximum < 0 ||
+      maximum > maxCountForKind(current.kind)
+    ) {
       throw new ValidationError("Ungültige Zählergrenze.");
+    }
+    if (runtime !== undefined && (
+      !isCurrentCountForKind(runtime.currentCount, current.kind) ||
+      !isCurrentCountForKind(runtime.bestCount, current.kind)
+    )) {
+      throw new ValidationError("Ungültiger Zählerstand für den Challenge-Typ.");
     }
     if (runtime === undefined) {
       this.execute<ChallengeRow>(
         `UPDATE ${this.table("challenges")}
-         SET current_count = MIN(MAX(current_count + ?, 0), ?), updated_at = ?
+         SET current_count = MIN(MAX(current_count + ?, 0), ?),
+             best_count = MAX(best_count, MIN(MAX(current_count + ?, 0), ?)),
+             updated_at = ?
          WHERE id = ? AND state <> 'done'`,
+        delta,
+        maximum,
         delta,
         maximum,
         updatedAt,
@@ -642,11 +1052,12 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     } else {
       this.execute<ChallengeRow>(
         `UPDATE ${this.table("challenges")} SET
-          current_count = MIN(MAX(current_count + ?, 0), ?), state = ?,
+          current_count = MIN(MAX(current_count + ?, 0), ?), best_count = MAX(best_count, ?), state = ?,
           timer_ends_at = ?, timer_remain_ms = ?, completed_at = ?, hidden = ?, updated_at = ?
-         WHERE id = ? AND state <> 'done'`,
+        WHERE id = ? AND state <> 'done'`,
         delta,
         maximum,
+        runtime.bestCount,
         runtime.state,
         runtime.timerEndsAt,
         runtime.timerRemainMs,
@@ -665,11 +1076,20 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     updatedAt: string,
   ): Challenge | null {
     assertChallengeTimerInvariant(runtime);
+    const current = this.readChallengeInternal(challengeId);
+    if (current === null) return null;
+    if (
+      !isCurrentCountForKind(runtime.currentCount, current.kind) ||
+      !isCurrentCountForKind(runtime.bestCount, current.kind)
+    ) {
+      throw new ValidationError("Ungültiger Zählerstand für den Challenge-Typ.");
+    }
     this.execute<ChallengeRow>(
       `UPDATE ${this.table("challenges")} SET
-        current_count = ?, state = ?, timer_ends_at = ?, timer_remain_ms = ?, completed_at = ?, hidden = ?, updated_at = ?
+        current_count = ?, best_count = MAX(best_count, ?), state = ?, timer_ends_at = ?, timer_remain_ms = ?, completed_at = ?, hidden = ?, updated_at = ?
        WHERE id = ?`,
       runtime.currentCount,
+      runtime.bestCount,
       runtime.state,
       runtime.timerEndsAt,
       runtime.timerRemainMs,
@@ -766,6 +1186,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       overflowMode: input.overflowMode,
       overflowTempo: input.overflowTempo,
       numbered: input.numbered,
+      keyVisible: input.keyVisible,
       doneOrder: input.doneOrder,
       globalTimerMode: input.globalTimerMode,
       globalTimer,
@@ -773,14 +1194,28 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     });
   }
 
-  private deleteMissingChallenges(ids: readonly string[]): void {
+  private deleteMissingChallenges(
+    ids: readonly string[],
+    currentChallenges: readonly Pick<Challenge, "id" | "controlKey">[],
+  ): void {
+    const finalIds = new Set(ids);
+    const missingControlKeys = currentChallenges
+      .filter(({ id }) => !finalIds.has(id))
+      .map(({ controlKey }) => controlKey);
+    if (missingControlKeys.length > 0) {
+      this.execute<Pick<ChallengeRow, "control_key">>(
+        `INSERT OR IGNORE INTO ${this.table("retired_keys")}(control_key) VALUES ${missingControlKeys.map(() => "(?)").join(", ")}`,
+        ...missingControlKeys,
+      );
+    } else {
+      return;
+    }
     if (ids.length === 0) {
       this.execute<ChallengeRow>(`DELETE FROM ${this.table("challenges")}`);
       return;
     }
-    const placeholders = ids.map(() => "?").join(", ");
     this.execute<ChallengeRow>(
-      `DELETE FROM ${this.table("challenges")} WHERE id NOT IN (${placeholders})`,
+      `DELETE FROM ${this.table("challenges")} WHERE id NOT IN (${ids.map(() => "?").join(", ")})`,
       ...ids,
     );
   }
@@ -789,14 +1224,19 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     assertChallengeTimerInvariant(challenge);
     this.execute<ChallengeRow>(
       `INSERT INTO ${this.table("challenges")}(
-        id, title, target_count, timer_total_ms, sort_order,
-        hidden, current_count, state, timer_ends_at, timer_remain_ms, completed_at, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, title, kind, unit, control_key, target_count, timer_total_ms, sort_order,
+        step, best_count, hidden, current_count, state, timer_ends_at, timer_remain_ms, completed_at, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       challenge.id,
       challenge.title,
+      challenge.kind,
+      challenge.unit,
+      challenge.controlKey,
       challenge.targetCount,
       challenge.timerTotalMs,
       challenge.sortOrder,
+      challenge.step,
+      challenge.bestCount,
       challenge.hidden ? 1 : 0,
       challenge.currentCount,
       challenge.state,
@@ -813,13 +1253,17 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     if (sameRuntime(existing, challenge)) {
       this.execute<ChallengeRow>(
         `UPDATE ${this.table("challenges")} SET
-          title = ?, target_count = ?, timer_total_ms = ?,
-          sort_order = ?, hidden = ?, updated_at = ?
+          title = ?, kind = ?, unit = ?, target_count = ?, timer_total_ms = ?,
+          sort_order = ?, step = ?, best_count = ?, hidden = ?, updated_at = ?
          WHERE id = ?`,
         challenge.title,
+        challenge.kind,
+        challenge.unit,
         challenge.targetCount,
         challenge.timerTotalMs,
         challenge.sortOrder,
+        challenge.step,
+        challenge.bestCount,
         challenge.hidden ? 1 : 0,
         challenge.updatedAt,
         challenge.id,
@@ -828,13 +1272,17 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
     }
     this.execute<ChallengeRow>(
       `UPDATE ${this.table("challenges")} SET
-        title = ?, target_count = ?, timer_total_ms = ?, sort_order = ?,
-        hidden = ?, current_count = ?, state = ?, timer_ends_at = ?, timer_remain_ms = ?, completed_at = ?, updated_at = ?
+        title = ?, kind = ?, unit = ?, target_count = ?, timer_total_ms = ?, sort_order = ?, step = ?,
+        best_count = ?, hidden = ?, current_count = ?, state = ?, timer_ends_at = ?, timer_remain_ms = ?, completed_at = ?, updated_at = ?
        WHERE id = ?`,
       challenge.title,
+      challenge.kind,
+      challenge.unit,
       challenge.targetCount,
       challenge.timerTotalMs,
       challenge.sortOrder,
+      challenge.step,
+      challenge.bestCount,
       challenge.hidden ? 1 : 0,
       challenge.currentCount,
       challenge.state,

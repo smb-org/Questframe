@@ -3,21 +3,30 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChallengeSourceApp } from "../../../src/challenges/ChallengeSourceApp";
 import { ChallengeLog } from "../../../src/modules/win-challenges/ui/ChallengeLog";
-import type { ChallengeStyleId, ChallengeThemeId, ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
+import type { ChallengeStyleId, ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
 import { OVERLAY_SOCKET_PROTOCOL } from "../../../src/shared/contracts/protocol";
 
 const token = "A".repeat(43);
+
+const messageType = (value: string): unknown => {
+  const parsed: unknown = JSON.parse(value);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+  return "type" in parsed ? parsed.type : null;
+};
 
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
   readonly url: string;
   readonly protocols: string[];
+  readonly sentMessages: string[] = [];
+  readonly readyState = 1;
   private readonly listeners = new Map<string, Array<(event: Event & { data?: unknown }) => void>>();
 
   constructor(url: string, protocols?: string | string[]) {
     this.url = url;
     this.protocols = protocols === undefined ? [] : Array.isArray(protocols) ? protocols : [protocols];
     FakeWebSocket.instances.push(this);
+    queueMicrotask(() => this.emit("open"));
   }
 
   addEventListener(type: string, callback: (event: Event & { data?: unknown }) => void): void {
@@ -31,6 +40,10 @@ class FakeWebSocket {
   }
 
   close(): void {}
+
+  send(data: string): void {
+    this.sentMessages.push(data);
+  }
 }
 
 class FakeAudio {
@@ -50,9 +63,14 @@ class FakeAudio {
 const challenge = (id: string, title: string, state: "pending" | "done", sortOrder: number): ChallengeUpdate["challenges"][number] => ({
   id,
   title,
+  kind: "counter",
+  unit: null,
+  controlKey: "K7RP",
   targetCount: state === "done" ? 1 : 10,
   timerTotalMs: null,
   sortOrder,
+  step: 1,
+  bestCount: state === "done" ? 1 : 0,
   hidden: false,
   currentCount: state === "done" ? 1 : 3,
   state,
@@ -79,7 +97,7 @@ const message = (): ChallengeUpdate => ({
   settingsRevision: 1,
   settings: {
     styleId: "plain-list",
-    themeMode: "inherit",
+    themeMode: "own",
     surfaceOpacity: 100,
     headerStyle: "default",
     textEmphasis: "auto",
@@ -90,9 +108,8 @@ const message = (): ChallengeUpdate => ({
     penaltyText: "",
     effectsEnabled: true,
     maxVisible: 5,
-    overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+    overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end",
     globalTimerMode: "down",
-    themeId: "trail-wood",
     globalTimer: null,
     placement: { x: 300, y: 8, scale: 1 },
   },
@@ -133,7 +150,7 @@ const deferred = (): { promise: Promise<void>; resolve: () => void; reject: (rea
   let rejectPromise: (reason?: Error) => void = () => undefined;
   const promise = new Promise<void>((resolve, reject) => {
     resolvePromise = resolve;
-    rejectPromise = (reason = new Error("Theme-Chunk fehlgeschlagen")) => reject(reason);
+    rejectPromise = (reason = new Error("Style-Chunk fehlgeschlagen")) => reject(reason);
   });
   return { promise, resolve: resolvePromise, reject: rejectPromise };
 };
@@ -159,6 +176,108 @@ afterEach(() => {
 });
 
 describe("ChallengeSourceApp", () => {
+  it("lässt die Anzeige ohne time_sync-Antwort weiterlaufen", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(fixedNow);
+    render(<ChallengeSourceApp loadStyle={() => Promise.resolve()} />);
+    const socket = FakeWebSocket.instances[0];
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await deliver(socket, sourceUpdate({
+      challenges: [{
+        ...timedChallenge("running", { state: "active", timerEndsAt: new Date(fixedNow + 5_000).toISOString() }),
+        title: "Läuft weiter",
+      }],
+    }));
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByLabelText("Restzeit 0:05")).toBeInTheDocument();
+    act(() => { vi.advanceTimersByTime(1_000); });
+    expect(screen.getByLabelText("Restzeit 0:04")).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it("rechnet absolute Timer mit dem gemessenen Uhr-Offset", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(fixedNow);
+    render(<ChallengeSourceApp loadStyle={() => Promise.resolve()} />);
+    const socket = FakeWebSocket.instances[0];
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await deliver(socket, sourceUpdate({
+      challenges: [{
+        ...timedChallenge("running", { state: "active", timerEndsAt: new Date(fixedNow + 5_000).toISOString() }),
+        title: "Korrigierte Uhr",
+      }],
+    }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByLabelText("Restzeit 0:05")).toBeInTheDocument();
+
+    act(() => socket?.emit("message", JSON.stringify({
+      type: "time_sync",
+      clientTimestamp: fixedNow,
+      serverTime: new Date(fixedNow + 1_000).toISOString(),
+    })));
+
+    expect(screen.getByLabelText("Restzeit 0:04")).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it("fordert beim Verbinden und nach einem Reconnect eine neue Zeitmessung an", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    render(<ChallengeSourceApp />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const firstSocket = FakeWebSocket.instances[0];
+    expect(firstSocket?.sentMessages).toHaveLength(3);
+    expect(firstSocket?.sentMessages.map(messageType)).toEqual([
+      "time_sync_request",
+      "time_sync_request",
+      "time_sync_request",
+    ]);
+
+    act(() => { firstSocket?.emit("close"); });
+    act(() => { vi.advanceTimersByTime(750); });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const secondSocket = FakeWebSocket.instances[1];
+    expect(secondSocket?.sentMessages).toHaveLength(3);
+    expect(secondSocket?.sentMessages.map(messageType)).toEqual([
+      "time_sync_request",
+      "time_sync_request",
+      "time_sync_request",
+    ]);
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it("frischt die Zeitmessung nach fünf Minuten auf", async () => {
+    vi.useFakeTimers();
+    render(<ChallengeSourceApp />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const socket = FakeWebSocket.instances[0];
+    expect(socket?.sentMessages).toHaveLength(3);
+
+    act(() => { vi.advanceTimersByTime(5 * 60 * 1_000); });
+
+    expect(socket?.sentMessages).toHaveLength(6);
+    vi.useRealTimers();
+  });
+
   it("rendert plain-list erst nach einer gültigen Nachricht und ordnet erledigte unten ein", async () => {
     render(<ChallengeSourceApp />);
     expect(document.body).not.toHaveTextContent("Offene Challenge");
@@ -196,6 +315,105 @@ describe("ChallengeSourceApp", () => {
     expect(screen.queryByText("4 / null")).not.toBeInTheDocument();
     const rows = [...document.querySelectorAll(".challenge-source__row")];
     expect(rows.map((row) => row.textContent)).toEqual(["Ohne Ziel4", "Noch nichts"]);
+  });
+
+  it("zeigt den Bestwert nur bei streak und erst nach dem ersten Erfolg", () => {
+    const streakBeforeFirstSuccess = {
+      ...challenge("streak-before", "Streak vor Erfolg", "pending", 0),
+      kind: "streak" as const,
+      targetCount: 5,
+      currentCount: 0,
+      bestCount: 0,
+    };
+    const streakAfterFall = {
+      ...streakBeforeFirstSuccess,
+      id: "streak-after",
+      title: "Streak nach Fall",
+      bestCount: 4,
+    };
+    const counter = {
+      ...streakAfterFall,
+      id: "counter-best",
+      title: "Counter ohne Bestspur",
+      kind: "counter" as const,
+      bestCount: 4,
+    };
+    const measure = {
+      ...streakAfterFall,
+      id: "measure-best",
+      title: "Messwert ohne Bestspur",
+      kind: "measure" as const,
+      unit: "m",
+      targetCount: 1_500,
+      currentCount: 1_800,
+      bestCount: 1_800,
+    };
+
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      challenges: [streakBeforeFirstSuccess, streakAfterFall, counter, measure],
+      settings: { ...message().settings, maxVisible: 4 },
+    })} />);
+
+    const count = (id: string): HTMLElement => {
+      const element = document.querySelector<HTMLElement>(`[data-challenge-id="${id}"] .challenge-source__count`);
+      if (element === null) throw new Error(`Zähler für ${id} fehlt.`);
+      return element;
+    };
+    expect(count("streak-before")).toHaveTextContent("0 / 5");
+    expect(count("streak-before")).not.toHaveTextContent("Best");
+    expect(count("streak-after")).toHaveTextContent("0 / 5 · Best 4");
+    expect(count("counter-best")).not.toHaveTextContent("Best");
+    expect(count("measure-best")).not.toHaveTextContent("Best");
+  });
+
+  it("unterscheidet eine noch nicht gestartete Messung von einer laufenden Messung bei null", () => {
+    const measure = (id: string, title: string, state: "pending" | "active") => ({
+      ...timedChallenge(id, {
+        title,
+        kind: "measure" as const,
+        unit: "m",
+        targetCount: 1_500,
+        currentCount: 0,
+        bestCount: 0,
+        state,
+        timerEndsAt: state === "active" ? new Date(fixedNow + 60_000).toISOString() : null,
+      }),
+    });
+
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      challenges: [
+        measure("measure-ready", "Messung bereit", "pending"),
+        measure("measure-running", "Messung läuft", "active"),
+      ],
+      settings: { ...message().settings, maxVisible: 2 },
+    })} />);
+
+    expect(document.querySelector("[data-challenge-id=measure-ready] .challenge-source__count"))
+      .toHaveTextContent("0 / 1500 · bereit");
+    expect(document.querySelector("[data-challenge-id=measure-running] .challenge-source__count"))
+      .toHaveTextContent("0 / 1500 · läuft");
+  });
+
+  it("zeigt beim Erledigen nach Ablauf die eingefrorene Überzeit weiter", () => {
+    const doneOvertime = {
+      ...timedChallenge("done-overtime", {
+        title: "Nach Ablauf erledigt",
+        state: "done",
+        timerEndsAt: null,
+        timerRemainMs: -1_000,
+      }),
+    };
+
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      challenges: [doneOvertime],
+    })} />);
+
+    const row = document.querySelector<HTMLElement>("[data-challenge-id=done-overtime]");
+    if (row === null) throw new Error("Überzeit-Zeile fehlt.");
+    expect(row).toHaveClass("wc-is-overtime");
+    expect(row.querySelector(".challenge-source__mark")).toHaveTextContent("✓");
+    expect(row.querySelector(".challenge-source__time")).toHaveTextContent("+0:01");
+    expect(row.querySelector(".challenge-source__time")).toHaveAttribute("data-state", "done");
   });
 
   it("übersteht die automatische Pong-Antwort auf den Heartbeat", async () => {
@@ -277,6 +495,36 @@ describe("ChallengeSourceApp", () => {
     expect(ceremony).toHaveAttribute("data-ceremony-motion", "static");
     expect(ceremony?.querySelector('[data-challenge-id="open"]')).toHaveAttribute("data-state", "done");
     expect(ceremony?.querySelector('[data-challenge-id="open"] .challenge-source__mark')).toHaveTextContent("✓");
+  });
+
+  it("zeigt einen Streak-Fall bei reduced motion als lost-Zeremonie und spielt unabhängig davon den Tick", async () => {
+    vi.stubGlobal("matchMedia", () => ({
+      matches: true,
+      media: "(prefers-reduced-motion: reduce)",
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    const streak = {
+      ...challenge("open", "Offene Streak", "pending", 1),
+      kind: "streak" as const,
+      targetCount: 5,
+      currentCount: 0,
+      bestCount: 4,
+    };
+    render(<ChallengeSourceApp />);
+    const socket = FakeWebSocket.instances[0];
+    await deliver(socket, sourceUpdate({
+      challenges: [streak],
+      settings: { ...message().settings, themeMode: "own" },
+      event: { scope: "challenge", type: "streak-reset", challengeId: "open" },
+    }));
+
+    const ceremony = document.querySelector(".challenge-source-ceremony");
+    expect(ceremony).toHaveAttribute("data-ceremony-type", "lost");
+    expect(ceremony).toHaveAttribute("data-ceremony-motion", "static");
+    expect(ceremony?.querySelector(".wc-is-streak-loss")).toHaveTextContent("0 / 5");
+    const tick = FakeAudio.instances.find((audio) => audio.src.endsWith("/tick.mp3"));
+    expect(tick?.play).toHaveBeenCalledTimes(1);
   });
 
   it("ignoriert verweigerte Tonwiedergabe ohne die visuelle Zeremonie zu verlieren", async () => {
@@ -363,6 +611,32 @@ describe("ChallengeSourceApp", () => {
     await waitFor(() => expect(document.querySelector(".challenge-source-ceremony")).not.toHaveAttribute("data-ceremony-type", "progressed"));
     expect(document.querySelector(".challenge-source")).toBe(firstSource);
     expect(document.querySelector('[data-challenge-id="open"]')).toBe(firstRow);
+  });
+
+  it("bricht eine laufende Zeremonie bei einem Set-Wechsel ab", async () => {
+    render(<ChallengeSourceApp />);
+    const socket = FakeWebSocket.instances[0];
+    const settings = { ...message().settings, themeMode: "own" as const };
+    const progressed = {
+      scope: "challenge" as const,
+      type: "progressed" as const,
+      challengeId: "open",
+      delta: 1,
+      previousCount: 3,
+      currentCount: 4,
+    };
+
+    await deliver(socket, sourceUpdate({ eventSeq: 1, settings, event: progressed }));
+    expect(document.querySelector(".challenge-source-ceremony")).not.toBeNull();
+
+    await deliver(socket, sourceUpdate({
+      eventSeq: 2,
+      settings,
+      event: { scope: "board", type: "set_switched" },
+    }));
+
+    expect(document.querySelector(".challenge-source-ceremony")?.getAttribute("data-ceremony-type") ?? null).toBeNull();
+    expect(FakeAudio.instances.filter((audio) => audio.src.endsWith("/tick.mp3")).length).toBe(1);
   });
 
   it("erzeugt Markierung und Zeileninneres je Zeremonie-Ereignis neu", () => {
@@ -498,24 +772,6 @@ describe("ChallengeSourceApp", () => {
     expect(tick?.play).toHaveBeenCalledTimes(1);
   });
 
-  it("hält die Quelle bis zum Theme-Chunk transparent", async () => {
-    const theme = deferred();
-    const loadTheme = vi.fn(() => theme.promise);
-    render(<ChallengeSourceApp loadTheme={loadTheme} />);
-    const socket = FakeWebSocket.instances[0];
-
-    await deliver(socket, message());
-    expect(document.body).not.toHaveTextContent("Offene Challenge");
-    expect(loadTheme).toHaveBeenCalledWith("trail-wood");
-
-    await act(async () => {
-      theme.resolve();
-      await theme.promise;
-    });
-    expect(screen.getByText("Offene Challenge")).toBeInTheDocument();
-    expect(document.querySelector(".challenge-source")).toHaveClass("hud-theme--trail-wood");
-  });
-
   it("hält die Quelle bis zum Style-Chunk transparent", async () => {
     const style = deferred();
     const loadStyle = vi.fn(() => style.promise);
@@ -575,100 +831,7 @@ describe("ChallengeSourceApp", () => {
     expect(document.querySelector(".challenge-source")).toHaveAttribute("data-style", "quest-log");
   });
 
-  it("bleibt bei einem fehlgeschlagenen Theme-Chunk transparent", async () => {
-    const theme = deferred();
-    const loadTheme = vi.fn(() => theme.promise);
-    render(<ChallengeSourceApp loadTheme={loadTheme} />);
-    const socket = FakeWebSocket.instances[0];
-
-    await deliver(socket, message());
-    await act(async () => {
-      theme.reject();
-      await expect(theme.promise).rejects.toThrow("Theme-Chunk fehlgeschlagen");
-    });
-    expect(document.body).not.toHaveTextContent("Offene Challenge");
-  });
-
-  it("verwirft einen überholten Theme-Import", async () => {
-    const themes = new Map<ChallengeThemeId, ReturnType<typeof deferred>>();
-    const loadTheme = vi.fn((themeId: ChallengeThemeId) => {
-      const request = deferred();
-      themes.set(themeId, request);
-      return request.promise;
-    });
-    render(<ChallengeSourceApp loadTheme={loadTheme} />);
-    const socket = FakeWebSocket.instances[0];
-
-    await deliver(socket, message());
-    await deliver(socket, sourceUpdate({
-      settings: { ...message().settings, themeId: "modern-compact" },
-    }));
-
-    await act(async () => {
-      themes.get("modern-compact")?.resolve();
-      await themes.get("modern-compact")?.promise;
-    });
-    expect(document.querySelector(".challenge-source")).toHaveClass("hud-theme--modern-compact");
-
-    await act(async () => {
-      themes.get("trail-wood")?.resolve();
-      await themes.get("trail-wood")?.promise;
-    });
-    expect(document.querySelector(".challenge-source")).toHaveClass("hud-theme--modern-compact");
-    expect(document.querySelector(".challenge-source")).not.toHaveClass("hud-theme--trail-wood");
-  });
-
-  it("schaltet von inherit auf own um, obwohl der geladene Theme-Chunk bleibt", async () => {
-    const theme = deferred();
-    const loadTheme = vi.fn(() => theme.promise);
-    render(<ChallengeSourceApp loadTheme={loadTheme} />);
-    const socket = FakeWebSocket.instances[0];
-
-    await deliver(socket, message());
-    await act(async () => {
-      theme.resolve();
-      await theme.promise;
-    });
-    expect(document.querySelector(".challenge-source")).toHaveClass("hud-theme--trail-wood");
-
-    await deliver(socket, sourceUpdate({
-      settings: { ...message().settings, themeMode: "own" },
-    }));
-    expect(screen.getByText("Offene Challenge")).toBeInTheDocument();
-    expect(document.querySelector(".challenge-source")).not.toHaveClass("hud-theme--trail-wood");
-  });
-
-  it("lädt einen Theme-Wechsel allein über das nächste challenge_update", async () => {
-    const themes = new Map<ChallengeThemeId, ReturnType<typeof deferred>>();
-    const loadTheme = vi.fn((themeId: ChallengeThemeId) => {
-      const request = deferred();
-      themes.set(themeId, request);
-      return request.promise;
-    });
-    render(<ChallengeSourceApp loadTheme={loadTheme} />);
-    const socket = FakeWebSocket.instances[0];
-
-    await deliver(socket, message());
-    await act(async () => {
-      themes.get("trail-wood")?.resolve();
-      await themes.get("trail-wood")?.promise;
-    });
-
-    await deliver(socket, sourceUpdate({
-      eventSeq: 1,
-      settings: { ...message().settings, themeId: "field-journal" },
-    }));
-    expect(loadTheme).toHaveBeenLastCalledWith("field-journal");
-    expect(document.body).not.toHaveTextContent("Offene Challenge");
-
-    await act(async () => {
-      themes.get("field-journal")?.resolve();
-      await themes.get("field-journal")?.promise;
-    });
-    await waitFor(() => expect(document.querySelector(".challenge-source")).toHaveClass("hud-theme--field-journal"));
-  });
-
-  it("rendert im eigenen Theme ohne HUD-Theme-Import mit den Modul-Tokens", () => {
+  it("rendert mit den eigenen Modul-Tokens ohne HUD-Theme-Kopplung", () => {
     const current = message();
     render(<ChallengeLog now={fixedNow} update={sourceUpdate({
       settings: { ...current.settings, themeMode: "own" },
@@ -676,7 +839,6 @@ describe("ChallengeSourceApp", () => {
 
     const source = document.querySelector(".challenge-source");
     expect(source).toHaveAttribute("data-theme-mode", "own");
-    expect(source).not.toHaveClass("hud-theme--trail-wood");
     expect(source).toHaveAttribute("data-style", "plain-list");
   });
 
@@ -847,6 +1009,33 @@ describe("ChallengeSourceApp", () => {
     expect(document.querySelector(".challenge-source__mark")).not.toHaveTextContent("◆");
   });
 
+  it("ersetzt bei sichtbaren Keys die Nummer, lässt erledigte Zeilen beim Haken und benennt den Key zugänglich", () => {
+    const done = { ...challenge("done-key", "Erledigt mit Key", "done", 1), completedAt: new Date(fixedNow).toISOString() };
+    const update = sourceUpdate({
+      challenges: [challenge("open-key", "Offen mit Key", "pending", 0), done],
+      settings: { ...message().settings, numbered: true, keyVisible: true },
+    });
+    const view = render(<ChallengeLog ariaLabel="Challenge-Log verschieben, Pfeiltasten" now={fixedNow} update={update} />);
+    const openMark = document.querySelector('[data-challenge-id="open-key"] .challenge-source__mark');
+    const doneMark = document.querySelector('[data-challenge-id="done-key"] .challenge-source__mark');
+
+    expect(openMark).toHaveTextContent("K7RP");
+    expect(openMark).not.toHaveTextContent("1");
+    expect(openMark).toHaveClass("challenge-source__mark--key");
+    expect(openMark).toHaveAttribute("aria-label", "Steuer-Key K7RP");
+    expect(openMark).not.toHaveAttribute("aria-hidden");
+    expect(doneMark).toHaveTextContent("✓");
+    expect(doneMark).not.toHaveTextContent("K7RP");
+
+    view.rerender(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      challenges: [challenge("numbered-only", "Nur nummeriert", "pending", 0)],
+      settings: { ...message().settings, numbered: true, keyVisible: false },
+    })} />);
+    const numberedMark = document.querySelector(".challenge-source__mark");
+    expect(numberedMark).toHaveTextContent("1");
+    expect(numberedMark).not.toHaveTextContent("K7RP");
+  });
+
   it("setzt die Leerzustands-Matrix für keine Challenges und keinen Timer um", () => {
     const view = render(<ChallengeLog now={fixedNow} update={sourceUpdate({ challenges: [] })} />);
     expect(view.container.firstChild).toBeNull();
@@ -915,6 +1104,22 @@ describe("ChallengeSourceApp", () => {
     expect(doneTime).toHaveAttribute("aria-label", "Rest bei Abschluss 0:00");
   });
 
+  it("liest Übererfüllung eines Messwerts über den geklemmten ARIA-Wert vor", () => {
+    const overfulfilled = {
+      ...challenge("measure", "Messwert", "pending", 0),
+      kind: "measure" as const,
+      unit: "m",
+      targetCount: 1_500,
+      currentCount: 1_800,
+    };
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({ challenges: [overfulfilled] })} />);
+
+    const progressbar = screen.getByRole("progressbar");
+    expect(progressbar).toHaveAttribute("aria-valuemax", "1500");
+    expect(progressbar).toHaveAttribute("aria-valuenow", "1500");
+    expect(progressbar).toHaveAttribute("aria-valuetext", "1800 von 1500 (übererfüllt)");
+  });
+
   it("setzt Zeitleisten-Zustand und Variablen für jeden Challenge-Timer-Zustand", () => {
     vi.useFakeTimers({ now: fixedNow });
     try {
@@ -927,6 +1132,9 @@ describe("ChallengeSourceApp", () => {
       const expired = timedChallenge("expired", {
         timerEndsAt: new Date(fixedNow - 1_000).toISOString(),
       });
+      const overtime = timedChallenge("overtime", {
+        timerRemainMs: -1_000,
+      });
       const done = timedChallenge("done", {
         state: "done",
         timerRemainMs: 45_000,
@@ -934,7 +1142,10 @@ describe("ChallengeSourceApp", () => {
       });
       const withoutTimer = challenge("without-timer", "without-timer", "pending", 0);
 
-      render(<ChallengeLog now={fixedNow} update={sourceUpdate({ challenges: [running, paused, expired, done, withoutTimer] })} />);
+      render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+        challenges: [running, paused, expired, overtime, done, withoutTimer],
+        settings: { ...message().settings, maxVisible: 6 },
+      })} />);
 
       const row = (id: string): HTMLElement => {
         const element = document.querySelector<HTMLElement>(`[data-challenge-id="${id}"]`);
@@ -959,13 +1170,21 @@ describe("ChallengeSourceApp", () => {
 
       const expiredRow = row("expired");
       expect(expiredRow).toHaveAttribute("data-timer-state", "expired");
+      expect(expiredRow).toHaveClass("wc-is-overtime");
       expect(expiredRow).not.toHaveAttribute("data-timer-critical");
       expect(expiredRow.style.getPropertyValue("--wc-timer-total")).toBe("120000ms");
       expect(expiredRow.style.getPropertyValue("--wc-timer-delay")).toBe("-120000ms");
       expect(expiredRow.style.getPropertyValue("--wc-timer-scale")).toBe("0");
 
+      const overtimeRow = row("overtime");
+      expect(overtimeRow).toHaveAttribute("data-timer-state", "paused");
+      expect(overtimeRow).toHaveClass("wc-is-overtime");
+      expect(overtimeRow.style.getPropertyValue("--wc-timer-scale")).toBe("0");
+      expect(overtimeRow.querySelector(".challenge-source__time")).toHaveTextContent("Ⅱ +0:01");
+
       const doneRow = row("done");
       expect(doneRow).not.toHaveAttribute("data-timer-state");
+      expect(doneRow).not.toHaveClass("wc-is-overtime");
       expect(doneRow).not.toHaveAttribute("data-timer-critical");
       expect(doneRow.style.getPropertyValue("--wc-timer-total")).toBe("120000ms");
       expect(doneRow.style.getPropertyValue("--wc-timer-delay")).toBe("-75000ms");
@@ -1050,8 +1269,33 @@ describe("ChallengeSourceApp", () => {
         timerEndsAt: new Date(fixedNow - 1_000).toISOString(),
       }],
     })} />);
-    expect(document.querySelector(".challenge-source__time")).toHaveTextContent("0:00");
+    expect(document.querySelector(".challenge-source__time")).toHaveTextContent("+0:01");
     expect(document.querySelector(".challenge-source__time")).toHaveAttribute("data-state", "expired");
+  });
+
+  it("zeigt einen abgelaufenen globalen Timer als Überzeit ohne kritischen Alarm", () => {
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      settings: { ...message().settings, globalTimer: globalTimer("expired") },
+    })} />);
+
+    const timer = screen.getByLabelText("Globaler Timer: +0:01, abgelaufen");
+    expect(timer).toHaveTextContent("+0:01");
+    expect(timer).toHaveAttribute("data-state", "expired");
+    expect(timer).toHaveClass("wc-is-overtime");
+    expect(timer).toHaveAttribute("data-critical", "false");
+  });
+
+  it("markiert eine pausierte negative globale Restzeit ebenfalls als Überzeit", () => {
+    render(<ChallengeLog now={fixedNow} update={sourceUpdate({
+      settings: {
+        ...message().settings,
+        globalTimer: { totalMs: 60_000, endsAt: null, pausedRemainMs: -1_000 },
+      },
+    })} />);
+
+    const timer = screen.getByLabelText("Globaler Timer: +0:01, pausiert");
+    expect(timer).toHaveClass("challenge-source__timer--paused");
+    expect(timer).toHaveClass("wc-is-overtime");
   });
 
   it("zeigt erledigte Challenges auch bei laufendem globalem Timer", () => {
@@ -1126,6 +1370,7 @@ describe("ChallengeSourceApp", () => {
     expect(expired).toHaveAttribute("data-state", "expired");
     expect(expired).toHaveAttribute("data-critical", "false");
     expect(expired).not.toHaveClass("challenge-source__timer--expired");
+    expect(expired).not.toHaveClass("wc-is-overtime");
     expect(expired).not.toHaveTextContent("abgelaufen");
   });
 

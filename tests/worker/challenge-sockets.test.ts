@@ -14,6 +14,8 @@ import {
   type BootstrapResponse,
 } from "../../src/shared/contracts/api";
 import { DOCK_SOCKET_PROTOCOL, OVERLAY_SOCKET_PROTOCOL } from "../../src/shared/contracts/protocol";
+import { challengeRepository } from "../../src/modules/win-challenges/adapters/http-facade";
+import { SOCKETS, type ModuleContext } from "../../src/modules/registry";
 
 const origin = "http://localhost:5173";
 const tabId = "challenge-socket-test";
@@ -89,9 +91,9 @@ const resetTables = async (): Promise<void> => {
     state.storage.sql.exec(
       `UPDATE wc_meta SET
         event_seq = 0, board_revision = 1, settings_revision = 1,
-        style_id = 'plain-list', theme_mode = 'inherit', surface_opacity = 100, header_style = 'default',
+        style_id = 'plain-list', theme_mode = 'own', surface_opacity = 100, header_style = 'default',
         header_title = 'CHALLENGES', penalty_text = '', effects_enabled = 1, max_visible = 5,
-        overflow_mode = 'cut', overflow_tempo = 'medium', numbered = 0, done_order = 'end',
+        overflow_mode = 'cut', overflow_tempo = 'medium', numbered = 0, key_visible = 0, done_order = 'end',
         placement_x = 300, placement_y = 8, placement_scale = 1,
         global_timer_total_ms = NULL, global_timer_ends_at = NULL,
         global_timer_paused_remain_ms = NULL
@@ -248,11 +250,15 @@ const challengeDefinition = {
   hidden: false,
 } as const;
 
-const saveBoard = () =>
+const saveBoard = (baseBoardRevision = 1, reason?: "set-switch") =>
   fetchWorker("/api/challenges/board", {
     method: "PUT",
     headers: authenticatedHeaders(),
-    body: JSON.stringify({ baseBoardRevision: 1, challenges: [challengeDefinition] }),
+    body: JSON.stringify({
+      baseBoardRevision,
+      challenges: [challengeDefinition],
+      ...(reason === undefined ? {} : { reason }),
+    }),
   });
 
 const expectClose = async (socket: WebSocket, code: number, reason: string): Promise<void> => {
@@ -510,6 +516,91 @@ describe("Win-Challenges-Sockets", () => {
       challenge.close();
       dock.close();
       composite.close();
+    }
+  });
+
+  it("broadcastet streak-reset mit dem zurückgesetzten Stand an die Challenge-Quelle", async () => {
+    const overlayToken = await createOverlayToken();
+    const challenge = await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken);
+
+    try {
+      await requireMessage(challenge, (data) => data.event === null, "Challenge-Snapshot");
+      const boardUpdate = requireMessage(challenge, (data) => data.event === null, "Challenge-Update-Board");
+      const board = await fetchWorker("/api/challenges/board", {
+        method: "PUT",
+        headers: authenticatedHeaders(),
+        body: JSON.stringify({
+          baseBoardRevision: 1,
+          challenges: [{ ...challengeDefinition, kind: "streak", targetCount: 5 }],
+        }),
+      });
+      expect(board.status).toBe(200);
+      await boardUpdate;
+      const boardBody = await board.json<{ snapshot: { challenges: Array<{ id: string }> } }>();
+      const challengeId = boardBody.snapshot.challenges[0]?.id;
+      if (challengeId === undefined) throw new Error("Streak-Challenge fehlt.");
+
+      const resetUpdate = requireMessage(challenge, (data) => {
+        const event = data.event as { type?: string } | null;
+        return event?.type === "streak-reset";
+      }, "Challenge-Update-Streak-Reset");
+      const reset = await fetchWorker("/api/challenges/commands", {
+        method: "POST",
+        headers: authenticatedHeaders(),
+        body: JSON.stringify({
+          commandId: commandId(),
+          scope: "challenge",
+          type: "resetStreak",
+          challengeId,
+        }),
+      });
+      expect(reset.status).toBe(200);
+      const update = await resetUpdate;
+      expect(update.event).toMatchObject({ type: "streak-reset", challengeId });
+      expect(update.challenges).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: challengeId, currentCount: 0 }),
+      ]));
+    } finally {
+      challenge.close();
+    }
+  });
+
+  it("unterscheidet gewöhnliches Speichern vom atomaren Set-Wechsel", async () => {
+    const overlayToken = await createOverlayToken();
+    const challenge = await openSocket("/ws/challenge", OVERLAY_SOCKET_PROTOCOL, overlayToken);
+
+    try {
+      const initial = await requireMessage(challenge, (data) => data.event === null, "Challenge-Snapshot");
+      expectChallengeUpdateShape(initial);
+      expect(initial.eventSeq).toBe(0);
+
+      const ordinaryUpdate = requireMessage(challenge, (data) => data.event === null, "Challenge-Update-Board");
+      const ordinary = await saveBoard();
+      expect(ordinary.status).toBe(200);
+      const ordinaryBody = await ordinary.json<{ snapshot: { boardRevision: number; eventSeq: number } }>();
+      expect(ordinaryBody.snapshot.eventSeq).toBe(0);
+      expect((await ordinaryUpdate).eventSeq).toBe(0);
+
+      const switchedUpdate = requireMessage(
+        challenge,
+        (data) => (data.event as { type?: string } | null)?.type === "set_switched",
+        "Challenge-Update-Set-Wechsel",
+      );
+      const switched = await saveBoard(ordinaryBody.snapshot.boardRevision, "set-switch");
+      expect(switched.status).toBe(200);
+      const switchedBody = await switched.json<{ snapshot: { boardRevision: number; eventSeq: number } }>();
+      expect(switchedBody.snapshot.eventSeq).toBe(1);
+      await expect(switchedUpdate).resolves.toEqual(expect.objectContaining({
+        eventSeq: 1,
+        event: { scope: "board", type: "set_switched" },
+      }));
+
+      const stale = await saveBoard(ordinaryBody.snapshot.boardRevision, "set-switch");
+      expect(stale.status).toBe(409);
+      expect((await stale.json<{ error: { currentSnapshot: { eventSeq: number } } }>()).error.currentSnapshot.eventSeq).toBe(1);
+      expect(await waitForMessage(challenge, (data) => data.event !== null, 250)).toBeNull();
+    } finally {
+      challenge.close();
     }
   });
 
@@ -892,10 +983,10 @@ describe("Win-Challenges-Sockets", () => {
       await requireMessage(dock, (data) => data.event === null, "Dock-Snapshot");
       const closed = expectClose(dock, 4003, "token_revoked");
       await runInDurableObject(stub, (instance) => {
-        const repository = (
-          instance as unknown as { challengeRepository(): { deleteDockToken(): void } }
-        ).challengeRepository();
-        repository.deleteDockToken();
+        const context = (
+          instance as unknown as { createModuleContext(moduleId: "challenges"): ModuleContext }
+        ).createModuleContext("challenges");
+        challengeRepository(context, SOCKETS.dock.tag).deleteDockToken();
       });
       await closed;
       const noUpdate = waitForMessage(dock, (data) => data.event === null, 250);
@@ -1023,7 +1114,7 @@ describe("Win-Challenges-Sockets", () => {
         body: JSON.stringify({
           baseSettingsRevision: 1,
           styleId: "plain-list",
-          themeMode: "inherit",
+          themeMode: "own",
           surfaceOpacity: 100,
           headerStyle: "default",
           textEmphasis: "auto",
@@ -1034,7 +1125,7 @@ describe("Win-Challenges-Sockets", () => {
           penaltyText: "",
           effectsEnabled: true,
           maxVisible: 5,
-          overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+          overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
           globalTimerTotalMs: 60_000,
           placement: { x: 300, y: 8, scale: 1 },
         }),

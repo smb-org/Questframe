@@ -9,6 +9,7 @@ import {
   overlayTokenStatusSchema,
   saveRequestSchema,
   serverMessageSchema,
+  undoRequestSchema,
   visibilityRequestSchema,
 } from "../../../src/shared/contracts/api";
 import { createDefaultState } from "../../../src/shared/contracts/state";
@@ -131,6 +132,7 @@ describe("API contracts", () => {
       state,
       recentAudit: [],
       undoTargets: [],
+      challengeUndoTargets: [],
       csrfToken: "csrf-token-with-enough-entropy",
       serverTime: "2026-08-29T12:00:00.000Z",
     };
@@ -175,7 +177,8 @@ describe("API contracts", () => {
       createdAt: "2026-08-29T12:01:00.000Z",
     };
     const undoTargets = [{
-      revision: 1,
+      channelSeq: 1,
+      moduleId: "hud" as const,
       createdAt: "2026-08-29T12:00:00.000Z",
       summary: "Startzustand",
     }];
@@ -189,14 +192,34 @@ describe("API contracts", () => {
     expect(
       serverMessageSchema.parse({ type: "overlay_presence", connectedSockets: 10 }),
     ).toEqual({ type: "overlay_presence", connectedSockets: 10 });
-    expect(serverMessageSchema.parse({ type: "history_changed", undoTargets })).toEqual({
+    expect(serverMessageSchema.parse({ type: "history_changed", moduleId: "challenges", undoTargets })).toEqual({
       type: "history_changed",
+      moduleId: "challenges",
       undoTargets,
     });
-    expect(serverMessageSchema.parse({ type: "audit_appended", entry: auditEntry, undoTargets })).toEqual({
+    expect(serverMessageSchema.parse({ type: "audit_appended", moduleId: "hud", entry: auditEntry, undoTargets })).toEqual({
       type: "audit_appended",
+      moduleId: "hud",
       entry: auditEntry,
       undoTargets,
+    });
+    expect(undoRequestSchema.parse({ moduleId: "hud", channelSeq: 1, baseRevision: 2 })).toEqual({
+      moduleId: "hud",
+      channelSeq: 1,
+      baseRevision: 2,
+    });
+    expect(undoRequestSchema.parse({
+      moduleId: "challenges",
+      channelSeq: 2,
+      baseBoardRevision: 3,
+      baseSettingsRevision: 4,
+      baseEventSeq: 5,
+    })).toEqual({
+      moduleId: "challenges",
+      channelSeq: 2,
+      baseBoardRevision: 3,
+      baseSettingsRevision: 4,
+      baseEventSeq: 5,
     });
     expect(() => serverMessageSchema.parse({
       type: "audit_appended",

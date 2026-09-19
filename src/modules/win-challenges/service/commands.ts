@@ -1,11 +1,12 @@
-import type { ChallengeEvent, GlobalTimerEvent } from "../contracts/events";
-import type { Command, Challenge } from "../contracts/schemas";
+import type { BoardEvent, ChallengeEvent, GlobalTimerEvent } from "../contracts/events";
+import type { ChallengeSetSummary, Command, Challenge } from "../contracts/schemas";
 import type { ChallengeUpdate } from "../../../shared/contracts/win-challenges";
 import {
   applyComplete,
   applyIncrement,
   applyPauseGlobal,
   applyReopen,
+  applyResetStreak,
   applyResetTimer,
   applyResetGlobal,
   applyStartGlobal,
@@ -14,7 +15,7 @@ import {
   DOMAIN_ERROR_MESSAGES,
   type DomainNow,
 } from "../domain/timers";
-import { MAX_COUNT } from "../contracts/predicates";
+import { isDeltaForKind, maxCountForKind, maxDeltaForKind } from "../contracts/predicates";
 import { selectVisible } from "../domain/visibility";
 import {
   NotFoundError,
@@ -25,12 +26,14 @@ import {
   type ChallengeSnapshot,
   type ChallengeRuntime,
   type ChallengeRepositoryTransaction,
+  type ChallengeSetRecord,
+  type ChallengeSetSaveInput,
   type SettingsSaveResult,
 } from "../repository/challenge-repository";
 
 export type ChallengeUpdatePayload = Omit<ChallengeUpdate, "settings"> & {
-  settings: Omit<ChallengeUpdate["settings"], "themeId">;
-  event: ChallengeEvent | GlobalTimerEvent | null;
+  settings: ChallengeUpdate["settings"];
+  event: ChallengeEvent | GlobalTimerEvent | BoardEvent | null;
 };
 
 export type CommandResponse = {
@@ -59,6 +62,12 @@ type CommandMutationValue = {
   eventSeq?: number;
 };
 
+type CommandForType<Type extends Command["type"]> = Command & { type: Type };
+type CanonicalCommandForType<Type extends Command["type"]> = Required<CommandForType<Type>>;
+type ChallengeKindCommand =
+  | { type: "increment"; delta: number }
+  | { type: "resetStreak" };
+
 const toInstant = (now: DomainNow): string => {
   const milliseconds = typeof now === "number" ? now : Date.parse(now);
   if (!Number.isFinite(milliseconds)) throw new ValidationError("Ungültiger Zeitpunkt.");
@@ -66,28 +75,100 @@ const toInstant = (now: DomainNow): string => {
 };
 
 const canonicalCommand = (command: Command): string => {
-  if (command.scope === "global") {
-    return JSON.stringify({
-      commandId: command.commandId,
-      scope: command.scope,
-      type: command.type,
-    });
+  switch (command.type) {
+    case "increment": {
+      const canonical = {
+        commandId: command.commandId,
+        scope: command.scope,
+        type: command.type,
+        challengeId: command.challengeId,
+        delta: command.delta,
+      } satisfies CanonicalCommandForType<"increment">;
+      return JSON.stringify(canonical);
+    }
+    case "resetStreak": {
+      const canonical = {
+        commandId: command.commandId,
+        scope: command.scope,
+        type: command.type,
+        challengeId: command.challengeId,
+      } satisfies CanonicalCommandForType<"resetStreak">;
+      return JSON.stringify(canonical);
+    }
+    case "complete": {
+      const canonical = {
+        commandId: command.commandId,
+        scope: command.scope,
+        type: command.type,
+        challengeId: command.challengeId,
+      } satisfies CanonicalCommandForType<"complete">;
+      return JSON.stringify(canonical);
+    }
+    case "reopen": {
+      const canonical = {
+        commandId: command.commandId,
+        scope: command.scope,
+        type: command.type,
+        challengeId: command.challengeId,
+      } satisfies CanonicalCommandForType<"reopen">;
+      return JSON.stringify(canonical);
+    }
+    case "startTimer": {
+      const canonical = {
+        commandId: command.commandId,
+        scope: command.scope,
+        type: command.type,
+        challengeId: command.challengeId,
+      } satisfies CanonicalCommandForType<"startTimer">;
+      return JSON.stringify(canonical);
+    }
+    case "stopTimer": {
+      const canonical = {
+        commandId: command.commandId,
+        scope: command.scope,
+        type: command.type,
+        challengeId: command.challengeId,
+      } satisfies CanonicalCommandForType<"stopTimer">;
+      return JSON.stringify(canonical);
+    }
+    case "resetTimer": {
+      const canonical = {
+        commandId: command.commandId,
+        scope: command.scope,
+        type: command.type,
+        challengeId: command.challengeId,
+      } satisfies CanonicalCommandForType<"resetTimer">;
+      return JSON.stringify(canonical);
+    }
+    case "startGlobalTimer": {
+      const canonical = {
+        commandId: command.commandId,
+        scope: command.scope,
+        type: command.type,
+      } satisfies CanonicalCommandForType<"startGlobalTimer">;
+      return JSON.stringify(canonical);
+    }
+    case "pauseGlobalTimer": {
+      const canonical = {
+        commandId: command.commandId,
+        scope: command.scope,
+        type: command.type,
+      } satisfies CanonicalCommandForType<"pauseGlobalTimer">;
+      return JSON.stringify(canonical);
+    }
+    case "resetGlobalTimer": {
+      const canonical = {
+        commandId: command.commandId,
+        scope: command.scope,
+        type: command.type,
+      } satisfies CanonicalCommandForType<"resetGlobalTimer">;
+      return JSON.stringify(canonical);
+    }
+    default: {
+      const exhaustive: never = command;
+      throw new Error(`Unbekannter Kommandotyp: ${String(exhaustive)}`);
+    }
   }
-  if (command.type === "increment") {
-    return JSON.stringify({
-      commandId: command.commandId,
-      scope: command.scope,
-      type: command.type,
-      challengeId: command.challengeId,
-      delta: command.delta,
-    });
-  }
-  return JSON.stringify({
-    commandId: command.commandId,
-    scope: command.scope,
-    type: command.type,
-    challengeId: command.challengeId,
-  });
 };
 
 export const hashChallengeCommand = async (command: Command): Promise<string> => {
@@ -100,8 +181,34 @@ export const hashChallengeCommand = async (command: Command): Promise<string> =>
     .join("");
 };
 
+const validateChallengeKindCommand = (
+  challenge: Pick<Challenge, "kind">,
+  command: ChallengeKindCommand,
+): void => {
+  if (command.type === "resetStreak") {
+    if (challenge.kind !== "streak") {
+      throw new ValidationError(
+        `Das Kommando resetStreak ist nur für eine Challenge vom Typ streak erlaubt; diese Challenge hat den Typ ${challenge.kind}.`,
+      );
+    }
+    return;
+  }
+
+  if (challenge.kind === "tick") {
+    throw new ValidationError("Eine Challenge vom Typ tick darf nicht inkrementiert werden.");
+  }
+  if (challenge.kind === "streak" && command.delta < 0) {
+    throw new ValidationError("Eine Challenge vom Typ streak akzeptiert keine negativen Deltas.");
+  }
+  if (!isDeltaForKind(command.delta, challenge.kind)) {
+    const maxDelta = maxDeltaForKind(challenge.kind);
+    throw new ValidationError(`Delta muss zwischen -${String(maxDelta)} und ${String(maxDelta)} liegen.`);
+  }
+};
+
 const runtimeOf = (challenge: Challenge): ChallengeRuntime => ({
   currentCount: challenge.currentCount,
+  bestCount: challenge.bestCount,
   state: challenge.state,
   timerEndsAt: challenge.timerEndsAt,
   timerRemainMs: challenge.timerRemainMs,
@@ -118,6 +225,7 @@ const challengeMutation = (
   if (current === null) throw new NotFoundError();
 
   if (command.type === "increment") {
+    validateChallengeKindCommand(current, command);
     const transition = applyIncrement(current, command.delta, now);
     if (transition.error !== undefined) {
       throw new ValidationError(DOMAIN_ERROR_MESSAGES[transition.error], transition.error);
@@ -127,10 +235,14 @@ const challengeMutation = (
     const challenge = transaction.incrementChallengeCount(
       command.challengeId,
       transition.challenge.currentCount - current.currentCount,
-      transition.challenge.targetCount ?? MAX_COUNT,
+      current.kind === "measure"
+        ? maxCountForKind(current.kind)
+        : transition.challenge.targetCount ?? maxCountForKind(current.kind),
       transition.challenge.updatedAt,
       transition.event.type === "completed"
         ? {
+            currentCount: transition.challenge.currentCount,
+            bestCount: transition.challenge.bestCount,
             state: transition.challenge.state,
             timerEndsAt: transition.challenge.timerEndsAt,
             timerRemainMs: transition.challenge.timerRemainMs,
@@ -138,6 +250,18 @@ const challengeMutation = (
             hidden: transition.challenge.hidden,
           }
         : undefined,
+    );
+    if (challenge === null) throw new NotFoundError();
+    return { challenge, event: transition.event };
+  }
+
+  if (command.type === "resetStreak") {
+    validateChallengeKindCommand(current, command);
+    const transition = applyResetStreak(current, now);
+    const challenge = transaction.updateChallengeRuntime(
+      command.challengeId,
+      runtimeOf(transition.challenge),
+      transition.challenge.updatedAt,
     );
     if (challenge === null) throw new NotFoundError();
     return { challenge, event: transition.event };
@@ -223,6 +347,22 @@ export class WinChallengesService {
     input: Omit<Parameters<ChallengeRepository["saveSettings"]>[0], "now">,
   ): SettingsSaveResult {
     return this.repository.saveSettings({ ...input, now: this.clock() });
+  }
+
+  public listSets(): ChallengeSetSummary[] {
+    return this.repository.listSets();
+  }
+
+  public readSet(setId: string): ChallengeSetRecord | null {
+    return this.repository.readSet(setId);
+  }
+
+  public saveSet(input: Omit<ChallengeSetSaveInput, "now">): ChallengeSetRecord {
+    return this.repository.saveSet({ ...input, now: this.clock() });
+  }
+
+  public deleteSet(setId: string): void {
+    this.repository.deleteSet(setId);
   }
 
   public async executeCommand(command: Command): Promise<CommandExecutionResult> {

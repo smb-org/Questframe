@@ -9,6 +9,7 @@ import {
   applyStartTimer,
   applyPauseGlobal,
   applyResetTimer,
+  applyResetStreak,
   applyResetGlobal,
   applyStopTimer,
   deriveTimerState,
@@ -23,7 +24,11 @@ import {
   formatChallengeStand,
   selectVisible,
 } from "../../../src/modules/win-challenges/domain/visibility";
-import { displayedMsFor } from "../../../src/modules/win-challenges/ui/timer";
+import {
+  displayedMsFor,
+  formatRemaining,
+  remainingFor,
+} from "../../../src/modules/win-challenges/ui/timer";
 
 const now = "2026-08-30T12:00:00.000Z" as const;
 const nowMilliseconds = Date.parse(now);
@@ -31,9 +36,14 @@ const nowMilliseconds = Date.parse(now);
 const makeChallenge = (overrides: Partial<Challenge> = {}): Challenge => ({
   id: "challenge-1",
   title: "Eine Challenge",
+  kind: "counter",
+  unit: null,
+  controlKey: "K7RP",
   targetCount: 10,
   timerTotalMs: 10_000,
   sortOrder: 0,
+  step: 1,
+  bestCount: 0,
   hidden: false,
   currentCount: 0,
   state: "pending",
@@ -55,9 +65,12 @@ const makeGlobalTimer = (overrides: Partial<GlobalTimer> = {}): GlobalTimer => (
 const definition = {
   id: "challenge-1",
   title: "Eine Challenge",
+  kind: "counter",
+  unit: null,
   targetCount: 10,
   timerTotalMs: 10_000,
   sortOrder: 0,
+  step: 1,
   hidden: false,
 } as const;
 
@@ -66,6 +79,16 @@ describe("Win-Challenges-Domain", () => {
     expect(displayedMsFor("down", 60_000, 12_345)).toBe(12_345);
     expect(displayedMsFor("up", 60_000, 12_345)).toBe(47_655);
     expect(displayedMsFor("up", 60_000, 0)).toBe(60_000);
+    expect(displayedMsFor("down", 60_000, -1_000)).toBe(-1_000);
+    expect(displayedMsFor("up", 60_000, -1_000)).toBe(60_000);
+  });
+
+  it("formatiert Überzeit mit Pluszeichen und behält sie bei laufenden und pausierten Timern", () => {
+    expect(formatRemaining(-1)).toBe("+0:01");
+    expect(formatRemaining(-61_000)).toBe("+1:01");
+    expect(formatRemaining(-3_661_000)).toBe("+1:01:01");
+    expect(remainingFor("2026-08-30T11:59:59.000Z", null, "expired", nowMilliseconds)).toBe(-1_000);
+    expect(remainingFor(null, -1_000, "paused", nowMilliseconds)).toBe(-1_000);
   });
 
   it("leitet idle, running, expired und paused mit derselben Funktion ab", () => {
@@ -78,6 +101,7 @@ describe("Win-Challenges-Domain", () => {
   it("incrementiert positiv und negativ, klemmt und erzeugt bei Wirkung genau ein Event", () => {
     const positive = applyIncrement(makeChallenge({ currentCount: 2 }), 3, now);
     expect(positive.challenge.currentCount).toBe(5);
+    expect(positive.challenge.bestCount).toBe(5);
     expect(positive.event).toEqual({
       scope: "challenge",
       type: "progressed",
@@ -89,6 +113,7 @@ describe("Win-Challenges-Domain", () => {
 
     const negative = applyIncrement(makeChallenge({ currentCount: 2 }), -1, now);
     expect(negative.challenge.currentCount).toBe(1);
+    expect(negative.challenge.bestCount).toBe(2);
     expect(negative.event?.type).toBe("progressed");
 
     expect(applyIncrement(makeChallenge({ currentCount: 0 }), -1, now)).toEqual({
@@ -102,6 +127,43 @@ describe("Win-Challenges-Domain", () => {
     expect(applyIncrement(makeChallenge({ currentCount: 9 }), 99, now).challenge.currentCount).toBe(10);
   });
 
+  it("führt den Bestwert auch über einen Rückgang des aktuellen Stands hinweg", () => {
+    const progressed = applyIncrement(makeChallenge({ currentCount: 2, bestCount: 2 }), 3, now);
+    expect(progressed.challenge).toMatchObject({ currentCount: 5, bestCount: 5 });
+
+    const fallen = applyIncrement(progressed.challenge, -2, now);
+    expect(fallen.challenge).toMatchObject({ currentCount: 3, bestCount: 5 });
+  });
+
+  it("setzt eine Streak auf null, behält den Bestwert und meldet den Fall", () => {
+    const streak = makeChallenge({
+      kind: "streak",
+      targetCount: 5,
+      currentCount: 4,
+      bestCount: 4,
+      state: "active",
+      timerEndsAt: "2026-08-30T12:00:10.000Z",
+    });
+
+    const result = applyResetStreak(streak, now);
+
+    expect(result.challenge).toMatchObject({
+      currentCount: 0,
+      bestCount: 4,
+      state: "active",
+      timerEndsAt: "2026-08-30T12:00:10.000Z",
+      updatedAt: now,
+    });
+    expect(result.event).toEqual({
+      scope: "challenge",
+      type: "streak-reset",
+      challengeId: "challenge-1",
+    });
+
+    const higher = applyIncrement(result.challenge, 5, now);
+    expect(higher.challenge).toMatchObject({ currentCount: 5, bestCount: 5, state: "done" });
+  });
+
   it("schließt beim Ziel automatisch ab, ohne zusätzlich progressed zu feuern", () => {
     const result = applyIncrement(makeChallenge({
       currentCount: 9,
@@ -110,6 +172,7 @@ describe("Win-Challenges-Domain", () => {
       hidden: true,
     }), 1, now);
     expect(result.challenge.state).toBe("done");
+    expect(result.challenge.bestCount).toBe(10);
     expect(result.challenge.timerEndsAt).toBeNull();
     expect(result.challenge).toMatchObject({ timerRemainMs: 1_000 });
     expect(result.challenge.completedAt).toBe(now);
@@ -121,26 +184,46 @@ describe("Win-Challenges-Domain", () => {
     });
   });
 
+  it("lässt Messwerte mit der Schrittweite über ihr Ziel hinaus laufen", () => {
+    const measure = makeChallenge({
+      kind: "measure",
+      unit: "m",
+      targetCount: 1_500,
+      step: 50,
+      currentCount: 1_500,
+    });
+
+    const first = applyIncrement(measure, 50, now);
+    expect(first.challenge).toMatchObject({ currentCount: 1_550, state: "pending" });
+    expect(first.event).toMatchObject({ type: "progressed", delta: 50, currentCount: 1_550 });
+
+    const overfulfilled = applyIncrement(first.challenge, 250, now);
+    expect(overfulfilled.challenge).toMatchObject({ currentCount: 1_800, state: "pending" });
+    expect(overfulfilled.event).toMatchObject({ type: "progressed", delta: 250, currentCount: 1_800 });
+  });
+
   it("friert beim manuellen Abhaken die Restzeit eines laufenden Timers ein", () => {
     const result = applyComplete(makeChallenge({
+      currentCount: 4,
       state: "active",
       timerEndsAt: "2026-08-30T12:03:12.000Z",
     }), now);
 
     expect(result.challenge).toMatchObject({
+      bestCount: 4,
       state: "done",
       timerEndsAt: null,
       timerRemainMs: 192_000,
     });
   });
 
-  it("friert beim Abhaken eines abgelaufenen Timers genau null ein", () => {
+  it("friert beim Abhaken eines abgelaufenen Timers die Überzeit ein", () => {
     const result = applyComplete(makeChallenge({
       state: "active",
       timerEndsAt: "2026-08-30T11:59:59.000Z",
     }), now);
 
-    expect(result.challenge).toMatchObject({ state: "done", timerEndsAt: null, timerRemainMs: 0 });
+    expect(result.challenge).toMatchObject({ state: "done", timerEndsAt: null, timerRemainMs: -1_000 });
   });
 
   it("setzt beim Abhaken ohne laufenden Timer keine Restzeit", () => {
@@ -175,7 +258,9 @@ describe("Win-Challenges-Domain", () => {
     expect(stopped.challenge.timerEndsAt).toBeNull();
     expect(stopped.challenge.timerRemainMs).toBe(7_000);
     expect(stopped.event?.type).toBe("timer_stopped");
-    expect(applyStopTimer(makeChallenge(), now).event).toBeNull();
+    const neverStarted = applyStopTimer(makeChallenge(), now);
+    expect(neverStarted.event).toBeNull();
+    expect(neverStarted.challenge.timerRemainMs).toBeNull();
     for (const timer of [
       { state: "active" as const, timerEndsAt: "2026-08-30T12:00:01.000Z", timerRemainMs: null },
       { state: "pending" as const, timerEndsAt: null, timerRemainMs: 3_120 },
@@ -247,6 +332,26 @@ describe("Win-Challenges-Domain", () => {
     expect(result.event?.type).toBe("timer_started");
   });
 
+  it("behält Überzeit beim Stoppen und Fortsetzen einer Challenge", () => {
+    const stopped = applyStopTimer(makeChallenge({
+      state: "active",
+      timerEndsAt: "2026-08-30T11:59:59.000Z",
+    }), now);
+
+    expect(stopped.challenge).toMatchObject({
+      state: "pending",
+      timerEndsAt: null,
+      timerRemainMs: -1_000,
+    });
+
+    const resumed = applyStartTimer(stopped.challenge, "2026-08-30T12:00:02.000Z");
+    expect(resumed.challenge).toMatchObject({
+      state: "active",
+      timerEndsAt: "2026-08-30T12:00:01.000Z",
+      timerRemainMs: null,
+    });
+  });
+
   it("behält beim Abhaken einer pausierten Challenge die eingefrorene Restzeit", () => {
     const result = applyComplete(
       makeChallenge({ state: "pending", timerEndsAt: null, timerRemainMs: 3_120 }),
@@ -273,6 +378,21 @@ describe("Win-Challenges-Domain", () => {
     expect(applyPauseGlobal(paused.globalTimer, now)).toEqual({
       globalTimer: paused.globalTimer,
       event: null,
+    });
+  });
+
+  it("pausiert und setzt einen globalen Timer in der Überzeit mit negativem Rest fort", () => {
+    const paused = applyPauseGlobal(
+      makeGlobalTimer({ endsAt: "2026-08-30T11:59:59.000Z" }),
+      now,
+    );
+    expect(paused.globalTimer).toMatchObject({ endsAt: null, pausedRemainMs: -1_000 });
+    expect(paused.event?.type).toBe("global_paused");
+
+    const resumed = applyStartGlobal(paused.globalTimer, "2026-08-30T12:00:02.000Z");
+    expect(resumed.globalTimer).toMatchObject({
+      endsAt: "2026-08-30T12:00:01.000Z",
+      pausedRemainMs: null,
     });
   });
 
@@ -339,6 +459,13 @@ describe("Win-Challenges-Domain", () => {
     );
     expect(targetLowered.currentCount).toBe(4);
 
+    const measureOverfulfilled = mergeDefinition(
+      makeChallenge({ kind: "measure", unit: "m", targetCount: 1_500, currentCount: 1_800 }),
+      { ...definition, kind: "measure", unit: "m", targetCount: 1_500 },
+      now,
+    );
+    expect(measureOverfulfilled.currentCount).toBe(1_800);
+
     expect(mergeDefinition(
       makeChallenge({ state: "active" }),
       { ...definition, hidden: true },
@@ -368,6 +495,67 @@ describe("Win-Challenges-Domain", () => {
       completedAt: now,
       timerEndsAt: null,
     });
+  });
+
+  it("setzt den Laufzeitstand bei einem Typwechsel vollständig zurück", () => {
+    const activeTypeChange = mergeDefinition(
+      makeChallenge({
+        currentCount: 7,
+        bestCount: 7,
+        state: "active",
+        timerEndsAt: "2026-08-30T12:01:00.000Z",
+        completedAt: null,
+      }),
+      { ...definition, kind: "streak", targetCount: 5 },
+      now,
+    );
+
+    expect(activeTypeChange).toMatchObject({
+      kind: "streak",
+      currentCount: 0,
+      bestCount: 0,
+      state: "pending",
+      timerEndsAt: null,
+      timerRemainMs: null,
+      completedAt: null,
+    });
+
+    const pausedTypeChange = mergeDefinition(
+      makeChallenge({
+        state: "pending",
+        timerEndsAt: null,
+        timerRemainMs: 2_000,
+        completedAt: now,
+      }),
+      { ...definition, kind: "tick", targetCount: null },
+      now,
+    );
+
+    expect(pausedTypeChange).toMatchObject({
+      kind: "tick",
+      currentCount: 0,
+      bestCount: 0,
+      state: "pending",
+      timerEndsAt: null,
+      timerRemainMs: null,
+      completedAt: null,
+    });
+  });
+
+  it("lässt den Laufzeitstand bei unverändertem Typ und übererfüllte Messwerte unangetastet", () => {
+    const counter = mergeDefinition(
+      makeChallenge({ currentCount: 7, bestCount: 8 }),
+      definition,
+      now,
+    );
+    expect(counter).toMatchObject({ currentCount: 7, bestCount: 8, kind: "counter" });
+
+    const measure = mergeDefinition(
+      makeChallenge({ kind: "measure", unit: "m", targetCount: 1_500, currentCount: 1_800 }),
+      { ...definition, kind: "measure", unit: "m", targetCount: 1_500 },
+      now,
+    );
+    expect(measure).toMatchObject({ kind: "measure", currentCount: 1_800 });
   });
 
   it("sortiert ohne Schnitt, pinnt den laufenden Timer und reiht Erledigte ans Ende", () => {
@@ -468,12 +656,15 @@ describe("Win-Challenges-Domain", () => {
     const newDefinition = {
       clientId: "client-1",
       title: definition.title,
+      kind: "counter",
+      unit: null,
       targetCount: definition.targetCount,
       timerTotalMs: definition.timerTotalMs,
       sortOrder: definition.sortOrder,
+      step: 1,
       hidden: false,
     } as const;
-    expect(mergeDefinition(null, newDefinition, now, "generated-id")).toMatchObject({
+    expect(mergeDefinition(null, newDefinition, now, "generated-id", "K7RP")).toMatchObject({
       id: "generated-id",
       currentCount: 0,
       state: "pending",

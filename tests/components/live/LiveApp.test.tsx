@@ -34,12 +34,20 @@ class FakeWebSocket {
   close(): void {}
 }
 
-const challenge = (currentCount = 3): ChallengeUpdate["challenges"][number] => ({
+const challenge = (
+  currentCount = 3,
+  overrides: Partial<ChallengeUpdate["challenges"][number]> = {},
+): ChallengeUpdate["challenges"][number] => ({
   id: "challenge-1",
   title: "Offene Challenge",
+  kind: "counter",
+  unit: null,
+  controlKey: "K7RP",
   targetCount: 10,
   timerTotalMs: 60_000,
   sortOrder: 0,
+  step: 1,
+  bestCount: 0,
   hidden: false,
   currentCount,
   state: "pending",
@@ -48,6 +56,7 @@ const challenge = (currentCount = 3): ChallengeUpdate["challenges"][number] => (
   completedAt: null,
   createdAt: now,
   updatedAt: now,
+  ...overrides,
 });
 
 const message = (currentCount = 3): ChallengeUpdate => ({
@@ -56,7 +65,7 @@ const message = (currentCount = 3): ChallengeUpdate => ({
   settingsRevision: 1,
   settings: {
     styleId: "plain-list",
-    themeMode: "inherit",
+    themeMode: "own",
     surfaceOpacity: 100,
     headerStyle: "default",
     textEmphasis: "auto",
@@ -67,9 +76,8 @@ const message = (currentCount = 3): ChallengeUpdate => ({
     penaltyText: "",
     effectsEnabled: true,
     maxVisible: 5,
-    overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+    overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end",
     globalTimerMode: "down",
-    themeId: "trail-wood",
     globalTimer: null,
     placement: { x: 300, y: 8, scale: 1 },
   },
@@ -96,6 +104,17 @@ afterEach(() => {
 });
 
 describe("Live-Bedienseite", () => {
+  it("zeigt bei sichtbaren Keys die eine Adresse zugänglich und unterdrückt die Nummer", () => {
+    render(<LiveApp />);
+    emitUpdate({
+      ...message(),
+      settings: { ...message().settings, numbered: true, keyVisible: true },
+    });
+
+    expect(screen.getByLabelText("Steuer-Key K7RP")).toHaveTextContent("K7RP");
+    expect(document.querySelectorAll(".live-page__challenge-number")).toHaveLength(0);
+  });
+
   it("zeigt im Hochzählmodus die verstrichene Zeit, das Hochzähl-Präfix und keinen kritischen Zustand", () => {
     render(<LiveApp />);
     emitUpdate({
@@ -185,6 +204,7 @@ describe("Live-Bedienseite", () => {
     render(<LiveApp />);
     emitUpdate();
     const plus = screen.getByRole("button", { name: "Offene Challenge um 1 erhöhen" });
+    expect(plus).toHaveTextContent("+");
     await user.click(plus);
     expect(screen.getByText("4 / 10")).toBeInTheDocument();
     expect(document.querySelector("[data-challenge-id='challenge-1']"))
@@ -196,11 +216,100 @@ describe("Live-Bedienseite", () => {
     const requestInit = vi.mocked(fetch).mock.calls.at(-1)?.[1];
     expect(requestInit?.method).toBe("POST");
     expect(requestInit?.headers).toEqual(expect.objectContaining({ authorization: `Bearer ${token}` }));
+    expect(requestInit?.body).toEqual(expect.stringContaining('"delta":1'));
 
     emitUpdate(message(3));
     expect(screen.getByText("3 / 10")).toBeInTheDocument();
     expect(document.querySelector("[data-challenge-id='challenge-1']"))
       .not.toHaveClass("live-page__challenge-row--pending");
+  });
+
+  it("führt den streak-Bestwert auch in der optimistischen Live-Zeile mit", async () => {
+    const user = userEvent.setup();
+    render(<LiveApp />);
+    emitUpdate({
+      ...message(),
+      challenges: [challenge(0, {
+        kind: "streak",
+        targetCount: 5,
+        currentCount: 0,
+        bestCount: 0,
+      })],
+    });
+
+    expect(screen.getByText("0 / 5")).toBeInTheDocument();
+    expect(screen.queryByText(/Best/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Offene Challenge um 1 erhöhen" }));
+
+    expect(screen.getByText("1 / 5 · Best 1")).toBeInTheDocument();
+  });
+
+  it("führt den streak-Bestwert auch beim optimistischen Abhaken mit", async () => {
+    const user = userEvent.setup();
+    render(<LiveApp />);
+    emitUpdate({
+      ...message(),
+      challenges: [challenge(3, {
+        kind: "streak",
+        targetCount: 5,
+        currentCount: 3,
+        bestCount: 0,
+      })],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Offene Challenge abhaken" }));
+
+    expect(screen.getByText("3 / 5 · Best 3")).toBeInTheDocument();
+  });
+
+  it("verwendet die measure-Schrittweite für Button, Kommando und optimistische Anzeige", async () => {
+    const user = userEvent.setup();
+    render(<LiveApp />);
+    emitUpdate({
+      ...message(),
+      challenges: [challenge(1_500, {
+        kind: "measure",
+        unit: "m",
+        targetCount: 1_500,
+        step: 50,
+      })],
+    });
+
+    const plus = screen.getByRole("button", { name: "Offene Challenge um 50 erhöhen" });
+    expect(plus).toHaveTextContent("+50");
+    expect(screen.getByRole("button", { name: "Offene Challenge um 50 verringern" })).toHaveTextContent("−50");
+
+    await user.click(plus);
+
+    expect(screen.getByText("1550 / 1500")).toBeInTheDocument();
+    const requestInit = vi.mocked(fetch).mock.calls.at(-1)?.[1];
+    expect(requestInit?.body).toEqual(expect.stringContaining('"delta":50'));
+    expect(document.querySelector("[data-challenge-id='challenge-1']"))
+      .toHaveAttribute("data-state", "pending");
+  });
+
+  it("zeigt für tick nur das Abhaken ohne unzulässige Delta-Buttons", () => {
+    render(<LiveApp />);
+    emitUpdate({
+      ...message(),
+      challenges: [challenge(0, { kind: "tick", targetCount: null })],
+    });
+
+    expect(screen.getByRole("button", { name: "Offene Challenge abhaken" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /erhöhen|verringern/ })).not.toBeInTheDocument();
+    expect(document.querySelector(".live-page__challenge-count")).not.toBeInTheDocument();
+  });
+
+  it("zeigt für streak keinen Minus-Button, weil negative Deltas abgelehnt werden", () => {
+    render(<LiveApp />);
+    emitUpdate({
+      ...message(),
+      challenges: [challenge(2, { kind: "streak", targetCount: 5, currentCount: 2 })],
+    });
+
+    expect(screen.getByRole("button", { name: "Offene Challenge um 1 erhöhen" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Offene Challenge um 1 verringern" })).not.toBeInTheDocument();
   });
 
   it("wendet optimistisches Abhaken vor Stand und Auswahl an", async () => {
@@ -296,7 +405,7 @@ describe("Live-Bedienseite", () => {
     }
   });
 
-  it("zeigt bei einem abgelaufenen Challenge-Timer den Ablauftext", () => {
+  it("zeigt bei einem abgelaufenen Challenge-Timer die Überzeit", () => {
     vi.useFakeTimers();
     try {
       render(<LiveApp />);
@@ -306,10 +415,10 @@ describe("Live-Bedienseite", () => {
       });
 
       const time = document.querySelector(".live-page__challenge-time");
-      expect(time).toHaveTextContent("abgelaufen");
+      expect(time).toHaveTextContent("+0:01");
       expect(time).toHaveAttribute("data-state", "expired");
-      expect(time).toHaveAttribute("data-critical", "true");
-      expect(time).toHaveAttribute("aria-label", "Timer abgelaufen");
+      expect(time).toHaveAttribute("data-critical", "false");
+      expect(time).toHaveAttribute("aria-label", "Timer abgelaufen: +0:01");
     } finally {
       vi.useRealTimers();
     }

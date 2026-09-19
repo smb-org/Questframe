@@ -41,6 +41,7 @@ const bootstrap = () => ({
   state: state(),
   recentAudit: [],
   undoTargets: [],
+  challengeUndoTargets: [],
   csrfToken: "csrf-token-with-enough-entropy",
   serverTime: now,
 });
@@ -195,7 +196,7 @@ describe("BrowserAdminApi", () => {
 
     await api.revalidate();
     await expect(api.setVisibility(false)).resolves.toEqual(visibility);
-    await expect(api.undo(2, 1)).resolves.toEqual(saveResponse);
+    await expect(api.undo("hud", 1, 2)).resolves.toEqual(saveResponse);
     await expect(api.mutateOverlayToken(false, {
       requestId: tokenResponse.requestId,
       expectedGeneration: 0,
@@ -221,6 +222,62 @@ describe("BrowserAdminApi", () => {
       "/auth/logout",
     ]);
     expect(localStorage.length).toBe(0);
+  });
+
+  it("sendet beim Challenge-Undo alle drei Konfliktrevisionen und parst die Modulliste", async () => {
+    const challengeSnapshot = {
+      eventSeq: 6,
+      boardRevision: 4,
+      settingsRevision: 5,
+      settings: {
+        styleId: "plain-list",
+        themeMode: "own",
+        surfaceOpacity: 100,
+        headerStyle: "default",
+        textEmphasis: "auto",
+        fontFamily: "theme",
+        fontScale: 1,
+        headerTitle: "CHALLENGES",
+        penaltyLabel: "STRAFE",
+        penaltyText: "",
+        effectsEnabled: true,
+        maxVisible: 5,
+        overflowMode: "cut",
+        overflowTempo: "medium",
+        numbered: false,
+        keyVisible: false,
+        doneOrder: "end",
+        globalTimerMode: "down",
+        globalTimer: null,
+        placement: { x: 300, y: 8, scale: 1 },
+      },
+      challenges: [],
+    } as const;
+    const undoTargets = [{
+      channelSeq: 7,
+      moduleId: "challenges" as const,
+      createdAt: now,
+      summary: "Challenge-Board gespeichert",
+    }];
+    const response = { snapshot: challengeSnapshot, undoTargets, serverTime: now };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json(response));
+    vi.stubGlobal("fetch", fetcher);
+    const api = new BrowserAdminApi();
+
+    await expect(api.undo("challenges", 7, {
+      boardRevision: 4,
+      settingsRevision: 5,
+      eventSeq: 6,
+    })).resolves.toEqual(response);
+
+    const request = new Request("https://example.test", fetcher.mock.calls[0]?.[1]);
+    expect(await request.json()).toEqual({
+      moduleId: "challenges",
+      channelSeq: 7,
+      baseBoardRevision: 4,
+      baseSettingsRevision: 5,
+      baseEventSeq: 6,
+    });
   });
 
   it("rebootstraps and retries a mutation exactly once after CSRF expiry", async () => {
@@ -279,17 +336,18 @@ describe("BrowserAdminApi", () => {
     socket?.emit("message", new Blob());
     socket?.emit("message", "not-json");
     const undoTargets = [{
-      revision: 1,
+      channelSeq: 1,
+      moduleId: "hud" as const,
       createdAt: now,
       summary: "Startzustand",
     }];
-    socket?.emit("message", JSON.stringify({ type: "history_changed", undoTargets }));
-    socket?.emit("message", JSON.stringify({ type: "audit_appended", entry: auditEntry, undoTargets }));
+    socket?.emit("message", JSON.stringify({ type: "history_changed", moduleId: "challenges", undoTargets }));
+    socket?.emit("message", JSON.stringify({ type: "audit_appended", moduleId: "hud", entry: auditEntry, undoTargets }));
     socket?.emit("message", JSON.stringify({ type: "snapshot", state: state() }));
     socket?.emit("message", JSON.stringify({ type: "overlay_presence", connectedSockets: 1 }));
     expect(onOnlineChange).toHaveBeenCalledWith(true);
-    expect(onUndoTargets).toHaveBeenCalledWith(undoTargets);
-    expect(onAudit).toHaveBeenCalledWith(auditEntry, undoTargets);
+    expect(onUndoTargets).toHaveBeenCalledWith("challenges", undoTargets);
+    expect(onAudit).toHaveBeenCalledWith(auditEntry, "hud", undoTargets);
     expect(onState).toHaveBeenCalledWith(state());
     expect(onOverlayPresence).toHaveBeenCalledWith(1);
 

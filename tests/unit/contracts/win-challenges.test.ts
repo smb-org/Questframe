@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  boardSaveRequestSchema,
   challengeDefinitionSchema,
   challengePlacementSchema,
   challengeSchema,
+  challengeUpdateSchema,
   commandSchema,
   globalTimerSchema,
   settingsSaveRequestSchema,
@@ -11,17 +13,24 @@ import {
 } from "../../../src/modules/win-challenges/contracts/schemas";
 import {
   GLOBAL_TIMER_UP_CAP_MS,
+  MAX_MEASURE_COUNT,
   isChallengeTitle,
   isChallengeFontFamily,
   isChallengeFontScale,
   isChallengeSurfaceOpacity,
   isChallengeTextEmphasis,
+  isThemeMode,
   isCurrentCount,
+  isCurrentCountForKind,
+  isChallengeUnit,
+  isChallengeStep,
   isDoneOrder,
   isDelta,
+  isDeltaForKind,
   isGlobalTimerMode,
   isHeaderStyle,
   isHeaderTitle,
+  isKeyVisible,
   isPenaltyLabel,
   isPenaltyText,
   isInstant,
@@ -30,12 +39,16 @@ import {
   isNumbered,
   isOverflowMode,
   isOverflowTempo,
+  isPausedRemainMs,
   isChallengePlacement,
   isPlacementScale,
   isPlacementX,
   isPlacementY,
   isSortOrder,
   isTargetCount,
+  isTargetCountForKind,
+  maxCountForKind,
+  maxDeltaForKind,
   isTimerTotalMs,
   isTimerRemainMs,
 } from "../../../src/modules/win-challenges/contracts/predicates";
@@ -43,17 +56,25 @@ import {
 const definition = {
   clientId: "client-1",
   title: "Eine Challenge",
+  kind: "counter" as const,
+  unit: null,
   targetCount: 10,
   timerTotalMs: 10_000,
   sortOrder: 0,
+  step: 1,
 };
 
 const challenge = {
   id: "challenge-1",
   title: "Eine Challenge",
+  kind: "counter" as const,
+  unit: null,
+  controlKey: "K7RP",
   targetCount: 10,
   timerTotalMs: 10_000,
   sortOrder: 0,
+  step: 1,
+  bestCount: 0,
   hidden: false,
   currentCount: 0,
   state: "pending" as const,
@@ -66,7 +87,7 @@ const challenge = {
 
 const settings = {
   styleId: "plain-list" as const,
-  themeMode: "inherit" as const,
+  themeMode: "own" as const,
   surfaceOpacity: 100 as const,
   headerStyle: "default" as const,
   textEmphasis: "auto" as const,
@@ -80,14 +101,142 @@ const settings = {
   overflowMode: "cut" as const,
   overflowTempo: "medium" as const,
   numbered: false,
+  keyVisible: false,
   doneOrder: "end" as const,
   globalTimerMode: "down" as const,
-  themeId: "trail-wood" as const,
   globalTimer: null,
   placement: { x: 300, y: 8, scale: 1 },
 };
 
 describe("Win-Challenges-Verträge", () => {
+  it("erlaubt beim Theme-Modus ausschließlich own", () => {
+    expect(isThemeMode("own")).toBe(true);
+    expect(isThemeMode("inherit")).toBe(false);
+    expect(settingsSchema.safeParse(settings).success).toBe(true);
+    expect(settingsSchema.safeParse({ ...settings, themeMode: "inherit" }).success).toBe(false);
+  });
+
+  it("nimmt den optionalen Set-Wechsel-Grund an und lehnt andere Gründe ab", () => {
+    const request = {
+      baseBoardRevision: 1,
+      challenges: [definition],
+    };
+
+    expect(boardSaveRequestSchema.safeParse(request).success).toBe(true);
+    expect(boardSaveRequestSchema.safeParse({ ...request, reason: "set-switch" }).success).toBe(true);
+    expect(boardSaveRequestSchema.safeParse({ ...request, reason: "manual" }).success).toBe(false);
+  });
+
+  it("hält den Zahlenraum je Challenge-Typ an seiner Grenze", () => {
+    const legacyKinds = ["tick", "counter", "streak"] as const;
+    for (const kind of legacyKinds) {
+      expect(maxCountForKind(kind)).toBe(999);
+      expect(maxDeltaForKind(kind)).toBe(99);
+      expect(isCurrentCountForKind(999, kind)).toBe(true);
+      expect(isCurrentCountForKind(1_000, kind)).toBe(false);
+      expect(isDeltaForKind(99, kind)).toBe(true);
+      expect(isDeltaForKind(100, kind)).toBe(false);
+    }
+
+    expect(maxCountForKind("measure")).toBe(MAX_MEASURE_COUNT);
+    expect(maxDeltaForKind("measure")).toBe(MAX_MEASURE_COUNT);
+    expect(isTargetCount(MAX_MEASURE_COUNT)).toBe(true);
+    expect(isTargetCount(MAX_MEASURE_COUNT + 1)).toBe(false);
+    expect(isCurrentCount(MAX_MEASURE_COUNT)).toBe(true);
+    expect(isCurrentCount(MAX_MEASURE_COUNT + 1)).toBe(false);
+    expect(isDelta(MAX_MEASURE_COUNT)).toBe(true);
+    expect(isDelta(MAX_MEASURE_COUNT + 1)).toBe(false);
+    expect(isCurrentCountForKind(MAX_MEASURE_COUNT, "measure")).toBe(true);
+    expect(isCurrentCountForKind(MAX_MEASURE_COUNT + 1, "measure")).toBe(false);
+    expect(isDeltaForKind(MAX_MEASURE_COUNT, "measure")).toBe(true);
+    expect(isDeltaForKind(MAX_MEASURE_COUNT + 1, "measure")).toBe(false);
+
+    const challengeCases = [
+      { kind: "tick" as const, unit: null, targetCount: null },
+      { kind: "counter" as const, unit: null, targetCount: 999 },
+      { kind: "streak" as const, unit: null, targetCount: 999 },
+      { kind: "measure" as const, unit: "m", targetCount: MAX_MEASURE_COUNT },
+    ];
+    for (const challengeCase of challengeCases) {
+      const boundary = maxCountForKind(challengeCase.kind);
+      expect(challengeSchema.safeParse({
+        ...challenge,
+        ...challengeCase,
+        bestCount: boundary,
+        currentCount: boundary,
+      }).success).toBe(true);
+      expect(challengeSchema.safeParse({
+        ...challenge,
+        ...challengeCase,
+        bestCount: boundary + 1,
+      }).success).toBe(false);
+      expect(challengeSchema.safeParse({
+        ...challenge,
+        ...challengeCase,
+        currentCount: boundary + 1,
+      }).success).toBe(false);
+    }
+
+    for (const kind of ["counter", "measure"] as const) {
+      const boundary = maxCountForKind(kind);
+      const unit = kind === "measure" ? "m" : null;
+      expect(isTargetCountForKind(boundary, kind)).toBe(true);
+      expect(isTargetCountForKind(boundary + 1, kind)).toBe(false);
+      expect(challengeDefinitionSchema.safeParse({
+        ...definition,
+        kind,
+        unit,
+        targetCount: boundary,
+      }).success).toBe(true);
+      expect(challengeDefinitionSchema.safeParse({
+        ...definition,
+        kind,
+        unit,
+        targetCount: boundary + 1,
+      }).success).toBe(false);
+    }
+
+    expect(challengeDefinitionSchema.safeParse({
+      ...definition,
+      kind: "counter",
+      targetCount: MAX_MEASURE_COUNT,
+    }).success).toBe(false);
+  });
+
+  it("validiert die Typregeln für Ziel und Einheit", () => {
+    expect(challengeDefinitionSchema.safeParse({ ...definition, kind: "tick", targetCount: null }).success).toBe(true);
+    expect(challengeDefinitionSchema.safeParse({ ...definition, kind: "tick", targetCount: 1 }).success).toBe(false);
+    expect(challengeDefinitionSchema.safeParse({ ...definition, kind: "counter", targetCount: null }).success).toBe(true);
+    expect(challengeDefinitionSchema.safeParse({ ...definition, kind: "streak", targetCount: 1 }).success).toBe(true);
+    expect(challengeDefinitionSchema.safeParse({ ...definition, kind: "streak", targetCount: null }).success).toBe(false);
+    expect(challengeDefinitionSchema.safeParse({
+      ...definition,
+      kind: "measure",
+      targetCount: 1,
+      unit: "  e\u0301  ",
+    }).success).toBe(true);
+    expect(challengeDefinitionSchema.parse({
+      ...definition,
+      kind: "measure",
+      targetCount: 1,
+      unit: "  e\u0301  ",
+    }).unit).toBe("é");
+    expect(challengeDefinitionSchema.safeParse({ ...definition, kind: "measure", targetCount: 1, unit: null }).success).toBe(false);
+    expect(challengeDefinitionSchema.safeParse({ ...definition, kind: "counter", unit: "m" }).success).toBe(false);
+  });
+
+  it("hält Einheiten und Schrittweiten an den skalaren Prädikaten", () => {
+    expect(isChallengeUnit("x".repeat(12))).toBe(true);
+    expect(isChallengeUnit("x".repeat(13))).toBe(false);
+    expect(isChallengeUnit("  ")).toBe(false);
+    expect(isChallengeStep(1)).toBe(true);
+    expect(isChallengeStep(1_000_000)).toBe(true);
+    expect(isChallengeStep(1_000_001)).toBe(false);
+    expect(isChallengeStep(0)).toBe(false);
+    expect(challengeDefinitionSchema.safeParse({ ...definition, step: 1_000_000 }).success).toBe(true);
+    expect(challengeDefinitionSchema.safeParse({ ...definition, step: 1_000_001 }).success).toBe(false);
+  });
+
   it("erzwingt die kritische Titel-Grenzwerttabelle durch Prädikat und Schema", () => {
     const cases = [
       { label: "Emoji bis zur UTF-16-Grenze", value: "🧭".repeat(80), accepted: true },
@@ -129,8 +278,7 @@ describe("Win-Challenges-Verträge", () => {
       pausedRemainMs: GLOBAL_TIMER_UP_CAP_MS,
     }).success).toBe(true);
 
-    const { themeId: _themeId, globalTimer: _globalTimer, ...saveFields } = settings;
-    void _themeId;
+    const { globalTimer: _globalTimer, ...saveFields } = settings;
     void _globalTimer;
     expect(settingsSaveRequestSchema.safeParse({
       baseSettingsRevision: 1,
@@ -146,14 +294,78 @@ describe("Win-Challenges-Verträge", () => {
     }).success).toBe(false);
   });
 
+  it("validiert globale eingefrorene Überzeit symmetrisch zur 24-Stunden-Grenze", () => {
+    expect(isPausedRemainMs(-1)).toBe(true);
+    expect(isPausedRemainMs(-GLOBAL_TIMER_UP_CAP_MS)).toBe(true);
+    expect(isPausedRemainMs(-GLOBAL_TIMER_UP_CAP_MS - 1)).toBe(false);
+    expect(globalTimerSchema.safeParse({
+      totalMs: 60_000,
+      endsAt: null,
+      pausedRemainMs: -1,
+    }).success).toBe(true);
+  });
+
   it("validiert die eingefrorene Challenge-Restzeit mit derselben 6-Stunden-Grenze", () => {
     expect(isTimerRemainMs(null)).toBe(true);
     expect(isTimerRemainMs(0)).toBe(true);
     expect(isTimerRemainMs(21_600_000)).toBe(true);
-    expect(isTimerRemainMs(-1)).toBe(false);
+    expect(isTimerRemainMs(-1)).toBe(true);
+    expect(isTimerRemainMs(-21_600_000)).toBe(true);
+    expect(isTimerRemainMs(-21_600_001)).toBe(false);
     expect(isTimerRemainMs(21_600_001)).toBe(false);
     expect(challengeSchema.safeParse({ ...challenge, timerRemainMs: 21_600_000 }).success).toBe(true);
     expect(challengeSchema.safeParse({ ...challenge, timerRemainMs: 21_600_001 }).success).toBe(false);
+  });
+
+  it("validiert das eigenständige streak-reset-Ereignis im Zod-Wire-Vertrag", () => {
+    const event = {
+      scope: "challenge" as const,
+      type: "streak-reset" as const,
+      challengeId: "challenge-1",
+    };
+    const update = {
+      eventSeq: 1,
+      boardRevision: 1,
+      settingsRevision: 1,
+      settings,
+      challenges: [challenge],
+      event,
+    };
+
+    expect(challengeUpdateSchema.safeParse(update).success).toBe(true);
+    expect(challengeUpdateSchema.safeParse({
+      ...update,
+      event: { ...event, extra: true },
+    }).success).toBe(false);
+    expect(challengeUpdateSchema.safeParse({
+      ...update,
+      event: { ...event, challengeId: "" },
+    }).success).toBe(false);
+  });
+
+  it("validiert das Set-Wechsel-Ereignis im Zod-Wire-Vertrag", () => {
+    const event = {
+      scope: "board" as const,
+      type: "set_switched" as const,
+    };
+    const update = {
+      eventSeq: 1,
+      boardRevision: 1,
+      settingsRevision: 1,
+      settings,
+      challenges: [challenge],
+      event,
+    };
+
+    expect(challengeUpdateSchema.safeParse(update).success).toBe(true);
+    expect(challengeUpdateSchema.safeParse({
+      ...update,
+      event: { ...event, extra: true },
+    }).success).toBe(false);
+    expect(challengeUpdateSchema.safeParse({
+      ...update,
+      event: { scope: "challenge", type: "set_switched", challengeId: "challenge-1" },
+    }).success).toBe(false);
   });
 
   it("verbietet gleichzeitig laufende und pausierte Challenge-Timer", () => {
@@ -175,7 +387,7 @@ describe("Win-Challenges-Verträge", () => {
     const tables = [
       {
         name: "targetCount",
-        predicate: isTargetCount,
+        predicate: (value: unknown): value is number | null => isTargetCountForKind(value, "counter"),
         schema: (value: unknown) =>
           challengeDefinitionSchema.safeParse({ ...definition, targetCount: value }).success,
         values: [
@@ -210,7 +422,7 @@ describe("Win-Challenges-Verträge", () => {
       },
       {
         name: "currentCount",
-        predicate: isCurrentCount,
+        predicate: (value: unknown): value is number => isCurrentCountForKind(value, "counter"),
         schema: (value: unknown) => challengeSchema.safeParse({ ...challenge, currentCount: value }).success,
         values: [
           { value: 0, accepted: true },
@@ -219,7 +431,7 @@ describe("Win-Challenges-Verträge", () => {
         ],
       },
       {
-        name: "delta",
+        name: "delta (kind-loser commandSchema-Raum)",
         predicate: isDelta,
         schema: (value: unknown) =>
           commandSchema.safeParse({
@@ -230,9 +442,10 @@ describe("Win-Challenges-Verträge", () => {
             delta: value,
           }).success,
         values: [
-          { value: -99, accepted: true },
-          { value: 99, accepted: true },
-          { value: 100, accepted: false },
+          { value: -MAX_MEASURE_COUNT, accepted: true },
+          { value: 100, accepted: true },
+          { value: MAX_MEASURE_COUNT, accepted: true },
+          { value: MAX_MEASURE_COUNT + 1, accepted: false },
         ],
       },
       {
@@ -261,6 +474,16 @@ describe("Win-Challenges-Verträge", () => {
         name: "numbered",
         predicate: isNumbered,
         schema: (value: unknown) => settingsSchema.safeParse({ ...settings, numbered: value }).success,
+        values: [
+          { value: true, accepted: true },
+          { value: false, accepted: true },
+          { value: "true", accepted: false },
+        ],
+      },
+      {
+        name: "keyVisible",
+        predicate: isKeyVisible,
+        schema: (value: unknown) => settingsSchema.safeParse({ ...settings, keyVisible: value }).success,
         values: [
           { value: true, accepted: true },
           { value: false, accepted: true },

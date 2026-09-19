@@ -20,10 +20,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AuditEntry,
   BootstrapResponse,
+  ChallengeUndoBaseRevisions,
   DockTokenResponse,
   OverlayTokenResponse,
   SaveRequest,
   SaveResponse,
+  UndoModuleId,
   UndoTarget,
 } from "../shared/contracts/api";
 import type {
@@ -34,7 +36,6 @@ import type {
   ChallengeSurfaceOpacity,
   ChallengeStyleId,
   ChallengeTextEmphasis,
-  ChallengeThemeId,
   ChallengeUpdate,
   GlobalTimerMode,
   ChallengeOverflowMode,
@@ -45,8 +46,11 @@ import {
   type BoardSaveRequest,
   type BoardSaveResponse,
   type ChallengeBoardSnapshot,
+  type ChallengeSetListResponse,
+  type ChallengeSetResponse,
   type Command,
   type CommandResponse,
+  type ChallengeUndoResponse,
   type SettingsSaveRequest,
   type SettingsSaveResponse,
 } from "../modules/win-challenges/contracts/schemas";
@@ -71,7 +75,10 @@ export type TwitchUser = { id: string; login: string; displayName: string; profi
 export type AdminApi = {
   save: (request: SaveRequest) => Promise<SaveResponse>;
   setVisibility: (enabled: boolean) => Promise<{ state: ChannelState; auditEntry: BootstrapResponse["recentAudit"][number] | null; undoTargets: BootstrapResponse["undoTargets"]; serverTime: string }>;
-  undo?: ((baseRevision: number, targetRevision: number) => Promise<SaveResponse>) | undefined;
+  undo?: {
+    (moduleId: "hud", channelSeq: number, baseRevision: number): Promise<SaveResponse>;
+    (moduleId: "challenges", channelSeq: number, baseRevision: ChallengeUndoBaseRevisions): Promise<ChallengeUndoResponse>;
+  } | undefined;
   mutateOverlayToken?: ((rotate: boolean, request: { requestId: string; expectedGeneration: number }) => Promise<OverlayTokenResponse>) | undefined;
   mutateDockToken?: ((rotate: boolean, request: { requestId: string; expectedGeneration: number }) => Promise<DockTokenResponse>) | undefined;
   uploadPortrait?: ((blob: Blob) => Promise<PortraitRef>) | undefined;
@@ -79,9 +86,13 @@ export type AdminApi = {
   lookupTwitchUser?: ((login: string) => Promise<TwitchUser>) | undefined;
   getChallengeBoard?: (() => Promise<ChallengeBoardSnapshot>) | undefined;
   saveChallengeBoard?: ((request: BoardSaveRequest) => Promise<BoardSaveResponse>) | undefined;
+  listChallengeSets?: (() => Promise<ChallengeSetListResponse>) | undefined;
+  getChallengeSet?: ((setId: string) => Promise<ChallengeSetResponse>) | undefined;
+  saveChallengeSet?: ((request: { name: string; includeProgress: boolean; setId?: string }) => Promise<ChallengeSetResponse>) | undefined;
+  deleteChallengeSet?: ((setId: string) => Promise<string>) | undefined;
   saveChallengeSettings?: ((request: SettingsSaveRequest) => Promise<SettingsSaveResponse>) | undefined;
   sendChallengeCommand?: ((command: Command) => Promise<CommandResponse>) | undefined;
-  subscribe?: ((callbacks: { onState: (state: ChannelState) => void; onOnlineChange: (online: boolean) => void; onOverlayPresence: (connectedSockets: number) => void; onAudit: (entry: AuditEntry, undoTargets: UndoTarget[]) => void; onUndoTargets: (undoTargets: UndoTarget[]) => void; onChallengeUpdate?: (update: ChallengeUpdate) => void }) => () => void) | undefined;
+  subscribe?: ((callbacks: { onState: (state: ChannelState) => void; onOnlineChange: (online: boolean) => void; onOverlayPresence: (connectedSockets: number) => void; onAudit: (entry: AuditEntry, moduleId: UndoModuleId, undoTargets: UndoTarget[]) => void; onUndoTargets: (moduleId: UndoModuleId, undoTargets: UndoTarget[]) => void; onChallengeUpdate?: (update: ChallengeUpdate) => void }) => () => void) | undefined;
   logout?: (() => Promise<void>) | undefined;
 };
 
@@ -107,18 +118,13 @@ const loadCompositionChallengeStyle = async (styleId: ChallengeStyleId): Promise
   await loadChallengeStyle(styleId);
 };
 
-const loadCompositionChallengeTheme = async (themeId: ChallengeThemeId): Promise<void> => {
-  const { loadChallengeTheme } = await import("../challenges/theme-loader");
-  await loadChallengeTheme(themeId);
-};
-
-type ChallengeSettingsDraft = Pick<ChallengeSettings, "styleId" | "surfaceOpacity" | "headerStyle" | "textEmphasis" | "fontFamily" | "fontScale" | "headerTitle" | "penaltyLabel" | "penaltyText" | "effectsEnabled" | "maxVisible" | "overflowMode" | "overflowTempo" | "numbered" | "doneOrder"> & {
+type ChallengeSettingsDraft = Pick<ChallengeSettings, "styleId" | "surfaceOpacity" | "headerStyle" | "textEmphasis" | "fontFamily" | "fontScale" | "headerTitle" | "penaltyLabel" | "penaltyText" | "effectsEnabled" | "maxVisible" | "overflowMode" | "overflowTempo" | "numbered" | "keyVisible" | "doneOrder"> & {
   globalTimerMode: GlobalTimerMode | "off";
   globalTimerTotalMs: number | null;
   globalTimerMinutes: string;
 };
 
-type ChallengeSettingsDraftSource = Pick<ChallengeSettings, "styleId" | "surfaceOpacity" | "headerStyle" | "textEmphasis" | "fontFamily" | "fontScale" | "headerTitle" | "penaltyLabel" | "penaltyText" | "effectsEnabled" | "maxVisible" | "overflowMode" | "overflowTempo" | "numbered" | "doneOrder" | "globalTimerMode" | "globalTimer">;
+type ChallengeSettingsDraftSource = Pick<ChallengeSettings, "styleId" | "surfaceOpacity" | "headerStyle" | "textEmphasis" | "fontFamily" | "fontScale" | "headerTitle" | "penaltyLabel" | "penaltyText" | "effectsEnabled" | "maxVisible" | "overflowMode" | "overflowTempo" | "numbered" | "keyVisible" | "doneOrder" | "globalTimerMode" | "globalTimer">;
 
 const settingsDraftFrom = (settings: ChallengeSettingsDraftSource): ChallengeSettingsDraft => ({
   styleId: settings.styleId,
@@ -135,6 +141,7 @@ const settingsDraftFrom = (settings: ChallengeSettingsDraftSource): ChallengeSet
   overflowMode: settings.overflowMode,
   overflowTempo: settings.overflowTempo,
   numbered: settings.numbered,
+  keyVisible: settings.keyVisible,
   doneOrder: settings.doneOrder,
   globalTimerMode: settings.globalTimer === null ? "off" : settings.globalTimerMode,
   globalTimerTotalMs: settings.globalTimer?.totalMs ?? null,
@@ -142,17 +149,16 @@ const settingsDraftFrom = (settings: ChallengeSettingsDraftSource): ChallengeSet
 });
 
 const sameChallengeSettingsDraft = (left: ChallengeSettingsDraft | null, right: ChallengeSettingsDraft): boolean =>
-  left !== null && left.styleId === right.styleId && left.surfaceOpacity === right.surfaceOpacity && left.headerStyle === right.headerStyle && left.textEmphasis === right.textEmphasis && left.fontFamily === right.fontFamily && left.fontScale === right.fontScale && left.headerTitle === right.headerTitle && left.penaltyLabel === right.penaltyLabel && left.penaltyText === right.penaltyText && left.effectsEnabled === right.effectsEnabled && left.maxVisible === right.maxVisible && left.overflowMode === right.overflowMode && left.overflowTempo === right.overflowTempo && left.numbered === right.numbered && left.doneOrder === right.doneOrder && left.globalTimerMode === right.globalTimerMode && left.globalTimerTotalMs === right.globalTimerTotalMs;
+  left !== null && left.styleId === right.styleId && left.surfaceOpacity === right.surfaceOpacity && left.headerStyle === right.headerStyle && left.textEmphasis === right.textEmphasis && left.fontFamily === right.fontFamily && left.fontScale === right.fontScale && left.headerTitle === right.headerTitle && left.penaltyLabel === right.penaltyLabel && left.penaltyText === right.penaltyText && left.effectsEnabled === right.effectsEnabled && left.maxVisible === right.maxVisible && left.overflowMode === right.overflowMode && left.overflowTempo === right.overflowTempo && left.numbered === right.numbered && left.keyVisible === right.keyVisible && left.doneOrder === right.doneOrder && left.globalTimerMode === right.globalTimerMode && left.globalTimerTotalMs === right.globalTimerTotalMs;
 
-const challengeSettingsWithDraft = (settings: ChallengeSettings, draft: ChallengeSettingsDraft | null, themeId: ChallengeThemeId): ChallengeSettings => {
-  if (draft === null) return { ...settings, themeId };
+const challengeSettingsWithDraft = (settings: ChallengeSettings, draft: ChallengeSettingsDraft | null): ChallengeSettings => {
+  if (draft === null) return settings;
   const globalTimerTotalMs = draft.globalTimerMode === "up"
     ? GLOBAL_TIMER_UP_CAP_MS
     : draft.globalTimerTotalMs;
   const timerDurationChanged = globalTimerTotalMs !== (settings.globalTimer?.totalMs ?? null);
   return {
     ...settings,
-    themeId,
     styleId: draft.styleId,
     surfaceOpacity: draft.surfaceOpacity,
     headerStyle: draft.headerStyle,
@@ -167,6 +173,7 @@ const challengeSettingsWithDraft = (settings: ChallengeSettings, draft: Challeng
     overflowMode: draft.overflowMode,
     overflowTempo: draft.overflowTempo,
     numbered: draft.numbered,
+    keyVisible: draft.keyVisible,
     doneOrder: draft.doneOrder,
     globalTimerMode: draft.globalTimerMode === "off" ? "down" : draft.globalTimerMode,
     globalTimer: draft.globalTimerMode === "off" || globalTimerTotalMs === null
@@ -189,7 +196,7 @@ const liveGlobalTimerStatus = (update: ChallengeUpdate | null, now: number): { s
   const remainingMs = remainingFor(timer.endsAt, timer.pausedRemainMs, state, now);
   const displayedMs = displayedMsFor(mode, timer.totalMs, remainingMs);
   if (state === "expired") {
-    return { state, label: mode === "up" ? formatRemaining(displayedMs) : "abgelaufen" };
+    return { state, label: formatRemaining(displayedMs) };
   }
   if (state === "idle") return { state, label: "bereit" };
   return {
@@ -253,9 +260,7 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
   }, [api, applyRemoteSnapshot]);
   useEffect(() => {
     if (challengeUpdate === null) return;
-    const { themeId: _themeId, ...settings } = challengeUpdate.settings;
-    void _themeId;
-    applyRemoteSnapshot({ eventSeq: challengeUpdate.eventSeq, boardRevision: challengeUpdate.boardRevision, settingsRevision: challengeUpdate.settingsRevision, settings, challenges: challengeUpdate.challenges });
+    applyRemoteSnapshot({ eventSeq: challengeUpdate.eventSeq, boardRevision: challengeUpdate.boardRevision, settingsRevision: challengeUpdate.settingsRevision, settings: challengeUpdate.settings, challenges: challengeUpdate.challenges });
   }, [applyRemoteSnapshot, challengeUpdate]);
   const saveChallengeSettings = api.saveChallengeSettings?.bind(api);
   const dirty = snapshot !== null && settingsDraft !== null && effectivePlacement !== null && (!sameChallengeSettingsDraft(settingsDraft, settingsDraftFrom(snapshot.settings)) || !sameChallengePlacement(effectivePlacement, snapshot.settings.placement));
@@ -320,7 +325,7 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
       const globalTimerTotalMs = settingsDraft.globalTimerMode === "up"
         ? GLOBAL_TIMER_UP_CAP_MS
         : settingsDraft.globalTimerTotalMs;
-      const response = await saveChallengeSettings({ baseSettingsRevision: snapshot.settingsRevision, styleId: settingsDraft.styleId, themeMode: settings.themeMode, surfaceOpacity: settingsDraft.surfaceOpacity, headerStyle: settingsDraft.headerStyle, textEmphasis: settingsDraft.textEmphasis, fontFamily: settingsDraft.fontFamily, fontScale: settingsDraft.fontScale, headerTitle: settingsDraft.headerTitle, penaltyLabel: settingsDraft.penaltyLabel, penaltyText: settingsDraft.penaltyText, effectsEnabled: settingsDraft.effectsEnabled, maxVisible: settingsDraft.maxVisible, overflowMode: settingsDraft.overflowMode, overflowTempo: settingsDraft.overflowTempo, numbered: settingsDraft.numbered, doneOrder: settingsDraft.doneOrder, globalTimerMode: settingsDraft.globalTimerMode === "off" ? "down" : settingsDraft.globalTimerMode, globalTimerTotalMs, placement: effectivePlacement });
+      const response = await saveChallengeSettings({ baseSettingsRevision: snapshot.settingsRevision, styleId: settingsDraft.styleId, themeMode: settings.themeMode, surfaceOpacity: settingsDraft.surfaceOpacity, headerStyle: settingsDraft.headerStyle, textEmphasis: settingsDraft.textEmphasis, fontFamily: settingsDraft.fontFamily, fontScale: settingsDraft.fontScale, headerTitle: settingsDraft.headerTitle, penaltyLabel: settingsDraft.penaltyLabel, penaltyText: settingsDraft.penaltyText, effectsEnabled: settingsDraft.effectsEnabled, maxVisible: settingsDraft.maxVisible, overflowMode: settingsDraft.overflowMode, overflowTempo: settingsDraft.overflowTempo, numbered: settingsDraft.numbered, keyVisible: settingsDraft.keyVisible, doneOrder: settingsDraft.doneOrder, globalTimerMode: settingsDraft.globalTimerMode === "off" ? "down" : settingsDraft.globalTimerMode, globalTimerTotalMs, placement: effectivePlacement });
       // Derselbe Revisions-Guard wie in applyRemoteSnapshot: waehrend unsere Antwort
       // unterwegs war, kann per Socket schon eine neuere Revision eingetroffen sein
       // (zweiter Editor). Eine verspaetete eigene Antwort darf diesen neueren lokalen
@@ -377,6 +382,7 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
                 <label><span>Schrifteffekt</span><select aria-label="Schrifteffekt" disabled={disabled} value={settingsDraft.textEmphasis} onChange={(event) => updateSettings({ textEmphasis: event.target.value as ChallengeTextEmphasis })}><option value="auto">automatisch</option><option value="strong">kräftig (fett + Schatten)</option><option value="plain">schlicht</option></select>{settingsDraft.textEmphasis === "auto" && <small className="field-help">unter 50 % Hintergrund automatisch kräftig</small>}</label>
                 <div className="challenge-checkbox-pair">
                   <label className="challenge-numbered-toggle"><input aria-label="Nummerierung" checked={settingsDraft.numbered} disabled={disabled} onChange={(event) => updateSettings({ numbered: event.target.checked })} type="checkbox" /><span>Nummerierung</span></label>
+                  <label className="challenge-numbered-toggle"><input aria-label="Steuer-Keys" checked={settingsDraft.keyVisible} disabled={disabled} onChange={(event) => updateSettings({ keyVisible: event.target.checked })} type="checkbox" /><span>Steuer-Keys</span></label>
                   <label className="challenge-numbered-toggle"><input aria-label="Animationen und Töne" checked={settingsDraft.effectsEnabled} disabled={disabled} onChange={(event) => updateSettings({ effectsEnabled: event.target.checked })} title="Der Schalter gilt für alle Styles und alle OBS-Quellen." type="checkbox" /><span>Animationen und Töne</span></label>
                 </div>
               </div>
@@ -491,9 +497,53 @@ const ObsSetupDialog = ({ api, state, triggerRef }: { api: AdminApi; state: HudE
 const AuditRail = ({ initialBootstrap, state }: { initialBootstrap: BootstrapResponse; state: HudEditorState }) => (
   <aside className={`audit-rail ${state.auditOpen ? "is-open" : "is-collapsed"}`}>
     <button aria-controls="audit-log" aria-expanded={state.auditOpen} className="rail-heading" onClick={state.toggleAudit} type="button"><Clock3 aria-hidden="true" size={15} /><span>Änderungen</span>{state.newAuditCount > 0 && <span aria-label={`${String(state.newAuditCount)} neue Einträge`} className="audit-new-badge">{state.newAuditCount}</span>}<ChevronDown aria-hidden="true" className="audit-chevron" size={15} /></button>
-    {state.auditOpen && <div id="audit-log" className="audit-rail-content"><div className="audit-list">{state.audit.length === 0 ? <p className="empty-copy">Noch keine veröffentlichten Änderungen.</p> : state.audit.map((entry) => <article className="audit-entry" key={entry.id}><span className="audit-dot" /><div><strong>{entry.actor.displayName}</strong><p>{entry.summary}</p><time>{new Date(entry.createdAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}</time></div></article>)}</div>{initialBootstrap.capabilities.undo && state.undoTargets.length > 0 && <details className="undo-disclosure"><summary><Undo2 size={14} /> Rückgängig</summary>{state.undoTargets.slice(0, 6).map((target) => <button key={target.revision} onClick={() => void state.undo(target.revision)} type="button">Rev. {target.revision}<span>{target.summary}</span></button>)}</details>}</div>}
+    {state.auditOpen && <div id="audit-log" className="audit-rail-content"><div className="audit-list">{state.audit.length === 0 ? <p className="empty-copy">Noch keine veröffentlichten Änderungen.</p> : state.audit.map((entry) => <article className="audit-entry" key={entry.id}><span className="audit-dot" /><div><strong>{entry.actor.displayName}</strong><p>{entry.summary}</p><time>{new Date(entry.createdAt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}</time></div></article>)}</div>{initialBootstrap.capabilities.undo && state.undoTargets.length > 0 && <details className="undo-disclosure"><summary><Undo2 size={14} /> Rückgängig</summary>{state.undoTargets.slice(0, 6).map((target) => <button key={target.channelSeq} onClick={() => void state.undo(target.channelSeq)} type="button">Kanal {target.channelSeq}<span>{target.summary}</span></button>)}</details>}</div>}
   </aside>
 );
+
+const ChallengeUndoRail = ({ api, canUndo, online, challengeUpdate, initialTargets, onTargetsChange, onChallengeUpdate }: { api: AdminApi; canUndo: boolean; online: boolean; challengeUpdate: ChallengeUpdate | null; initialTargets: UndoTarget[]; onTargetsChange: (targets: UndoTarget[]) => void; onChallengeUpdate: (update: ChallengeUpdate) => void }) => {
+  const undoTargets = initialTargets.filter((target) => target.moduleId === "challenges");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  if (!canUndo) return null;
+  const applyTargets = (targets: UndoTarget[]) => {
+    const ownTargets = targets.filter((target) => target.moduleId === "challenges");
+    onTargetsChange(ownTargets);
+  };
+  const undo = async (target: UndoTarget) => {
+    if (api.undo === undefined || challengeUpdate === null || saving || !online) return;
+    if (!window.confirm(`Challenge-Zustand aus Kanalsequenz ${String(target.channelSeq)} wiederherstellen?`)) return;
+    setSaving(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await api.undo("challenges", target.channelSeq, {
+        boardRevision: challengeUpdate.boardRevision,
+        settingsRevision: challengeUpdate.settingsRevision,
+        eventSeq: challengeUpdate.eventSeq,
+      });
+      onChallengeUpdate({ ...response.snapshot, event: null });
+      applyTargets(response.undoTargets);
+      setMessage("Der Challenge-Zustand wurde wiederhergestellt.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Challenge-Undo fehlgeschlagen.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <section aria-busy={saving} aria-labelledby="challenge-undo-heading" className="challenge-undo-panel">
+      <header className="challenge-board-heading"><div><span className="eyebrow">Challenge-Modul</span><h2 id="challenge-undo-heading">Challenge-Historie</h2></div><Undo2 aria-hidden="true" size={18} /></header>
+      {error !== "" && <p className="challenge-board-error" role="alert">{error}</p>}
+      <details className="undo-disclosure" open>
+        <summary><Undo2 size={14} /> Letzte Challenge-Zustände</summary>
+        {undoTargets.length === 0 ? <p className="empty-copy">Noch keine Challenge-Änderungen.</p> : undoTargets.slice(0, 6).map((target) => <button disabled={api.undo === undefined || saving || !online || challengeUpdate === null} key={target.channelSeq} onClick={() => void undo(target)} type="button">Kanal {target.channelSeq}<span>{target.summary}</span></button>)}
+      </details>
+      <footer className="challenge-undo-status"><span aria-live="polite">{error !== "" ? error : message !== "" ? message : challengeUpdate === null ? "Challenge-Zustand wird geladen …" : ""}</span></footer>
+    </section>
+  );
+};
 
 const AdminTabs = ({ activeTab, onChange }: { activeTab: AdminWorkspaceId; onChange: (tab: AdminWorkspaceId) => void }) => {
   const tabRefs = useRef<Record<AdminWorkspaceId, HTMLButtonElement | null>>({ hud: null, challenges: null });
@@ -602,6 +652,7 @@ const GlobalSaveBar = ({ modules, online, onNavigate }: { modules: SaveAllModule
 
 const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBootstrap: BootstrapResponse; api: AdminApi; initialTab: AdminWorkspaceId }) => {
   const [challengeUpdate, setChallengeUpdate] = useState<ChallengeUpdate | null>(null);
+  const [challengeUndoTargets, setChallengeUndoTargets] = useState(initialBootstrap.challengeUndoTargets);
   const [challengeSettingsDraft, setChallengeSettingsDraft] = useState<ChallengeSettingsDraft | null>(null);
   const [challengePlacementDraft, setChallengePlacementDraft] = useState<ChallengePlacement | null>(null);
   const [previewZoom, setPreviewZoom] = useState(100);
@@ -609,27 +660,23 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
   const [activeTab, setActiveTab] = useState<AdminWorkspaceId>(initialTab);
   const draggingRef = useRef<{ kind: "hud" | "challenges"; pointerId: number } | null>(null);
   const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
-  const [challengeCss, setChallengeCss] = useState<{ style: string | null; theme: string | null }>({ style: null, theme: null });
+  const [challengeCss, setChallengeCss] = useState<{ style: string | null }>({ style: null });
   const obsSetupTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [settingsHandle, setSettingsHandle] = useState<ModuleSaveHandle | null>(null);
   const [boardHandle, setBoardHandle] = useState<ChallengeBoardSaveHandle | null>(null);
-  const state = useHudEditorState({ initialBootstrap, api, onChallengeUpdate: setChallengeUpdate });
-  const committedThemeId = state.committed.themeId;
+  const state = useHudEditorState({ initialBootstrap, api, onChallengeUpdate: setChallengeUpdate, onChallengeUndoTargets: setChallengeUndoTargets });
   useEffect(() => {
     if (api.getChallengeBoard === undefined) return;
     let disposed = false;
-    void api.getChallengeBoard().then((snapshot) => { if (!disposed) setChallengeUpdate((current) => current ?? { eventSeq: snapshot.eventSeq, boardRevision: snapshot.boardRevision, settingsRevision: snapshot.settingsRevision, settings: { ...snapshot.settings, themeId: committedThemeId }, challenges: snapshot.challenges, event: null }); }).catch(() => undefined);
+    void api.getChallengeBoard().then((snapshot) => { if (!disposed) setChallengeUpdate((current) => current ?? { eventSeq: snapshot.eventSeq, boardRevision: snapshot.boardRevision, settingsRevision: snapshot.settingsRevision, settings: snapshot.settings, challenges: snapshot.challenges, event: null }); }).catch(() => undefined);
     return () => { disposed = true; };
-  }, [api, committedThemeId]);
-  const displayedChallengeUpdate = useMemo(() => challengeUpdate === null ? null : { ...challengeUpdate, settings: challengeSettingsWithDraft(challengeUpdate.settings, challengeSettingsDraft, committedThemeId) }, [challengeSettingsDraft, challengeUpdate, committedThemeId]);
+  }, [api]);
+  const displayedChallengeUpdate = useMemo(() => challengeUpdate === null ? null : { ...challengeUpdate, settings: challengeSettingsWithDraft(challengeUpdate.settings, challengeSettingsDraft) }, [challengeSettingsDraft, challengeUpdate]);
   useEffect(() => {
     const styleId = displayedChallengeUpdate?.settings.styleId ?? null;
-    const themeMode = displayedChallengeUpdate?.settings.themeMode ?? null;
-    const themeId = displayedChallengeUpdate?.settings.themeId ?? null;
     let disposed = false;
     if (styleId === null) return () => { disposed = true; };
-    void loadCompositionChallengeStyle(styleId).then(() => { if (!disposed) setChallengeCss((current) => ({ ...current, style: styleId })); }).catch(() => undefined);
-    if (themeMode !== "own" && themeId !== null) void loadCompositionChallengeTheme(themeId).then(() => { if (!disposed) setChallengeCss((current) => ({ ...current, theme: themeId })); }).catch(() => undefined);
+    void loadCompositionChallengeStyle(styleId).then(() => { if (!disposed) setChallengeCss({ style: styleId }); }).catch(() => undefined);
     return () => { disposed = true; };
   }, [displayedChallengeUpdate]);
   const getPointerStagePoint = (event: React.PointerEvent<HTMLElement>) => {
@@ -691,9 +738,29 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
   const compositionHud = state.preview;
   const compositionBoardApi = useMemo<ChallengeBoardApi | null>(() => {
     if (api.getChallengeBoard === undefined || api.saveChallengeBoard === undefined) return null;
-    return { load: api.getChallengeBoard.bind(api), save: api.saveChallengeBoard.bind(api) };
+    const listChallengeSets = api.listChallengeSets;
+    const getChallengeSet = api.getChallengeSet;
+    const saveChallengeSet = api.saveChallengeSet;
+    const deleteChallengeSet = api.deleteChallengeSet;
+    return {
+      load: api.getChallengeBoard.bind(api),
+      save: api.saveChallengeBoard.bind(api),
+      ...(listChallengeSets === undefined ? {} : {
+        listSets: async () => (await listChallengeSets()).sets,
+      }),
+      ...(getChallengeSet === undefined ? {} : {
+        getSet: async (setId: string) => (await getChallengeSet(setId)).set,
+      }),
+      ...(saveChallengeSet === undefined ? {} : {
+        saveSet: async (request: { name: string; includeProgress: boolean; setId?: string }) =>
+          (await saveChallengeSet(request)).summary,
+      }),
+      ...(deleteChallengeSet === undefined ? {} : {
+        deleteSet: deleteChallengeSet.bind(api),
+      }),
+    };
   }, [api]);
-  const challengeReady = displayedChallengeUpdate !== null && challengeCss.style === displayedChallengeUpdate.settings.styleId && (displayedChallengeUpdate.settings.themeMode === "own" || challengeCss.theme === displayedChallengeUpdate.settings.themeId);
+  const challengeReady = displayedChallengeUpdate !== null && challengeCss.style === displayedChallengeUpdate.settings.styleId;
   // Nur die Admin-Vorschau markiert das Modul hier als gedämpft. Die echte
   // Sammel-Overlay-Ausgabe bleibt unverändert; /overlay und /overlay/challenges
   // funktionieren als Einzel-URLs unabhängig vom Sammel-Overlay.
@@ -709,7 +776,7 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
   if (settingsHandle !== null) saveAllModules.push({ key: "settings", label: "Einstellungen", tab: "challenges", dirty: settingsHandle.dirty, save: settingsHandle.save });
   if (boardHandle !== null) saveAllModules.push({ key: "board", label: "Board", tab: "challenges", dirty: boardHandle.dirty, save: boardHandle.save });
   return (
-    <div className="admin-app admin-app--composition"><AdminTopbar api={api} initialBootstrap={initialBootstrap} obsSetupTriggerRef={obsSetupTriggerRef} state={state} />{!state.online && <div className="offline-banner">Offline – Speichern pausiert; bestehende Werte bleiben sichtbar.</div>}<AuditRail initialBootstrap={initialBootstrap} state={state} /><ObsSetupDialog api={api} state={state} triggerRef={obsSetupTriggerRef} /><main className="composition-main"><GlobalSaveBar modules={saveAllModules} online={state.online} onNavigate={setActiveTab} /><PreviewPanel headingControls={<ModuleVisibilityControls state={state} />} hudInteraction={hudInteraction} hudMuted={!state.draft.compositeHudVisible} mediaUrls={state.previewMediaUrls} onZoomChange={setPreviewZoom} previewOverlay={!state.committed.overlayEnabled ? <div className="disabled-veil">Overlay deaktiviert</div> : undefined} state={compositionHud} themeLabel={THEME_LABELS[state.preview.themeId]} zoom={previewZoom}>{challengePreview}</PreviewPanel></main><aside className="composition-rails"><AdminTabs activeTab={activeTab} onChange={setActiveTab} />{/* Beide Tabpanels bleiben dauerhaft gemountet (ChallengeBoard-Refetch/State sonst pro Tab-Wechsel weg); nur das inaktive wird per hidden-Attribut versteckt. */}<div aria-labelledby="admin-tab-hud" className="composition-tabpanel" hidden={activeTab !== "hud"} id="admin-composition-panel-hud" role="tabpanel"><HudEditorRail api={api} initialBootstrap={initialBootstrap} state={state} /></div><div aria-labelledby="admin-tab-challenges" className="composition-tabpanel" hidden={activeTab !== "challenges"} id="admin-composition-panel-challenges" role="tabpanel"><div className="composition-challenge-rail"><ChallengeSettingsPanel api={api} challengeUpdate={challengeUpdate} online={state.online} onDraftChange={setChallengeSettingsDraft} onHandleChange={setSettingsHandle} onPlacementDraftChange={setChallengePlacementDraft} placementDraft={challengePlacementDraft} />{compositionBoardApi === null ? <section className="challenge-board-shell" role="alert"><div className="challenge-board-empty"><AlertTriangle size={22} /><strong>Challenge-Board ist in dieser Sitzung nicht verfügbar.</strong></div></section> : <ChallengeBoard api={compositionBoardApi} challengeUpdate={displayedChallengeUpdate} online={state.online} onHandleChange={setBoardHandle} />}</div></div>{activeTab === "challenges" && <CompositionSaveDock state={state} />}</aside></div>
+    <div className="admin-app admin-app--composition"><AdminTopbar api={api} initialBootstrap={initialBootstrap} obsSetupTriggerRef={obsSetupTriggerRef} state={state} />{!state.online && <div className="offline-banner">Offline – Speichern pausiert; bestehende Werte bleiben sichtbar.</div>}<AuditRail initialBootstrap={initialBootstrap} state={state} /><ObsSetupDialog api={api} state={state} triggerRef={obsSetupTriggerRef} /><main className="composition-main"><GlobalSaveBar modules={saveAllModules} online={state.online} onNavigate={setActiveTab} /><PreviewPanel headingControls={<ModuleVisibilityControls state={state} />} hudInteraction={hudInteraction} hudMuted={!state.draft.compositeHudVisible} mediaUrls={state.previewMediaUrls} onZoomChange={setPreviewZoom} previewOverlay={!state.committed.overlayEnabled ? <div className="disabled-veil">Overlay deaktiviert</div> : undefined} state={compositionHud} themeLabel={THEME_LABELS[state.preview.themeId]} zoom={previewZoom}>{challengePreview}</PreviewPanel></main><aside className="composition-rails"><AdminTabs activeTab={activeTab} onChange={setActiveTab} />{/* Beide Tabpanels bleiben dauerhaft gemountet (ChallengeBoard-Refetch/State sonst pro Tab-Wechsel weg); nur das inaktive wird per hidden-Attribut versteckt. */}<div aria-labelledby="admin-tab-hud" className="composition-tabpanel" hidden={activeTab !== "hud"} id="admin-composition-panel-hud" role="tabpanel"><HudEditorRail api={api} initialBootstrap={initialBootstrap} state={state} /></div><div aria-labelledby="admin-tab-challenges" className="composition-tabpanel" hidden={activeTab !== "challenges"} id="admin-composition-panel-challenges" role="tabpanel"><div className="composition-challenge-rail"><ChallengeUndoRail api={api} canUndo={initialBootstrap.capabilities.undo} challengeUpdate={challengeUpdate} initialTargets={challengeUndoTargets} online={state.online} onChallengeUpdate={setChallengeUpdate} onTargetsChange={setChallengeUndoTargets} /><ChallengeSettingsPanel api={api} challengeUpdate={challengeUpdate} online={state.online} onDraftChange={setChallengeSettingsDraft} onHandleChange={setSettingsHandle} onPlacementDraftChange={setChallengePlacementDraft} placementDraft={challengePlacementDraft} />{compositionBoardApi === null ? <section className="challenge-board-shell" role="alert"><div className="challenge-board-empty"><AlertTriangle size={22} /><strong>Challenge-Board ist in dieser Sitzung nicht verfügbar.</strong></div></section> : <ChallengeBoard api={compositionBoardApi} challengeUpdate={displayedChallengeUpdate} online={state.online} onHandleChange={setBoardHandle} />}</div></div>{activeTab === "challenges" && <CompositionSaveDock state={state} />}</aside></div>
   );
 };
 

@@ -6,6 +6,7 @@ import { runMigrations } from "../../src/channel/migrations";
 import { createSqlStorageChallengeRepository } from "../../src/modules/win-challenges/adapters/sql-storage-challenge-repository";
 import type { Challenge, ChallengeDefinition } from "../../src/modules/win-challenges/contracts/schemas";
 import { createWinChallenges, hashChallengeCommand } from "../../src/modules/win-challenges/service/commands";
+import { bootstrapResponseSchema, saveResponseSchema } from "../../src/shared/contracts/api";
 
 const origin = "http://localhost:5173";
 const tabId = "challenge-api-test";
@@ -31,9 +32,12 @@ const commandId = (): string => crypto.randomUUID();
 const definition = (title = "Eine Challenge"): ChallengeDefinition => ({
   clientId: `client-${title}`,
   title,
+  kind: "counter",
+  unit: null,
   targetCount: 3,
   timerTotalMs: 10_000,
   sortOrder: 0,
+  step: 1,
   hidden: false,
 });
 
@@ -59,12 +63,13 @@ const resetModuleTables = async (): Promise<void> => {
     runMigrations(state.storage.sql, "worker-test-api");
     state.storage.sql.exec("DELETE FROM wc_challenges");
     state.storage.sql.exec("DELETE FROM wc_commands");
+    state.storage.sql.exec("DELETE FROM wc_sets");
     state.storage.sql.exec(
       `UPDATE wc_meta SET
         event_seq = 0, board_revision = 1, settings_revision = 1,
-        style_id = 'plain-list', theme_mode = 'inherit', surface_opacity = 100, header_style = 'default',
+        style_id = 'plain-list', theme_mode = 'own', surface_opacity = 100, header_style = 'default',
         header_title = 'CHALLENGES', penalty_text = '', effects_enabled = 1, max_visible = 5,
-        overflow_mode = 'cut', overflow_tempo = 'medium', numbered = 0, done_order = 'end',
+        overflow_mode = 'cut', overflow_tempo = 'medium', numbered = 0, key_visible = 0, done_order = 'end',
         placement_x = 300, placement_y = 8, placement_scale = 1,
         global_timer_total_ms = NULL, global_timer_ends_at = NULL,
         global_timer_paused_remain_ms = NULL
@@ -182,7 +187,7 @@ describe("Win-Challenges-API", () => {
       body: JSON.stringify({
         baseSettingsRevision: 1,
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -193,7 +198,7 @@ describe("Win-Challenges-API", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimerTotalMs: 60_000,
         placement: { x: 300, y: 8, scale: 1 },
       }),
@@ -361,6 +366,7 @@ describe("Win-Challenges-API", () => {
         overflowMode: "page",
         overflowTempo: "fast",
         numbered: true,
+        keyVisible: true,
         doneOrder: "keep",
         globalTimerMode: "down",
         globalTimerTotalMs: null,
@@ -376,7 +382,7 @@ describe("Win-Challenges-API", () => {
       body: JSON.stringify({
         baseSettingsRevision: 1,
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -387,7 +393,7 @@ describe("Win-Challenges-API", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimerTotalMs: null,
         placement: { x: 300, y: 8, scale: 1 },
       }),
@@ -554,11 +560,382 @@ describe("Win-Challenges-API", () => {
     expect(completed.state).toBe("done");
   });
 
+  it("weist typfremde große Deltas als Validierungsfehler zurück und lässt sie für Messwerte zu", async () => {
+    const board = await saveBoard([
+      { ...definition("Counter"), targetCount: 999 },
+      {
+        ...definition("Messwert"),
+        kind: "measure",
+        unit: "m",
+        targetCount: 1_500,
+        sortOrder: 1,
+        step: 50,
+      },
+    ]);
+    const body = await board.json<{ snapshot: { challenges: Challenge[] } }>();
+    const counter = body.snapshot.challenges.find(({ title }) => title === "Counter");
+    const measure = body.snapshot.challenges.find(({ title }) => title === "Messwert");
+    if (counter === undefined || measure === undefined) throw new Error("Test-Challenges fehlen.");
+
+    const sendIncrement = async (challengeId: string, delta: number): Promise<Response> =>
+      fetchWorker("/api/challenges/commands", {
+        method: "POST",
+        headers: authenticatedHeaders(),
+        body: JSON.stringify({
+          commandId: commandId(),
+          scope: "challenge",
+          type: "increment",
+          challengeId,
+          delta,
+        }),
+      });
+
+    const rejected = await sendIncrement(counter.id, 100);
+    expect(rejected.status).toBe(422);
+    expect(await rejected.json<{ error: { code: string; message: string } }>()).toMatchObject({
+      error: {
+        code: "validation_failed",
+        message: "Delta muss zwischen -99 und 99 liegen.",
+      },
+    });
+
+    const counterAccepted = await sendIncrement(counter.id, 99);
+    expect(counterAccepted.status).toBe(200);
+    expect((await counterAccepted.json<{ challenge: Challenge }>()).challenge.currentCount).toBe(99);
+
+    const measureAccepted = await sendIncrement(measure.id, 10_000);
+    expect(measureAccepted.status).toBe(200);
+    expect((await measureAccepted.json<{ challenge: Challenge }>()).challenge.currentCount).toBe(10_000);
+  });
+
+  it("setzt die Inkrement-Semantik von tick und streak vor der Domänenoperation durch", async () => {
+    const board = await saveBoard([
+      { ...definition("Tick"), kind: "tick", targetCount: null },
+      { ...definition("Streak"), kind: "streak", targetCount: 5, sortOrder: 1 },
+      { ...definition("Counter"), sortOrder: 2 },
+    ]);
+    const body = await board.json<{ snapshot: { challenges: Challenge[] } }>();
+    const challenges = body.snapshot.challenges;
+    const tick = challenges.find(({ title }) => title === "Tick");
+    const streak = challenges.find(({ title }) => title === "Streak");
+    const counter = challenges.find(({ title }) => title === "Counter");
+    if (tick === undefined || streak === undefined || counter === undefined) {
+      throw new Error("Test-Challenges fehlen.");
+    }
+
+    const sendIncrement = async (challengeId: string, delta: number): Promise<Response> =>
+      fetchWorker("/api/challenges/commands", {
+        method: "POST",
+        headers: authenticatedHeaders(),
+        body: JSON.stringify({
+          commandId: commandId(),
+          scope: "challenge",
+          type: "increment",
+          challengeId,
+          delta,
+        }),
+      });
+
+    const tickIncrement = await sendIncrement(tick.id, 1);
+    expect(tickIncrement.status).toBe(422);
+    expect(await tickIncrement.json<{ error: { code: string; message: string } }>()).toMatchObject({
+      error: {
+        code: "validation_failed",
+        message: "Eine Challenge vom Typ tick darf nicht inkrementiert werden.",
+      },
+    });
+
+    const tickComplete = await fetchWorker("/api/challenges/commands", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({
+        commandId: commandId(),
+        scope: "challenge",
+        type: "complete",
+        challengeId: tick.id,
+      }),
+    });
+    expect(tickComplete.status).toBe(200);
+    expect((await tickComplete.json<{ challenge: Challenge }>()).challenge.state).toBe("done");
+
+    const streakNegative = await sendIncrement(streak.id, -1);
+    expect(streakNegative.status).toBe(422);
+    expect(await streakNegative.json<{ error: { code: string; message: string } }>()).toMatchObject({
+      error: {
+        code: "validation_failed",
+        message: "Eine Challenge vom Typ streak akzeptiert keine negativen Deltas.",
+      },
+    });
+
+    const streakPositive = await sendIncrement(streak.id, 1);
+    expect(streakPositive.status).toBe(200);
+    expect((await streakPositive.json<{ challenge: Challenge }>()).challenge.currentCount).toBe(1);
+
+    const counterPositive = await sendIncrement(counter.id, 1);
+    expect(counterPositive.status).toBe(200);
+    const counterNegative = await sendIncrement(counter.id, -1);
+    expect(counterNegative.status).toBe(200);
+    expect((await counterNegative.json<{ challenge: Challenge }>()).challenge.currentCount).toBe(0);
+  });
+
+  it("setzt resetStreak auf null, lässt bestCount stehen und weist andere Typen mit 422 ab", async () => {
+    const board = await saveBoard([
+      { ...definition("Streak"), kind: "streak", targetCount: 5 },
+      { ...definition("Counter"), sortOrder: 1 },
+      { ...definition("Tick"), kind: "tick", targetCount: null, sortOrder: 2 },
+      { ...definition("Measure"), kind: "measure", unit: "kg", targetCount: 1_500, sortOrder: 3 },
+    ]);
+    const body = await board.json<{ snapshot: { challenges: Challenge[] } }>();
+    const challenges = body.snapshot.challenges;
+    const streak = challenges.find(({ title }) => title === "Streak");
+    if (streak === undefined) throw new Error("Streak fehlt.");
+
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE wc_challenges SET current_count = 4, best_count = 4 WHERE id = ?",
+        streak.id,
+      );
+    });
+
+    const resetRequest = {
+      commandId: commandId(),
+      scope: "challenge",
+      type: "resetStreak",
+      challengeId: streak.id,
+    } as const;
+    const reset = await fetchWorker("/api/challenges/commands", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify(resetRequest),
+    });
+    expect(reset.status).toBe(200);
+    const resetBody = await reset.json<{ eventSeq: number; replayed: boolean; challenge: Challenge }>();
+    expect(resetBody).toMatchObject({
+      eventSeq: 1,
+      replayed: false,
+      challenge: { currentCount: 0, bestCount: 4 },
+    });
+
+    const replay = await fetchWorker("/api/challenges/commands", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify(resetRequest),
+    });
+    expect(replay.status).toBe(200);
+    expect(await replay.json<{ eventSeq: number; replayed: boolean; challenge: Challenge }>()).toMatchObject({
+      eventSeq: 1,
+      replayed: true,
+      challenge: { currentCount: 0, bestCount: 4 },
+    });
+
+    for (const challenge of challenges.filter(({ title }) => title !== "Streak")) {
+      const rejected = await fetchWorker("/api/challenges/commands", {
+        method: "POST",
+        headers: authenticatedHeaders(),
+        body: JSON.stringify({
+          commandId: commandId(),
+          scope: "challenge",
+          type: "resetStreak",
+          challengeId: challenge.id,
+        }),
+      });
+      expect(rejected.status, challenge.title).toBe(422);
+      expect(await rejected.json<{ error: { code: string } }>()).toMatchObject({
+        error: { code: "validation_failed" },
+      });
+    }
+  });
+
   it("liefert eine reine GET-Nutzlast ohne event", async () => {
     const response = await fetchWorker("/api/challenges", { headers: { cookie, origin } });
     const body = await response.json<{ challenges: Challenge[] }>();
     expect(response.status).toBe(200);
     expectExactKeys(body, ["eventSeq", "boardRevision", "settingsRevision", "settings", "challenges"]);
     expect(body.challenges).toEqual([]);
+  });
+
+  it("führt HUD- und Challenge-Undo verschränkt über eine monotone Kanalsequenz", async () => {
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec("DELETE FROM state_history");
+    });
+
+    const initialHud = bootstrapResponseSchema.parse(
+      await (await fetchWorker("/api/editor/bootstrap", { headers: { cookie, "x-editor-tab": tabId } })).json(),
+    );
+    csrfToken = initialHud.csrfToken;
+    const { revision: initialRevision, overlayEnabled: _overlayEnabled, updatedAt: _updatedAt, updatedBy: _updatedBy, ...initialDraft } = initialHud.state;
+    void [_overlayEnabled, _updatedAt, _updatedBy];
+    const firstHud = await fetchWorker("/api/state", {
+      method: "PUT",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({
+        baseRevision: initialRevision,
+        state: { ...initialDraft, player: { ...initialDraft.player, hpPercent: 99 } },
+      }),
+    });
+    expect(firstHud.status).toBe(200);
+    saveResponseSchema.parse(await firstHud.json());
+
+    let challenge = await (await fetchWorker("/api/challenges", { headers: { cookie, origin } })).json<{
+      eventSeq: number;
+      boardRevision: number;
+      settingsRevision: number;
+      settings: Record<string, unknown>;
+      challenges: Challenge[];
+    }>();
+    const firstBoard = await saveBoard([definition("Challenge 0")], challenge.boardRevision);
+    expect(firstBoard.status).toBe(200);
+    // `saveBoard` antwortet mit { snapshot, createdIds }; die Revisionen
+    // stecken im Snapshot, nicht auf oberster Ebene.
+    challenge = (await firstBoard.json<{ snapshot: typeof challenge }>()).snapshot;
+
+    const secondHudBootstrap = bootstrapResponseSchema.parse(
+      await (await fetchWorker("/api/editor/bootstrap", { headers: { cookie, "x-editor-tab": tabId } })).json(),
+    );
+    csrfToken = secondHudBootstrap.csrfToken;
+    const { revision: secondRevision, overlayEnabled: _secondEnabled, updatedAt: _secondAt, updatedBy: _secondBy, ...secondDraft } = secondHudBootstrap.state;
+    void [_secondEnabled, _secondAt, _secondBy];
+    const secondHud = await fetchWorker("/api/state", {
+      method: "PUT",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({
+        baseRevision: secondRevision,
+        state: { ...secondDraft, player: { ...secondDraft.player, hpPercent: 98 } },
+      }),
+    });
+    expect(secondHud.status).toBe(200);
+    saveResponseSchema.parse(await secondHud.json());
+
+    for (let index = 1; index < 25; index += 1) {
+      const response = await saveBoard([definition(`Challenge ${String(index)}`)], challenge.boardRevision);
+      expect(response.status).toBe(200);
+      challenge = (await response.json<{ snapshot: typeof challenge }>()).snapshot;
+    }
+
+    const rowsBeforeUndo = await runInDurableObject(stub, (_instance, state) =>
+      state.storage.sql.exec<{
+        channel_seq: number;
+        module_id: string;
+        snapshot_json: string;
+      }>("SELECT channel_seq, module_id, snapshot_json FROM state_history ORDER BY channel_seq").toArray(),
+    );
+    expect(rowsBeforeUndo.filter(({ module_id }) => module_id === "hud")).toHaveLength(2);
+    expect(rowsBeforeUndo.filter(({ module_id }) => module_id === "challenges")).toHaveLength(20);
+    expect(rowsBeforeUndo.map(({ channel_seq }) => channel_seq)).toEqual(
+      rowsBeforeUndo.map(({ channel_seq }) => channel_seq).sort((left, right) => left - right),
+    );
+    const loadedWithBothUndoLists = bootstrapResponseSchema.parse(
+      await (await fetchWorker("/api/editor/bootstrap", { headers: { cookie, "x-editor-tab": tabId } })).json(),
+    );
+    expect(loadedWithBothUndoLists.undoTargets).toHaveLength(2);
+    expect(loadedWithBothUndoLists.undoTargets.every(({ moduleId }) => moduleId === "hud")).toBe(true);
+    expect(loadedWithBothUndoLists.challengeUndoTargets).toHaveLength(20);
+    expect(loadedWithBothUndoLists.challengeUndoTargets.every(({ moduleId }) => moduleId === "challenges")).toBe(true);
+    const challengeTarget = rowsBeforeUndo.find(({ module_id }) => module_id === "challenges");
+    if (challengeTarget === undefined) throw new Error("Challenge-Undo-Ziel fehlt.");
+
+    const challengeUndo = await fetchWorker("/api/state/undo", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({
+        moduleId: "challenges",
+        channelSeq: challengeTarget.channel_seq,
+        baseBoardRevision: challenge.boardRevision,
+        baseSettingsRevision: challenge.settingsRevision,
+        baseEventSeq: challenge.eventSeq,
+      }),
+    });
+    expect(challengeUndo.status).toBe(200);
+    const challengeUndoBody = await challengeUndo.json<{ snapshot: typeof challenge }>();
+    expect(challengeUndoBody.snapshot.challenges[0]?.title).toBe("Challenge 4");
+
+    const hudAfterChallengeUndo = bootstrapResponseSchema.parse(
+      await (await fetchWorker("/api/editor/bootstrap", { headers: { cookie, "x-editor-tab": tabId } })).json(),
+    );
+    csrfToken = hudAfterChallengeUndo.csrfToken;
+    expect(hudAfterChallengeUndo.state.player.hpPercent).toBe(98);
+
+    const hudTargets = rowsBeforeUndo.filter(({ module_id }) => module_id === "hud");
+    const hudTarget = hudTargets[0];
+    if (hudTarget === undefined) throw new Error("HUD-Undo-Ziel fehlt.");
+    const hudUndo = await fetchWorker("/api/state/undo", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({
+        moduleId: "hud",
+        channelSeq: hudTarget.channel_seq,
+        baseRevision: hudAfterChallengeUndo.state.revision,
+      }),
+    });
+    const hudUndoBody = saveResponseSchema.parse(await hudUndo.json());
+    expect(hudUndo.status).toBe(200);
+    expect(hudUndoBody.state.player.hpPercent).toBe(100);
+
+    const challengeAfterHudUndo = await (await fetchWorker("/api/challenges", { headers: { cookie, origin } })).json<typeof challenge>();
+    expect(challengeAfterHudUndo.challenges[0]?.title).toBe("Challenge 4");
+    const rowsAfterUndo = await runInDurableObject(stub, (_instance, state) =>
+      state.storage.sql.exec<{ channel_seq: number; module_id: string }>("SELECT channel_seq, module_id FROM state_history ORDER BY channel_seq").toArray(),
+    );
+    expect(rowsAfterUndo.filter(({ module_id }) => module_id === "challenges")).toHaveLength(20);
+    expect(rowsAfterUndo.filter(({ module_id }) => module_id === "hud").length).toBeGreaterThanOrEqual(2);
+    const previousMaxChannelSeq = Math.max(...rowsBeforeUndo.map(({ channel_seq }) => channel_seq));
+    const channelSequencesAfterUndo = rowsAfterUndo.map(({ channel_seq }) => channel_seq);
+    expect(channelSequencesAfterUndo).toContain(previousMaxChannelSeq + 1);
+    expect(channelSequencesAfterUndo).toContain(previousMaxChannelSeq + 2);
+    expect(Math.max(...channelSequencesAfterUndo)).toBe(previousMaxChannelSeq + 2);
+  });
+
+  it("verwaltet Server-Sets über die Session und liefert beim Laden den Payload", async () => {
+    const board = await saveBoard([definition()]);
+    expect(board.status).toBe(200);
+
+    const saved = await fetchWorker("/api/challenges/sets", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({ name: "API-Set", includeProgress: false }),
+    });
+    expect(saved.status).toBe(200);
+    const savedBody = await saved.json<{
+      summary: { id: string; type: string; name: string; hasProgress: boolean };
+      set: { name: string; challenges: unknown[] };
+    }>();
+    expect(savedBody.summary).toMatchObject({ type: "user", name: "API-Set", hasProgress: false });
+    expect(savedBody.set).toMatchObject({ name: "API-Set" });
+
+    const listed = await fetchWorker("/api/challenges/sets", { headers: authenticatedHeaders() });
+    expect(listed.status).toBe(200);
+    const listedBody = await listed.json<{ sets: Array<Record<string, unknown>> }>();
+    expect(listedBody.sets).toEqual([expect.objectContaining({ id: savedBody.summary.id, name: "API-Set" })]);
+    expect(listedBody.sets[0]).not.toHaveProperty("payload");
+
+    const loaded = await fetchWorker(`/api/challenges/sets/${encodeURIComponent(savedBody.summary.id)}`, {
+      headers: authenticatedHeaders(),
+    });
+    expect(loaded.status).toBe(200);
+    expect(await loaded.json<{ set: { name: string; challenges: unknown[] } }>()).toMatchObject({
+      set: { name: "API-Set" },
+    });
+
+    const deleted = await fetchWorker(`/api/challenges/sets/${encodeURIComponent(savedBody.summary.id)}`, {
+      method: "DELETE",
+      headers: authenticatedHeaders(),
+    });
+    expect(deleted.status).toBe(200);
+  });
+
+  it("verweigert dem Dock-Token jede Set-Verwaltung", async () => {
+    const dockHeaders = new Headers(authenticatedHeaders());
+    dockHeaders.set("x-dock-token", "dock-token");
+    const routes: Array<[string, string, string?]> = [
+      ["GET", "/api/challenges/sets"],
+      ["GET", "/api/challenges/sets/autosave"],
+      ["POST", "/api/challenges/sets", JSON.stringify({ name: "Dock", includeProgress: false })],
+      ["DELETE", "/api/challenges/sets/autosave"],
+    ];
+    for (const [method, path, body] of routes) {
+      const response = await fetchWorker(path, { method, headers: dockHeaders, body: body ?? null });
+      expect(response.status, `${method} ${path}`).toBe(403);
+      expect(await response.json<{ error: { code: string } }>()).toMatchObject({ error: { code: "forbidden" } });
+    }
   });
 });

@@ -3,17 +3,25 @@ import type {
   ChallengeEvent,
   ChallengeSettings,
   ChallengeUpdate,
+  BoardEvent,
   GlobalTimer,
   GlobalTimerEvent,
 } from "../shared/contracts/win-challenges";
+import type { TimeSyncMessage } from "../shared/time-sync";
 import {
   isChallengeId,
+  isChallengeKind,
+  isChallengeStep,
+  isChallengeUnit,
+  isControlKey,
   isChallengeState,
   isChallengeStyleId,
   isChallengeTitle,
   isCurrentCount,
+  isCurrentCountForKind,
   isDoneOrder,
   isDelta,
+  isDeltaForKind,
   isEventSeq,
   isGlobalTimerTotalMs,
   isGlobalTimerMode,
@@ -25,6 +33,7 @@ import {
   isPenaltyText,
   isHidden,
   isInstant,
+  isKeyVisible,
   isMaxVisible,
   isNumbered,
   isOverflowMode,
@@ -33,17 +42,17 @@ import {
   isChallengePlacement,
   isRevision,
   isSortOrder,
-  isTargetCount,
-  isThemeId,
+  isTargetCountForKind,
   isThemeMode,
   isChallengeSurfaceOpacity,
   isChallengeTextEmphasis,
   isTimerTotalMs,
   isTimerRemainMs,
+  normalizeChallengeText,
   MAX_CHALLENGES,
 } from "../modules/win-challenges/contracts/predicates";
 
-export type ChallengeMessage = ChallengeUpdate | { type: "token_revoked" };
+export type ChallengeMessage = ChallengeUpdate | TimeSyncMessage | { type: "token_revoked" };
 
 /**
  * Liest `placement=origin`. Damit rendert die Quelle das Element in der linken
@@ -106,9 +115,9 @@ const parseSettings = (input: unknown): ChallengeSettings | null => {
       "overflowMode",
       "overflowTempo",
       "numbered",
+      "keyVisible",
       "doneOrder",
       "globalTimerMode",
-      "themeId",
       "globalTimer",
       "placement",
     ]) ||
@@ -127,9 +136,9 @@ const parseSettings = (input: unknown): ChallengeSettings | null => {
     !isOverflowMode(input.overflowMode) ||
     !isOverflowTempo(input.overflowTempo) ||
     !isNumbered(input.numbered) ||
+    !isKeyVisible(input.keyVisible) ||
     !isDoneOrder(input.doneOrder) ||
     !isGlobalTimerMode(input.globalTimerMode) ||
-    !isThemeId(input.themeId) ||
     !isChallengePlacement(input.placement) ||
     !isRecord(input.placement) ||
     !exactKeys(input.placement, ["x", "y", "scale"])
@@ -140,14 +149,17 @@ const parseSettings = (input: unknown): ChallengeSettings | null => {
 };
 
 const parseChallenge = (input: unknown): Challenge | null => {
-  if (
-    !isRecord(input) ||
-    !exactKeys(input, [
+  if (!isRecord(input) || !exactKeys(input, [
       "id",
       "title",
+      "kind",
+      "unit",
+      "controlKey",
       "targetCount",
       "timerTotalMs",
       "sortOrder",
+      "step",
+      "bestCount",
       "hidden",
       "currentCount",
       "state",
@@ -156,21 +168,31 @@ const parseChallenge = (input: unknown): Challenge | null => {
       "completedAt",
       "createdAt",
       "updatedAt",
-    ]) ||
-    !isChallengeId(input.id) ||
-    !isChallengeTitle(input.title) ||
-    !isTargetCount(input.targetCount) ||
+    ])) return null;
+  if (!isChallengeId(input.id) || !isChallengeTitle(input.title) || !isChallengeKind(input.kind)) return null;
+  const kind = input.kind;
+  if (
+    !(input.unit === null || isChallengeUnit(input.unit)) ||
+    (input.unit !== null && input.unit !== normalizeChallengeText(input.unit)) ||
+    !isControlKey(input.controlKey) ||
+    !isTargetCountForKind(input.targetCount, kind) ||
     !isTimerTotalMs(input.timerTotalMs) ||
     !isSortOrder(input.sortOrder) ||
+    !isChallengeStep(input.step) ||
+    !isCurrentCountForKind(input.bestCount, kind) ||
     !isHidden(input.hidden) ||
-    !isCurrentCount(input.currentCount) ||
+    !isCurrentCountForKind(input.currentCount, kind) ||
     !isChallengeState(input.state) ||
     !(input.timerEndsAt === null || isInstant(input.timerEndsAt)) ||
     !isTimerRemainMs(input.timerRemainMs) ||
     (input.timerEndsAt !== null && input.timerRemainMs !== null) ||
     !(input.completedAt === null || isInstant(input.completedAt)) ||
     !isInstant(input.createdAt) ||
-    !isInstant(input.updatedAt)
+    !isInstant(input.updatedAt) ||
+    (kind === "tick" && input.targetCount !== null) ||
+    ((kind === "streak" || kind === "measure") && input.targetCount === null) ||
+    (kind === "measure" && input.unit === null) ||
+    (kind !== "measure" && input.unit !== null)
   ) return null;
   return input as unknown as Challenge;
 };
@@ -191,7 +213,8 @@ const isChallengeEvent = (input: unknown): input is ChallengeEvent => {
     (input.type === "completed" ||
       input.type === "reopened" ||
       input.type === "timer_started" ||
-      input.type === "timer_stopped") &&
+      input.type === "timer_stopped" ||
+      input.type === "streak-reset") &&
     isChallengeId(input.challengeId)
   );
 };
@@ -203,6 +226,24 @@ const isGlobalTimerEvent = (input: unknown): input is GlobalTimerEvent =>
   (input.type === "global_started" ||
     input.type === "global_paused" ||
     input.type === "global_reset");
+
+const isBoardEvent = (input: unknown): input is BoardEvent =>
+  isRecord(input) &&
+  exactKeys(input, ["scope", "type"]) &&
+  input.scope === "board" &&
+  input.type === "set_switched";
+
+const parseTimeSyncMessage = (input: unknown): TimeSyncMessage | null => {
+  if (
+    !isRecord(input) ||
+    !exactKeys(input, ["type", "clientTimestamp", "serverTime"]) ||
+    input.type !== "time_sync" ||
+    typeof input.clientTimestamp !== "number" ||
+    !Number.isFinite(input.clientTimestamp) ||
+    !isInstant(input.serverTime)
+  ) return null;
+  return input as unknown as TimeSyncMessage;
+};
 
 export const parseChallengeUpdate = (input: unknown): ChallengeUpdate | null => {
   if (
@@ -225,22 +266,33 @@ export const parseChallengeUpdate = (input: unknown): ChallengeUpdate | null => 
   if (!Array.isArray(input.challenges) || input.challenges.length > MAX_CHALLENGES) return null;
   const challenges = input.challenges.map(parseChallenge);
   if (challenges.some((challenge) => challenge === null)) return null;
+  const parsedChallenges = challenges as Challenge[];
   if (
     input.event !== null &&
     !isChallengeEvent(input.event) &&
-    !isGlobalTimerEvent(input.event)
+    !isGlobalTimerEvent(input.event) &&
+    !isBoardEvent(input.event)
   ) return null;
+  const event = input.event;
+  if (event?.scope === "challenge" && event.type === "progressed") {
+    const challenge = parsedChallenges.find(({ id }) => id === event.challengeId);
+    if (challenge === undefined ||
+      !isDeltaForKind(event.delta, challenge.kind) ||
+      !isCurrentCountForKind(event.previousCount, challenge.kind) ||
+      !isCurrentCountForKind(event.currentCount, challenge.kind)) return null;
+  }
   return {
     eventSeq: input.eventSeq,
     boardRevision: input.boardRevision,
     settingsRevision: input.settingsRevision,
     settings,
-    challenges: challenges as Challenge[],
+    challenges: parsedChallenges,
     event: input.event,
   };
 };
 
 export const parseChallengeMessage = (input: unknown): ChallengeMessage | null => {
+  if (isRecord(input) && input.type === "time_sync") return parseTimeSyncMessage(input);
   if (isRecord(input) && input.type === "token_revoked" && exactKeys(input, ["type"])) {
     return { type: "token_revoked" };
   }

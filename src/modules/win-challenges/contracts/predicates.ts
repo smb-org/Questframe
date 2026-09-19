@@ -1,11 +1,22 @@
-import type { ChallengeFontFamily, ChallengePlacement, ChallengeSurfaceOpacity, ChallengeTextEmphasis } from "../../../shared/contracts/win-challenges";
+import type {
+  ChallengeFontFamily,
+  ChallengeKind,
+  ChallengePlacement,
+  ChallengeSurfaceOpacity,
+  ChallengeTextEmphasis,
+} from "../../../shared/contracts/win-challenges";
 
 const challengeGraphemeSegmenter = new Intl.Segmenter("de", {
   granularity: "grapheme",
 });
 
 export const MAX_CHALLENGES = 30 as const;
+export const MAX_CHALLENGE_SETS = 20 as const;
+export const MAX_CHALLENGE_SET_NAME_GRAPHEMES = 24 as const;
 export const MAX_COUNT = 999 as const;
+export const MAX_CHALLENGE_STEP = 1_000_000 as const;
+export const MAX_MEASURE_COUNT = MAX_CHALLENGE_STEP;
+export const MAX_CHALLENGE_UNIT_GRAPHEMES = 12 as const;
 export const MAX_VISIBLE_ROWS = 20 as const;
 export const GLOBAL_TIMER_UP_CAP_MS = 24 * 60 * 60 * 1000;
 
@@ -21,15 +32,6 @@ export const CHALLENGE_STYLE_IDS = [
   "quest-log",
 ] as const;
 
-export const CHALLENGE_THEME_IDS = [
-  "trail-wood",
-  "field-journal",
-  "forged-compass",
-  "classic-simple",
-  "modern-compact",
-  "modern-minimal",
-] as const;
-
 export const CHALLENGE_FONT_FAMILIES = [
   "theme",
   "atkinson",
@@ -43,6 +45,11 @@ const graphemeLength = (value: string): number =>
 
 export const normalizeChallengeText = (value: string): string =>
   value.normalize("NFC").trim();
+
+// Die Anzeige behält Groß-/Kleinschreibung; dieser Schlüssel wird für die
+// Dublettenprüfung bewusst unabhängig von der Schreibweise gespeichert.
+export const normalizeChallengeSetName = (value: string): string =>
+  normalizeChallengeText(value).toLocaleLowerCase("de-DE");
 
 const isNormalizedText = (
   value: unknown,
@@ -61,15 +68,45 @@ const isNormalizedText = (
 export const isChallengeTitle = (value: unknown): value is string =>
   isNormalizedText(value, 1, 160);
 
+export const isChallengeSetName = (value: unknown): value is string =>
+  isNormalizedText(value, 1, MAX_CHALLENGE_SET_NAME_GRAPHEMES);
+
 export const isHidden = (value: unknown): value is boolean =>
   typeof value === "boolean";
 
+export const isChallengeKind = (value: unknown): value is "tick" | "counter" | "streak" | "measure" =>
+  value === "tick" || value === "counter" || value === "streak" || value === "measure";
+
+export const isChallengeUnit = (value: unknown): value is string => {
+  if (typeof value !== "string") return false;
+  const normalized = normalizeChallengeText(value);
+  return normalized.length > 0 && graphemeLength(normalized) <= MAX_CHALLENGE_UNIT_GRAPHEMES;
+};
+
+export const isControlKey = (value: unknown): value is string =>
+  typeof value === "string" && /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{4}$/.test(value);
+
+export const isChallengeStep = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= MAX_CHALLENGE_STEP;
+
+export const maxCountForKind = (kind: ChallengeKind): number =>
+  kind === "measure" ? MAX_MEASURE_COUNT : MAX_COUNT;
+
+export const maxDeltaForKind = (kind: ChallengeKind): number =>
+  kind === "measure" ? MAX_MEASURE_COUNT : 99;
+
 export const isTargetCount = (value: unknown): value is number | null =>
   value === null ||
-  (typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= MAX_COUNT);
+  (typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= MAX_MEASURE_COUNT);
 
 export const isCurrentCount = (value: unknown): value is number =>
-  typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= MAX_COUNT;
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= MAX_MEASURE_COUNT;
+
+export const isTargetCountForKind = (value: unknown, kind: ChallengeKind): value is number | null =>
+  isTargetCount(value) && (value === null || value <= maxCountForKind(kind));
+
+export const isCurrentCountForKind = (value: unknown, kind: ChallengeKind): value is number =>
+  isCurrentCount(value) && value <= maxCountForKind(kind);
 
 export const isTimerTotalMs = (value: unknown): value is number | null =>
   value === null ||
@@ -82,7 +119,7 @@ export const isTimerRemainMs = (value: unknown): value is number | null =>
   value === null ||
   (typeof value === "number" &&
     Number.isSafeInteger(value) &&
-    value >= 0 &&
+    value >= -21_600_000 &&
     value <= 21_600_000);
 
 export const isGlobalTimerTotalMs = (value: unknown): value is number | null =>
@@ -93,7 +130,10 @@ export const isGlobalTimerTotalMs = (value: unknown): value is number | null =>
     value <= GLOBAL_TIMER_UP_CAP_MS);
 
 export const isDelta = (value: unknown): value is number =>
-  typeof value === "number" && Number.isSafeInteger(value) && value >= -99 && value <= 99;
+  typeof value === "number" && Number.isSafeInteger(value) && value >= -MAX_MEASURE_COUNT && value <= MAX_MEASURE_COUNT;
+
+export const isDeltaForKind = (value: unknown, kind: ChallengeKind): value is number =>
+  isDelta(value) && Math.abs(value) <= maxDeltaForKind(kind);
 
 export const isInstant = (value: unknown): value is string => {
   if (typeof value !== "string") return false;
@@ -123,6 +163,9 @@ export const isOverflowTempo = (value: unknown): value is "slow" | "medium" | "f
   value === "slow" || value === "medium" || value === "fast";
 
 export const isNumbered = (value: unknown): value is boolean =>
+  typeof value === "boolean";
+
+export const isKeyVisible = (value: unknown): value is boolean =>
   typeof value === "boolean";
 
 export const isDoneOrder = (value: unknown): value is "end" | "keep" =>
@@ -180,12 +223,7 @@ export const isChallengeStyleId = (value: unknown): value is (typeof CHALLENGE_S
   typeof value === "string" &&
   (CHALLENGE_STYLE_IDS as readonly string[]).includes(value);
 
-export const isThemeId = (value: unknown): value is (typeof CHALLENGE_THEME_IDS)[number] =>
-  typeof value === "string" &&
-  (CHALLENGE_THEME_IDS as readonly string[]).includes(value);
-
-export const isThemeMode = (value: unknown): value is "inherit" | "own" =>
-  value === "inherit" || value === "own";
+export const isThemeMode = (value: unknown): value is "own" => value === "own";
 
 export const isChallengeSurfaceOpacity = (value: unknown): value is ChallengeSurfaceOpacity =>
   value === 0 || value === 25 || value === 50 || value === 75 || value === 100;
@@ -212,7 +250,7 @@ export const isPausedRemainMs = (value: unknown): value is number | null =>
   value === null ||
   (typeof value === "number" &&
     Number.isSafeInteger(value) &&
-    value >= 0 &&
+    value >= -GLOBAL_TIMER_UP_CAP_MS &&
     value <= GLOBAL_TIMER_UP_CAP_MS);
 
 export const isRevision = (value: unknown): value is number =>

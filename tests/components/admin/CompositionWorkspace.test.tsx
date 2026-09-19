@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { BootstrapResponse } from "../../../src/shared/contracts/api";
+import type { BootstrapResponse, SaveResponse } from "../../../src/shared/contracts/api";
 import type { ChallengeBoardSnapshot } from "../../../src/modules/win-challenges/contracts/schemas";
 import { createDefaultState, getReleaseCapabilities, twitchUserIdSchema } from "../../../src/shared/contracts/state";
 import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
@@ -24,6 +24,7 @@ const bootstrap = (): BootstrapResponse => ({
   state: createDefaultState(actor, "2026-08-29T12:00:00.000Z"),
   recentAudit: [],
   undoTargets: [],
+  challengeUndoTargets: [],
   csrfToken: "csrf-token-with-enough-entropy",
   serverTime: "2026-08-29T12:00:00.000Z",
 });
@@ -32,8 +33,8 @@ const challengeSnapshot = (): ChallengeBoardSnapshot => ({
   eventSeq: 0,
   boardRevision: 1,
   settingsRevision: 1,
-  settings: { styleId: "plain-list", themeMode: "inherit", surfaceOpacity: 100, headerStyle: "default", textEmphasis: "auto", fontFamily: "theme", fontScale: 1, headerTitle: "CHALLENGES", penaltyLabel: "STRAFE", penaltyText: "", effectsEnabled: true, maxVisible: 5, overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down", globalTimer: null, placement: { x: 300, y: 8, scale: 1 } },
-  challenges: [{ id: "challenge-1", title: "Wasser trinken", targetCount: null, timerTotalMs: null, sortOrder: 0, hidden: false, currentCount: 0, state: "pending", timerEndsAt: null, timerRemainMs: null, completedAt: null, createdAt: "2026-08-29T12:00:00.000Z", updatedAt: "2026-08-29T12:00:00.000Z" }],
+  settings: { styleId: "plain-list", themeMode: "own", surfaceOpacity: 100, headerStyle: "default", textEmphasis: "auto", fontFamily: "theme", fontScale: 1, headerTitle: "CHALLENGES", penaltyLabel: "STRAFE", penaltyText: "", effectsEnabled: true, maxVisible: 5, overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down", globalTimer: null, placement: { x: 300, y: 8, scale: 1 } },
+  challenges: [{ id: "challenge-1", title: "Wasser trinken", kind: "counter", unit: null, controlKey: "K7RP", targetCount: null, timerTotalMs: null, sortOrder: 0, step: 1, bestCount: 0, hidden: false, currentCount: 0, state: "pending", timerEndsAt: null, timerRemainMs: null, completedAt: null, createdAt: "2026-08-29T12:00:00.000Z", updatedAt: "2026-08-29T12:00:00.000Z" }],
 });
 
 const createCompositionApi = (snapshot: ChallengeBoardSnapshot): AdminApi => ({
@@ -90,7 +91,7 @@ describe("Kompositions-Workspace", () => {
       eventSeq: 1,
       boardRevision: 1,
       settingsRevision: 1,
-      settings: { ...snapshot.settings, themeId: "trail-wood", headerStyle: "inverted" },
+      settings: { ...snapshot.settings, headerStyle: "inverted" },
       challenges: snapshot.challenges,
       event: null,
     }));
@@ -198,22 +199,25 @@ describe("Kompositions-Workspace", () => {
         summary: "HUD im Sammel-Overlay: Aus · Challenges im Sammel-Overlay: Aus",
         createdAt: "2026-08-29T12:01:00.000Z",
       },
-      undoTargets: [{ revision: 2, createdAt: "2026-08-29T12:01:00.000Z", summary: "Sammel-Overlay geändert" }],
+      undoTargets: [{ channelSeq: 2, moduleId: "hud", createdAt: "2026-08-29T12:01:00.000Z", summary: "Sammel-Overlay geändert" }],
       serverTime: "2026-08-29T12:01:00.000Z",
     }));
-    const undo = vi.fn<NonNullable<AdminApi["undo"]>>(() => Promise.resolve({
+    const undoResponse: SaveResponse = {
       state: { ...initial.state, revision: 3 },
       auditEntry: {
         id: "audit-composite-undo",
         revision: 3,
-        action: "undo",
+        action: "undo" as const,
         actor,
         summary: "Revision 2 wiederhergestellt",
         createdAt: "2026-08-29T12:02:00.000Z",
       },
       undoTargets: [],
       serverTime: "2026-08-29T12:02:00.000Z",
-    }));
+    };
+    const undo = vi.fn((moduleId: "hud" | "challenges") => moduleId === "hud"
+      ? Promise.resolve(undoResponse)
+      : Promise.reject(new Error("Challenge-Undo ist in diesem Test nicht eingerichtet."))) as unknown as NonNullable<AdminApi["undo"]>;
     vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<AdminWorkspace api={{
       save,
@@ -238,8 +242,8 @@ describe("Kompositions-Workspace", () => {
     expect(screen.getByText("HUD im Sammel-Overlay: Aus · Challenges im Sammel-Overlay: Aus")).toBeInTheDocument();
 
     await user.click(screen.getByText("Rückgängig").closest("summary") as HTMLElement);
-    await user.click(screen.getByRole("button", { name: /Rev\. 2/ }));
-    expect(undo).toHaveBeenCalledWith(2, 2);
+    await user.click(screen.getByRole("button", { name: /Kanal 2/ }));
+    expect(undo).toHaveBeenCalledWith("hud", 2, 2);
     expect(screen.getByRole("switch", { name: "HUD im Sammel-Overlay anzeigen" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("switch", { name: "Challenges im Sammel-Overlay anzeigen" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" })).toBeInTheDocument();

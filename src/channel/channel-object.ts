@@ -5,7 +5,6 @@ import {
   auditEntrySchema,
   bootstrapResponseSchema,
   clientMessageSchema,
-  dockTokenResponseSchema,
   flushDisplaySocketsResponseSchema,
   MAX_COMPOSITE_SOCKETS,
   MAX_CHALLENGE_SOCKETS,
@@ -17,57 +16,43 @@ import {
   overlayTokenResponseSchema,
   renewMediaLeasesRequestSchema,
   renewMediaLeasesResponseSchema,
-  saveRequestSchema,
   saveResponseSchema,
   twitchLookupResponseSchema,
   undoRequestSchema,
   uploadResponseSchema,
-  visibilityRequestSchema,
-  visibilityResponseSchema,
   type AuditEntry,
   type UndoTarget,
 } from "../shared/contracts/api";
-import { DOCK_SOCKET_PROTOCOL, OVERLAY_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
-import type { ChallengeUpdate } from "../shared/contracts/win-challenges";
-import {
-  channelStateDraftSchema,
-  channelStateSchema,
-  createDefaultState,
-  getReleaseCapabilities,
-  normalizeStateForRead,
-  stateByteLength,
-  validateDraftForRelease,
-  type ChannelState,
-  type ChannelStateDraft,
-} from "../shared/contracts/state";
-import { EFFECT_CATALOG, getEffectDefinition, validateEffectExpiries } from "../shared/domain/effects";
+import { getReleaseCapabilities, normalizeStateForRead } from "../shared/contracts/state";
 import { inspectWebP } from "../shared/media/webp";
 import type { AppEnv } from "../worker/env";
 import { errorResponse, jsonResponse, readJson, RequestError } from "../worker/http";
 import { hmacHex, randomToken, sha256Hex, timingSafeEqual } from "./crypto";
 import { decryptOverlayToken, encryptOverlayToken, tokenEnvelopeSchema } from "./auth/crypto";
 import { runMigrations } from "./migrations";
-import { createSqlStorageChallengeRepository } from "../modules/win-challenges/adapters/sql-storage-challenge-repository";
 import {
-  boardSaveRequestSchema,
-  commandSchema,
-  settingsSaveRequestSchema,
-} from "../modules/win-challenges/contracts/schemas";
-import { createWinChallenges, type ChallengeUpdatePayload } from "../modules/win-challenges/service/commands";
+  challengeRepository as createChallengeRepository,
+  challengeService as createChallengeService,
+} from "../modules/win-challenges/adapters/http-facade";
+import { challengeUndoResponseSchema } from "../modules/win-challenges/contracts/schemas";
 import {
   ChallengeRepositoryError,
   RevisionConflictError,
   type DockTokenRecord,
 } from "../modules/win-challenges/repository/challenge-repository";
-
-type StateRow = {
-  revision: number;
-  overlay_enabled: number;
-  state_json: string;
-  updated_at: string;
-  updated_by_id: string;
-  updated_by_name: string;
-};
+import {
+  DISPLAY_SOCKET_TAGS,
+  MODULE_REGISTRY,
+  SOCKET_DEFINITIONS,
+  SOCKETS,
+  type ModuleContext,
+  type ModuleActor,
+  type ModuleId,
+  type ModuleHistoryEntry,
+  type ModuleState,
+  type SocketTag,
+  type TokenSocketTag,
+} from "../modules/registry";
 
 type SessionRow = {
   session_hash: string;
@@ -93,7 +78,7 @@ type OverlayTokenRow = {
 type SocketAttachment =
   | {
       version: 1;
-      kind: "editor";
+      kind: typeof SOCKETS.editor.tag;
       connectionId: string;
       sessionRecordId: string;
       sessionGeneration: number;
@@ -102,32 +87,14 @@ type SocketAttachment =
     }
   | {
       version: 1;
-      kind: "overlay";
-      connectionId: string;
-      tokenGeneration: number;
-      connectedAt: string;
-    }
-  | {
-      version: 1;
-      kind: "composite";
-      connectionId: string;
-      tokenGeneration: number;
-      connectedAt: string;
-    }
-  | {
-      version: 1;
-      kind: "challenge";
-      connectionId: string;
-      tokenGeneration: number;
-      connectedAt: string;
-    }
-  | {
-      version: 1;
-      kind: "dock";
+      kind: TokenSocketTag;
       connectionId: string;
       tokenGeneration: number;
       connectedAt: string;
     };
+
+type PresenceSocketDefinition = typeof SOCKETS.overlay | typeof SOCKETS.composite;
+type TokenSocketDefinition = typeof SOCKETS.challenge | typeof SOCKETS.dock;
 
 const limits = {
   maxGuests: 5,
@@ -140,6 +107,7 @@ const limits = {
   maxMediaBytes: 8_388_608,
 } as const;
 const maxMediaBlobs = 32;
+const HUD_MODULE_ID = "hud";
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -147,58 +115,6 @@ const actorFromSession = (session: SessionRow) => ({
   twitchUserId: session.twitch_user_id,
   displayName: session.display_name,
 });
-
-const draftFromState = (state: ChannelState): ChannelStateDraft => {
-  const {
-    revision: _revision,
-    overlayEnabled: _overlayEnabled,
-    updatedAt: _updatedAt,
-    updatedBy: _updatedBy,
-    ...draft
-  } = state;
-  void [_revision, _overlayEnabled, _updatedAt, _updatedBy];
-  return channelStateDraftSchema.parse(draft);
-};
-
-const filterExpiredEffectsFromDraft = (draft: ChannelStateDraft): ChannelStateDraft => {
-  const now = Date.now();
-  const effects = draft.effects
-    .filter((effect) => effect.expiresAt === null || Date.parse(effect.expiresAt) > now)
-    .map((effect, order) => ({ ...effect, order }));
-  const featuredEffectId = effects.some((effect) => effect.id === draft.featuredEffectId)
-    ? draft.featuredEffectId
-    : null;
-  return channelStateDraftSchema.parse({ ...draft, effects, featuredEffectId });
-};
-
-const summarizeChange = (before: ChannelState, after: ChannelState): string => {
-  const changes: string[] = [];
-  if (before.player.hpPercent !== after.player.hpPercent) {
-    changes.push(`HP: ${String(after.player.hpPercent)}%`);
-  }
-  if (before.player.resource.percent !== after.player.resource.percent) {
-    changes.push(`${after.player.resource.name}: ${String(after.player.resource.percent)}%`);
-  }
-  if (
-    before.placement.x !== after.placement.x ||
-    before.placement.y !== after.placement.y ||
-    before.placement.scale !== after.placement.scale
-  ) {
-    changes.push(`Position: ${String(after.placement.x)}/${String(after.placement.y)} bei ${String(Math.round(after.placement.scale * 100))}%`);
-  }
-  if (before.effects.length !== after.effects.length) {
-    changes.push(`Effekte: ${String(after.effects.length)}`);
-  }
-  if (before.player.name !== after.player.name) changes.push(`Name: ${after.player.name}`);
-  if (before.themeId !== after.themeId) changes.push(`Theme: ${after.themeId}`);
-  if (before.compositeHudVisible !== after.compositeHudVisible) {
-    changes.push(`HUD im Sammel-Overlay: ${after.compositeHudVisible ? "An" : "Aus"}`);
-  }
-  if (before.compositeChallengesVisible !== after.compositeChallengesVisible) {
-    changes.push(`Challenges im Sammel-Overlay: ${after.compositeChallengesVisible ? "An" : "Aus"}`);
-  }
-  return changes.length > 0 ? changes.join(" · ") : "HUD-Einstellungen aktualisiert";
-};
 
 const mapZodIssues = (error: z.ZodError): Record<string, string> =>
   Object.fromEntries(
@@ -217,7 +133,7 @@ const mapZodIssues = (error: z.ZodError): Record<string, string> =>
 export class ChannelObject extends DurableObject<AppEnv> {
   constructor(ctx: DurableObjectState, env: AppEnv) {
     super(ctx, env);
-    runMigrations(ctx.storage.sql, "v1");
+    runMigrations(ctx.storage.sql, env.CF_VERSION_METADATA.id);
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
 
@@ -251,30 +167,8 @@ export class ChannelObject extends DurableObject<AppEnv> {
       if (request.method === "GET" && url.pathname === "/editor/bootstrap") {
         return await this.bootstrap(request);
       }
-      if (request.method === "GET" && url.pathname === "/challenges") {
-        return this.getChallenges(request);
-      }
-      if (request.method === "POST" && url.pathname === "/challenges/commands") {
-        return await this.runChallengeCommand(request);
-      }
-      if (request.method === "PUT" && url.pathname === "/challenges/board") {
-        return await this.saveChallengeBoard(request);
-      }
-      if (request.method === "PUT" && url.pathname === "/challenges/settings") {
-        return await this.saveChallengeSettings(request);
-      }
-      if (request.method === "POST" && url.pathname === "/challenges/dock-token") {
-        return await this.mutateDockToken(request, false);
-      }
-      if (request.method === "POST" && url.pathname === "/challenges/dock-token/rotate") {
-        return await this.mutateDockToken(request, true);
-      }
-      if (request.method === "PUT" && url.pathname === "/state") {
-        return await this.save(request);
-      }
-      if (request.method === "POST" && url.pathname === "/overlay-visibility") {
-        return await this.setVisibility(request);
-      }
+      const moduleResponse = await this.dispatchModuleRequest(request, url.pathname);
+      if (moduleResponse !== null) return moduleResponse;
       if (request.method === "POST" && url.pathname === "/state/undo") {
         return await this.undo(request);
       }
@@ -343,6 +237,85 @@ export class ChannelObject extends DurableObject<AppEnv> {
     }
   }
 
+  private async dispatchModuleRequest(request: Request, pathname: string): Promise<Response | null> {
+    for (const module of MODULE_REGISTRY) {
+      if (!module.routePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) continue;
+      if (module.handle === undefined) continue;
+      const response = await module.handle(request, this.createModuleContext(module.id));
+      if (response !== null) return response;
+    }
+    return null;
+  }
+
+  private getHudModuleState(): ModuleState {
+    const module = MODULE_REGISTRY.find(({ id }) => id === HUD_MODULE_ID);
+    if (module?.state === undefined) throw new Error("HUD-State-Vertrag fehlt.");
+    return module.state;
+  }
+
+  private createModuleContext(
+    moduleId: ModuleId,
+    session?: SessionRow,
+    clock: () => string = nowIso,
+  ): ModuleContext {
+    return {
+      sql: this.ctx.storage.sql,
+      transactionSync: this.ctx.storage.transactionSync.bind(this.ctx.storage),
+      actor: session === undefined ? null : actorFromSession(session),
+      now: clock,
+      releaseStage: this.env.RELEASE_STAGE,
+      recordHistory: (summary) => {
+        this.recordModuleHistory(moduleId, summary);
+      },
+      requireSession: (request) => {
+        const authenticated = this.requireSession(request);
+        return {
+          sessionHash: authenticated.session_hash,
+          twitchUserId: authenticated.twitch_user_id,
+          displayName: authenticated.display_name,
+        };
+      },
+      requireSessionAndCsrf: async (request) => {
+        const authenticated = this.requireSession(request);
+        await this.requireCsrf(request, authenticated);
+        return {
+          sessionHash: authenticated.session_hash,
+          twitchUserId: authenticated.twitch_user_id,
+          displayName: authenticated.display_name,
+        };
+      },
+      requireDockToken: async (request) => {
+        await this.requireDockToken(request);
+      },
+      broadcast: (tags, payload) => {
+        this.broadcast(tags, payload);
+      },
+      createDockTokenMaterial: async () => {
+        const pepper = this.getOverlayTokenPepper();
+        const token = randomToken(32);
+        const tokenHash = await hmacHex(pepper, token);
+        const tokenEnvelope = await encryptOverlayToken(token, pepper, this.env.CAPSULE_ID);
+        return { token, tokenHash, tokenEnvelope: JSON.stringify(tokenEnvelope) };
+      },
+      readDockTokenValue: (record) => this.readDockTokenValue(record),
+      revokeTokenSockets: (tag, expectedGeneration) => {
+        this.revokeTokenSockets(tag, expectedGeneration);
+      },
+      createAudit: (revision, action, actor, summary, createdAt) =>
+        this.makeAudit(revision, action, actor, summary, createdAt),
+      insertAudit: (entry) => {
+        this.insertAudit(entry);
+      },
+      pruneHistoryAndAudit: () => {
+        this.pruneHistoryAndAudit();
+      },
+      getUndoTargets: () => this.getUndoTargets(moduleId),
+      broadcastAudit: (entry, undoTargets) => {
+        this.broadcastAudit(moduleId, entry, undoTargets);
+      },
+    };
+  }
+
   private async createDevSession(request: Request): Promise<Response> {
     if (this.env.APP_ENV !== "local") {
       throw new RequestError(404, "not_found", "Route nicht gefunden.");
@@ -375,7 +348,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     );
     const session = this.getSessionByHash(input.sessionHash, false);
     if (session === null) throw new Error("Session creation failed");
-    this.ensureState(session);
+    this.getHudModuleState().ensure(this.createModuleContext("hud"), actorFromSession(session));
     return jsonResponse({ ok: true });
   }
 
@@ -473,7 +446,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     );
     const session = this.getSessionByHash(input.sessionHash, false);
     if (session === null) throw new Error("OAuth session creation failed");
-    this.ensureState(session);
+    this.getHudModuleState().ensure(this.createModuleContext("hud"), actorFromSession(session));
     return jsonResponse({ ok: true, generation: 1 });
   }
 
@@ -595,9 +568,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
         this.ctx.storage.sql.exec("DELETE FROM csrf_tokens WHERE session_hash = ?", hash);
         this.ctx.storage.sql.exec("DELETE FROM editor_sessions WHERE session_hash = ?", hash);
       });
-      for (const socket of this.ctx.getWebSockets("editor")) {
+      for (const socket of this.ctx.getWebSockets(SOCKETS.editor.tag)) {
         const attachment = this.readAttachment(socket);
-        if (attachment?.kind === "editor" && attachment.sessionRecordId === hash) {
+        if (attachment?.kind === SOCKETS.editor.tag && attachment.sessionRecordId === hash) {
           socket.close(4001, "session_revoked");
         }
       }
@@ -609,7 +582,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const session = this.requireSession(request);
     const tabId = this.requireTabId(request);
     const csrfToken = await this.rotateCsrf(session.session_hash, tabId);
-    const state = normalizeStateForRead(this.ensureState(session));
+    const state = normalizeStateForRead(
+      this.getHudModuleState().ensure(this.createModuleContext("hud"), actorFromSession(session)),
+    );
     const overlayToken = this.getOverlayToken();
     const dockToken = this.getDockToken();
     const broadcasterProfile = this.getBroadcasterProfile();
@@ -634,7 +609,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
           fingerprint: dockToken?.fingerprint ?? null,
           createdAt: dockToken?.createdAt ?? null,
           lastUsedAt: dockToken?.lastUsedAt ?? null,
-          connectedSockets: Math.min(MAX_DOCK_SOCKETS, this.ctx.getWebSockets("dock").length),
+          connectedSockets: Math.min(MAX_DOCK_SOCKETS, this.ctx.getWebSockets(SOCKETS.dock.tag).length),
           token: await this.readDockTokenValue(dockToken),
         },
       },
@@ -642,194 +617,12 @@ export class ChannelObject extends DurableObject<AppEnv> {
       editor: { ...actorFromSession(session), role: "editor" },
       state,
       recentAudit: this.getAuditEntries(),
-      undoTargets: this.getUndoTargets(),
+      undoTargets: this.getUndoTargets(HUD_MODULE_ID),
+      challengeUndoTargets: this.getUndoTargets("challenges"),
       csrfToken,
       serverTime: nowIso(),
     });
     return jsonResponse(response);
-  }
-
-  private challengeService() {
-    const repository = this.challengeRepository();
-    return createWinChallenges({
-      repository,
-      clock: nowIso,
-    });
-  }
-
-  private toChallengeUpdate(update: ChallengeUpdatePayload): ChallengeUpdate {
-    return {
-      ...update,
-      settings: {
-        ...update.settings,
-        themeId: this.getRequiredState().themeId,
-      },
-    };
-  }
-
-  private challengeRepository() {
-    return createSqlStorageChallengeRepository({
-      sql: this.ctx.storage.sql,
-      transactionSync: this.ctx.storage.transactionSync.bind(this.ctx.storage),
-      onDockTokenDeleted: () => {
-        this.revokeTokenSockets("dock");
-      },
-    });
-  }
-
-  private getChallenges(request: Request): Response {
-    this.requireSession(request);
-    return jsonResponse(this.challengeService().readSnapshot());
-  }
-
-  private async runChallengeCommand(request: Request): Promise<Response> {
-    const auth = await this.requireChallengeCommandAuth(request);
-    const command = commandSchema.parse(await readJson(request, 32_768));
-    if (auth === "dock" && command.scope === "global" && command.type === "resetGlobalTimer") {
-      throw new RequestError(403, "forbidden", "Der Dock darf den globalen Timer nicht zurücksetzen.");
-    }
-    const result = await this.challengeService().executeCommand(command);
-    this.broadcastChallengeUpdate(this.toChallengeUpdate(result.update));
-    return jsonResponse(result.response);
-  }
-
-  private async saveChallengeBoard(request: Request): Promise<Response> {
-    const session = this.requireSession(request);
-    await this.requireCsrf(request, session);
-    const input = boardSaveRequestSchema.parse(await readJson(request, 32_768));
-    const result = this.challengeService().saveBoard({
-      baseBoardRevision: input.baseBoardRevision,
-      definitions: input.challenges,
-    });
-    this.broadcastChallengeUpdate(this.toChallengeUpdate({ ...result.snapshot, event: null }));
-    return jsonResponse(result);
-  }
-
-  private async saveChallengeSettings(request: Request): Promise<Response> {
-    const session = this.requireSession(request);
-    await this.requireCsrf(request, session);
-    const input = settingsSaveRequestSchema.parse(await readJson(request, 32_768));
-    const result = this.challengeService().saveSettings(input);
-    this.broadcastChallengeUpdate(this.toChallengeUpdate({ ...result.snapshot, event: null }));
-    return jsonResponse(result);
-  }
-
-  private async requireChallengeCommandAuth(request: Request): Promise<"session" | "dock"> {
-    if (request.headers.get("x-dock-token") !== null) {
-      await this.requireDockToken(request);
-      return "dock";
-    }
-    const session = this.requireSession(request);
-    await this.requireCsrf(request, session);
-    return "session";
-  }
-
-  private async save(request: Request): Promise<Response> {
-    const session = this.requireSession(request);
-    await this.requireCsrf(request, session);
-    const input = saveRequestSchema.parse(await readJson(request, 131_072));
-    const current = normalizeStateForRead(this.getRequiredState());
-    const forceReplace = input.replaceRevision !== undefined;
-    const currentMatches = input.baseRevision === current.revision;
-    const guardedReplaceMatches =
-      forceReplace && input.replaceRevision === current.revision && input.baseRevision < current.revision;
-    if ((!forceReplace && !currentMatches) || (forceReplace && !guardedReplaceMatches)) {
-      throw new RequestError(409, "revision_conflict", "OBS wurde inzwischen geändert.", {
-        currentRevision: current.revision,
-        currentState: current,
-      });
-    }
-    let draft: ChannelStateDraft;
-    try {
-      draft = validateDraftForRelease(
-        this.canonicalizeTwitchGroup(filterExpiredEffectsFromDraft(input.state)),
-        this.env.RELEASE_STAGE,
-      );
-      validateEffectExpiries(draft.effects, current.effects);
-    } catch (error) {
-      if (error instanceof RequestError || error instanceof z.ZodError) throw error;
-      if (error instanceof Error) {
-        throw new RequestError(422, "validation_failed", error.message);
-      }
-      throw error;
-    }
-    this.validateCatalog(draft);
-    this.validateMediaReferences(draft, current, session);
-    if (stateByteLength(draft) > 65_536) {
-      throw new RequestError(413, "payload_too_large", "Der HUD-Zustand überschreitet 64 KiB.");
-    }
-    const createdAt = nowIso();
-    const next = channelStateSchema.parse({
-      ...draft,
-      revision: current.revision + 1,
-      overlayEnabled: current.overlayEnabled,
-      updatedAt: createdAt,
-      updatedBy: actorFromSession(session),
-    });
-    const action = forceReplace ? "force_replace" : "save";
-    const summary = summarizeChange(current, next);
-    const audit = this.makeAudit(next.revision, action, session, summary, createdAt);
-    this.ctx.storage.transactionSync(() => {
-      this.insertHistory(current, summary);
-      this.writeState(next);
-      this.insertAudit(audit);
-      this.pruneHistoryAndAudit();
-    });
-    this.broadcastState(next);
-    const undoTargets = this.getUndoTargets();
-    this.broadcastAudit(audit, undoTargets);
-    const response = saveResponseSchema.parse({
-      state: next,
-      auditEntry: audit,
-      undoTargets,
-      serverTime: createdAt,
-    });
-    return jsonResponse(response);
-  }
-
-  private async setVisibility(request: Request): Promise<Response> {
-    const session = this.requireSession(request);
-    await this.requireCsrf(request, session);
-    const input = visibilityRequestSchema.parse(await readJson(request, 1_024));
-    const current = normalizeStateForRead(this.getRequiredState());
-    if (current.overlayEnabled === input.enabled) {
-      return jsonResponse(
-        visibilityResponseSchema.parse({
-          state: current,
-          auditEntry: null,
-          undoTargets: this.getUndoTargets(),
-          serverTime: nowIso(),
-        }),
-      );
-    }
-    const createdAt = nowIso();
-    const next = channelStateSchema.parse({
-      ...current,
-      revision: current.revision + 1,
-      overlayEnabled: input.enabled,
-      updatedAt: createdAt,
-      updatedBy: actorFromSession(session),
-    });
-    const action = input.enabled ? "overlay_enable" : "overlay_disable";
-    const summary = input.enabled ? "Overlay aktiviert" : "Overlay deaktiviert";
-    const audit = this.makeAudit(next.revision, action, session, summary, createdAt);
-    this.ctx.storage.transactionSync(() => {
-      this.insertHistory(current, summary);
-      this.writeState(next);
-      this.insertAudit(audit);
-      this.pruneHistoryAndAudit();
-    });
-    this.broadcastState(next);
-    const undoTargets = this.getUndoTargets();
-    this.broadcastAudit(audit, undoTargets);
-    return jsonResponse(
-      visibilityResponseSchema.parse({
-        state: next,
-        auditEntry: audit,
-        undoTargets,
-        serverTime: createdAt,
-      }),
-    );
   }
 
   private async undo(request: Request): Promise<Response> {
@@ -839,7 +632,58 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const session = this.requireSession(request);
     await this.requireCsrf(request, session);
     const input = undoRequestSchema.parse(await readJson(request, 1_024));
-    const current = normalizeStateForRead(this.getRequiredState());
+    const module = MODULE_REGISTRY.find(({ id }) => id === input.moduleId);
+    if (module?.history === undefined) {
+      throw new RequestError(404, "not_found", "Dieses Modul unterstützt kein Undo.");
+    }
+    const moduleHistory = module.history;
+
+    if (input.moduleId === "challenges") {
+      const context = this.createModuleContext("challenges", session);
+      const repository = createChallengeRepository(context, SOCKETS.dock.tag);
+      const current = repository.readSnapshot();
+      if (
+        input.baseBoardRevision !== current.boardRevision
+        || input.baseSettingsRevision !== current.settingsRevision
+        || input.baseEventSeq !== current.eventSeq
+      ) {
+        throw new RequestError(409, "revision_conflict", "Die Challenges wurden inzwischen geändert.", {
+          currentSnapshot: current,
+        });
+      }
+      const history = this.ctx.storage.sql
+        .exec<{ snapshot_json: string }>(
+          "SELECT snapshot_json FROM state_history WHERE module_id = ? AND channel_seq = ?",
+          input.moduleId,
+          input.channelSeq,
+        )
+        .toArray()[0];
+      if (history === undefined) {
+        throw new RequestError(404, "not_found", "Dieser Challenge-Zustand ist nicht mehr verfügbar.");
+      }
+      const currentEntry = moduleHistory.snapshot(context);
+      if (currentEntry === null) throw new Error("Challenge-Zustand konnte nicht gesichert werden.");
+      const summary = `Challenge-Zustand aus Kanalsequenz ${String(input.channelSeq)} wiederhergestellt`;
+      this.ctx.storage.transactionSync(() => {
+        this.insertHistory(input.moduleId, currentEntry, summary);
+        this.pruneHistory(input.moduleId);
+      });
+      moduleHistory.restore(context, history.snapshot_json);
+      const service = createChallengeService(context, SOCKETS.dock.tag);
+      const snapshot = service.readSnapshot();
+      this.broadcast(module.socketTags, { ...snapshot, event: null });
+      this.broadcastHistoryChanged(input.moduleId);
+      return jsonResponse(challengeUndoResponseSchema.parse({
+        snapshot,
+        undoTargets: this.getUndoTargets(input.moduleId),
+        serverTime: nowIso(),
+      }));
+    }
+
+    if (module.state === undefined) throw new Error("HUD-State-Vertrag fehlt.");
+    const createdAt = nowIso();
+    const context = this.createModuleContext("hud", session, () => createdAt);
+    const current = normalizeStateForRead(module.state.getRequired(context));
     if (input.baseRevision !== current.revision) {
       throw new RequestError(409, "revision_conflict", "OBS wurde inzwischen geändert.", {
         currentRevision: current.revision,
@@ -847,51 +691,35 @@ export class ChannelObject extends DurableObject<AppEnv> {
       });
     }
     const history = this.ctx.storage.sql
-      .exec<{ snapshot_json: string }>(
-        "SELECT snapshot_json FROM state_history WHERE revision = ?",
-        input.targetRevision,
+      .exec<{ revision: number; snapshot_json: string }>(
+        "SELECT revision, snapshot_json FROM state_history WHERE module_id = ? AND channel_seq = ?",
+        HUD_MODULE_ID,
+        input.channelSeq,
       )
       .toArray()[0];
     if (history === undefined) {
       throw new RequestError(404, "not_found", "Diese Revision ist nicht mehr verfügbar.");
     }
-    const rawTarget = JSON.parse(history.snapshot_json) as Record<string, unknown>;
-    const target = normalizeStateForRead(
-      channelStateSchema.parse({
-        ...rawTarget,
-        compositeHudVisible: Object.hasOwn(rawTarget, "compositeHudVisible")
-          ? rawTarget.compositeHudVisible
-          : current.compositeHudVisible,
-        compositeChallengesVisible: Object.hasOwn(rawTarget, "compositeChallengesVisible")
-          ? rawTarget.compositeChallengesVisible
-          : current.compositeChallengesVisible,
-      }),
-    );
-    const createdAt = nowIso();
-    const next = channelStateSchema.parse({
-      ...target,
-      revision: current.revision + 1,
-      overlayEnabled: current.overlayEnabled,
-      updatedAt: createdAt,
-      updatedBy: actorFromSession(session),
-    });
-    const carriedForward = [
-      Object.hasOwn(rawTarget, "compositeHudVisible") ? null : "HUD im Sammel-Overlay",
-      Object.hasOwn(rawTarget, "compositeChallengesVisible") ? null : "Challenges im Sammel-Overlay",
-    ].filter((label): label is string => label !== null);
-    const summary = carriedForward.length === 0
-      ? `Revision ${String(input.targetRevision)} wiederhergestellt`
-      : `Revision ${String(input.targetRevision)} wiederhergestellt (${carriedForward.join(" und ")} beibehalten)`;
-    const audit = this.makeAudit(next.revision, "undo", session, summary, createdAt);
+    const currentEntry = moduleHistory.snapshot(context);
+    if (currentEntry === null) throw new Error("HUD-Zustand konnte nicht gesichert werden.");
+    const summary = moduleHistory.restoreSummary?.(context, history.snapshot_json, history.revision)
+      ?? `Revision ${String(history.revision)} wiederhergestellt`;
+    let next: ReturnType<ModuleState["getRequired"]> | undefined;
+    let audit: AuditEntry | undefined;
     this.ctx.storage.transactionSync(() => {
-      this.insertHistory(current, summary);
-      this.writeState(next);
+      this.insertHistory(input.moduleId, currentEntry, summary);
+      moduleHistory.restore(context, history.snapshot_json);
+      next = normalizeStateForRead(module.state?.getRequired(context) ?? (() => {
+        throw new Error("HUD-State-Vertrag fehlt.");
+      })());
+      audit = this.makeAudit(next.revision, "undo", actorFromSession(session), summary, createdAt);
       this.insertAudit(audit);
       this.pruneHistoryAndAudit();
     });
-    this.broadcastState(next);
-    const undoTargets = this.getUndoTargets();
-    this.broadcastAudit(audit, undoTargets);
+    if (next === undefined || audit === undefined) throw new Error("HUD-Undo konnte nicht abgeschlossen werden.");
+    module.state.broadcast(context, next);
+    const undoTargets = this.getUndoTargets(input.moduleId);
+    this.broadcastAudit(input.moduleId, audit, undoTargets);
     return jsonResponse(
       saveResponseSchema.parse({
         state: next,
@@ -924,9 +752,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
         throw new RequestError(409, "idempotency_mismatch", "Token-Anfrage kann nicht wiederhergestellt werden.");
       }
       if (rotate) {
-        this.revokeTokenSockets("overlay", input.expectedGeneration);
-        this.revokeTokenSockets("composite", input.expectedGeneration);
-        this.revokeTokenSockets("challenge", input.expectedGeneration);
+        this.revokeTokenSockets(SOCKETS.overlay.tag, input.expectedGeneration);
+        this.revokeTokenSockets(SOCKETS.composite.tag, input.expectedGeneration);
+        this.revokeTokenSockets(SOCKETS.challenge.tag, input.expectedGeneration);
       }
       return jsonResponse(
         overlayTokenResponseSchema.parse({
@@ -977,9 +805,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
       createdAt,
     );
     if (rotate) {
-      this.revokeTokenSockets("overlay", currentGeneration);
-      this.revokeTokenSockets("composite", currentGeneration);
-      this.revokeTokenSockets("challenge", currentGeneration);
+      this.revokeTokenSockets(SOCKETS.overlay.tag, currentGeneration);
+      this.revokeTokenSockets(SOCKETS.composite.tag, currentGeneration);
+      this.revokeTokenSockets(SOCKETS.challenge.tag, currentGeneration);
     }
     return jsonResponse(
       overlayTokenResponseSchema.parse({
@@ -1000,9 +828,8 @@ export class ChannelObject extends DurableObject<AppEnv> {
   private async flushDisplaySockets(request: Request): Promise<Response> {
     const session = this.requireSession(request);
     await this.requireCsrf(request, session);
-    const displayTags = ["overlay", "composite", "challenge", "dock"] as const;
     let closed = 0;
-    for (const tag of displayTags) {
+    for (const tag of DISPLAY_SOCKET_TAGS) {
       for (const socket of this.ctx.getWebSockets(tag)) {
         const wasOpen = socket.readyState === WebSocket.OPEN;
         try {
@@ -1033,74 +860,6 @@ export class ChannelObject extends DurableObject<AppEnv> {
     } catch {
       return null;
     }
-  }
-
-  private async mutateDockToken(request: Request, rotate: boolean): Promise<Response> {
-    const session = this.requireSession(request);
-    await this.requireCsrf(request, session);
-    const input = overlayTokenMutationRequestSchema.parse(await readJson(request, 2_048));
-    const pepper = this.getOverlayTokenPepper();
-    const current = this.getDockToken();
-    const currentGeneration = current?.generation ?? 0;
-    if (
-      current !== null &&
-      current.generation === input.expectedGeneration + 1 &&
-      current.requestId === input.requestId
-    ) {
-      if (current.creatingSessionHash !== session.session_hash) {
-        throw new RequestError(409, "idempotency_mismatch", "Token-Anfrage wurde anders wiederholt.");
-      }
-      const token = await this.readDockTokenValue(current);
-      if (token === null) {
-        throw new RequestError(409, "idempotency_mismatch", "Token-Anfrage kann nicht wiederhergestellt werden.");
-      }
-      if (rotate) this.revokeTokenSockets("dock", input.expectedGeneration);
-      return jsonResponse(
-        dockTokenResponseSchema.parse({
-          requestId: current.requestId,
-          generation: current.generation,
-          fingerprint: current.fingerprint,
-          createdAt: current.createdAt,
-          token,
-        }),
-      );
-    }
-    if (currentGeneration !== input.expectedGeneration || (rotate ? current === null : current !== null)) {
-      throw new RequestError(409, "token_changed", "Der Dock-Tokenstatus hat sich geändert.");
-    }
-    const createdAt = nowIso();
-    const generation = currentGeneration + 1;
-    const token = randomToken(32);
-    const tokenHash = await hmacHex(pepper, token);
-    const tokenEnvelope = await encryptOverlayToken(token, pepper, this.env.CAPSULE_ID);
-    const currentAfterCrypto = this.getDockToken();
-    if (
-      (currentAfterCrypto?.generation ?? 0) !== currentGeneration ||
-      (rotate ? currentAfterCrypto === null : currentAfterCrypto !== null)
-    ) {
-      throw new RequestError(409, "token_changed", "Der Dock-Tokenstatus hat sich geändert.");
-    }
-    const fingerprint = tokenHash.slice(0, 8).toUpperCase();
-    this.challengeRepository().upsertDockToken({
-      tokenHash,
-      tokenEnvelope: JSON.stringify(tokenEnvelope),
-      fingerprint,
-      generation,
-      requestId: input.requestId,
-      creatingSessionHash: session.session_hash,
-      createdAt,
-      lastUsedAt: null,
-    });
-    if (rotate) this.revokeTokenSockets("dock", currentGeneration);
-    return jsonResponse(
-      dockTokenResponseSchema.parse({
-        requestId: input.requestId,
-        generation,
-        fingerprint,
-        createdAt,
-        token,
-      }),
-    );
   }
 
   private async uploadMedia(request: Request): Promise<Response> {
@@ -1135,8 +894,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
       let prunedHistory = false;
       while (existing === undefined && !this.mediaHasRoomFor(bytes.byteLength)) {
         const oldest = this.ctx.storage.sql
-          .exec<{ revision: number }>(
-            "SELECT revision FROM state_history ORDER BY revision ASC LIMIT 1",
+          .exec<{ channel_seq: number }>(
+            "SELECT channel_seq FROM state_history WHERE module_id = ? ORDER BY revision ASC LIMIT 1",
+            HUD_MODULE_ID,
           )
           .toArray()[0];
         if (oldest === undefined) {
@@ -1147,8 +907,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
           );
         }
         this.ctx.storage.sql.exec(
-          "DELETE FROM state_history WHERE revision = ?",
-          oldest.revision,
+          "DELETE FROM state_history WHERE module_id = ? AND channel_seq = ?",
+          HUD_MODULE_ID,
+          oldest.channel_seq,
         );
         prunedHistory = true;
         this.deleteCollectibleMedia(now);
@@ -1183,7 +944,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       );
       return prunedHistory;
     });
-    if (historyChanged) this.broadcastHistoryChanged();
+    if (historyChanged) this.broadcastHistoryChanged(HUD_MODULE_ID);
     return jsonResponse(
       uploadResponseSchema.parse({
         portrait: { kind: "uploaded", contentHash },
@@ -1261,7 +1022,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
    * Platz aber nicht mehr blockieren.
    */
   private activeSocketCount(
-    tag: "editor" | "overlay" | "composite" | "challenge" | "dock",
+    tag: SocketTag,
   ): number {
     return this.ctx.getWebSockets(tag)
       .filter((socket) => socket.readyState === WebSocket.OPEN).length;
@@ -1286,7 +1047,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
    * mehr gleichzeitige Quellen braucht, bekommt mehr Plätze, keine Rotation.
    */
   private reclaimSocketSlots(
-    tag: "editor" | "overlay" | "composite" | "challenge" | "dock",
+    tag: SocketTag,
     socketLimit: number,
   ): number {
     // Nicht mehr offene Sockets sind zweifelsfrei weg und werden immer abgeräumt.
@@ -1331,7 +1092,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
     }
-    if (this.reclaimSocketSlots("editor", limits.maxEditorSockets) >= limits.maxEditorSockets) {
+    const definition = SOCKETS.editor;
+    const socketLimit = limits[definition.limitKey];
+    if (this.reclaimSocketSlots(definition.tag, socketLimit) >= socketLimit) {
       throw new RequestError(429, "socket_limit", "Zu viele Editor-Verbindungen.");
     }
     const session = this.requireSession(request);
@@ -1339,17 +1102,20 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
-    this.ctx.acceptWebSocket(server, ["editor"]);
+    this.ctx.acceptWebSocket(server, [definition.tag]);
     server.serializeAttachment({
       version: 1,
-      kind: "editor",
+      kind: definition.tag,
       connectionId: crypto.randomUUID(),
       sessionRecordId: session.session_hash,
       sessionGeneration: session.generation,
       tabId,
       connectedAt: nowIso(),
     } satisfies SocketAttachment);
-    server.send(JSON.stringify({ type: "snapshot", state: normalizeStateForRead(this.getRequiredState()) }));
+    server.send(JSON.stringify({
+      type: "snapshot",
+      state: normalizeStateForRead(this.getHudModuleState().getRequired(this.createModuleContext("hud"))),
+    }));
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -1359,14 +1125,14 @@ export class ChannelObject extends DurableObject<AppEnv> {
   // beiden Checks liegt das await hmacHex(...) oben, also ein TOCTOU-Fenster.
   private async connectPresenceSocket(
     request: Request,
-    tag: "overlay" | "composite",
-    socketLimit: number,
+    definition: PresenceSocketDefinition,
     limitErrorMessage: string,
   ): Promise<{ client: WebSocket; server: WebSocket }> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
     }
-    if (this.reclaimSocketSlots(tag, socketLimit) >= socketLimit) {
+    const socketLimit = limits[definition.limitKey];
+    if (this.reclaimSocketSlots(definition.tag, socketLimit) >= socketLimit) {
       throw new RequestError(429, "socket_limit", limitErrorMessage);
     }
     const token = request.headers.get("x-overlay-token");
@@ -1383,120 +1149,116 @@ export class ChannelObject extends DurableObject<AppEnv> {
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
-    if (this.activeSocketCount(tag) >= socketLimit) {
+    if (this.activeSocketCount(definition.tag) >= socketLimit) {
       throw new RequestError(429, "socket_limit", limitErrorMessage);
     }
-    this.ctx.acceptWebSocket(server, [tag]);
+    this.ctx.acceptWebSocket(server, [definition.tag]);
     server.serializeAttachment({
       version: 1,
-      kind: tag,
+      kind: definition.tag,
       connectionId: crypto.randomUUID(),
       tokenGeneration: row.generation,
       connectedAt: nowIso(),
     } satisfies SocketAttachment);
-    server.send(JSON.stringify({ type: "snapshot", state: normalizeStateForRead(this.getRequiredState()) }));
+    server.send(JSON.stringify({
+      type: "snapshot",
+      state: normalizeStateForRead(this.getHudModuleState().getRequired(this.createModuleContext("hud"))),
+    }));
     return { client, server };
   }
 
   private async connectOverlay(request: Request): Promise<Response> {
     const { client } = await this.connectPresenceSocket(
       request,
-      "overlay",
-      limits.maxOverlaySockets,
+      SOCKETS.overlay,
       "Zu viele Overlay-Verbindungen.",
     );
     this.broadcastOverlayPresence();
     return new Response(null, {
       status: 101,
       webSocket: client,
-      headers: { "sec-websocket-protocol": OVERLAY_SOCKET_PROTOCOL },
+      headers: { "sec-websocket-protocol": SOCKETS.overlay.protocol },
     });
   }
 
   private async connectComposite(request: Request): Promise<Response> {
     const { client, server } = await this.connectPresenceSocket(
       request,
-      "composite",
-      limits.maxCompositeSockets,
+      SOCKETS.composite,
       "Zu viele Composite-Verbindungen.",
     );
-    server.send(JSON.stringify(this.toChallengeUpdate(this.challengeService().readChallengeUpdate())));
+    // Offener Rest aus P5: Der Begruessungs-Snapshot ist noch fest der
+    // Challenge-Snapshot. Fuer ein drittes Modul mit eigenem Token-Socket
+    // muesste ihn die Socket-Definition liefern, so wie `handle()` die Routen
+    // liefert. Solange nur Challenges und Dock ueber diesen Weg verbinden,
+    // ist das korrekt; mit P6 gehoert es an die Modulgrenze.
+    server.send(JSON.stringify(createChallengeService(this.createModuleContext("challenges"), SOCKETS.dock.tag).readChallengeUpdate()));
     this.broadcastOverlayPresence();
     return new Response(null, {
       status: 101,
       webSocket: client,
-      headers: { "sec-websocket-protocol": OVERLAY_SOCKET_PROTOCOL },
+      headers: { "sec-websocket-protocol": SOCKETS.composite.protocol },
+    });
+  }
+
+  private async connectTokenSocket(
+    request: Request,
+    definition: TokenSocketDefinition,
+    authorize: (request: Request) => Promise<{ generation: number }>,
+    limitErrorMessage: string,
+  ): Promise<Response> {
+    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+      throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
+    }
+    const socketLimit = limits[definition.limitKey];
+    if (this.reclaimSocketSlots(definition.tag, socketLimit) >= socketLimit) {
+      throw new RequestError(429, "socket_limit", limitErrorMessage);
+    }
+    const row = await authorize(request);
+    const pair = new WebSocketPair();
+    const client = pair[0];
+    const server = pair[1];
+    if (this.activeSocketCount(definition.tag) >= socketLimit) {
+      throw new RequestError(429, "socket_limit", limitErrorMessage);
+    }
+    this.ctx.acceptWebSocket(server, [definition.tag]);
+    server.serializeAttachment({
+      version: 1,
+      kind: definition.tag,
+      connectionId: crypto.randomUUID(),
+      tokenGeneration: row.generation,
+      connectedAt: nowIso(),
+    } satisfies SocketAttachment);
+    server.send(JSON.stringify(createChallengeService(this.createModuleContext("challenges"), SOCKETS.dock.tag).readChallengeUpdate()));
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+      headers: { "sec-websocket-protocol": definition.protocol },
     });
   }
 
   private async connectChallenge(request: Request): Promise<Response> {
-    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
-      throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
-    }
-    if (this.reclaimSocketSlots("challenge", limits.maxChallengeSockets) >= limits.maxChallengeSockets) {
-      throw new RequestError(429, "socket_limit", "Zu viele Challenge-Verbindungen.");
-    }
-    const token = request.headers.get("x-overlay-token");
-    if (token === null) throw new RequestError(403, "token_invalid", "OBS-Token ungültig.");
-    const hash = await hmacHex(this.getOverlayTokenPepper(), token);
-    const row = this.getOverlayToken();
-    if (row === null || !timingSafeEqual(row.token_hash, hash)) {
-      throw new RequestError(403, "token_invalid", "OBS-Token ungültig.");
-    }
-    this.ctx.storage.sql.exec(
-      "UPDATE overlay_tokens SET last_used_at = ? WHERE singleton = 1",
-      nowIso(),
-    );
-    const pair = new WebSocketPair();
-    const client = pair[0];
-    const server = pair[1];
-    if (this.activeSocketCount("challenge") >= limits.maxChallengeSockets) {
-      throw new RequestError(429, "socket_limit", "Zu viele Challenge-Verbindungen.");
-    }
-    this.ctx.acceptWebSocket(server, ["challenge"]);
-    server.serializeAttachment({
-      version: 1,
-      kind: "challenge",
-      connectionId: crypto.randomUUID(),
-      tokenGeneration: row.generation,
-      connectedAt: nowIso(),
-    } satisfies SocketAttachment);
-    server.send(JSON.stringify(this.toChallengeUpdate(this.challengeService().readChallengeUpdate())));
-    return new Response(null, {
-      status: 101,
-      webSocket: client,
-      headers: { "sec-websocket-protocol": OVERLAY_SOCKET_PROTOCOL },
-    });
+    return this.connectTokenSocket(request, SOCKETS.challenge, async (challengeRequest) => {
+      const token = challengeRequest.headers.get("x-overlay-token");
+      if (token === null) throw new RequestError(403, "token_invalid", "OBS-Token ungültig.");
+      const hash = await hmacHex(this.getOverlayTokenPepper(), token);
+      const row = this.getOverlayToken();
+      if (row === null || !timingSafeEqual(row.token_hash, hash)) {
+        throw new RequestError(403, "token_invalid", "OBS-Token ungültig.");
+      }
+      this.ctx.storage.sql.exec(
+        "UPDATE overlay_tokens SET last_used_at = ? WHERE singleton = 1",
+        nowIso(),
+      );
+      return { generation: row.generation };
+    }, "Zu viele Challenge-Verbindungen.");
   }
 
   private async connectDock(request: Request): Promise<Response> {
-    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
-      throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
-    }
-    if (this.reclaimSocketSlots("dock", limits.maxDockSockets) >= limits.maxDockSockets) {
-      throw new RequestError(429, "socket_limit", "Zu viele Dock-Verbindungen.");
-    }
-    const row = await this.requireDockToken(request);
-    const pair = new WebSocketPair();
-    const client = pair[0];
-    const server = pair[1];
-    if (this.activeSocketCount("dock") >= limits.maxDockSockets) {
-      throw new RequestError(429, "socket_limit", "Zu viele Dock-Verbindungen.");
-    }
-    this.ctx.acceptWebSocket(server, ["dock"]);
-    server.serializeAttachment({
-      version: 1,
-      kind: "dock",
-      connectionId: crypto.randomUUID(),
-      tokenGeneration: row.generation,
-      connectedAt: nowIso(),
-    } satisfies SocketAttachment);
-    server.send(JSON.stringify(this.toChallengeUpdate(this.challengeService().readChallengeUpdate())));
-    return new Response(null, {
-      status: 101,
-      webSocket: client,
-      headers: { "sec-websocket-protocol": DOCK_SOCKET_PROTOCOL },
-    });
+    return this.connectTokenSocket(request, SOCKETS.dock, async (dockRequest) => {
+      const row = await this.requireDockToken(dockRequest);
+      return { generation: row.generation };
+    }, "Zu viele Dock-Verbindungen.");
   }
 
   override webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): void {
@@ -1505,7 +1267,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       socket.close(1011, "invalid_attachment");
       return;
     }
-    if (attachment.kind === "editor") {
+    if (attachment.kind === SOCKETS.editor.tag) {
       if (this.closeEditorSocketIfSessionRevoked(socket, attachment)) return;
     } else if (this.closeTokenSocketIfRevoked(socket, attachment)) {
       return;
@@ -1555,66 +1317,38 @@ export class ChannelObject extends DurableObject<AppEnv> {
     }
   }
 
-  private ensureState(session: SessionRow): ChannelState {
-    const existing = this.readState();
-    if (existing !== null) return existing;
-    const state = createDefaultState(actorFromSession(session), nowIso());
-    this.writeState(state);
-    return state;
-  }
-
-  private readState(): ChannelState | null {
-    const row = this.ctx.storage.sql
-      .exec<StateRow>("SELECT * FROM channel_state WHERE singleton = 1")
-      .toArray()[0];
-    if (row === undefined) return null;
-    const draft = channelStateDraftSchema.parse(JSON.parse(row.state_json));
-    return channelStateSchema.parse({
-      ...draft,
-      revision: row.revision,
-      overlayEnabled: row.overlay_enabled === 1,
-      updatedAt: row.updated_at,
-      updatedBy: {
-        twitchUserId: row.updated_by_id,
-        displayName: row.updated_by_name,
-      },
+  private recordModuleHistory(moduleId: ModuleId, summary: string): void {
+    const module = MODULE_REGISTRY.find(({ id }) => id === moduleId);
+    if (module?.history === undefined) return;
+    const context = this.createModuleContext(moduleId);
+    const entry = module.history.snapshot(context);
+    if (entry === null) return;
+    this.ctx.storage.transactionSync(() => {
+      this.insertHistory(moduleId, entry, summary);
+      this.pruneHistory(moduleId);
     });
+    this.broadcastHistoryChanged(moduleId);
   }
 
-  private getRequiredState(): ChannelState {
-    const state = this.readState();
-    if (state === null) throw new Error("State not initialized");
-    return state;
-  }
-
-  private writeState(state: ChannelState): void {
-    const draft = draftFromState(state);
+  private insertHistory(moduleId: string, entry: ModuleHistoryEntry, summary: string): void {
+    // Ein ChannelObject serialisiert diese Berechnung in transactionSync; eine
+    // eigene Sequenz-Tabelle wird erst nötig, wenn mehrere unabhängig
+    // transaktionierende Schreiber in dieselbe Timeline schreiben.
+    const nextChannelSeq = this.ctx.storage.sql
+      .exec<{ channel_seq: number }>(
+        "SELECT COALESCE(MAX(channel_seq), 0) + 1 AS channel_seq FROM state_history",
+      )
+      .toArray()[0]?.channel_seq;
+    if (nextChannelSeq === undefined) throw new Error("Konnte keine Kanalsequenz für state_history vergeben.");
     this.ctx.storage.sql.exec(
-      `INSERT INTO channel_state(
-        singleton, revision, overlay_enabled, state_json, updated_at, updated_by_id, updated_by_name
-      ) VALUES (1, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(singleton) DO UPDATE SET
-        revision = excluded.revision,
-        overlay_enabled = excluded.overlay_enabled,
-        state_json = excluded.state_json,
-        updated_at = excluded.updated_at,
-        updated_by_id = excluded.updated_by_id,
-        updated_by_name = excluded.updated_by_name`,
-      state.revision,
-      state.overlayEnabled ? 1 : 0,
-      JSON.stringify(draft),
-      state.updatedAt,
-      state.updatedBy.twitchUserId,
-      state.updatedBy.displayName,
-    );
-  }
-
-  private insertHistory(state: ChannelState, summary: string): void {
-    this.ctx.storage.sql.exec(
-      "INSERT OR IGNORE INTO state_history(revision, snapshot_json, created_at, summary) VALUES (?, ?, ?, ?)",
-      state.revision,
-      JSON.stringify(state),
-      state.updatedAt,
+      `INSERT INTO state_history(
+        channel_seq, module_id, revision, snapshot_json, created_at, summary
+      ) VALUES (?, ?, ?, ?, ?, ?)`,
+      nextChannelSeq,
+      moduleId,
+      entry.revision,
+      entry.json,
+      entry.createdAt,
       summary,
     );
   }
@@ -1622,7 +1356,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
   private makeAudit(
     revision: number,
     action: AuditEntry["action"],
-    session: SessionRow,
+    actor: ModuleActor,
     summary: string,
     createdAt: string,
   ): AuditEntry {
@@ -1630,7 +1364,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       id: crypto.randomUUID(),
       revision,
       action,
-      actor: actorFromSession(session),
+      actor,
       summary,
       createdAt,
     });
@@ -1675,23 +1409,38 @@ export class ChannelObject extends DurableObject<AppEnv> {
       );
   }
 
-  private getUndoTargets(): UndoTarget[] {
+  private getUndoTargets(moduleId: ModuleId): UndoTarget[] {
     return this.ctx.storage.sql
-      .exec<{ revision: number; created_at: string; summary: string }>(
-        "SELECT revision, created_at, summary FROM state_history ORDER BY revision DESC LIMIT 20",
+      .exec<{ channel_seq: number; module_id: ModuleId; created_at: string; summary: string }>(
+        "SELECT channel_seq, module_id, created_at, summary FROM state_history WHERE module_id = ? ORDER BY channel_seq DESC LIMIT 20",
+        moduleId,
       )
       .toArray()
       .map((row) => ({
-        revision: row.revision,
+        channelSeq: row.channel_seq,
+        moduleId: row.module_id,
         createdAt: row.created_at,
         summary: row.summary,
       }));
   }
 
-  private pruneHistoryAndAudit(): void {
+  private pruneHistory(moduleId: string): void {
     this.ctx.storage.sql.exec(
-      "DELETE FROM state_history WHERE revision NOT IN (SELECT revision FROM state_history ORDER BY revision DESC LIMIT 20)",
+      `DELETE FROM state_history
+       WHERE module_id = ?
+         AND channel_seq NOT IN (
+           SELECT channel_seq FROM state_history
+           WHERE module_id = ?
+           ORDER BY channel_seq DESC
+           LIMIT 20
+         )`,
+      moduleId,
+      moduleId,
     );
+  }
+
+  private pruneHistoryAndAudit(): void {
+    this.pruneHistory(HUD_MODULE_ID);
     const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000).toISOString();
     this.ctx.storage.sql.exec(
       "DELETE FROM audit_log WHERE created_at < ? OR id NOT IN (SELECT id FROM audit_log ORDER BY created_at DESC LIMIT 500)",
@@ -1714,27 +1463,23 @@ export class ChannelObject extends DurableObject<AppEnv> {
 
   private deleteCollectibleMedia(now: string): void {
     const protectedHashes = new Set<string>();
-    const protectState = (state: ChannelState | ChannelStateDraft): void => {
-      const portraits = [
-        state.player.portrait,
-        state.pet?.portrait,
-        ...state.group.map((member) => member.portrait),
-      ];
-      for (const portrait of portraits) {
-        if (portrait?.kind === "uploaded") protectedHashes.add(portrait.contentHash);
-      }
-    };
+    const hud = MODULE_REGISTRY.find(({ id }) => id === HUD_MODULE_ID);
+    const mediaContentHashes = hud?.history?.mediaContentHashes;
+    if (mediaContentHashes === undefined) throw new Error("HUD-Medienvertrag fehlt.");
 
     const current = this.ctx.storage.sql
       .exec<{ state_json: string }>("SELECT state_json FROM channel_state WHERE singleton = 1")
       .toArray()[0];
     if (current !== undefined) {
-      protectState(channelStateDraftSchema.parse(JSON.parse(current.state_json)));
+      for (const contentHash of mediaContentHashes(current.state_json)) protectedHashes.add(contentHash);
     }
     for (const row of this.ctx.storage.sql
-      .exec<{ snapshot_json: string }>("SELECT snapshot_json FROM state_history")
+      .exec<{ snapshot_json: string }>(
+        "SELECT snapshot_json FROM state_history WHERE module_id = ?",
+        HUD_MODULE_ID,
+      )
       .toArray()) {
-      protectState(channelStateSchema.parse(JSON.parse(row.snapshot_json)));
+      for (const contentHash of mediaContentHashes(row.snapshot_json)) protectedHashes.add(contentHash);
     }
     for (const lease of this.ctx.storage.sql
       .exec<{ content_hash: string }>(
@@ -1873,7 +1618,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
   }
 
   private getDockToken(): DockTokenRecord | null {
-    return this.challengeRepository().readDockToken();
+    return createChallengeRepository(this.createModuleContext("challenges"), SOCKETS.dock.tag).readDockToken();
   }
 
   private async requireDockToken(request: Request): Promise<DockTokenRecord> {
@@ -1907,109 +1652,15 @@ export class ChannelObject extends DurableObject<AppEnv> {
     return { id: row.twitch_user_id, login: row.login, displayName: row.display_name };
   }
 
-  private validateCatalog(draft: ChannelStateDraft): void {
-    const knownIds = new Set(EFFECT_CATALOG.map((definition) => definition.id));
-    const knownIconIds = new Set(EFFECT_CATALOG.map((definition) => definition.iconId));
-    draft.effects.forEach((effect, index) => {
-      if (effect.catalogId !== null && !knownIds.has(effect.catalogId)) {
-        throw new RequestError(422, "validation_failed", "Unbekannter Katalogeffekt.", {
-          fieldErrors: { [`effects[${String(index)}].catalogId`]: "Effekt nicht im Katalog." },
-        });
-      }
-      if (!knownIconIds.has(effect.iconId)) {
-        throw new RequestError(422, "validation_failed", "Unbekanntes Effekt-Icon.", {
-          fieldErrors: { [`effects[${String(index)}].iconId`]: "Icon nicht im Katalog." },
-        });
-      }
-      const definition = getEffectDefinition(effect.catalogId);
-      const maximum = definition?.maxStacks ?? 1;
-      if (effect.stacks !== null && effect.stacks > maximum) {
-        throw new RequestError(422, "validation_failed", "Zu viele Effektstapel.", {
-          fieldErrors: { [`effects[${String(index)}].stacks`]: `Maximal ${String(maximum)}.` },
-        });
-      }
-    });
-  }
-
-  private validateMediaReferences(
-    draft: ChannelStateDraft,
-    current: ChannelState,
-    session: SessionRow,
-  ): void {
-    const nextPortraits = [draft.player.portrait, draft.pet?.portrait, ...draft.group.map((member) => member.portrait)];
-    const currentPortraits = [
-      current.player.portrait,
-      current.pet?.portrait,
-      ...current.group.map((member) => member.portrait),
-    ];
-    const currentHashes = new Set(
-      currentPortraits.flatMap((portrait) =>
-        portrait?.kind === "uploaded" ? [portrait.contentHash] : [],
-      ),
-    );
-    for (const portrait of nextPortraits) {
-      if (portrait?.kind !== "uploaded" || currentHashes.has(portrait.contentHash)) continue;
-      const lease = this.ctx.storage.sql
-        .exec<{ expires_at: string }>(
-          `SELECT expires_at FROM media_leases
-          WHERE content_hash = ? AND editor_session_hash = ?`,
-          portrait.contentHash,
-          session.session_hash,
-        )
-        .toArray()[0];
-      if (lease === undefined || Date.parse(lease.expires_at) <= Date.now()) {
-        throw new RequestError(403, "forbidden", "Portrait-Lease fehlt oder ist abgelaufen.");
-      }
-    }
-  }
-
-  private canonicalizeTwitchGroup(draft: ChannelStateDraft): ChannelStateDraft {
-    return channelStateDraftSchema.parse({
-      ...draft,
-      group: draft.group.map((member, index) => {
-        if (member.source !== "twitch" || member.twitchUserId === null) return member;
-        const cached = this.ctx.storage.sql
-          .exec<{
-            twitch_user_id: string;
-            display_name: string;
-            portrait_url: string;
-          }>(
-            "SELECT twitch_user_id, display_name, portrait_url FROM twitch_user_cache WHERE twitch_user_id = ?",
-            member.twitchUserId,
-          )
-          .toArray()[0];
-        if (cached === undefined) {
-          throw new RequestError(422, "validation_failed", "Twitch-Gast muss zuerst gesucht werden.", {
-            fieldErrors: { [`group[${String(index)}].twitchUserId`]: "Gastdaten nicht bestätigt." },
-          });
-        }
-        return {
-          ...member,
-          name: cached.display_name,
-          portrait: {
-            kind: "twitch" as const,
-            userId: cached.twitch_user_id,
-            url: cached.portrait_url,
-          },
-        };
-      }),
-    });
-  }
-
   // Sendet an jeden Socket einzeln: widerrufene oder abgelaufene Sockets werden
   // geschlossen statt beliefert, und ein fehlschlagender Socket darf die
   // Übertragung an die übrigen nicht abbrechen.
   private sendToSockets(sockets: WebSocket[], message: string): void {
     for (const socket of sockets) {
       const attachment = this.readAttachment(socket);
-      if (attachment?.kind === "editor") {
+      if (attachment?.kind === SOCKETS.editor.tag) {
         if (this.closeEditorSocketIfSessionRevoked(socket, attachment)) continue;
-      } else if (
-        attachment?.kind === "overlay" ||
-        attachment?.kind === "composite" ||
-        attachment?.kind === "challenge" ||
-        attachment?.kind === "dock"
-      ) {
+      } else if (attachment !== null) {
         if (this.closeTokenSocketIfRevoked(socket, attachment)) continue;
       }
       try {
@@ -2020,42 +1671,29 @@ export class ChannelObject extends DurableObject<AppEnv> {
     }
   }
 
-  private broadcastState(state: ChannelState): void {
-    const message = JSON.stringify({ type: "state_committed", state });
+  private broadcast(tags: readonly SocketTag[], payload: unknown): void {
+    const targetTags = new Set(tags);
+    // Editor und Composite tragen beide Modul-Nachrichten; sie bleiben
+    // gemeinsame Host-Sockets und erhalten deshalb Challenge-Updates weiter.
+    if (tags.includes(SOCKETS.challenge.tag) || tags.includes(SOCKETS.dock.tag)) {
+      targetTags.add(SOCKETS.editor.tag);
+      targetTags.add(SOCKETS.composite.tag);
+    }
     this.sendToSockets(
-      [
-        ...this.ctx.getWebSockets("editor"),
-        ...this.ctx.getWebSockets("overlay"),
-        ...this.ctx.getWebSockets("composite"),
-      ],
-      message,
-    );
-  }
-
-  private broadcastChallengeUpdate(
-    update: ChallengeUpdatePayload,
-  ): void {
-    const message = JSON.stringify(update);
-    this.sendToSockets(
-      [
-        ...this.ctx.getWebSockets("editor"),
-        ...this.ctx.getWebSockets("challenge"),
-        ...this.ctx.getWebSockets("dock"),
-        ...this.ctx.getWebSockets("composite"),
-      ],
-      message,
+      [...targetTags].flatMap((tag) => this.ctx.getWebSockets(tag)),
+      JSON.stringify(payload),
     );
   }
 
   private revokeTokenSockets(
-    tag: "overlay" | "composite" | "challenge" | "dock",
+    tag: SocketTag,
     tokenGeneration?: number,
   ): void {
     const message = JSON.stringify({ type: "token_revoked" });
     for (const socket of this.ctx.getWebSockets(tag)) {
       if (tokenGeneration !== undefined) {
         const attachment = this.readAttachment(socket);
-        if (attachment !== null && attachment.kind !== "editor" && attachment.tokenGeneration !== tokenGeneration) {
+        if (attachment !== null && attachment.kind !== SOCKETS.editor.tag && attachment.tokenGeneration !== tokenGeneration) {
           continue;
         }
       }
@@ -2072,17 +1710,18 @@ export class ChannelObject extends DurableObject<AppEnv> {
     }
   }
 
-  private broadcastHistoryChanged(): void {
+  private broadcastHistoryChanged(moduleId: ModuleId): void {
     const message = JSON.stringify({
       type: "history_changed",
-      undoTargets: this.getUndoTargets(),
+      moduleId,
+      undoTargets: this.getUndoTargets(moduleId),
     });
-    this.sendToSockets(this.ctx.getWebSockets("editor"), message);
+    this.sendToSockets(this.ctx.getWebSockets(SOCKETS.editor.tag), message);
   }
 
-  private broadcastAudit(entry: AuditEntry, undoTargets: UndoTarget[]): void {
-    const message = JSON.stringify({ type: "audit_appended", entry, undoTargets });
-    this.sendToSockets(this.ctx.getWebSockets("editor"), message);
+  private broadcastAudit(moduleId: ModuleId, entry: AuditEntry, undoTargets: UndoTarget[]): void {
+    const message = JSON.stringify({ type: "audit_appended", moduleId, entry, undoTargets });
+    this.sendToSockets(this.ctx.getWebSockets(SOCKETS.editor.tag), message);
   }
 
   // Wird sowohl nach einer neuen Overlay-/Composite-Verbindung als auch beim
@@ -2092,7 +1731,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
   private broadcastOverlayPresence(excludeSocket?: WebSocket): void {
     const connectedSockets = this.countPresenceSockets(excludeSocket);
     const message = JSON.stringify({ type: "overlay_presence", connectedSockets });
-    this.sendToSockets(this.ctx.getWebSockets("editor"), message);
+    this.sendToSockets(this.ctx.getWebSockets(SOCKETS.editor.tag), message);
   }
 
   // Kombinierte Overlay-/Composite-Zaehlung fuer Bootstrap-Payload und
@@ -2101,8 +1740,8 @@ export class ChannelObject extends DurableObject<AppEnv> {
   private countPresenceSockets(excludeSocket?: WebSocket): number {
     return Math.min(
       MAX_OVERLAY_SOCKETS,
-      this.ctx.getWebSockets("overlay").filter((socket) => socket !== excludeSocket).length
-        + this.ctx.getWebSockets("composite").filter((socket) => socket !== excludeSocket).length,
+      this.ctx.getWebSockets(SOCKETS.overlay.tag).filter((socket) => socket !== excludeSocket).length
+        + this.ctx.getWebSockets(SOCKETS.composite.tag).filter((socket) => socket !== excludeSocket).length,
     );
   }
 
@@ -2112,7 +1751,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
   // Gibt zurück, ob der Socket geschlossen wurde (der Aufrufer soll ihn dann überspringen).
   private closeEditorSocketIfSessionRevoked(
     socket: WebSocket,
-    attachment: Extract<SocketAttachment, { kind: "editor" }>,
+    attachment: Extract<SocketAttachment, { kind: typeof SOCKETS.editor.tag }>,
   ): boolean {
     const row = this.getSessionByHash(attachment.sessionRecordId, false);
     if (
@@ -2132,11 +1771,11 @@ export class ChannelObject extends DurableObject<AppEnv> {
 
   private closeTokenSocketIfRevoked(
     socket: WebSocket,
-    attachment: Extract<SocketAttachment, { kind: "overlay" | "composite" | "challenge" | "dock" }>,
+    attachment: Extract<SocketAttachment, { kind: TokenSocketTag }>,
   ): boolean {
     let currentGeneration: number | null = null;
     try {
-      currentGeneration = attachment.kind === "dock"
+      currentGeneration = attachment.kind === SOCKETS.dock.tag
         ? this.getDockToken()?.generation ?? null
         : this.getOverlayToken()?.generation ?? null;
     } catch {
@@ -2156,18 +1795,14 @@ export class ChannelObject extends DurableObject<AppEnv> {
   // Prueft, ob ein Attachment zu einem der beiden Presence-relevanten Socket-
   // Typen gehoert (Overlay oder Composite).
   private isPresenceSocket(attachment: SocketAttachment | null): boolean {
-    return attachment?.kind === "overlay" || attachment?.kind === "composite";
+    return attachment?.kind === SOCKETS.overlay.tag || attachment?.kind === SOCKETS.composite.tag;
   }
 
   private readAttachment(socket: WebSocket): SocketAttachment | null {
     const attachment = socket.deserializeAttachment() as Partial<SocketAttachment> | null;
     if (
       attachment?.version !== 1 ||
-      (attachment.kind !== "editor" &&
-        attachment.kind !== "overlay" &&
-        attachment.kind !== "composite" &&
-        attachment.kind !== "challenge" &&
-        attachment.kind !== "dock") ||
+      !SOCKET_DEFINITIONS.some(({ tag }) => tag === attachment.kind) ||
       typeof attachment.connectionId !== "string"
     ) {
       return null;

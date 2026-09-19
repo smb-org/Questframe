@@ -11,22 +11,20 @@ export type ChallengeFontFamily = "theme" | "atkinson" | "serif" | "sans" | "mon
 export type ChallengeSurfaceOpacity = 0 | 25 | 50 | 75 | 100;
 export type ChallengeTextEmphasis = "auto" | "strong" | "plain";
 
-export type ChallengeThemeId =
-  | "trail-wood"
-  | "field-journal"
-  | "forged-compass"
-  | "classic-simple"
-  | "modern-compact"
-  | "modern-minimal";
-
 export type ChallengeState = "pending" | "active" | "done";
+export type ChallengeKind = "tick" | "counter" | "streak" | "measure";
 
 export type Challenge = {
   id: string;
   title: string;
+  kind: ChallengeKind;
+  unit: string | null;
+  controlKey: string;
   targetCount: number | null;
   timerTotalMs: number | null;
   sortOrder: number;
+  step: number;
+  bestCount: number;
   hidden: boolean;
   currentCount: number;
   state: ChallengeState;
@@ -51,7 +49,7 @@ export type ChallengePlacement = {
 
 export type ChallengeSettings = {
   styleId: ChallengeStyleId;
-  themeMode: "inherit" | "own";
+  themeMode: "own";
   surfaceOpacity: ChallengeSurfaceOpacity;
   headerStyle: "default" | "inverted";
   textEmphasis: ChallengeTextEmphasis;
@@ -65,9 +63,9 @@ export type ChallengeSettings = {
   overflowMode: ChallengeOverflowMode;
   overflowTempo: ChallengeOverflowTempo;
   numbered: boolean;
+  keyVisible: boolean;
   doneOrder: ChallengeDoneOrder;
   globalTimerMode: GlobalTimerMode;
-  themeId: ChallengeThemeId;
   globalTimer: GlobalTimer | null;
   placement: ChallengePlacement;
 };
@@ -77,7 +75,8 @@ export type ChallengeEventType =
   | "completed"
   | "reopened"
   | "timer_started"
-  | "timer_stopped";
+  | "timer_stopped"
+  | "streak-reset";
 
 export type ChallengeEvent =
   | {
@@ -104,11 +103,16 @@ export type GlobalTimerEvent = {
   type: GlobalTimerEventType;
 };
 
+export type BoardEvent = {
+  scope: "board";
+  type: "set_switched";
+};
+
 export type ChallengeUpdate = {
   eventSeq: number;
   boardRevision: number;
   settingsRevision: number;
   settings: ChallengeSettings;
   challenges: Challenge[];
-  event: ChallengeEvent | GlobalTimerEvent | null;
+  event: ChallengeEvent | GlobalTimerEvent | BoardEvent | null;
 };

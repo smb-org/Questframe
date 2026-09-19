@@ -188,6 +188,15 @@ html[data-surface="live"] #root {
   font-variant-numeric: tabular-nums;
 }
 
+.live-page__challenge-key {
+  flex: 0 0 32px;
+  color: var(--live-muted);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .live-page__challenge-row--done .live-page__challenge-mark {
   color: var(--live-ok);
 }

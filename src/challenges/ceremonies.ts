@@ -1,4 +1,5 @@
 import type {
+  BoardEvent,
   ChallengeEvent,
   ChallengeEventType,
   ChallengeStyleId,
@@ -7,13 +8,13 @@ import type {
 } from "../shared/contracts/win-challenges";
 
 export type CeremonySound = "tick" | "complete" | "quest-complete" | null;
-export type CeremonyVisual = "progressed" | "completed" | "quiet";
+export type CeremonyVisual = "progressed" | "completed" | "lost" | "quiet";
 export type CeremonyTarget =
   | { kind: "challenge"; id: string }
   | { kind: "global" };
 
-type CeremonyEvent = ChallengeEvent | GlobalTimerEvent;
-type CeremonyEventType = ChallengeEventType | GlobalTimerEventType;
+type CeremonyEvent = ChallengeEvent | GlobalTimerEvent | BoardEvent;
+type CeremonyEventType = ChallengeEventType | GlobalTimerEventType | BoardEvent["type"];
 type CeremonyEntry = {
   visual: CeremonyVisual;
   sound: CeremonySound;
@@ -31,6 +32,8 @@ const PLAIN_COMPLETED: CeremonyEntry = {
 const PLAIN_CEREMONIES: Partial<Record<CeremonyEventType, CeremonyEntry>> = {
   progressed: { visual: "progressed", sound: "tick", durationMs: 360, targetKind: "challenge" },
   completed: PLAIN_COMPLETED,
+  // Der Fall bekommt den vorhandenen neutralen Einzelton, keinen Abschlussklang.
+  "streak-reset": { visual: "lost", sound: "tick", durationMs: 520, targetKind: "challenge" },
   reopened: { visual: "quiet", sound: null, durationMs: 260, targetKind: "challenge" },
   timer_started: { visual: "quiet", sound: null, durationMs: 260, targetKind: "challenge" },
   timer_stopped: { visual: "quiet", sound: null, durationMs: 260, targetKind: "challenge" },

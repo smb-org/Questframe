@@ -2,12 +2,12 @@ import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { runMigrations } from "../../src/channel/migrations";
+import { runMigrations, legacyNamespaceForVersion } from "../../src/channel/migrations";
 import { createSqlStorageChallengeRepository, type SqlStorageChallengeRepository } from "../../src/modules/win-challenges/adapters/sql-storage-challenge-repository";
 import { MAX_COUNT } from "../../src/modules/win-challenges/contracts/predicates";
 import { createWinChallenges, hashChallengeCommand } from "../../src/modules/win-challenges/service/commands";
 import { IdempotencyMismatchError } from "../../src/modules/win-challenges/repository/challenge-repository";
-import type { Challenge, ChallengeDefinition } from "../../src/modules/win-challenges/contracts/schemas";
+import type { Challenge, ChallengeDefinition, ChallengeSetSummary } from "../../src/modules/win-challenges/contracts/schemas";
 
 const now = "2026-08-30T12:00:00.000Z";
 const future = "2026-08-30T13:00:00.000Z";
@@ -39,15 +39,17 @@ const resetModuleTables = async (): Promise<void> => {
   await runInDurableObject(stub, (_instance, state) => {
     runMigrations(state.storage.sql, "worker-test");
     state.storage.sql.exec("DELETE FROM wc_challenges");
+    state.storage.sql.exec("DELETE FROM wc_retired_keys");
     state.storage.sql.exec("DELETE FROM wc_commands");
+    state.storage.sql.exec("DELETE FROM wc_sets");
     state.storage.sql.exec("DELETE FROM wc_dock_tokens");
     state.storage.sql.exec(
       `UPDATE wc_meta SET
         event_seq = 0, board_revision = 1, settings_revision = 1,
-        style_id = 'plain-list', theme_mode = 'inherit', surface_opacity = 100,
+        style_id = 'plain-list', theme_mode = 'own', surface_opacity = 100,
         font_family = 'theme', font_scale = 1,
         header_title = 'CHALLENGES', penalty_label = 'STRAFE', penalty_text = '', effects_enabled = 1, max_visible = 5,
-        overflow_mode = 'cut', overflow_tempo = 'medium', numbered = 0, done_order = 'end',
+        overflow_mode = 'cut', overflow_tempo = 'medium', numbered = 0, key_visible = 0, done_order = 'end',
         placement_x = 300, placement_y = 8, placement_scale = 1,
         global_timer_mode = 'down',
         global_timer_total_ms = NULL, global_timer_ends_at = NULL,
@@ -71,18 +73,24 @@ const readGlobalTimerRow = async (): Promise<GlobalTimerRow> =>
 const definition = (title: string, sortOrder: number): ChallengeDefinition => ({
   clientId: `client-${String(sortOrder)}`,
   title,
+  kind: "counter",
+  unit: null,
   targetCount: 10,
   timerTotalMs: 60_000,
   sortOrder,
+  step: 1,
   hidden: false,
 });
 
 const definitionFor = (challenge: Challenge, title: string): ChallengeDefinition => ({
   id: challenge.id,
   title,
+  kind: challenge.kind,
+  unit: challenge.unit,
   targetCount: challenge.targetCount,
   timerTotalMs: challenge.timerTotalMs,
   sortOrder: challenge.sortOrder,
+  step: challenge.step,
   hidden: challenge.hidden,
 });
 
@@ -105,7 +113,7 @@ describe("win-challenges repository and migration", () => {
   it("runs the win-challenges migrations idempotently and seeds the complete rows", async () => {
     const result = await runInDurableObject(stub, (_instance, state) => ({
       versions: state.storage.sql
-        .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+        .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE namespace = ? ORDER BY version", "challenges")
         .toArray()
         .map(({ version }) => version),
       tables: state.storage.sql
@@ -134,6 +142,7 @@ describe("win-challenges repository and migration", () => {
           overflow_mode: string;
           overflow_tempo: string;
           numbered: number;
+          key_visible: number;
           done_order: string;
           placement_x: number;
           placement_y: number;
@@ -168,11 +177,14 @@ describe("win-challenges repository and migration", () => {
     expect(result.versions).toContain(14);
     expect(result.versions).toContain(15);
     expect(result.versions).toContain(16);
+    expect(result.versions).toContain(17);
     expect(result.tables).toEqual([
       "wc_challenges",
       "wc_commands",
       "wc_dock_tokens",
       "wc_meta",
+      "wc_retired_keys",
+      "wc_sets",
     ]);
     expect(result.columns).toEqual([
       "singleton",
@@ -202,13 +214,20 @@ describe("win-challenges repository and migration", () => {
       "global_timer_total_ms",
       "global_timer_ends_at",
       "global_timer_paused_remain_ms",
+      "key_visible",
     ]);
     expect(result.challengeColumns).toEqual([
       "id",
       "title",
+      "kind",
+      "unit",
+      "control_key",
       "target_count",
       "timer_total_ms",
       "sort_order",
+      "step",
+      "best_count",
+      "hidden",
       "current_count",
       "state",
       "timer_ends_at",
@@ -216,14 +235,13 @@ describe("win-challenges repository and migration", () => {
       "completed_at",
       "created_at",
       "updated_at",
-      "hidden",
     ]);
     expect(result.meta).toMatchObject({
       event_seq: 0,
       board_revision: 1,
       settings_revision: 1,
       style_id: "plain-list",
-      theme_mode: "inherit",
+      theme_mode: "own",
       surface_opacity: 100,
       header_style: "default",
       text_emphasis: "auto",
@@ -237,6 +255,7 @@ describe("win-challenges repository and migration", () => {
       overflow_mode: "cut",
       overflow_tempo: "medium",
       numbered: 0,
+      key_visible: 0,
       done_order: "end",
       placement_x: 300,
       placement_y: 8,
@@ -253,8 +272,8 @@ describe("win-challenges repository and migration", () => {
       runMigrations(state.storage.sql, "worker-test-before-penalty-label");
       state.storage.sql.exec("ALTER TABLE wc_meta DROP COLUMN penalty_label");
       state.storage.sql.exec("ALTER TABLE wc_meta DROP COLUMN text_emphasis");
-      state.storage.sql.exec("DELETE FROM _sql_schema_migrations WHERE version = 15");
-      state.storage.sql.exec("DELETE FROM _sql_schema_migrations WHERE version = 16");
+      state.storage.sql.exec("DELETE FROM _sql_schema_migrations WHERE namespace = ? AND version = 15", legacyNamespaceForVersion(15));
+      state.storage.sql.exec("DELETE FROM _sql_schema_migrations WHERE namespace = ? AND version = 16", legacyNamespaceForVersion(16));
       runMigrations(state.storage.sql, "worker-test-penalty-label");
       return {
         label: state.storage.sql
@@ -264,7 +283,7 @@ describe("win-challenges repository and migration", () => {
           .exec<{ text_emphasis: string }>("SELECT text_emphasis FROM wc_meta WHERE singleton = 1")
           .toArray()[0]?.text_emphasis,
         versions: state.storage.sql
-          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE namespace = ? ORDER BY version", "challenges")
           .toArray()
           .map(({ version }) => version),
       };
@@ -328,7 +347,7 @@ describe("win-challenges repository and migration", () => {
         fontSettings: state.storage.sql.exec<{ font_family: string; font_scale: number }>("SELECT font_family, font_scale FROM wc_meta WHERE singleton = 1").toArray()[0],
         surfaceOpacity: state.storage.sql.exec<{ surface_opacity: number }>("SELECT surface_opacity FROM wc_meta WHERE singleton = 1").toArray()[0]?.surface_opacity,
         surfaceColumns: state.storage.sql.exec<{ name: string }>("PRAGMA table_info(wc_meta)").toArray().map(({ name }) => name),
-        versions: state.storage.sql.exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version").toArray().map(({ version }) => version),
+        versions: state.storage.sql.exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE namespace = ? ORDER BY version", "challenges").toArray().map(({ version }) => version),
       };
     });
 
@@ -342,9 +361,36 @@ describe("win-challenges repository and migration", () => {
     expect(placement.textEmphasis).toBe("auto");
     expect(placement.fontSettings).toEqual({ font_family: "theme", font_scale: 1 });
     expect(placement.surfaceOpacity).toBe(100);
-    expect(placement.surfaceColumns).toContain("surface_opacity");
-    expect(placement.surfaceColumns).toContain("text_emphasis");
-    expect(placement.surfaceColumns).not.toContain("surface_mode");
+    expect(placement.surfaceColumns).toEqual([
+      "singleton",
+      "event_seq",
+      "board_revision",
+      "settings_revision",
+      "style_id",
+      "theme_mode",
+      "surface_opacity",
+      "header_style",
+      "text_emphasis",
+      "font_family",
+      "font_scale",
+      "header_title",
+      "penalty_label",
+      "penalty_text",
+      "effects_enabled",
+      "max_visible",
+      "overflow_mode",
+      "overflow_tempo",
+      "numbered",
+      "done_order",
+      "global_timer_mode",
+      "placement_x",
+      "placement_y",
+      "placement_scale",
+      "global_timer_total_ms",
+      "global_timer_ends_at",
+      "global_timer_paused_remain_ms",
+      "key_visible",
+    ]);
     const columns = await runInDurableObject(legacyStub, (_instance, state) => state.storage.sql.exec<{ name: string }>("PRAGMA table_info(wc_meta)").toArray().map(({ name }) => name));
     expect(columns).toContain("max_visible");
     expect(columns).toContain("header_style");
@@ -419,7 +465,10 @@ describe("win-challenges repository and migration", () => {
       runMigrations(state.storage.sql, "worker-test-migration-11-second-run");
       return {
         versions: state.storage.sql
-          .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+          .exec<{ version: number }>(
+            "SELECT version FROM _sql_schema_migrations WHERE namespace = ? ORDER BY version",
+            legacyNamespaceForVersion(3),
+          )
           .toArray()
           .map(({ version }) => version),
         meta: state.storage.sql.exec<{
@@ -441,6 +490,7 @@ describe("win-challenges repository and migration", () => {
           overflow_mode: string;
           overflow_tempo: string;
           numbered: number;
+          key_visible: number;
           done_order: string;
           global_timer_mode: string;
           placement_x: number;
@@ -449,7 +499,7 @@ describe("win-challenges repository and migration", () => {
           global_timer_total_ms: number | null;
           global_timer_ends_at: string | null;
           global_timer_paused_remain_ms: number | null;
-        }>("SELECT singleton, event_seq, board_revision, settings_revision, style_id, theme_mode, surface_opacity, header_style, text_emphasis, font_family, font_scale, header_title, penalty_text, effects_enabled, max_visible, overflow_mode, overflow_tempo, numbered, done_order, global_timer_mode, placement_x, placement_y, placement_scale, global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms FROM wc_meta WHERE singleton = 1").toArray()[0],
+        }>("SELECT singleton, event_seq, board_revision, settings_revision, style_id, theme_mode, surface_opacity, header_style, text_emphasis, font_family, font_scale, header_title, penalty_text, effects_enabled, max_visible, overflow_mode, overflow_tempo, numbered, key_visible, done_order, global_timer_mode, placement_x, placement_y, placement_scale, global_timer_total_ms, global_timer_ends_at, global_timer_paused_remain_ms FROM wc_meta WHERE singleton = 1").toArray()[0],
       };
     });
 
@@ -475,6 +525,7 @@ describe("win-challenges repository and migration", () => {
       overflow_mode: "scroll",
       overflow_tempo: "fast",
       numbered: 1,
+      key_visible: 0,
       done_order: "keep",
       global_timer_mode: "up",
       placement_x: 123,
@@ -539,6 +590,7 @@ describe("win-challenges repository and migration", () => {
       overflowMode: before.settings.overflowMode,
       overflowTempo: before.settings.overflowTempo,
       numbered: before.settings.numbered,
+      keyVisible: true,
       doneOrder: before.settings.doneOrder,
       globalTimerMode: before.settings.globalTimerMode,
       globalTimerTotalMs: before.settings.globalTimer?.totalMs ?? null,
@@ -549,6 +601,7 @@ describe("win-challenges repository and migration", () => {
     expect((await inRepository((repository) => repository.readSnapshot())).settings).toMatchObject({
       surfaceOpacity: 25,
       penaltyLabel: "Konsequenz",
+      keyVisible: true,
       penaltyText: "Die nächste Challenge wird doppelt schwer.",
     });
   });
@@ -660,7 +713,10 @@ describe("win-challenges repository and migration", () => {
         future,
         seeded.id,
       );
-      state.storage.sql.exec("DELETE FROM _sql_schema_migrations WHERE version = 4");
+      state.storage.sql.exec(
+        "DELETE FROM _sql_schema_migrations WHERE namespace = ? AND version = 4",
+        legacyNamespaceForVersion(4),
+      );
       runMigrations(state.storage.sql, "worker-test-migration-4");
       return state.storage.sql
         .exec<{ timer_ends_at: string | null }>(
@@ -684,6 +740,7 @@ describe("win-challenges repository and migration", () => {
           seeded.id,
           {
             currentCount: 4,
+            bestCount: 4,
             state: "active",
             timerEndsAt: future,
             timerRemainMs: null,
@@ -720,6 +777,420 @@ describe("win-challenges repository and migration", () => {
     });
   });
 
+  it("speichert, listet und lädt Sets mit optionalem Fortschritt", async () => {
+    const created = await inRepository((repository) => repository.saveBoard({
+      baseBoardRevision: 1,
+      definitions: [definition("Mit Stand", 0)],
+      now,
+    }));
+    const challenge = onlyChallenge(created.snapshot.challenges);
+    await inRepository((repository) => {
+      repository.transaction((transaction) => {
+        const updated = transaction.updateChallengeRuntime(challenge.id, {
+          currentCount: 7,
+          bestCount: 9,
+          state: "pending",
+          timerEndsAt: null,
+          timerRemainMs: -2_000,
+          completedAt: null,
+          hidden: false,
+        }, now);
+        if (updated === null) throw new Error("Challenge fehlt.");
+      });
+    });
+
+    const saved = await inRepository((repository) => repository.saveSet({
+      name: "  Mit Stand  ",
+      includeProgress: true,
+      now,
+    }));
+    expect(saved.summary).toMatchObject({ name: "Mit Stand", hasProgress: true, type: "user" });
+    expect(saved.payload.name).toBe("Mit Stand");
+    expect(saved.payload.challenges[0]?.progress).toMatchObject({ currentCount: 7, bestCount: 9, timerRemainMs: -2_000 });
+
+    const listed = await inRepository<ChallengeSetSummary[]>((repository) => repository.listSets());
+    expect(listed).toEqual([expect.objectContaining({ id: saved.summary.id, name: "Mit Stand", hasProgress: true })]);
+    const loaded = await inRepository((repository) => repository.readSet(saved.summary.id));
+    expect(loaded?.payload.challenges[0]?.progress).toMatchObject({ currentCount: 7, bestCount: 9 });
+  });
+
+  it("lehnt den 21. Benutzersatz und normalisierte Dubletten ab, zählt die Autosicherung aber nicht", async () => {
+    for (let index = 0; index < 20; index += 1) {
+      await inRepository((repository) => repository.saveSet({
+        name: `Set ${String(index)}`,
+        includeProgress: false,
+        now,
+      }));
+    }
+    await expect(inRepository((repository) => repository.saveSet({ name: "Set 20", includeProgress: false, now }))).rejects.toMatchObject({ code: "validation_failed" });
+    await expect(inRepository((repository) => repository.saveSet({ name: "  SET 0 ", includeProgress: false, now }))).rejects.toMatchObject({ code: "validation_failed" });
+    const auto = await inRepository((repository) => repository.saveSet({ name: "Letzter Stand vor dem Laden", includeProgress: true, reserved: true, now }));
+    expect(auto.summary.type).toBe("autosave");
+    const listed = await inRepository<ChallengeSetSummary[]>((repository) => repository.listSets());
+    expect(listed.filter(({ type }) => type === "user")).toHaveLength(20);
+  });
+
+  it("sichert und lädt einen Set-Stand atomar mit Bestwert und negativer Restzeit", async () => {
+    const first = await inRepository((repository) => repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Erstes Board", 0)], now }));
+    const firstChallenge = onlyChallenge(first.snapshot.challenges);
+    await inRepository((repository) => {
+      repository.transaction((transaction) => {
+        transaction.updateChallengeRuntime(firstChallenge.id, {
+          currentCount: 6,
+          bestCount: 8,
+          state: "pending",
+          timerEndsAt: null,
+          timerRemainMs: -3_000,
+          completedAt: null,
+          hidden: false,
+        }, now);
+      });
+    });
+    const set = await inRepository((repository) => repository.saveSet({ name: "Erstes Board", includeProgress: true, now }));
+    const second = await inRepository((repository) => repository.saveBoard({
+      baseBoardRevision: first.snapshot.boardRevision,
+      definitions: [definition("Zweites Board", 0)],
+      now,
+    }));
+    const restored = await inRepository((repository) => repository.saveBoard({
+      baseBoardRevision: second.snapshot.boardRevision,
+      definitions: [definition("Erstes Board", 0)],
+      reason: "set-switch",
+      setId: set.summary.id,
+      now,
+    }));
+    expect(onlyChallenge(restored.snapshot.challenges)).toMatchObject({ currentCount: 6, bestCount: 8, timerRemainMs: -3_000, timerEndsAt: null });
+    expect(restored.snapshot.eventSeq).toBe(second.snapshot.eventSeq + 1);
+  });
+
+  it("startet beim Laden eines Sets ohne Stand alle Laufzeitwerte bei null", async () => {
+    const first = await inRepository((repository) => repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Ohne Stand", 0)], now }));
+    const firstChallenge = onlyChallenge(first.snapshot.challenges);
+    await inRepository((repository) => {
+      repository.transaction((transaction) => {
+        transaction.updateChallengeRuntime(firstChallenge.id, {
+          currentCount: 6,
+          bestCount: 8,
+          state: "pending",
+          timerEndsAt: null,
+          timerRemainMs: -3_000,
+          completedAt: null,
+          hidden: false,
+        }, now);
+      });
+    });
+    const set = await inRepository((repository) => repository.saveSet({ name: "Ohne Stand", includeProgress: false, now }));
+    const second = await inRepository((repository) => repository.saveBoard({
+      baseBoardRevision: first.snapshot.boardRevision,
+      definitions: [definition("Andere Auswahl", 0)],
+      now,
+    }));
+    const loaded = await inRepository((repository) => repository.saveBoard({
+      baseBoardRevision: second.snapshot.boardRevision,
+      definitions: [definition("Ohne Stand", 0)],
+      reason: "set-switch",
+      setId: set.summary.id,
+      now,
+    }));
+    expect(onlyChallenge(loaded.snapshot.challenges)).toMatchObject({
+      currentCount: 0,
+      bestCount: 0,
+      state: "pending",
+      timerEndsAt: null,
+      timerRemainMs: null,
+      completedAt: null,
+    });
+  });
+
+  it("liest die Autosicherung vor dem Überschreiben und stellt sie beim eigenen Laden wieder her", async () => {
+    const first = await inRepository((repository) => repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Vorher", 0)], now }));
+    const auto = await inRepository((repository) => repository.saveSet({ name: "Letzter Stand vor dem Laden", includeProgress: true, reserved: true, now }));
+    const second = await inRepository((repository) => repository.saveBoard({ baseBoardRevision: first.snapshot.boardRevision, definitions: [definition("Nachher", 0)], now }));
+    const restored = await inRepository((repository) => repository.saveBoard({
+      baseBoardRevision: second.snapshot.boardRevision,
+      definitions: [definition("Vorher", 0)],
+      reason: "set-switch",
+      setId: auto.summary.id,
+      now,
+    }));
+    expect(onlyChallenge(restored.snapshot.challenges).title).toBe("Vorher");
+    const autoAfter = await inRepository((repository) => repository.readSet(auto.summary.id));
+    expect(autoAfter?.payload.challenges[0]?.title).toBe("Nachher");
+  });
+
+  it("rollt Autosicherung, Board-Ersatz und Restore bei einem Fehler gemeinsam zurück", async () => {
+    const first = await inRepository((repository) => repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Vorher", 0)], now }));
+    const set = await inRepository((repository) => repository.saveSet({ name: "Ziel", includeProgress: true, now }));
+    await expect(inRepository((repository) => repository.saveBoard({
+      baseBoardRevision: first.snapshot.boardRevision,
+      definitions: [{ ...definition("Ungültig", 0), kind: "measure", unit: null }],
+      reason: "set-switch",
+      setId: set.summary.id,
+      now,
+    }))).rejects.toMatchObject({ code: "validation_failed" });
+    const after = await inRepository((repository) => repository.readSnapshot());
+    expect(onlyChallenge(after.challenges).title).toBe("Vorher");
+    expect(after.boardRevision).toBe(first.snapshot.boardRevision);
+    expect(await inRepository((repository) => repository.readSet("autosave"))).toBeNull();
+  });
+
+  it("erhöht event_seq nur beim Set-Wechsel und rollt den Sprung mit dem Board zurück", async () => {
+    const created = await inRepository((repository) =>
+      repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Original", 0)], now }),
+    );
+    expect(created.snapshot.eventSeq).toBe(0);
+    const original = onlyChallenge(created.snapshot.challenges);
+
+    const ordinary = await inRepository((repository) =>
+      repository.saveBoard({
+        baseBoardRevision: created.snapshot.boardRevision,
+        definitions: [definitionFor(original, "Gewöhnlich")],
+        now: future,
+      }),
+    );
+    expect(ordinary.snapshot.eventSeq).toBe(0);
+
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec(`
+        CREATE TRIGGER fail_set_switch_event_seq
+        BEFORE UPDATE OF event_seq ON wc_meta
+        WHEN NEW.event_seq > OLD.event_seq
+        BEGIN
+          SELECT RAISE(ABORT, 'Set-Wechsel-Sequenz absichtlich fehlgeschlagen');
+        END
+      `);
+    });
+
+    await expect(inRepository((repository) => repository.saveBoard({
+      baseBoardRevision: ordinary.snapshot.boardRevision,
+      definitions: [definitionFor(original, "Nicht gespeichert")],
+      reason: "set-switch",
+      now: future,
+    }))).rejects.toThrow();
+
+    const afterRollback = await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec("DROP TRIGGER fail_set_switch_event_seq");
+      const repository = createSqlStorageChallengeRepository({
+        sql: state.storage.sql,
+        transactionSync: state.storage.transactionSync.bind(state.storage),
+      });
+      return repository.readSnapshot();
+    });
+    expect(afterRollback.eventSeq).toBe(0);
+    expect(onlyChallenge(afterRollback.challenges).title).toBe("Gewöhnlich");
+  });
+
+  it("persistiert den Bestwert-Reset beim Typwechsel", async () => {
+    const created = await inRepository((repository) =>
+      repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Counter", 0)], now }),
+    );
+    const seeded = onlyChallenge(created.snapshot.challenges);
+    const runtime = await inRepository((repository) =>
+      repository.transaction((transaction) =>
+        transaction.updateChallengeRuntime(
+          seeded.id,
+          {
+            currentCount: 4,
+            bestCount: 4,
+            state: "active",
+            timerEndsAt: future,
+            timerRemainMs: null,
+            completedAt: null,
+            hidden: false,
+          },
+          now,
+        ),
+      ),
+    );
+    if (runtime === null) throw new Error("Runtime-Challenge konnte nicht gesetzt werden.");
+
+    const saved = await inRepository((repository) =>
+      repository.saveBoard({
+        baseBoardRevision: created.snapshot.boardRevision,
+        definitions: [{
+          ...definitionFor(runtime, "Streak"),
+          kind: "streak",
+          targetCount: 5,
+        }],
+        now: future,
+      }),
+    );
+
+    expect(onlyChallenge(saved.snapshot.challenges)).toMatchObject({
+      kind: "streak",
+      currentCount: 0,
+      bestCount: 0,
+      state: "pending",
+    });
+  });
+
+  it("bewahrt einen übererfüllten measure-Stand beim Board-Save", async () => {
+    const created = await inRepository((repository) =>
+      repository.saveBoard({
+        baseBoardRevision: 1,
+        definitions: [{
+          ...definition("Meter", 0),
+          kind: "measure",
+          unit: "m",
+          targetCount: 1_500,
+          step: 50,
+        }],
+        now,
+      }),
+    );
+    const seeded = onlyChallenge(created.snapshot.challenges);
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec("UPDATE wc_challenges SET current_count = 1800 WHERE id = ?", seeded.id);
+    });
+
+    const saved = await inRepository((repository) =>
+      repository.saveBoard({
+        baseBoardRevision: created.snapshot.boardRevision,
+        definitions: [definitionFor(seeded, "Meter")],
+        now,
+      }),
+    );
+
+    expect(onlyChallenge(saved.snapshot.challenges)).toMatchObject({
+      kind: "measure",
+      currentCount: 1_800,
+      targetCount: 1_500,
+    });
+  });
+
+  it("vergibt serverseitige Steuer-Keys für alle neuen Geschwister", async () => {
+    const saved = await inRepository((repository) =>
+      repository.saveBoard({
+        baseBoardRevision: 1,
+        definitions: [definition("Eins", 0), definition("Zwei", 1), definition("Drei", 2)],
+        now,
+      }),
+    );
+    const keys = saved.snapshot.challenges.map(({ controlKey }) => controlKey);
+
+    expect(keys).toHaveLength(3);
+    expect(new Set(keys.map((key) => key.toUpperCase())).size).toBe(3);
+    for (const key of keys) expect(key).toMatch(/^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{4}$/);
+  });
+
+  it("behält den Steuer-Key beim Umbenennen und schreibt gelöschte Keys als Tombstones", async () => {
+    const created = await inRepository((repository) =>
+      repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Original", 0)], now }),
+    );
+    const seeded = onlyChallenge(created.snapshot.challenges);
+    const renamed = await inRepository((repository) =>
+      repository.saveBoard({
+        baseBoardRevision: created.snapshot.boardRevision,
+        definitions: [definitionFor(seeded, "Umbenannt")],
+        now: future,
+      }),
+    );
+
+    expect(onlyChallenge(renamed.snapshot.challenges).controlKey).toBe(seeded.controlKey);
+
+    await inRepository((repository) =>
+      repository.saveBoard({ baseBoardRevision: renamed.snapshot.boardRevision, definitions: [], now: future }),
+    );
+    const retired = await runInDurableObject(stub, (_instance, state) =>
+      state.storage.sql.exec<{ control_key: string }>("SELECT control_key FROM wc_retired_keys").toArray(),
+    );
+
+    expect(retired).toEqual([{ control_key: seeded.controlKey }]);
+  });
+
+  it("löscht bei einer Teilaktualisierung genau zwei von fünf Challenges", async () => {
+    const created = await inRepository((repository) =>
+      repository.saveBoard({
+        baseBoardRevision: 1,
+        definitions: [
+          definition("Eins", 0),
+          definition("Zwei", 1),
+          definition("Drei", 2),
+          definition("Vier", 3),
+          definition("Fünf", 4),
+        ],
+        now,
+      }),
+    );
+    const removed = [created.snapshot.challenges[1], created.snapshot.challenges[3]];
+    const kept = [created.snapshot.challenges[0], created.snapshot.challenges[2], created.snapshot.challenges[4]];
+    if (removed.some((challenge) => challenge === undefined) || kept.some((challenge) => challenge === undefined)) {
+      throw new Error("Fünf Challenges wurden nicht angelegt.");
+    }
+    const removedChallenges = removed.filter((challenge): challenge is Challenge => challenge !== undefined);
+    const keptChallenges = kept.filter((challenge): challenge is Challenge => challenge !== undefined);
+
+    const updated = await inRepository((repository) =>
+      repository.saveBoard({
+        baseBoardRevision: created.snapshot.boardRevision,
+        definitions: keptChallenges.map((challenge) => definitionFor(challenge, challenge.title)),
+        now: future,
+      }),
+    );
+    const retired = await runInDurableObject(stub, (_instance, state) =>
+      state.storage.sql.exec<{ control_key: string }>("SELECT control_key FROM wc_retired_keys ORDER BY rowid").toArray(),
+    );
+
+    expect(updated.snapshot.challenges.map(({ id }) => id)).toEqual(keptChallenges.map(({ id }) => id));
+    expect(retired).toEqual(removedChallenges.map((challenge) => ({ control_key: challenge.controlKey })));
+  });
+
+  it("hinterlässt bei einem scheiternden DELETE keinen Tombstone", async () => {
+    const created = await inRepository((repository) =>
+      repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Gesperrt", 0)], now }),
+    );
+    const challenge = onlyChallenge(created.snapshot.challenges);
+
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec("PRAGMA foreign_keys = ON");
+      state.storage.sql.exec(`
+        CREATE TABLE wc_delete_blocker (
+          challenge_id TEXT PRIMARY KEY REFERENCES wc_challenges(id)
+        );
+      `);
+      state.storage.sql.exec(
+        "INSERT INTO wc_delete_blocker(challenge_id) VALUES (?)",
+        challenge.id,
+      );
+    });
+
+    let observation: {
+      challenges: readonly { id: string }[];
+      retired: readonly { control_key: string }[];
+    } | undefined;
+    try {
+      await expect(inRepository((repository) =>
+        repository.saveBoard({ baseBoardRevision: created.snapshot.boardRevision, definitions: [], now: future }),
+      )).rejects.toThrow();
+    } finally {
+      observation = await runInDurableObject(stub, (_instance, state) => {
+        const result = {
+          challenges: state.storage.sql.exec<{ id: string }>("SELECT id FROM wc_challenges ORDER BY id").toArray(),
+          retired: state.storage.sql.exec<{ control_key: string }>("SELECT control_key FROM wc_retired_keys ORDER BY rowid").toArray(),
+        };
+        state.storage.sql.exec("PRAGMA foreign_keys = OFF");
+        state.storage.sql.exec("DROP TABLE wc_delete_blocker");
+        return result;
+      });
+    }
+
+    expect(observation).toEqual({
+      challenges: [{ id: challenge.id }],
+      retired: [],
+    });
+  });
+
+  it("lässt controlKey nicht aus einer Client-Definition setzen", async () => {
+    const clientDefinition = {
+      ...definition("Client-Key", 0),
+      controlKey: "AAAA",
+    } as unknown as ChallengeDefinition;
+
+    await expect(inRepository((repository) =>
+      repository.saveBoard({ baseBoardRevision: 1, definitions: [clientDefinition], now }),
+    )).rejects.toThrow("Ungültige Challenge-Definition.");
+  });
+
   it("liest und schreibt eine pausierte Challenge-Restzeit im Roundtrip", async () => {
     const created = await inRepository((repository) =>
       repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Roundtrip", 0)], now }),
@@ -731,6 +1202,7 @@ describe("win-challenges repository and migration", () => {
           seeded.id,
           {
             currentCount: seeded.currentCount,
+            bestCount: seeded.bestCount,
             state: "pending",
             timerEndsAt: null,
             timerRemainMs: 3_120,
@@ -774,6 +1246,7 @@ describe("win-challenges repository and migration", () => {
         overflowMode: "page",
         overflowTempo: "fast",
         numbered: true,
+        keyVisible: true,
         doneOrder: "keep",
         globalTimerMode: "up",
         globalTimerTotalMs: 86_400_000,
@@ -797,6 +1270,7 @@ describe("win-challenges repository and migration", () => {
       overflowMode: "page",
       overflowTempo: "fast",
       numbered: true,
+      keyVisible: true,
       doneOrder: "keep",
       placement: { x: 12, y: 34, scale: 1.25 },
       globalTimer: { totalMs: 86_400_000, endsAt: null, pausedRemainMs: null },
@@ -820,7 +1294,7 @@ describe("win-challenges repository and migration", () => {
       repository.saveSettings({
         baseSettingsRevision: before.settingsRevision,
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -831,7 +1305,7 @@ describe("win-challenges repository and migration", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end",
         globalTimerMode: "down",
         globalTimerTotalMs: null,
         placement: { x: 300, y: 8, scale: 1 },
@@ -861,7 +1335,7 @@ describe("win-challenges repository and migration", () => {
       repository.saveSettings({
         baseSettingsRevision: before.settingsRevision,
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -872,7 +1346,7 @@ describe("win-challenges repository and migration", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end",
         globalTimerMode: "down",
         globalTimerTotalMs: null,
         placement: { x: 300, y: 8, scale: 1 },
@@ -889,7 +1363,7 @@ describe("win-challenges repository and migration", () => {
     });
   });
 
-  it("sums two consecutive atomic increments", async () => {
+  it("führt den Bestwert über atomare Increments mit und bewahrt ihn bei Rückgang", async () => {
     const created = await inRepository((repository) =>
       repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Counter", 0)], now: now }),
     );
@@ -898,12 +1372,91 @@ describe("win-challenges repository and migration", () => {
       repository.transaction((transaction) => {
         const first = transaction.incrementChallengeCount(challenge.id, 1, 10, now);
         const second = transaction.incrementChallengeCount(challenge.id, 1, 10, now);
-        return [first?.currentCount ?? null, second?.currentCount ?? null];
+        const fallen = transaction.incrementChallengeCount(challenge.id, -1, 10, now);
+        return [
+          first?.currentCount ?? null,
+          first?.bestCount ?? null,
+          second?.currentCount ?? null,
+          second?.bestCount ?? null,
+          fallen?.currentCount ?? null,
+          fallen?.bestCount ?? null,
+        ];
       }),
     );
 
-    expect(counts).toEqual([1, 2]);
-    expect((await inRepository((repository) => repository.readChallenge(challenge.id)))?.currentCount).toBe(2);
+    expect(counts).toEqual([1, 1, 2, 2, 1, 2]);
+    expect(await inRepository((repository) => repository.readChallenge(challenge.id))).toMatchObject({
+      currentCount: 1,
+      bestCount: 2,
+    });
+  });
+
+  it("führt measure-Increments über das Ziel hinaus und liest sie wieder aus der Datenbank", async () => {
+    const created = await inRepository((repository) =>
+      repository.saveBoard({
+        baseBoardRevision: 1,
+        definitions: [{
+          ...definition("Meter", 0),
+          kind: "measure",
+          unit: "m",
+          targetCount: 1_500,
+          step: 50,
+        }],
+        now,
+      }),
+    );
+    const challenge = onlyChallenge(created.snapshot.challenges);
+    const executeIncrement = async (delta: number, commandId: string) => {
+      const command = {
+        commandId,
+        scope: "challenge" as const,
+        type: "increment" as const,
+        challengeId: challenge.id,
+        delta,
+      };
+      const requestHash = await hashChallengeCommand(command);
+      return inRepository((repository) =>
+        createWinChallenges({ repository, clock: () => now }).executeCommandWithHash(
+          command,
+          requestHash,
+        ),
+      );
+    };
+
+    await inRepository((repository) => repository.transaction((transaction) =>
+      transaction.updateChallengeRuntime(
+        challenge.id,
+        {
+          currentCount: 1_500,
+          bestCount: 1_500,
+          state: "pending",
+          timerEndsAt: null,
+          timerRemainMs: null,
+          completedAt: null,
+          hidden: false,
+        },
+        now,
+      ),
+    ));
+    const first = await executeIncrement(50, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    const second = await executeIncrement(250, "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+
+    expect(first.response.challenge).toMatchObject({ currentCount: 1_550, state: "pending" });
+    expect(second.response.challenge).toMatchObject({ currentCount: 1_800, state: "pending" });
+    expect((await inRepository((repository) => repository.readChallenge(challenge.id)))?.currentCount)
+      .toBe(1_800);
+  });
+
+  it("weist einen ungültigen measure-großen Counter-Stand beim DB-Readback zurück", async () => {
+    const created = await inRepository((repository) =>
+      repository.saveBoard({ baseBoardRevision: 1, definitions: [definition("Counter", 0)], now }),
+    );
+    const challenge = onlyChallenge(created.snapshot.challenges);
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec("UPDATE wc_challenges SET current_count = 1000000 WHERE id = ?", challenge.id);
+    });
+
+    await expect(inRepository((repository) => repository.readChallenge(challenge.id))).rejects.toThrow();
   });
 
   it("deduplicates a command by hash and rejects a hash mismatch", async () => {
@@ -1020,7 +1573,7 @@ describe("win-challenges repository and migration", () => {
       repository.saveSettings({
         baseSettingsRevision: created.snapshot.settingsRevision,
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -1031,7 +1584,7 @@ describe("win-challenges repository and migration", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end",
         globalTimerMode: "down",
         globalTimerTotalMs: 120_000,
         placement: { x: 300, y: 8, scale: 1 },
@@ -1171,7 +1724,7 @@ describe("win-challenges repository and migration", () => {
         repository.saveSettings({
           baseSettingsRevision: board.result.snapshot.settingsRevision,
           styleId: "plain-list",
-          themeMode: "inherit",
+          themeMode: "own",
           surfaceOpacity: 100,
           headerStyle: "default",
           textEmphasis: "auto",
@@ -1182,7 +1735,7 @@ describe("win-challenges repository and migration", () => {
           penaltyText: "",
           effectsEnabled: true,
           maxVisible: 5,
-          overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+          overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end",
           globalTimerMode: "down",
           globalTimerTotalMs: null,
           placement: { x: 300, y: 8, scale: 1 },
@@ -1200,8 +1753,12 @@ describe("win-challenges repository and migration", () => {
       settingsSave: { rowsWritten: settings.rowsWritten, rowsRead: settings.rowsRead },
       snapshotRead: { rowsWritten: snapshot.rowsWritten, rowsRead: snapshot.rowsRead },
     });
-    expect(mutation).toMatchObject({ rowsWritten: 4, rowsRead: 5 });
-    expect(board).toMatchObject({ rowsWritten: 7, rowsRead: 15 });
+    expect(mutation).toMatchObject({ rowsWritten: 4, rowsRead: 6 });
+    // Migration 17 adds one case-insensitive UNIQUE-index write per new
+    // control_key (3 writes). Measured reads increase by 3, from 15 to 18.
+    // The retired-key set is loaded once per saveBoard; current.challenges
+    // supplies the tombstone candidates, so neither path adds per-candidate reads.
+    expect(board).toMatchObject({ rowsWritten: 10, rowsRead: 18 });
     expect(settings).toMatchObject({ rowsWritten: 1, rowsRead: 20 });
     expect(snapshot).toMatchObject({ rowsWritten: 0, rowsRead: 7 });
   });

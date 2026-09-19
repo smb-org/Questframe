@@ -59,48 +59,6 @@ function parseCssRuleBlocks(css: string): CssRuleBlock[] {
   return blocks.filter(({ body }) => !/[{}]/.test(body));
 }
 
-function splitCssSelectorList(selectorList: string): string[] {
-  const selectors: string[] = [];
-  let selectorStart = 0;
-  let parenthesesDepth = 0;
-  let bracketDepth = 0;
-  let quote: '"' | "'" | null = null;
-  let escaped = false;
-
-  for (let index = 0; index < selectorList.length; index += 1) {
-    const character = selectorList[index];
-
-    if (quote !== null) {
-      if (escaped) {
-        escaped = false;
-      } else if (character === "\\") {
-        escaped = true;
-      } else if (character === quote) {
-        quote = null;
-      }
-      continue;
-    }
-
-    if (character === '"' || character === "'") {
-      quote = character;
-    } else if (character === "(") {
-      parenthesesDepth += 1;
-    } else if (character === ")") {
-      parenthesesDepth = Math.max(0, parenthesesDepth - 1);
-    } else if (character === "[") {
-      bracketDepth += 1;
-    } else if (character === "]") {
-      bracketDepth = Math.max(0, bracketDepth - 1);
-    } else if (character === "," && parenthesesDepth === 0 && bracketDepth === 0) {
-      selectors.push(selectorList.slice(selectorStart, index).trim());
-      selectorStart = index + 1;
-    }
-  }
-
-  selectors.push(selectorList.slice(selectorStart).trim());
-  return selectors.filter((selector) => selector.length > 0);
-}
-
 describe("Challenge-Quelle-CSS", () => {
   it("liefert das eigene surface-Preset sowie getrennte bare- und strong-Presets", () => {
     expect(sourceCss).toContain("--wc-surface: rgba(13, 16, 19, 0.88);");
@@ -160,6 +118,41 @@ describe("Challenge-Quelle-CSS", () => {
     expect(criticalTimer).toContain("text-shadow: var(--wc-bare-shadow);");
   });
 
+  it("gibt der Überzeit einen eigenen ruhigen Wert und reserviert critical für den knappen Timer", () => {
+    const overtimeRule = sourceCss.match(
+      /\.wc-is-overtime\s+\.challenge-source__time\s*\{([^}]*)\}/,
+    )?.[1] ?? "";
+    const criticalTimer = sourceCss.match(
+      /\.challenge-source__timer--critical\s*\{([^}]*)\}/,
+    )?.[1] ?? "";
+    const pausedOvertimeTimer = sourceCss.match(
+      /\.challenge-source__timer\.wc-is-overtime\s*\{([^}]*)\}/,
+    )?.[1] ?? "";
+    const penaltyRule = [...sourceCss.matchAll(
+      /\.challenge-source__penalty::after\s*\{([^}]*)\}/g,
+    )].at(-1)?.[1] ?? "";
+    const penaltyLabel = sourceCss.match(
+      /\.challenge-source__penalty-label\s*\{([^}]*)\}/,
+    )?.[1] ?? "";
+
+    expect(sourceCss).toContain("--wc-overtime: #c04f59;");
+    expect(overtimeRule).toContain("color: var(--wc-overtime);");
+    expect(overtimeRule).not.toContain("var(--wc-critical)");
+    expect(pausedOvertimeTimer).toContain("color: var(--wc-overtime);");
+    expect(criticalTimer).toContain("color: var(--wc-critical);");
+    expect(sourceCss).toContain("--wc-penalty: #f36d74;");
+    expect(penaltyRule).toContain("background: var(--wc-penalty);");
+    expect(penaltyRule).not.toContain("var(--wc-critical)");
+    expect(penaltyLabel).toContain("color: var(--wc-penalty);");
+    expect(penaltyLabel).not.toContain("var(--wc-critical)");
+  });
+
+  it("führt streak loss als Zeremonienklasse ohne eigene Alarmfarbe", () => {
+    expect(sourceCss).toContain(".wc-is-streak-loss");
+    expect(sourceCss).toContain('[data-ceremony-type="lost"]');
+    expect(sourceCss).not.toMatch(/wc-is-streak-loss[\s\S]{0,500}var\(--wc-critical\)/);
+  });
+
   it("zwingt das pflegbare Strafen-Label nicht in Großbuchstaben", () => {
     const penaltyLabel = sourceCss.match(
       /\.challenge-source__penalty-label\s*\{([^}]*)\}/,
@@ -168,16 +161,11 @@ describe("Challenge-Quelle-CSS", () => {
     expect(penaltyLabel).not.toContain("text-transform");
   });
 
-  it('erzwingt data-theme-mode="inherit" fuer jede HUD-zu-WC-Brueckenregel', () => {
-    const unscopedSelectors = parseCssRuleBlocks(sourceCss)
-      .filter(({ body }) => body.includes("var(--hud-"))
-      .flatMap(({ selector }) => splitCssSelectorList(selector))
-      .filter((selector) => !selector.includes('[data-theme-mode="inherit"]'))
-      .map((selector) => selector.replace(/\s+/g, " ").trim());
+  it("enthält keine HUD-Theme-Brückenregeln mehr", () => {
+    const hudBridgeRules = parseCssRuleBlocks(sourceCss)
+      .filter(({ body, selector }) => body.includes("var(--hud-") || selector.includes(".hud-theme--"));
 
-    expect(
-      unscopedSelectors,
-      `Ungescopte HUD-zu-WC-Brueckenregel(n) gefunden: ${unscopedSelectors.join(", ")}`,
-    ).toEqual([]);
+    expect(hudBridgeRules).toEqual([]);
+    expect(sourceCss).not.toContain('[data-theme-mode="inherit"]');
   });
 });

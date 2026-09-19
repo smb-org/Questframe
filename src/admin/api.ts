@@ -10,21 +10,33 @@ import {
   twitchLookupResponseSchema,
   uploadResponseSchema,
   visibilityResponseSchema,
+  type ChallengeUndoBaseRevisions,
+  type UndoModuleId,
   type BootstrapResponse,
   type SaveRequest,
+  type SaveResponse,
 } from "../shared/contracts/api";
 import {
   boardSaveRequestSchema,
   boardSaveResponseSchema,
   challengeBoardSnapshotSchema,
+  challengeSetDeleteResponseSchema,
+  challengeSetListResponseSchema,
+  challengeSetResponseSchema,
+  challengeSetSaveRequestSchema,
   commandResponseSchema,
+  challengeUndoResponseSchema,
   settingsSaveRequestSchema,
   settingsSaveResponseSchema,
   type BoardSaveRequest,
   type BoardSaveResponse,
   type ChallengeBoardSnapshot,
+  type ChallengeSetResponse,
+  type ChallengeSetListResponse,
+  type ChallengeSetSaveRequest,
   type Command,
   type CommandResponse,
+  type ChallengeUndoResponse,
   type SettingsSaveRequest,
   type SettingsSaveResponse,
 } from "../modules/win-challenges/contracts/schemas";
@@ -112,6 +124,27 @@ export class BrowserAdminApi implements AdminApi {
     return boardSaveResponseSchema.parse(await response.json());
   }
 
+  async listChallengeSets(): Promise<ChallengeSetListResponse> {
+    const response = await this.request("/api/challenges/sets", { method: "GET" }, false);
+    return challengeSetListResponseSchema.parse(await response.json());
+  }
+
+  async getChallengeSet(setId: string): Promise<ChallengeSetResponse> {
+    const response = await this.request(`/api/challenges/sets/${encodeURIComponent(setId)}`, { method: "GET" }, false);
+    return challengeSetResponseSchema.parse(await response.json());
+  }
+
+  async saveChallengeSet(input: ChallengeSetSaveRequest): Promise<ChallengeSetResponse> {
+    const request = challengeSetSaveRequestSchema.parse(input);
+    const response = await this.requestJson("/api/challenges/sets", "POST", request);
+    return challengeSetResponseSchema.parse(await response.json());
+  }
+
+  async deleteChallengeSet(setId: string): Promise<string> {
+    const response = await this.request(`/api/challenges/sets/${encodeURIComponent(setId)}`, { method: "DELETE" }, true);
+    return challengeSetDeleteResponseSchema.parse(await response.json()).id;
+  }
+
   async saveChallengeSettings(input: SettingsSaveRequest): Promise<SettingsSaveResponse> {
     const request = settingsSaveRequestSchema.parse(input);
     const response = await this.requestJson("/api/challenges/settings", "PUT", request);
@@ -123,12 +156,23 @@ export class BrowserAdminApi implements AdminApi {
     return commandResponseSchema.parse(await response.json());
   }
 
-  async undo(baseRevision: number, targetRevision: number) {
+  async undo(moduleId: "hud", channelSeq: number, baseRevision: number): Promise<SaveResponse>;
+  async undo(moduleId: "challenges", channelSeq: number, baseRevision: ChallengeUndoBaseRevisions): Promise<ChallengeUndoResponse>;
+  async undo(moduleId: UndoModuleId, channelSeq: number, baseRevision: number | ChallengeUndoBaseRevisions) {
+    if (moduleId === "hud") {
+      if (typeof baseRevision !== "number") throw new Error("HUD-Undo benötigt eine HUD-Revision.");
+      const response = await this.requestJson("/api/state/undo", "POST", { moduleId, channelSeq, baseRevision });
+      return saveResponseSchema.parse(await response.json());
+    }
+    if (typeof baseRevision === "number") throw new Error("Challenge-Undo benötigt drei Konfliktrevisionen.");
     const response = await this.requestJson("/api/state/undo", "POST", {
-      baseRevision,
-      targetRevision,
+      moduleId,
+      channelSeq,
+      baseBoardRevision: baseRevision.boardRevision,
+      baseSettingsRevision: baseRevision.settingsRevision,
+      baseEventSeq: baseRevision.eventSeq,
     });
-    return saveResponseSchema.parse(await response.json());
+    return challengeUndoResponseSchema.parse(await response.json());
   }
 
   async mutateOverlayToken(
@@ -232,9 +276,9 @@ export class BrowserAdminApi implements AdminApi {
         if (message.data.type === "snapshot" || message.data.type === "state_committed") {
           callbacks.onState(message.data.state);
         } else if (message.data.type === "audit_appended") {
-          callbacks.onAudit(message.data.entry, message.data.undoTargets);
+          callbacks.onAudit(message.data.entry, message.data.moduleId, message.data.undoTargets);
         } else if (message.data.type === "history_changed") {
-          callbacks.onUndoTargets(message.data.undoTargets);
+          callbacks.onUndoTargets(message.data.moduleId, message.data.undoTargets);
         } else if (message.data.type === "overlay_presence") {
           callbacks.onOverlayPresence(message.data.connectedSockets);
         }

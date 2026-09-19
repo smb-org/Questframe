@@ -1,6 +1,6 @@
 import type { Challenge, GlobalTimer } from "../contracts/schemas";
 import type { ChallengeEvent, GlobalTimerEvent } from "../contracts/events";
-import { MAX_COUNT } from "../contracts/predicates";
+import { maxCountForKind, maxDeltaForKind } from "../contracts/predicates";
 
 export type DomainNow = number | string;
 export type TimerState = "idle" | "running" | "paused" | "expired";
@@ -61,14 +61,15 @@ const withChallengeTimestamp = (now: DomainNow): Pick<Challenge, "updatedAt"> =>
 const completeChallenge = (challenge: Challenge, now: DomainNow): Challenge => {
   const timerState = deriveChallengeTimerState(challenge, now);
   const timerRemainMs = timerState === "running" && challenge.timerEndsAt !== null
-    ? Math.max(0, Date.parse(challenge.timerEndsAt) - toMilliseconds(now))
+    ? Date.parse(challenge.timerEndsAt) - toMilliseconds(now)
     : timerState === "paused"
       ? challenge.timerRemainMs
-      : timerState === "expired"
-        ? 0
+      : timerState === "expired" && challenge.timerEndsAt !== null
+        ? Date.parse(challenge.timerEndsAt) - toMilliseconds(now)
         : null;
   return {
     ...challenge,
+    bestCount: Math.max(challenge.bestCount, challenge.currentCount),
     state: "done",
     timerEndsAt: null,
     timerRemainMs,
@@ -87,16 +88,23 @@ export function applyIncrement(
     return { challenge, event: null };
   }
 
-  const boundedDelta = Math.max(-99, Math.min(99, Math.trunc(delta)));
-  const maximum = challenge.targetCount ?? MAX_COUNT;
+  const boundedDelta = Math.max(
+    -maxDeltaForKind(challenge.kind),
+    Math.min(maxDeltaForKind(challenge.kind), Math.trunc(delta)),
+  );
+  const maximum = challenge.kind === "measure"
+    ? maxCountForKind(challenge.kind)
+    : challenge.targetCount ?? maxCountForKind(challenge.kind);
   const nextCount = Math.max(0, Math.min(maximum, challenge.currentCount + boundedDelta));
   if (nextCount === challenge.currentCount) {
     return { challenge, event: null };
   }
 
-  if (challenge.targetCount !== null && nextCount === challenge.targetCount) {
+  const nextBestCount = Math.max(challenge.bestCount, challenge.currentCount, nextCount);
+
+  if (challenge.kind !== "measure" && challenge.targetCount !== null && nextCount === challenge.targetCount) {
     return {
-      challenge: completeChallenge({ ...challenge, currentCount: nextCount }, now),
+      challenge: completeChallenge({ ...challenge, currentCount: nextCount, bestCount: nextBestCount }, now),
       event: {
         scope: "challenge",
         type: "completed",
@@ -109,6 +117,7 @@ export function applyIncrement(
     challenge: {
       ...challenge,
       currentCount: nextCount,
+      bestCount: nextBestCount,
       ...withChallengeTimestamp(now),
     },
     event: {
@@ -118,6 +127,24 @@ export function applyIncrement(
       delta: nextCount - challenge.currentCount,
       previousCount: challenge.currentCount,
       currentCount: nextCount,
+    },
+  };
+}
+
+export function applyResetStreak(
+  challenge: Challenge,
+  now: DomainNow,
+): ChallengeTransition {
+  return {
+    challenge: {
+      ...challenge,
+      currentCount: 0,
+      ...withChallengeTimestamp(now),
+    },
+    event: {
+      scope: "challenge",
+      type: "streak-reset",
+      challengeId: challenge.id,
     },
   };
 }
@@ -209,9 +236,9 @@ export function applyStopTimer(
   if (challenge.state !== "active") return { challenge, event: null };
   const timerState = deriveChallengeTimerState(challenge, now);
   if (timerState !== "running" && timerState !== "expired") return { challenge, event: null };
-  const timerRemainMs = timerState === "running" && challenge.timerEndsAt !== null
-    ? Math.max(0, Date.parse(challenge.timerEndsAt) - toMilliseconds(now))
-    : 0;
+  const timerRemainMs = challenge.timerEndsAt === null
+    ? null
+    : Date.parse(challenge.timerEndsAt) - toMilliseconds(now);
   return {
     challenge: {
       ...challenge,
@@ -282,12 +309,13 @@ export const applyPauseGlobal = (
   now: DomainNow,
 ): GlobalTimerTransition => {
   if (globalTimer === null) return { globalTimer, event: null };
-  if (deriveTimerState(globalTimer.endsAt, globalTimer.pausedRemainMs, now) !== "running") {
+  const timerState = deriveTimerState(globalTimer.endsAt, globalTimer.pausedRemainMs, now);
+  if (timerState !== "running" && timerState !== "expired") {
     return { globalTimer, event: null };
   }
   const endsAt = globalTimer.endsAt;
   if (endsAt === null) return { globalTimer, event: null };
-  const pausedRemainMs = Math.max(0, Date.parse(endsAt) - toMilliseconds(now));
+  const pausedRemainMs = Date.parse(endsAt) - toMilliseconds(now);
   return {
     globalTimer: { ...globalTimer, endsAt: null, pausedRemainMs },
     event: globalEvent("global_paused"),

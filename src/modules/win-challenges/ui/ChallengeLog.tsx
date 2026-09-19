@@ -15,15 +15,24 @@ import {
 } from "./timer";
 import { useScrollOffset } from "./scroll";
 
-const timerClass = (state: TimerState, critical: boolean, mode: ChallengeUpdate["settings"]["globalTimerMode"]): string => {
-  if (state === "paused") return "challenge-source__timer--paused";
-  if (state === "expired" && mode === "down") return "challenge-source__timer--expired";
-  return critical ? "challenge-source__timer--critical" : "";
+const timerClass = (
+  state: TimerState,
+  critical: boolean,
+  mode: ChallengeUpdate["settings"]["globalTimerMode"],
+  remainingMs: number,
+): string => {
+  const classes: string[] = [];
+  if (state === "paused") classes.push("challenge-source__timer--paused");
+  if (state === "expired" && mode === "down") classes.push("challenge-source__timer--expired");
+  if (mode === "down" && remainingMs < 0) classes.push("wc-is-overtime");
+  if (critical) classes.push("challenge-source__timer--critical");
+  return classes.join(" ");
 };
 
 export type ChallengeLogCeremonyTarget =
   | { kind: "challenge"; id: string }
   | { kind: "global" };
+export type ChallengeLogCeremonyVisual = "progressed" | "completed" | "lost" | "quiet";
 
 const resolveChallengeTextEmphasis = (
   textEmphasis: ChallengeUpdate["settings"]["textEmphasis"],
@@ -59,7 +68,7 @@ const GlobalTimerDisplay = ({
     <span
       key={ceremonyTarget ? ceremonySeq : undefined}
       aria-label={`Globaler Timer: ${formatRemaining(displayedMs)}${statusLabel === null ? "" : `, ${statusLabel}`}${mode === "up" ? ", hochzählend" : ""}`}
-      className={`challenge-source__timer ${timerClass(state, critical, mode)}`}
+      className={`challenge-source__timer ${timerClass(state, critical, mode, remainingMs)}`}
       data-critical={critical ? "true" : "false"}
       data-state={state}
       data-ceremony-target={ceremonyTarget ? "true" : undefined}
@@ -75,24 +84,34 @@ const ChallengeRow = ({
   challenge,
   now,
   ceremonyTargetId,
+  ceremonyVisual,
   ceremonySeq,
+  clockOffsetMs = 0,
   number,
   numbered,
+  keyVisible,
+  accessibleKey,
 }: {
   challenge: Challenge;
   now: number;
   ceremonyTargetId?: string | null;
+  ceremonyVisual: ChallengeLogCeremonyVisual | undefined;
   ceremonySeq?: number | undefined;
+  clockOffsetMs?: number;
   number: number | undefined;
   numbered: boolean;
+  keyVisible: boolean;
+  accessibleKey: boolean;
 }) => {
   const done = challenge.state === "done";
+  const showingKey = !done && keyVisible;
   const timerState = deriveChallengeTimerState(challenge, now);
   const remainingMs = remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, now);
+  const overtime = remainingMs < 0;
   const drain = useMemo(() => {
     if (challenge.timerTotalMs === null) return null;
     // eslint-disable-next-line react-hooks/purity -- Der Snapshot darf nur bei einem Timerwechsel neu berechnet werden.
-    const snapshotNow = Date.now();
+    const snapshotNow = Date.now() + clockOffsetMs;
     const restMs = challenge.timerEndsAt !== null
       ? Math.max(0, Date.parse(challenge.timerEndsAt) - snapshotNow)
       : challenge.timerRemainMs ?? 0;
@@ -101,9 +120,11 @@ const ChallengeRow = ({
       "--wc-timer-delay": `-${String(challenge.timerTotalMs - restMs)}ms`,
     };
     // Absicht: kein now in den Abhängigkeiten. Die Werte werden genau dann neu
-    // berechnet, wenn der Timer wirklich wechselt (Start, Pause, Fortsetzen, Reset).
-  }, [challenge.timerEndsAt, challenge.timerRemainMs, challenge.timerTotalMs]);
-  const timerScale = challenge.timerTotalMs === null ? 0 : remainingMs / challenge.timerTotalMs;
+    // berechnet, wenn der Timer oder der Zeit-Offset wechselt.
+  }, [challenge.timerEndsAt, challenge.timerRemainMs, challenge.timerTotalMs, clockOffsetMs]);
+  const timerScale = challenge.timerTotalMs === null
+    ? 0
+    : Math.min(1, Math.max(0, remainingMs / challenge.timerTotalMs));
   const showTime = done
     ? challenge.timerRemainMs !== null
     : timerState === "running" || timerState === "paused" || timerState === "expired";
@@ -114,13 +135,36 @@ const ChallengeRow = ({
     : done
       ? 100
       : Math.min(100, Math.max(0, challenge.currentCount / targetCount * 100));
+  const accessibleCount = targetCount === null ? null : Math.min(challenge.currentCount, targetCount);
+  const accessibleText = targetCount !== null && challenge.currentCount > targetCount
+    ? `${String(challenge.currentCount)} von ${String(targetCount)} (übererfüllt)`
+    : undefined;
+  const streakBest = challenge.kind === "streak"
+    ? Math.max(challenge.bestCount, challenge.currentCount)
+    : null;
+  const showStreakBest = streakBest !== null && streakBest > 0;
+  const measureZeroStatus = challenge.kind === "measure" && challenge.currentCount === 0
+    ? timerState === "running"
+      ? "läuft"
+      : timerState === "idle"
+        ? "bereit"
+        : null
+    : null;
+  const countText = targetCount === null
+    ? String(challenge.currentCount)
+    : `${String(challenge.currentCount)} / ${String(targetCount)}`;
+  const displayedCount = `${countText}${showStreakBest ? ` · Best ${String(streakBest)}` : ""}${measureZeroStatus === null ? "" : ` · ${measureZeroStatus}`}`;
+  const countLabel = targetCount === null
+    ? displayedCount
+    : `Fortschritt: ${displayedCount}${accessibleText === undefined ? "" : ` (${accessibleText})`}`;
   const progressStyle = progress === null
     ? undefined
     : { "--wc-progress": `${String(progress)}%` } as CSSProperties;
   const ceremonyKey = ceremonyTargetId === challenge.id ? ceremonySeq : undefined;
+  const streakLoss = ceremonyVisual === "lost" && ceremonyTargetId === challenge.id;
   return (
     <li
-      className={`challenge-source__row${done ? " challenge-source__row--done" : ""}`}
+      className={`challenge-source__row${done ? " challenge-source__row--done" : ""}${overtime ? " wc-is-overtime" : ""}${streakLoss ? " wc-is-streak-loss" : ""}`}
       data-challenge-id={challenge.id}
       data-ceremony-target={ceremonyTargetId === challenge.id ? "true" : undefined}
       data-state={challenge.state}
@@ -133,19 +177,25 @@ const ChallengeRow = ({
     >
       <span aria-hidden="true" className="challenge-source__timer-bar" />
       <span className="challenge-source__row-inner" key={ceremonyKey}>
-        <span aria-hidden="true" className="challenge-source__mark" key={ceremonyKey}>
-          {/* Erledigt schlaegt Nummerierung: der gruene Haken ist das Signal, die Nummer
-            waere hier nur noch Buchhaltung. */}
-          {done ? "✓" : numbered ? number ?? "" : ""}
+        <span
+          aria-hidden={showingKey && accessibleKey ? undefined : true}
+          aria-label={showingKey && accessibleKey ? `Steuer-Key ${challenge.controlKey}` : undefined}
+          className={`challenge-source__mark${showingKey ? " challenge-source__mark--key" : ""}`}
+          key={ceremonyKey}
+        >
+          {/* Erledigt schlaegt Steuer-Key und Nummerierung: der gruene Haken ist das Signal,
+            beide Adressen waeren hier nur noch Buchhaltung. */}
+          {done ? "✓" : showingKey ? challenge.controlKey : numbered ? number ?? "" : ""}
         </span>
         <span className="challenge-source__content">
           <span className="challenge-source__name">{challenge.title}</span>
           {progress !== null && (
             <span
-              aria-label={`Fortschritt: ${String(challenge.currentCount)} von ${String(targetCount)}`}
+              aria-label={countLabel}
               aria-valuemax={targetCount ?? undefined}
               aria-valuemin={0}
-              aria-valuenow={challenge.currentCount}
+              aria-valuenow={accessibleCount ?? undefined}
+              aria-valuetext={accessibleText}
               className="challenge-source__progress"
               role="progressbar"
               style={progressStyle}
@@ -160,14 +210,12 @@ const ChallengeRow = ({
               Bei 0 und ohne Ziel bleibt die Zeile bewusst leer. */}
           {(challenge.targetCount !== null || challenge.currentCount > 0) && (
             <span className="challenge-source__count" key={ceremonyKey}>
-              {challenge.targetCount === null
-                ? challenge.currentCount
-                : `${String(challenge.currentCount)} / ${String(challenge.targetCount)}`}
+              {displayedCount}
             </span>
           )}
           {showTime && (
             <span
-              aria-label={done ? `Rest bei Abschluss ${timeText}` : `Restzeit ${timeText}`}
+              aria-label={done && remainingMs < 0 ? `Überzeit bei Abschluss ${timeText}` : done ? `Rest bei Abschluss ${timeText}` : `Restzeit ${timeText}`}
               className="challenge-source__time"
               data-state={done ? "done" : timerState}
             >
@@ -183,7 +231,9 @@ const ChallengeRow = ({
 export const ChallengeLog = ({
   update,
   now,
+  clockOffsetMs = 0,
   ceremonyTarget = null,
+  ceremonyVisual,
   ceremonySeq,
   placement,
   className,
@@ -198,7 +248,9 @@ export const ChallengeLog = ({
 }: {
   update: ChallengeUpdate;
   now: number;
+  clockOffsetMs?: number;
   ceremonyTarget?: ChallengeLogCeremonyTarget | null;
+  ceremonyVisual?: ChallengeLogCeremonyVisual;
   ceremonySeq?: number | undefined;
   placement?: ChallengeUpdate["settings"]["placement"];
   className?: string;
@@ -307,16 +359,16 @@ export const ChallengeLog = ({
   return (
     <Root
       aria-label={ariaLabel ?? "Challenge-Quelle"}
-      className={`challenge-source${update.settings.themeMode === "inherit" ? ` hud-theme--${update.settings.themeId}` : ""}${className === undefined ? "" : ` ${className}`}`}
+      className={`challenge-source${className === undefined ? "" : ` ${className}`}`}
       data-style={update.settings.styleId}
       data-overflow-mode={effectiveMode}
       data-numbered={update.settings.numbered ? "true" : "false"}
+      data-key-visible={update.settings.keyVisible ? "true" : "false"}
       data-surface-mode={surfaceMode}
       data-text-emphasis={effectiveEmphasis}
       data-header-style={update.settings.headerStyle}
       data-font-family={update.settings.fontFamily}
       data-theme-mode={update.settings.themeMode}
-      data-theme-id={update.settings.themeId}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -346,10 +398,14 @@ export const ChallengeLog = ({
         <>
           {pinned !== null && <ul aria-label="Gepinnte Challenge" className="challenge-source__rows challenge-source__pinned-row">
             <ChallengeRow
+              ceremonyVisual={ceremonyVisual}
               ceremonySeq={ceremonySeq}
               ceremonyTargetId={ceremonyTarget?.kind === "challenge" ? ceremonyTarget.id : null}
               challenge={pinned}
+              clockOffsetMs={clockOffsetMs}
               numbered={update.settings.numbered}
+              keyVisible={update.settings.keyVisible}
+              accessibleKey={ariaLabel !== undefined}
               number={numbers.get(pinned.id)}
               now={now}
             />
@@ -361,11 +417,15 @@ export const ChallengeLog = ({
             <ul aria-label="Challenges" className="challenge-source__rows" ref={scroll.rows}>
               {(pinned === null ? allChallenges : allChallenges.slice(1)).map((challenge) => (
                 <ChallengeRow
+                  ceremonyVisual={ceremonyVisual}
                   ceremonySeq={ceremonySeq}
                   ceremonyTargetId={ceremonyTarget?.kind === "challenge" ? ceremonyTarget.id : null}
                   challenge={challenge}
+                  clockOffsetMs={clockOffsetMs}
                   key={challenge.id}
                   numbered={update.settings.numbered}
+                  keyVisible={update.settings.keyVisible}
+                  accessibleKey={ariaLabel !== undefined}
                   number={numbers.get(challenge.id)}
                   now={now}
                 />
@@ -378,11 +438,15 @@ export const ChallengeLog = ({
         <ul aria-label="Challenges" className="challenge-source__rows">
           {challenges.map((challenge) => (
             <ChallengeRow
+              ceremonyVisual={ceremonyVisual}
               ceremonySeq={ceremonySeq}
               ceremonyTargetId={ceremonyTarget?.kind === "challenge" ? ceremonyTarget.id : null}
               challenge={challenge}
+              clockOffsetMs={clockOffsetMs}
               key={challenge.id}
               numbered={update.settings.numbered}
+              keyVisible={update.settings.keyVisible}
+              accessibleKey={ariaLabel !== undefined}
               number={numbers.get(challenge.id)}
               now={now}
             />
@@ -393,11 +457,15 @@ export const ChallengeLog = ({
         <ul aria-label="Challenges" className="challenge-source__rows" key={effectiveMode === "page" ? pageIndex : "cut"}>
           {challenges.map((challenge) => (
             <ChallengeRow
+              ceremonyVisual={ceremonyVisual}
               ceremonySeq={ceremonySeq}
               ceremonyTargetId={ceremonyTarget?.kind === "challenge" ? ceremonyTarget.id : null}
               key={challenge.id}
               challenge={challenge}
+              clockOffsetMs={clockOffsetMs}
               numbered={update.settings.numbered}
+              keyVisible={update.settings.keyVisible}
+              accessibleKey={ariaLabel !== undefined}
               number={numbers.get(challenge.id)}
               now={now}
             />

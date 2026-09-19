@@ -4,6 +4,7 @@ import type { Challenge, ChallengeUpdate, GlobalTimer } from "../shared/contract
 import { DOCK_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
 import { challengeNumbers, formatChallengeStand, selectVisible } from "../modules/win-challenges/domain/visibility";
 import { deriveChallengeTimerState, deriveTimerState } from "../modules/win-challenges/domain/timers";
+import { maxCountForKind, maxDeltaForKind } from "../modules/win-challenges/contracts/predicates";
 import type { Command } from "../modules/win-challenges/contracts/schemas";
 import {
   formatRemaining,
@@ -19,7 +20,7 @@ import "./live.css";
 const ERROR_VISIBLE_MS = 3_000;
 const DELETED_NOTICE_MS = 1_500;
 
-type OptimisticPatch = Partial<Pick<Challenge, "currentCount" | "state" | "timerEndsAt" | "timerRemainMs" | "completedAt" | "hidden">>;
+type OptimisticPatch = Partial<Pick<Challenge, "currentCount" | "bestCount" | "state" | "timerEndsAt" | "timerRemainMs" | "completedAt" | "hidden">>;
 
 type CommandFailure = {
   code: string;
@@ -96,6 +97,14 @@ const incrementCommand = (challengeId: string, delta: number): Command => ({
   delta,
 });
 
+const deltaButtonText = (direction: "increase" | "decrease", step: number): string => {
+  const symbol = direction === "increase" ? "+" : "−";
+  return step === 1 ? symbol : `${symbol}${String(step)}`;
+};
+
+const deltaButtonLabel = (title: string, direction: "increase" | "decrease", step: number): string =>
+  `${title} um ${String(step)} ${direction === "increase" ? "erhöhen" : "verringern"}`;
+
 const globalCommand = (type: "startGlobalTimer" | "pauseGlobalTimer"): Command => ({
   commandId: commandId(),
   scope: "global",
@@ -111,18 +120,28 @@ const optimisticPatchFor = (
   if (challenge === undefined) return null;
   if (command.type === "increment") {
     if (challenge.state === "done") return null;
-    const maximum = challenge.targetCount ?? 999;
-    const currentCount = Math.max(0, Math.min(maximum, challenge.currentCount + command.delta));
+    const maximum = challenge.kind === "measure"
+      ? maxCountForKind(challenge.kind)
+      : challenge.targetCount ?? maxCountForKind(challenge.kind);
+    const boundedDelta = Math.max(
+      -maxDeltaForKind(challenge.kind),
+      Math.min(maxDeltaForKind(challenge.kind), Math.trunc(command.delta)),
+    );
+    const currentCount = Math.max(0, Math.min(maximum, challenge.currentCount + boundedDelta));
     if (currentCount === challenge.currentCount) return null;
-    if (challenge.targetCount === null || currentCount !== challenge.targetCount) return { currentCount };
+    const bestCount = Math.max(challenge.bestCount, challenge.currentCount, currentCount);
+    if (challenge.kind === "measure" || challenge.targetCount === null || currentCount !== challenge.targetCount) {
+      return { currentCount, bestCount };
+    }
     const timerState = deriveChallengeTimerState(challenge, Date.now());
     const timerRemainMs = timerState === "running" || timerState === "paused"
       ? remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, Date.now())
       : timerState === "expired"
-        ? 0
+        ? remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, Date.now())
         : null;
     return {
       currentCount,
+      bestCount,
       state: "done",
       timerEndsAt: null,
       timerRemainMs,
@@ -136,9 +155,10 @@ const optimisticPatchFor = (
     const timerRemainMs = timerState === "running" || timerState === "paused"
       ? remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, Date.now())
       : timerState === "expired"
-        ? 0
+        ? remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, Date.now())
         : null;
     return {
+      bestCount: Math.max(challenge.bestCount, challenge.currentCount),
       state: "done",
       timerEndsAt: null,
       timerRemainMs,
@@ -203,6 +223,7 @@ const ChallengeRow = ({
   now,
   number,
   numbered,
+  keyVisible,
   onCommand,
 }: {
   challenge: Challenge;
@@ -214,22 +235,28 @@ const ChallengeRow = ({
   now: number;
   number: number | undefined;
   numbered: boolean;
+  keyVisible: boolean;
   onCommand: (command: Command, challengeId: string) => void;
 }) => {
   const done = challenge.state === "done";
+  const showingKey = !done && keyVisible;
   const hasTimer = challenge.timerTotalMs !== null;
   const timerState = hasTimer ? deriveChallengeTimerState(challenge, now) : "idle";
   const remainingMs = remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, now);
   const timerCritical = timerIsCritical(timerState, remainingMs);
-  const timeText = timerState === "expired"
-    ? "abgelaufen"
-    : formatRemaining(timerState === "idle" ? challenge.timerTotalMs ?? 0 : remainingMs);
+  const timeText = formatRemaining(timerState === "idle" ? challenge.timerTotalMs ?? 0 : remainingMs);
+  const streakBest = challenge.kind === "streak"
+    ? challenge.bestCount
+    : null;
+  const canIncrement = challenge.kind !== "tick";
+  const canDecrement = challenge.kind !== "tick" && challenge.kind !== "streak";
+  const showCount = challenge.kind !== "tick" && (challenge.targetCount !== null || challenge.currentCount > 0);
   const showTime = done
     ? challenge.timerRemainMs !== null
     : timerState === "running" || timerState === "paused" || timerState === "expired";
   const timeAriaLabel = done
     ? `Rest bei Abschluss ${formatRemaining(remainingMs)}`
-    : timerState === "expired" ? "Timer abgelaufen" : `Restzeit ${timeText}`;
+    : timerState === "expired" ? `Timer abgelaufen: ${timeText}` : `Restzeit ${timeText}`;
   return (
     <article
       className={`live-page__challenge-row${pinned ? " live-page__challenge-row--pinned" : ""}${done ? " live-page__challenge-row--done" : ""}${pending ? " live-page__challenge-row--pending" : ""}`}
@@ -238,7 +265,9 @@ const ChallengeRow = ({
     >
       <div className="live-page__challenge-main">
         <span aria-hidden="true" className="live-page__challenge-mark">{done ? "✓" : "▸"}</span>
-        {numbered && number !== undefined && <span aria-hidden="true" className="live-page__challenge-number">{number}</span>}
+        {showingKey
+          ? <span aria-label={`Steuer-Key ${challenge.controlKey}`} className="live-page__challenge-key">{challenge.controlKey}</span>
+          : numbered && number !== undefined && <span aria-hidden="true" className="live-page__challenge-number">{number}</span>}
         <span className="live-page__challenge-title">{challenge.title}</span>
         {challenge.hidden && <span className="live-page__challenge-hidden-badge">ausgeblendet</span>}
         <span className="live-page__challenge-meta">
@@ -250,31 +279,38 @@ const ChallengeRow = ({
               data-state={done ? "done" : timerState}
             >{timerState === "paused" && !done ? "Ⅱ " : ""}{done ? formatRemaining(remainingMs) : timeText}</span>
           )}
-          <span className="live-page__challenge-count">
-            {challenge.targetCount === null
-              ? String(challenge.currentCount)
-              : `${String(challenge.currentCount)} / ${String(challenge.targetCount)}`}
-          </span>
+          {showCount && (
+            <span className="live-page__challenge-count">
+              {challenge.targetCount === null
+                ? String(challenge.currentCount)
+                : `${String(challenge.currentCount)} / ${String(challenge.targetCount)}`}
+              {streakBest !== null && streakBest > 0 ? ` · Best ${String(streakBest)}` : ""}
+            </span>
+          )}
         </span>
       </div>
       {!deleted && !compact && (
         <div className="live-page__challenge-actions" aria-label={`${challenge.title} bedienen`}>
           {!done && (
             <>
-              <button
-                aria-label={`${challenge.title} um 1 verringern`}
-                className="live-control live-control--count"
-                disabled={pending || challenge.currentCount === 0}
-                onClick={() => onCommand(incrementCommand(challenge.id, -1), challenge.id)}
-                type="button"
-              >−</button>
-              <button
-                aria-label={`${challenge.title} um 1 erhöhen`}
-                className="live-control live-control--count"
-                disabled={pending}
-                onClick={() => onCommand(incrementCommand(challenge.id, 1), challenge.id)}
-                type="button"
-              >+</button>
+              {canDecrement && (
+                <button
+                  aria-label={deltaButtonLabel(challenge.title, "decrease", challenge.step)}
+                  className="live-control live-control--count"
+                  disabled={pending || challenge.currentCount === 0}
+                  onClick={() => onCommand(incrementCommand(challenge.id, -challenge.step), challenge.id)}
+                  type="button"
+                >{deltaButtonText("decrease", challenge.step)}</button>
+              )}
+              {canIncrement && (
+                <button
+                  aria-label={deltaButtonLabel(challenge.title, "increase", challenge.step)}
+                  className="live-control live-control--count"
+                  disabled={pending}
+                  onClick={() => onCommand(incrementCommand(challenge.id, challenge.step), challenge.id)}
+                  type="button"
+                >{deltaButtonText("increase", challenge.step)}</button>
+              )}
               <button
                 aria-label={`${challenge.title} abhaken`}
                 className="live-control"
@@ -559,6 +595,7 @@ export const LiveApp = () => {
               error={errors[challenge.id] ?? (deletedNotice?.challenge.id === challenge.id ? deletedNotice.message : null)}
               key={challenge.id}
               numbered={update.settings.numbered}
+              keyVisible={update.settings.keyVisible}
               number={numbers.get(challenge.id)}
               onCommand={(command, challengeId) => runCommand(command, challengeId)}
               pending={pending[challenge.id] === true}

@@ -13,6 +13,7 @@ import {
 } from "../../src/shared/contracts/api";
 import { OVERLAY_SOCKET_PROTOCOL } from "../../src/shared/contracts/protocol";
 import { RequestError } from "../../src/worker/http";
+import { runMigrations, legacyNamespaceForVersion } from "../../src/channel/migrations";
 
 let cookie = "";
 let csrfToken = "";
@@ -139,7 +140,10 @@ describe("channel worker", () => {
         .toArray()
         .map(({ name }) => name),
       versions: state.storage.sql
-        .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations ORDER BY version")
+        .exec<{ version: number }>(
+          "SELECT version FROM _sql_schema_migrations WHERE namespace = ? ORDER BY version",
+          legacyNamespaceForVersion(2),
+        )
         .toArray()
         .map(({ version }) => version),
     }));
@@ -273,6 +277,78 @@ describe("channel worker", () => {
     expect(noOpBody.auditEntry).toBeNull();
   });
 
+  it("behält bei HUD-Routen Auth- und Validierungsfehler in derselben Reihenfolge", async () => {
+    // Eigener Bootstrap: `csrfToken` ist eine Modulvariable, die nur gefüllt
+    // ist, wenn zuvor ein anderer Test sie gesetzt hat. Ein Test über
+    // Fehlerreihenfolgen darf nicht von der Testreihenfolge abhängen.
+    const ownBootstrap = bootstrapResponseSchema.parse(
+      await (
+        await fetchWorker("http://localhost/api/editor/bootstrap", {
+          headers: { cookie, "x-editor-tab": "test-tab-a" },
+        })
+      ).json(),
+    );
+    const ownHeaders = (): HeadersInit => ({
+      cookie,
+      "x-editor-tab": "test-tab-a",
+      "x-csrf-token": ownBootstrap.csrfToken,
+      origin: "http://localhost:5173",
+      "content-type": "application/json",
+    });
+    // Jede Anfrage trägt den Origin: der Worker prüft ihn vor allem anderen
+    // (src/worker/index.ts:116) und würde sonst mit 403 antworten, bevor die
+    // Reihenfolge Auth → CSRF → Body-Parse überhaupt erreicht wird.
+    const unauthenticatedSave = await fetchWorker("http://localhost/api/state", {
+      method: "PUT",
+      headers: { origin: "http://localhost:5173", "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(unauthenticatedSave.status).toBe(401);
+    expect(await unauthenticatedSave.json()).toMatchObject({
+      error: { code: "unauthorized", message: "Bitte mit Twitch anmelden." },
+    });
+
+    const csrfMissingSave = await fetchWorker("http://localhost/api/state", {
+      method: "PUT",
+      headers: { cookie, "x-editor-tab": "test-tab-a", origin: "http://localhost:5173", "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(csrfMissingSave.status).toBe(403);
+    expect(await csrfMissingSave.json()).toMatchObject({
+      error: { code: "csrf_invalid", message: "Sicherheits-Token fehlt." },
+    });
+
+    const invalidSave = await fetchWorker("http://localhost/api/state", {
+      method: "PUT",
+      headers: ownHeaders(),
+      body: "{}",
+    });
+    expect(invalidSave.status).toBe(422);
+    expect(await invalidSave.json()).toMatchObject({
+      error: { code: "validation_failed", message: "Bitte Eingaben prüfen." },
+    });
+
+    const unauthenticatedVisibility = await fetchWorker("http://localhost/api/overlay-visibility", {
+      method: "POST",
+      headers: { origin: "http://localhost:5173", "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(unauthenticatedVisibility.status).toBe(401);
+    expect(await unauthenticatedVisibility.json()).toMatchObject({
+      error: { code: "unauthorized", message: "Bitte mit Twitch anmelden." },
+    });
+
+    const invalidVisibility = await fetchWorker("http://localhost/api/overlay-visibility", {
+      method: "POST",
+      headers: ownHeaders(),
+      body: "{}",
+    });
+    expect(invalidVisibility.status).toBe(422);
+    expect(await invalidVisibility.json()).toMatchObject({
+      error: { code: "validation_failed", message: "Bitte Eingaben prüfen." },
+    });
+  });
+
   it("creates and rotates a read-only overlay token idempotently", async () => {
     const firstRequest = {
       requestId: "dc95708a-645a-4bc0-9ca3-7ffbd42e6662",
@@ -371,8 +447,9 @@ describe("channel worker", () => {
       method: "POST",
       headers: authenticatedHeaders(),
       body: JSON.stringify({
+        moduleId: "hud",
+        channelSeq: target?.channelSeq,
         baseRevision: bootstrap.state.revision,
-        targetRevision: target?.revision,
       }),
     });
     const body = saveResponseSchema.parse(await response.json());
@@ -415,7 +492,7 @@ describe("channel worker", () => {
 
     const history = await runInDurableObject(stub, (_instance, state) =>
       state.storage.sql
-        .exec<{ snapshot_json: string }>("SELECT snapshot_json FROM state_history WHERE revision = ?", revision)
+        .exec<{ channel_seq: number; snapshot_json: string }>("SELECT channel_seq, snapshot_json FROM state_history WHERE module_id = ? AND revision = ?", "hud", revision)
         .toArray()[0],
     );
     expect(history).toBeDefined();
@@ -435,7 +512,7 @@ describe("channel worker", () => {
       const undo = await fetchWorker("http://localhost/api/state/undo", {
         method: "POST",
         headers: authenticatedHeaders(),
-        body: JSON.stringify({ baseRevision: committed.state.revision, targetRevision: revision }),
+        body: JSON.stringify({ moduleId: "hud", channelSeq: history.channel_seq, baseRevision: committed.state.revision }),
       });
       const restored = saveResponseSchema.parse(await undo.json());
       expect(undo.status).toBe(200);
@@ -1027,11 +1104,13 @@ describe("channel worker", () => {
       const [firstAudit, secondAudit] = await Promise.all([firstAuditPromise, secondAuditPromise]);
       expect(firstAudit).toMatchObject({
         type: "audit_appended",
+        moduleId: "hud",
         entry: committed.auditEntry,
         undoTargets: committed.undoTargets,
       });
       expect(secondAudit).toMatchObject({
         type: "audit_appended",
+        moduleId: "hud",
         entry: committed.auditEntry,
         undoTargets: committed.undoTargets,
       });
@@ -1315,6 +1394,136 @@ describe("channel worker", () => {
         .toArray(),
     );
     expect(rows).toEqual([{ twitch_user_id: "20000000000000000002", display_name: "GastTV Neu" }]);
+  });
+
+  it("überführt alte HUD-Historie modulfähig und schützt fremde Modulzeilen", async () => {
+    const bootstrap = bootstrapResponseSchema.parse(
+      await (
+        await fetchWorker("http://localhost/api/editor/bootstrap", {
+          headers: { cookie, "x-editor-tab": "test-tab-a" },
+        })
+      ).json(),
+    );
+    csrfToken = bootstrap.csrfToken;
+
+    // 120 Zeilen sichern ab, dass der Backfill nicht pro Altzeile Bindings anhäuft.
+    const legacyRows = Array.from({ length: 120 }, (_, index) => index + 1).map((revision) => ({
+      revision,
+      snapshotJson: JSON.stringify({ ...bootstrap.state, revision }),
+      createdAt: new Date(Date.UTC(2026, 8, revision)).toISOString(),
+      summary: `Alte HUD-Revision ${String(revision)}`,
+    }));
+    const stub = env.CHANNEL.get(env.CHANNEL.idFromName(`channel:${env.BROADCASTER_ID}`));
+    const migrationResult = await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec("DROP INDEX history_created_idx");
+      state.storage.sql.exec("DROP TABLE state_history");
+      state.storage.sql.exec(`
+        CREATE TABLE state_history (
+          revision INTEGER PRIMARY KEY,
+          snapshot_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          summary TEXT NOT NULL
+        )
+      `);
+      for (const row of legacyRows) {
+        state.storage.sql.exec(
+          "INSERT INTO state_history(revision, snapshot_json, created_at, summary) VALUES (?, ?, ?, ?)",
+          row.revision,
+          row.snapshotJson,
+          row.createdAt,
+          row.summary,
+        );
+      }
+      state.storage.sql.exec(
+        "DELETE FROM _sql_schema_migrations WHERE namespace = ? AND version = ?",
+        "host",
+        3,
+      );
+      runMigrations(state.storage.sql, "state-history-module-test");
+      const first = state.storage.sql
+        .exec<{
+          channel_seq: number;
+          module_id: string;
+          revision: number;
+          snapshot_json: string;
+          created_at: string;
+          summary: string;
+        }>("SELECT channel_seq, module_id, revision, snapshot_json, created_at, summary FROM state_history ORDER BY revision")
+        .toArray();
+      runMigrations(state.storage.sql, "state-history-module-test-second");
+      const second = state.storage.sql
+        .exec<{
+          channel_seq: number;
+          module_id: string;
+          revision: number;
+          snapshot_json: string;
+          created_at: string;
+          summary: string;
+        }>("SELECT channel_seq, module_id, revision, snapshot_json, created_at, summary FROM state_history ORDER BY revision")
+        .toArray();
+      const maxSequence = state.storage.sql
+        .exec<{ channel_seq: number }>("SELECT MAX(channel_seq) AS channel_seq FROM state_history")
+        .toArray()[0]?.channel_seq;
+      if (maxSequence === undefined) throw new Error("state_history must contain backfilled rows");
+      state.storage.sql.exec(
+        `INSERT INTO state_history(
+          channel_seq, module_id, revision, snapshot_json, created_at, summary
+        ) VALUES (?, ?, ?, ?, ?, ?)`,
+        maxSequence + 1,
+        "challenges",
+        99,
+        "{\"fremdes_modul\":true}",
+        "2026-09-18T00:00:00.000Z",
+        "Fremdes Modul",
+      );
+      return { first, second };
+    });
+
+    expect(migrationResult.first).toHaveLength(120);
+    expect(migrationResult.first.every(({ module_id }) => module_id === "hud")).toBe(true);
+    expect(migrationResult.first.map(({ revision }) => revision)).toEqual(legacyRows.map(({ revision }) => revision));
+    expect(migrationResult.first.every((row, index, rows) => index === 0 || row.channel_seq > (rows[index - 1]?.channel_seq ?? 0))).toBe(true);
+    expect(migrationResult.second).toEqual(migrationResult.first);
+
+    const undoTarget = migrationResult.first[1];
+    expect(undoTarget).toBeDefined();
+    if (undoTarget === undefined) throw new Error("expected a backfilled HUD history row");
+    const undo = await fetchWorker("http://localhost/api/state/undo", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({
+        moduleId: "hud",
+        channelSeq: undoTarget.channel_seq,
+        baseRevision: bootstrap.state.revision,
+      }),
+    });
+    const undone = saveResponseSchema.parse(await undo.json());
+    expect(undo.status).toBe(200);
+    const expectedState = JSON.parse(undoTarget.snapshot_json) as Record<string, unknown>;
+    delete expectedState.revision;
+    delete expectedState.overlayEnabled;
+    delete expectedState.updatedAt;
+    delete expectedState.updatedBy;
+    expect(undone.state).toMatchObject(expectedState);
+    expect(undone.undoTargets).toHaveLength(20);
+    expect(undone.undoTargets.every(({ summary }) => summary !== "Fremdes Modul")).toBe(true);
+
+    const mediaHeaders = new Headers(authenticatedHeaders());
+    mediaHeaders.set("content-type", "image/webp");
+    const upload = await fetchWorker("http://localhost/api/media", {
+      method: "POST",
+      headers: mediaHeaders,
+      body: Uint8Array.from(portraitWebP()).buffer,
+    });
+    expect(upload.status).toBe(200);
+    expect(uploadResponseSchema.parse(await upload.json()).portrait.kind).toBe("uploaded");
+
+    const rowsAfterUndo = await runInDurableObject(stub, (_instance, state) =>
+      state.storage.sql
+        .exec<{ module_id: string; summary: string }>("SELECT module_id, summary FROM state_history ORDER BY channel_seq")
+        .toArray(),
+    );
+    expect(rowsAfterUndo.some(({ module_id, summary }) => module_id === "challenges" && summary === "Fremdes Modul")).toBe(true);
   });
 
   it("purges csrf_tokens along with an expired session instead of leaving them orphaned", async () => {

@@ -44,6 +44,7 @@ const bootstrap = (): BootstrapResponse => ({
   state: createDefaultState(actor, "2026-08-29T12:00:00.000Z"),
   recentAudit: [],
   undoTargets: [],
+  challengeUndoTargets: [],
   csrfToken: "csrf-token-with-enough-entropy",
   serverTime: "2026-08-29T12:00:00.000Z",
 });
@@ -122,7 +123,7 @@ describe("Admin workspace shell", () => {
       settingsRevision: 1,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -133,7 +134,7 @@ describe("Admin workspace shell", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -165,7 +166,7 @@ describe("Admin workspace shell", () => {
       settingsRevision: 3,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -176,7 +177,7 @@ describe("Admin workspace shell", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -196,6 +197,10 @@ describe("Admin workspace shell", () => {
     const toggle = await screen.findByRole("checkbox", { name: "Animationen und Töne" });
     expect(toggle).toBeChecked();
     expect(toggle).toHaveAttribute("title", "Der Schalter gilt für alle Styles und alle OBS-Quellen.");
+    const keyToggle = screen.getByRole("checkbox", { name: "Steuer-Keys" });
+    expect(keyToggle).not.toBeChecked();
+    await user.click(keyToggle);
+    expect(saveChallengeSettings).not.toHaveBeenCalled();
     await user.click(toggle);
     // Die HUD-Rail ist ebenfalls dauerhaft gemountet und hat eigene X/Y/Skalierung-Felder;
     // hier gezielt im sichtbaren Challenge-Tabpanel suchen.
@@ -238,6 +243,7 @@ describe("Admin workspace shell", () => {
       overflowMode: "page",
       overflowTempo: "fast",
       numbered: true,
+      keyVisible: true,
       doneOrder: "keep",
       globalTimerMode: "down",
       globalTimerTotalMs: 2_700_000,
@@ -256,9 +262,9 @@ describe("Admin workspace shell", () => {
       boardRevision: 1,
       settingsRevision: 1,
       settings: {
-        styleId: "plain-list", themeMode: "inherit", surfaceOpacity: 100, headerStyle: "default", textEmphasis: "auto", headerTitle: "CHALLENGES", penaltyLabel: "STRAFE", penaltyText: "", effectsEnabled: true,
+        styleId: "plain-list", themeMode: "own", surfaceOpacity: 100, headerStyle: "default", textEmphasis: "auto", headerTitle: "CHALLENGES", penaltyLabel: "STRAFE", penaltyText: "", effectsEnabled: true,
         fontFamily: "theme", fontScale: 1,
-        maxVisible: 8, overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        maxVisible: 8, overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null, placement: { x: 300, y: 8, scale: 1 },
       },
       challenges: [],
@@ -297,7 +303,7 @@ describe("Admin workspace shell", () => {
       settingsRevision: 1,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -308,7 +314,7 @@ describe("Admin workspace shell", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: { totalMs: 60_000, endsAt: new Date(Date.now() + 60_000).toISOString(), pausedRemainMs: null },
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -340,7 +346,7 @@ describe("Admin workspace shell", () => {
       settingsRevision: 1,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -351,7 +357,7 @@ describe("Admin workspace shell", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: { totalMs: 60_000, endsAt: new Date(Date.now() + 30_000).toISOString(), pausedRemainMs: null },
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -393,9 +399,9 @@ describe("Admin workspace shell", () => {
       boardRevision: 1,
       settingsRevision: 1,
       settings: {
-        styleId: "plain-list", themeMode: "inherit", surfaceOpacity: 100, headerStyle: "default", textEmphasis: "auto", headerTitle: "CHALLENGES", penaltyLabel: "STRAFE", penaltyText: "", effectsEnabled: true,
+        styleId: "plain-list", themeMode: "own", surfaceOpacity: 100, headerStyle: "default", textEmphasis: "auto", headerTitle: "CHALLENGES", penaltyLabel: "STRAFE", penaltyText: "", effectsEnabled: true,
         fontFamily: "theme", fontScale: 1,
-        maxVisible: 5, overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        maxVisible: 5, overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: { totalMs: 60_000, endsAt: new Date(Date.now() + 30_000).toISOString(), pausedRemainMs: null }, placement: { x: 300, y: 8, scale: 1 },
       },
       challenges: [],
@@ -442,7 +448,7 @@ describe("Admin workspace shell", () => {
       settingsRevision: 1,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -453,7 +459,7 @@ describe("Admin workspace shell", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -494,7 +500,7 @@ describe("Admin workspace shell", () => {
       settingsRevision: 3,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -505,7 +511,7 @@ describe("Admin workspace shell", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -531,7 +537,7 @@ describe("Admin workspace shell", () => {
         eventSeq: 1,
         boardRevision: 2,
         settingsRevision: 4,
-        settings: { ...challengeSnapshot.settings, themeId: "trail-wood", effectsEnabled: false },
+        settings: { ...challengeSnapshot.settings, effectsEnabled: false },
         challenges: [],
         event: null,
       });
@@ -548,7 +554,7 @@ describe("Admin workspace shell", () => {
       settingsRevision: 3,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -559,7 +565,7 @@ describe("Admin workspace shell", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -610,7 +616,7 @@ describe("Admin workspace shell", () => {
       settingsRevision: 3,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -621,7 +627,7 @@ describe("Admin workspace shell", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -666,14 +672,14 @@ describe("Admin workspace shell", () => {
 
   it("zeigt bei einem Board-Konflikt über die globale Speicherleiste die modul-eigene Konflikt-UI mit Serverstand", async () => {
     const user = userEvent.setup();
-    const localChallenge: ChallengeBoardSnapshot["challenges"][number] = { id: "one", title: "Lokaler Entwurf", targetCount: null, timerTotalMs: null, sortOrder: 0, hidden: false, currentCount: 0, state: "pending", timerEndsAt: null, timerRemainMs: null, completedAt: null, createdAt: "2026-08-31T10:00:00.000Z", updatedAt: "2026-08-31T10:00:00.000Z" };
+    const localChallenge: ChallengeBoardSnapshot["challenges"][number] = { id: "one", title: "Lokaler Entwurf", kind: "counter", unit: null, controlKey: "K7RP", targetCount: null, timerTotalMs: null, sortOrder: 0, step: 1, bestCount: 0, hidden: false, currentCount: 0, state: "pending", timerEndsAt: null, timerRemainMs: null, completedAt: null, createdAt: "2026-08-31T10:00:00.000Z", updatedAt: "2026-08-31T10:00:00.000Z" };
     const challengeSnapshot: ChallengeBoardSnapshot = {
       eventSeq: 0,
       boardRevision: 1,
       settingsRevision: 1,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -684,7 +690,7 @@ describe("Admin workspace shell", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -727,7 +733,7 @@ describe("Admin workspace shell", () => {
       settingsRevision: 3,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -738,7 +744,7 @@ describe("Admin workspace shell", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -770,7 +776,6 @@ describe("Admin workspace shell", () => {
         settingsRevision: 4,
         settings: {
           ...challengeSnapshot.settings,
-          themeId: "trail-wood",
           effectsEnabled: false,
           globalTimer: { totalMs: 60_000, endsAt: "2000-01-01T00:00:00.000Z", pausedRemainMs: null },
         },
@@ -778,7 +783,7 @@ describe("Admin workspace shell", () => {
         event: null,
       });
     });
-    expect(await screen.findByText("abgelaufen")).toBeInTheDocument();
+    expect(await screen.findByText(/^\+/)).toBeInTheDocument();
 
     act(() => {
       onChallengeUpdate?.({
@@ -787,7 +792,6 @@ describe("Admin workspace shell", () => {
         settingsRevision: 5,
         settings: {
           ...challengeSnapshot.settings,
-          themeId: "trail-wood",
           globalTimer: { totalMs: 60_000, endsAt: null, pausedRemainMs: 30_000 },
         },
         challenges: [],
@@ -803,7 +807,6 @@ describe("Admin workspace shell", () => {
         settingsRevision: 6,
         settings: {
           ...challengeSnapshot.settings,
-          themeId: "trail-wood",
           globalTimerMode: "up",
           globalTimer: { totalMs: 60_000, endsAt: "2000-01-01T00:00:00.000Z", pausedRemainMs: null },
         },
@@ -858,7 +861,7 @@ describe("Admin workspace setup", () => {
       settingsRevision: 1,
       settings: {
         styleId: "plain-list",
-        themeMode: "inherit",
+        themeMode: "own",
         surfaceOpacity: 100,
         headerStyle: "default",
         textEmphasis: "auto",
@@ -869,7 +872,7 @@ describe("Admin workspace setup", () => {
         penaltyText: "",
         effectsEnabled: true,
         maxVisible: 5,
-        overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+        overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
         globalTimer: null,
         placement: { x: 300, y: 8, scale: 1 },
       },
@@ -1373,7 +1376,7 @@ describe("Admin workspace publication boundary", () => {
   it("zählt neue Audit-Einträge im geschlossenen Rail und leert den Zähler beim Öffnen", async () => {
     const user = userEvent.setup();
     const initial = bootstrap();
-    let onAudit: ((entry: AuditEntry, targets: UndoTarget[]) => void) | undefined;
+    let onAudit: ((entry: AuditEntry, moduleId: "hud" | "challenges", targets: UndoTarget[]) => void) | undefined;
     render(<AdminWorkspace initialBootstrap={initial} api={{
       save: vi.fn(),
       setVisibility: vi.fn(),
@@ -1394,8 +1397,8 @@ describe("Admin workspace publication boundary", () => {
       createdAt: "2026-08-29T12:01:00.000Z",
     });
     act(() => {
-      onAudit?.(makeEntry("Neue Änderung 1", 2), []);
-      onAudit?.(makeEntry("Neue Änderung 2", 3), []);
+      onAudit?.(makeEntry("Neue Änderung 1", 2), "hud", []);
+      onAudit?.(makeEntry("Neue Änderung 2", 3), "hud", []);
     });
 
     expect(screen.getByText("2", { selector: ".audit-new-badge" })).toHaveAttribute("aria-label", "2 neue Einträge");
@@ -1416,11 +1419,12 @@ describe("Admin workspace publication boundary", () => {
       createdAt: "2026-08-29T12:01:00.000Z",
     };
     const undoTargets: UndoTarget[] = [{
-      revision: 1,
+      channelSeq: 1,
+      moduleId: "hud",
       createdAt: "2026-08-29T12:00:00.000Z",
       summary: "Startzustand",
     }];
-    let onAudit: ((entry: AuditEntry, targets: UndoTarget[]) => void) | undefined;
+    let onAudit: ((entry: AuditEntry, moduleId: "hud" | "challenges", targets: UndoTarget[]) => void) | undefined;
     const save = vi.fn<AdminApi["save"]>((request) => Promise.resolve({
       state: {
         ...initial.state,
@@ -1443,26 +1447,27 @@ describe("Admin workspace publication boundary", () => {
 
     // Der Broadcast kann vor der HTTP-Antwort des auslösenden Saves eintreffen.
     if (onAudit === undefined) throw new Error("expected onAudit subscription callback");
-    act(() => onAudit?.(auditEntry, undoTargets));
+    act(() => onAudit?.(auditEntry, "hud", undoTargets));
     fireEvent.change(screen.getByRole("slider", { name: "Gesundheit" }), { target: { value: "42" } });
     await user.click(screen.getByRole("button", { name: "Alle speichern" }));
     // Danach kann er erneut eintreffen, obwohl die Antwort den Rail schon befüllt hat.
-    act(() => onAudit?.(auditEntry, undoTargets));
+    act(() => onAudit?.(auditEntry, "hud", undoTargets));
 
     await user.click(auditToggle());
     expect(screen.getAllByText(auditEntry.summary)).toHaveLength(1);
-    expect(screen.getByRole("button", { name: /Rev\. 1/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Kanal 1/ })).toBeInTheDocument();
   });
 
   it("updates undo targets from history broadcasts without changing a local draft", async () => {
     const user = userEvent.setup();
     const initial = bootstrap();
     const undoTargets: UndoTarget[] = [{
-      revision: 1,
+      channelSeq: 1,
+      moduleId: "hud",
       createdAt: "2026-08-29T12:00:00.000Z",
       summary: "Startzustand",
     }];
-    let onUndoTargets: ((targets: UndoTarget[]) => void) | undefined;
+    let onUndoTargets: ((moduleId: "hud" | "challenges", targets: UndoTarget[]) => void) | undefined;
     render(<AdminWorkspace initialBootstrap={initial} api={{
       save: vi.fn(),
       setVisibility: vi.fn(),
@@ -1474,13 +1479,112 @@ describe("Admin workspace publication boundary", () => {
 
     fireEvent.change(screen.getByRole("slider", { name: "Gesundheit" }), { target: { value: "42" } });
     if (onUndoTargets === undefined) throw new Error("expected onUndoTargets subscription callback");
-    act(() => onUndoTargets?.(undoTargets));
+    act(() => onUndoTargets?.("hud", undoTargets));
 
     expect(screen.getByRole("slider", { name: "Gesundheit" })).toHaveValue("42");
     await user.click(auditToggle());
-    expect(screen.getByRole("button", { name: /Rev\. 1/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Kanal 1/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Alle speichern" })).toBeEnabled();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("trennt die Undo-Listen beider Module und lädt die Challenge-Liste direkt mit", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    const initial = bootstrap();
+    initial.undoTargets = [{
+      channelSeq: 1,
+      moduleId: "hud",
+      createdAt: "2026-08-29T12:00:00.000Z",
+      summary: "HUD-Startzustand",
+    }];
+    initial.challengeUndoTargets = [{
+      channelSeq: 7,
+      moduleId: "challenges",
+      createdAt: "2026-08-29T12:01:00.000Z",
+      summary: "Challenge-Startzustand",
+    }];
+    const challengeSnapshot: ChallengeBoardSnapshot = {
+      eventSeq: 6,
+      boardRevision: 4,
+      settingsRevision: 5,
+      settings: {
+        styleId: "plain-list",
+        themeMode: "own",
+        surfaceOpacity: 100,
+        headerStyle: "default",
+        textEmphasis: "auto",
+        fontFamily: "theme",
+        fontScale: 1,
+        headerTitle: "CHALLENGES",
+        penaltyLabel: "STRAFE",
+        penaltyText: "",
+        effectsEnabled: true,
+        maxVisible: 5,
+        overflowMode: "cut",
+        overflowTempo: "medium",
+        numbered: false,
+        keyVisible: false,
+        doneOrder: "end",
+        globalTimerMode: "down",
+        globalTimer: null,
+        placement: { x: 300, y: 8, scale: 1 },
+      },
+      challenges: [],
+    };
+    const undo = vi.fn().mockResolvedValue({
+      snapshot: challengeSnapshot,
+      undoTargets: initial.challengeUndoTargets,
+      serverTime: "2026-08-29T12:02:00.000Z",
+    });
+    let onUndoTargets: ((moduleId: "hud" | "challenges", targets: UndoTarget[]) => void) | undefined;
+    const api: AdminApi = {
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      undo,
+      getChallengeBoard: vi.fn(() => Promise.resolve(challengeSnapshot)),
+      saveChallengeBoard: vi.fn(),
+      subscribe: (callbacks) => {
+        onUndoTargets = callbacks.onUndoTargets;
+        return () => undefined;
+      },
+    };
+
+    render(<AdminWorkspace api={api} initialBootstrap={initial} workspace="challenges" />);
+    const challengePanel = document.querySelector("#admin-composition-panel-challenges");
+    const auditRail = document.querySelector(".audit-rail");
+    if (!(challengePanel instanceof HTMLElement) || !(auditRail instanceof HTMLElement)) throw new Error("Admin-Bereiche fehlen.");
+    await screen.findByRole("heading", { name: "Board" });
+    expect(challengePanel).toHaveTextContent("Challenge-Startzustand");
+    await user.click(auditToggle());
+    expect(auditRail).toHaveTextContent("HUD-Startzustand");
+
+    const challengeTargets: UndoTarget[] = [{
+      channelSeq: 8,
+      moduleId: "challenges",
+      createdAt: "2026-08-29T12:02:00.000Z",
+      summary: "Challenge neu",
+    }];
+    const hudTargets: UndoTarget[] = [{
+      channelSeq: 9,
+      moduleId: "hud",
+      createdAt: "2026-08-29T12:03:00.000Z",
+      summary: "HUD neu",
+    }];
+    if (onUndoTargets === undefined) throw new Error("expected onUndoTargets subscription callback");
+    act(() => onUndoTargets?.("challenges", challengeTargets));
+    expect(auditRail).toHaveTextContent("HUD-Startzustand");
+    expect(auditRail).not.toHaveTextContent("Challenge neu");
+    act(() => onUndoTargets?.("hud", hudTargets));
+    expect(challengePanel).toHaveTextContent("Challenge neu");
+    expect(challengePanel).not.toHaveTextContent("HUD neu");
+
+    await user.click(within(challengePanel).getByRole("button", { name: /Kanal 8/ }));
+    expect(undo).toHaveBeenCalledWith("challenges", 8, {
+      boardRevision: 4,
+      settingsRevision: 5,
+      eventSeq: 6,
+    });
   });
 
   it("keeps newer undo targets when an older save response arrives late", async () => {
@@ -1503,16 +1607,18 @@ describe("Admin workspace publication boundary", () => {
       createdAt: "2026-08-29T12:02:00.000Z",
     };
     const oldUndoTargets: UndoTarget[] = [{
-      revision: 1,
+      channelSeq: 1,
+      moduleId: "hud",
       createdAt: "2026-08-29T12:00:00.000Z",
       summary: "Altes Ziel",
     }];
     const newUndoTargets: UndoTarget[] = [{
-      revision: 2,
+      channelSeq: 2,
+      moduleId: "hud",
       createdAt: "2026-08-29T12:01:00.000Z",
       summary: "Neues Ziel",
     }];
-    let onAudit: ((entry: AuditEntry, targets: UndoTarget[]) => void) | undefined;
+    let onAudit: ((entry: AuditEntry, moduleId: "hud" | "challenges", targets: UndoTarget[]) => void) | undefined;
     let resolveSave: ((response: SaveResponse) => void) | undefined;
     const save = vi.fn<AdminApi["save"]>(() => new Promise((resolve) => {
       resolveSave = resolve;
@@ -1529,7 +1635,7 @@ describe("Admin workspace publication boundary", () => {
     fireEvent.change(screen.getByRole("slider", { name: "Gesundheit" }), { target: { value: "42" } });
     await user.click(screen.getByRole("button", { name: "Alle speichern" }));
     if (onAudit === undefined || resolveSave === undefined) throw new Error("expected live callbacks");
-    act(() => onAudit?.(newAuditEntry, newUndoTargets));
+    act(() => onAudit?.(newAuditEntry, "hud", newUndoTargets));
     await act(async () => {
       resolveSave?.({
         state: { ...initial.state, revision: 2, updatedAt: oldAuditEntry.createdAt },
@@ -1541,8 +1647,8 @@ describe("Admin workspace publication boundary", () => {
     });
 
     await user.click(auditToggle());
-    expect(screen.getByRole("button", { name: /Rev\. 2/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Rev\. 1/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Kanal 2/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Kanal 1/ })).not.toBeInTheDocument();
   });
 
   it("verwaltet OBS-Link, Präsenz und die sichere Ausschaltabfrage im Header", async () => {
@@ -1615,7 +1721,8 @@ describe("Admin workspace publication boundary", () => {
       createdAt: "2026-08-29T12:00:00.000Z",
     }];
     initial.undoTargets = [{
-      revision: 1,
+      channelSeq: 1,
+      moduleId: "hud",
       createdAt: "2026-08-29T12:00:00.000Z",
       summary: "Startzustand",
     }];
@@ -1637,19 +1744,22 @@ describe("Admin workspace publication boundary", () => {
       undoTargets: initial.undoTargets,
       serverTime: "2026-08-29T12:01:00.000Z",
     }));
-    const undo = vi.fn<NonNullable<AdminApi["undo"]>>(() => Promise.resolve({
+    const undoResponse: SaveResponse = {
       state: { ...initial.state, revision: 3 },
       auditEntry: {
         id: "audit-undo",
         revision: 3,
-        action: "undo",
+        action: "undo" as const,
         actor,
         summary: "Revision wiederhergestellt",
         createdAt: "2026-08-29T12:02:00.000Z",
       },
       undoTargets: [],
       serverTime: "2026-08-29T12:02:00.000Z",
-    }));
+    };
+    const undo = vi.fn((moduleId: "hud" | "challenges") => moduleId === "hud"
+      ? Promise.resolve(undoResponse)
+      : Promise.reject(new Error("Challenge-Undo ist in diesem Test nicht eingerichtet."))) as unknown as NonNullable<AdminApi["undo"]>;
     const mutateOverlayToken = vi.fn<NonNullable<AdminApi["mutateOverlayToken"]>>((rotate, request) => Promise.resolve({
       requestId: request.requestId,
       generation: rotate ? 2 : 1,
@@ -1729,8 +1839,8 @@ describe("Admin workspace publication boundary", () => {
     });
 
     await user.click(screen.getByText("Rückgängig").closest("summary") as HTMLElement);
-    await user.click(screen.getByRole("button", { name: /Rev. 1/ }));
-    expect(undo).toHaveBeenCalledWith(2, 1);
+    await user.click(screen.getByRole("button", { name: /Kanal 1/ }));
+    expect(undo).toHaveBeenCalledWith("hud", 1, 2);
     expect(screen.getByRole("button", { name: "Abmelden" })).toBeEnabled();
     expect(logout).not.toHaveBeenCalled();
   });

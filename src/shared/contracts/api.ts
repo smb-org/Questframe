@@ -93,6 +93,8 @@ export const limitsSchema = z.strictObject({
   maxMediaBytes: z.literal(8_388_608),
 });
 
+export type SocketLimitKey = Extract<keyof z.infer<typeof limitsSchema>, `max${string}Sockets`>;
+
 export const editorSchema = z.strictObject({
   twitchUserId: twitchUserIdSchema,
   displayName: z.string().min(1).max(32),
@@ -119,8 +121,11 @@ export const auditEntrySchema = z.strictObject({
   createdAt: z.iso.datetime({ offset: true }),
 });
 
+export const undoModuleIdSchema = z.enum(["hud", "challenges"]);
+
 export const undoTargetSchema = z.strictObject({
-  revision: z.number().int().min(1),
+  channelSeq: z.number().int().min(1),
+  moduleId: undoModuleIdSchema,
   createdAt: z.iso.datetime({ offset: true }),
   summary: z.string().min(1).max(160),
 });
@@ -167,6 +172,7 @@ export const bootstrapResponseSchema = z.strictObject({
   state: channelStateSchema,
   recentAudit: z.array(auditEntrySchema).max(50),
   undoTargets: z.array(undoTargetSchema).max(20),
+  challengeUndoTargets: z.array(undoTargetSchema).max(20).default([]),
   csrfToken: z.string().min(16).max(128),
   serverTime: z.iso.datetime({ offset: true }),
 });
@@ -185,9 +191,16 @@ export const saveResponseSchema = z.strictObject({
 });
 
 export const undoRequestSchema = z.strictObject({
+  moduleId: z.literal("hud"),
+  channelSeq: z.number().int().min(1),
   baseRevision: z.number().int().min(1),
-  targetRevision: z.number().int().min(1),
-});
+}).or(z.strictObject({
+  moduleId: z.literal("challenges"),
+  channelSeq: z.number().int().min(1),
+  baseBoardRevision: z.number().int().min(1),
+  baseSettingsRevision: z.number().int().min(1),
+  baseEventSeq: z.number().int().nonnegative(),
+}));
 
 export const visibilityRequestSchema = z.strictObject({
   enabled: z.boolean(),
@@ -277,10 +290,12 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("token_revoked") }),
   z.strictObject({
     type: z.literal("history_changed"),
+    moduleId: undoModuleIdSchema,
     undoTargets: z.array(undoTargetSchema).max(20),
   }),
   z.strictObject({
     type: z.literal("audit_appended"),
+    moduleId: undoModuleIdSchema,
     entry: auditEntrySchema,
     undoTargets: z.array(undoTargetSchema).max(20),
   }),
@@ -307,6 +322,12 @@ export type SaveRequest = z.infer<typeof saveRequestSchema>;
 export type SaveResponse = z.infer<typeof saveResponseSchema>;
 export type AuditEntry = z.infer<typeof auditEntrySchema>;
 export type UndoTarget = z.infer<typeof undoTargetSchema>;
+export type UndoModuleId = z.infer<typeof undoModuleIdSchema>;
+export type ChallengeUndoBaseRevisions = {
+  boardRevision: number;
+  settingsRevision: number;
+  eventSeq: number;
+};
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 export type OverlayTokenResponse = z.infer<typeof overlayTokenResponseSchema>;

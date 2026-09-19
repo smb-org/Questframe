@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
+import { challengeSchema } from "../../../src/modules/win-challenges/contracts/schemas";
 import {
   accountForChallengeUpdate,
+  parseChallengeMessage,
   parseChallengeUpdate,
   placementAtOriginFromLocation,
 } from "../../../src/challenges/wire";
@@ -13,7 +15,7 @@ const update = (): ChallengeUpdate => ({
   settingsRevision: 1,
   settings: {
     styleId: "plain-list",
-    themeMode: "inherit",
+    themeMode: "own",
     surfaceOpacity: 100,
     headerStyle: "default",
     textEmphasis: "auto",
@@ -24,18 +26,22 @@ const update = (): ChallengeUpdate => ({
     penaltyText: "",
     effectsEnabled: true,
     maxVisible: 5,
-    overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end",
+    overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end",
     globalTimerMode: "down",
-    themeId: "trail-wood",
     globalTimer: null,
     placement: { x: 300, y: 8, scale: 1 },
   },
   challenges: [{
     id: "challenge-1",
     title: "Eine Challenge",
+    kind: "counter",
+    unit: null,
+    controlKey: "K7RP",
     targetCount: 10,
     timerTotalMs: 10_000,
     sortOrder: 0,
+    step: 1,
+    bestCount: 0,
     hidden: false,
     currentCount: 2,
     state: "pending",
@@ -48,9 +54,121 @@ const update = (): ChallengeUpdate => ({
   event: null,
 });
 
+const challengeContractParityCases = [
+  { label: "gültiger Counter", patch: {}, accepted: true },
+  { label: "Tick ohne Ziel", patch: { kind: "tick", targetCount: null }, accepted: true },
+  { label: "Streak mit Ziel", patch: { kind: "streak", targetCount: 1 }, accepted: true },
+  { label: "Messwert mit Einheit und Ziel", patch: { kind: "measure", unit: "kg", targetCount: 1 }, accepted: true },
+  {
+    label: "Messwert über dem Ziel",
+    patch: { kind: "measure", unit: "m", targetCount: 1_500, currentCount: 1_800, bestCount: 1_800 },
+    accepted: true,
+  },
+  {
+    label: "Counter mit Messwert-Stand",
+    patch: { kind: "counter", targetCount: 999, currentCount: 1_000_000, bestCount: 1_000_000 },
+    accepted: false,
+  },
+  {
+    label: "Counter mit Messwert-Ziel",
+    patch: { kind: "counter", targetCount: 1_000_000 },
+    accepted: false,
+  },
+  { label: "unbekannter Typ", patch: { kind: "timer" }, accepted: false },
+  { label: "numerischer Typ", patch: { kind: 1 }, accepted: false },
+  { label: "Einheit als Zahl", patch: { unit: 1 }, accepted: false },
+  { label: "zu lange Einheit", patch: { unit: "x".repeat(13) }, accepted: false },
+  { label: "kleingeschriebener Control-Key", patch: { controlKey: "k7rp" }, accepted: false },
+  { label: "zu langer Control-Key", patch: { controlKey: "K7RPP" }, accepted: false },
+  { label: "Control-Key als Zahl", patch: { controlKey: 1234 }, accepted: false },
+  { label: "Schrittweite null", patch: { step: 0 }, accepted: false },
+  { label: "Schrittweite als String", patch: { step: "1" }, accepted: false },
+  { label: "Schrittweite über Maximum", patch: { step: 1_000_001 }, accepted: false },
+  { label: "negativer Bestwert", patch: { bestCount: -1 }, accepted: false },
+  { label: "Bestwert über Maximum", patch: { bestCount: 1_000 }, accepted: false },
+  { label: "Bestwert als String", patch: { bestCount: "0" }, accepted: false },
+  { label: "Tick mit Ziel", patch: { kind: "tick", targetCount: 1 }, accepted: false },
+  { label: "Streak ohne Ziel", patch: { kind: "streak", targetCount: null }, accepted: false },
+  { label: "Messwert ohne Ziel", patch: { kind: "measure", targetCount: null, unit: "kg" }, accepted: false },
+  { label: "Messwert ohne Einheit", patch: { kind: "measure", targetCount: 1, unit: null }, accepted: false },
+  { label: "Counter mit Einheit", patch: { kind: "counter", unit: "kg" }, accepted: false },
+] as const;
+
 describe("Challenge-Quelle-Wire", () => {
+  it("akzeptiert eine gültige time_sync-Nachricht", () => {
+    const message = {
+      type: "time_sync" as const,
+      clientTimestamp: 1_700_000_000_000,
+      serverTime: "2026-09-14T10:00:00.000Z",
+    };
+
+    expect(parseChallengeMessage(message)).toEqual(message);
+  });
+
+  it.each([
+    { type: "time_sync", clientTimestamp: "1", serverTime: "2026-09-14T10:00:00.000Z" },
+    { type: "time_sync", clientTimestamp: 1_700_000_000_000, serverTime: "ungültig" },
+    { type: "time_sync", clientTimestamp: 1_700_000_000_000, serverTime: "2026-09-14T10:00:00.000Z", extra: true },
+    { type: "time_sync", clientTimestamp: Number.NaN, serverTime: "2026-09-14T10:00:00.000Z" },
+  ])("verwirft eine kaputte time_sync-Nachricht %#", (message) => {
+    expect(parseChallengeMessage(message)).toBeNull();
+  });
+
   it("nimmt eine gültige challenge_update-Nachricht an", () => {
     expect(parseChallengeUpdate(update())).toEqual(update());
+  });
+
+  it("verwirft inherit und die alte Challenge-themeId", () => {
+    const current = update();
+    expect(parseChallengeUpdate({
+      ...current,
+      settings: { ...current.settings, themeMode: "inherit" },
+    })).toBeNull();
+    expect(parseChallengeUpdate({
+      ...current,
+      settings: { ...current.settings, themeId: "trail-wood" },
+    })).toBeNull();
+  });
+
+  it("akzeptiert streak-reset als eigenes Challenge-Ereignis und verwirft kaputte Varianten", () => {
+    const streakReset = {
+      scope: "challenge",
+      type: "streak-reset",
+      challengeId: "challenge-1",
+    } as const;
+
+    expect(parseChallengeUpdate({ ...update(), event: streakReset })).toMatchObject({ event: streakReset });
+    expect(parseChallengeUpdate({
+      ...update(),
+      event: { ...streakReset, extra: true },
+    })).toBeNull();
+    expect(parseChallengeUpdate({
+      ...update(),
+      event: { ...streakReset, challengeId: "" },
+    })).toBeNull();
+  });
+
+  it("akzeptiert set_switched und verwirft kaputte Varianten", () => {
+    const setSwitched = { scope: "board", type: "set_switched" } as const;
+    expect(parseChallengeUpdate({ ...update(), event: setSwitched })).toMatchObject({ event: setSwitched });
+    expect(parseChallengeUpdate({
+      ...update(),
+      event: { ...setSwitched, extra: true },
+    })).toBeNull();
+    expect(parseChallengeUpdate({
+      ...update(),
+      event: { scope: "challenge", type: "set_switched", challengeId: "challenge-1" },
+    })).toBeNull();
+  });
+
+  it.each(challengeContractParityCases)("hält Schema und Wire-Parser bei $label paritätisch", ({ patch, accepted, label }) => {
+    const challenge = { ...update().challenges[0], ...patch };
+    const schemaAccepted = challengeSchema.safeParse(challenge).success;
+    const wireAccepted = parseChallengeUpdate({ ...update(), challenges: [challenge] }) !== null;
+
+    expect(schemaAccepted, `challengeSchema: ${label}`).toBe(accepted);
+    expect(wireAccepted, `parseChallengeUpdate: ${label}`).toBe(accepted);
+    expect(wireAccepted).toBe(schemaAccepted);
   });
 
   it("akzeptiert 24 Stunden nur für den globalen Timer", () => {
@@ -122,6 +240,10 @@ describe("Challenge-Quelle-Wire", () => {
     expect(parseChallengeUpdate({
       ...current,
       challenges: [{ ...withRemain, timerRemainMs: -1 }],
+    })).toMatchObject({ challenges: [{ timerRemainMs: -1 }] });
+    expect(parseChallengeUpdate({
+      ...current,
+      challenges: [{ ...withRemain, timerRemainMs: -21_600_001 }],
     })).toBeNull();
     expect(parseChallengeUpdate({
       ...current,
@@ -163,6 +285,28 @@ describe("Challenge-Quelle-Wire", () => {
     };
     expect(parseChallengeUpdate(update())).toEqual(update());
     expect(parseChallengeUpdate(withoutMode)).toBeNull();
+  });
+
+  it("nimmt die Key-Sichtbarkeit an und verwirft fehlende oder kaputte Werte", () => {
+    const current = update();
+    expect(parseChallengeUpdate({
+      ...current,
+      settings: { ...current.settings, keyVisible: true },
+    })).toMatchObject({ settings: { keyVisible: true } });
+    expect(parseChallengeUpdate({
+      ...current,
+      settings: Object.fromEntries(
+        Object.entries(current.settings).filter(([key]) => key !== "keyVisible"),
+      ),
+    })).toBeNull();
+    expect(parseChallengeUpdate({
+      ...current,
+      settings: { ...current.settings, keyVisible: "true" },
+    })).toBeNull();
+    expect(parseChallengeUpdate({
+      ...current,
+      settings: { ...current.settings, keyVisible: true, unexpected: true },
+    })).toBeNull();
   });
 
   it("weist einen unbekannten Kopfzeilen-Stil zurück", () => {

@@ -1,8 +1,61 @@
+import { allocateControlKey } from "../modules/win-challenges/domain/control-keys";
+
+/**
+ * Versionsnummern zählen PRO NAMESPACE und sind nur zusammen mit dem
+ * Namespace eindeutig: `challenges`/Version 3 und `host`/Version 3 existieren
+ * gleichzeitig. Wer den Ledger (`_sql_schema_migrations`) ohne `namespace`
+ * abfragt oder löscht, bekommt bzw. trifft Zeilen aus fremden Namespaces.
+ */
+type Migration = {
+  namespace: MigrationNamespace;
+  version: number;
+  /** Optionaler Idempotenz-Wächter. Liefert true, wenn der Migrationseintrag bereits angewendet ist. */
+  guard?: (sql: SqlStorage) => boolean;
+} & (
+  | { statements: readonly string[]; run?: never }
+  | { run: (sql: SqlStorage) => void; statements?: never }
+);
+
+export type MigrationNamespace = "host" | "hud" | "challenges";
+
+const splitSqlStatements = (sql: string): readonly string[] => {
+  const statements: string[] = [];
+  let statementStart = 0;
+  let quote: "'" | '"' | null = null;
+
+  for (let index = 0; index < sql.length; index += 1) {
+    const character = sql[index];
+    if (quote !== null) {
+      if (character === quote) {
+        if (sql[index + 1] === quote) {
+          index += 1;
+        } else {
+          quote = null;
+        }
+      }
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = character;
+    } else if (character === ";") {
+      const statement = sql.slice(statementStart, index).trim();
+      if (statement.length > 0) statements.push(statement);
+      statementStart = index + 1;
+    }
+  }
+
+  const lastStatement = sql.slice(statementStart).trim();
+  if (lastStatement.length > 0) statements.push(lastStatement);
+  return statements;
+};
+
 const MIGRATION_1 = `
 CREATE TABLE IF NOT EXISTS _sql_schema_migrations (
-  version INTEGER PRIMARY KEY,
+  namespace TEXT NOT NULL,
+  version INTEGER NOT NULL,
   build_id TEXT NOT NULL,
-  applied_at TEXT NOT NULL
+  applied_at TEXT NOT NULL,
+  PRIMARY KEY (namespace, version)
 );
 CREATE TABLE IF NOT EXISTS channel_state (
   singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -326,223 +379,373 @@ const hasChallengeTimerRemain = (sql: SqlStorage): boolean =>
 const MIGRATION_14_PENALTY_TEXT = "ALTER TABLE wc_meta ADD COLUMN penalty_text TEXT NOT NULL DEFAULT '';";
 const MIGRATION_15_PENALTY_LABEL = "ALTER TABLE wc_meta ADD COLUMN penalty_label TEXT NOT NULL DEFAULT 'STRAFE';";
 const MIGRATION_16_TEXT_EMPHASIS = "ALTER TABLE wc_meta ADD COLUMN text_emphasis TEXT NOT NULL DEFAULT 'auto' CHECK (text_emphasis IN ('auto','strong','plain'));";
+const MIGRATION_18_KEY_VISIBLE = "ALTER TABLE wc_meta ADD COLUMN key_visible INTEGER NOT NULL DEFAULT 0 CHECK (key_visible IN (0,1));";
+
+const MIGRATION_19_SETS = `
+CREATE TABLE IF NOT EXISTS wc_sets (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL CHECK (type IN ('user', 'autosave')),
+  name TEXT NOT NULL,
+  normalized_name TEXT NOT NULL,
+  has_progress INTEGER NOT NULL CHECK (has_progress IN (0, 1)),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  payload TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS wc_sets_user_name_idx
+  ON wc_sets(normalized_name) WHERE type = 'user';
+CREATE INDEX IF NOT EXISTS wc_sets_updated_idx ON wc_sets(updated_at DESC);
+`;
+
+const MIGRATION_20_THEME_MODE = "UPDATE wc_meta SET theme_mode = 'own';";
+
+const hasStateHistoryModuleColumns = (sql: SqlStorage): boolean => {
+  const columns = sql
+    .exec<{ name: string }>("PRAGMA table_info(state_history)")
+    .toArray()
+    .map(({ name }) => name);
+  return columns.includes("module_id") && columns.includes("channel_seq");
+};
+
+/**
+ * `channel_seq` ist der Primärschlüssel, weil er die unveränderliche Identität
+ * eines Eintrags in der zentralen Plattform-Timeline ist. `(module_id,
+ * revision)` würde zwar Modulrevisionen unterscheiden, aber eine zentrale
+ * Ordnung nur als nicht abgesichertes Nebenfeld führen; zwei Module könnten
+ * dieselbe Sequenznummer erhalten. Die Durable Object-Transaktion vergibt den
+ * nächsten Wert später atomar aus `MAX(channel_seq) + 1`.
+ *
+ * Der Bestands-Backfill übernimmt `revision` direkt als `channel_seq`. Die
+ * HUD-Revisionen sind bereits monoton, damit bleibt die alte Undo-Reihenfolge
+ * exakt erhalten und der Backfill braucht unabhängig von der Zeilenzahl nur
+ * einen gebundenen Modulwert statt einer wachsenden CASE- oder Binding-Liste.
+ */
+const migrateStateHistory = (sql: SqlStorage): void => {
+  sql.exec("DROP TABLE IF EXISTS state_history_migration_3");
+  sql.exec(`
+    CREATE TABLE state_history_migration_3 (
+      channel_seq INTEGER NOT NULL PRIMARY KEY,
+      module_id TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      snapshot_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      summary TEXT NOT NULL
+    )
+  `);
+  sql.exec(
+    `INSERT INTO state_history_migration_3(
+      channel_seq, module_id, revision, snapshot_json, created_at, summary
+    )
+    SELECT revision, ?, revision, snapshot_json, created_at, summary
+    FROM state_history
+    ORDER BY revision`,
+    "hud",
+  );
+  sql.exec("DROP INDEX IF EXISTS history_created_idx");
+  sql.exec("DROP TABLE state_history");
+  sql.exec("ALTER TABLE state_history_migration_3 RENAME TO state_history");
+  sql.exec("CREATE INDEX history_created_idx ON state_history(created_at DESC)");
+};
+
+const hasChallengeSetsTable = (sql: SqlStorage): boolean =>
+  sql
+    .exec<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'wc_sets'",
+    )
+    .toArray()
+    .length > 0;
+
+type Migration17ChallengeRow = {
+  id: string;
+  title: string;
+  target_count: number | null;
+  timer_total_ms: number | null;
+  sort_order: number;
+  hidden: number;
+  current_count: number;
+  state: string;
+  timer_ends_at: string | null;
+  timer_remain_ms: number | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+const MIGRATION_17_CREATE_CHALLENGES_TABLE = `
+CREATE TABLE wc_challenges_migration_17 (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('tick', 'counter', 'streak', 'measure')),
+  unit TEXT,
+  control_key TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  target_count INTEGER,
+  timer_total_ms INTEGER,
+  sort_order INTEGER NOT NULL,
+  step INTEGER NOT NULL DEFAULT 1 CHECK (step >= 1),
+  best_count INTEGER NOT NULL,
+  hidden INTEGER NOT NULL CHECK (hidden IN (0, 1)),
+  current_count INTEGER NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('pending', 'active', 'done')),
+  timer_ends_at TEXT,
+  timer_remain_ms INTEGER CHECK (timer_remain_ms BETWEEN -21600000 AND 21600000),
+  completed_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK (
+    (kind = 'measure' AND unit IS NOT NULL)
+    OR (kind <> 'measure' AND unit IS NULL)
+  ),
+  CHECK (timer_ends_at IS NULL OR timer_remain_ms IS NULL)
+);
+`;
+
+const MIGRATION_17_CREATE_RETIRED_KEYS_TABLE = `
+CREATE TABLE IF NOT EXISTS wc_retired_keys (
+  control_key TEXT PRIMARY KEY COLLATE NOCASE
+);
+`;
+
+const migrateChallenges17 = (sql: SqlStorage): void => {
+  sql.exec(MIGRATION_17_DROP_TEMPORARY_TABLE);
+  const legacyRows = sql
+    .exec<Migration17ChallengeRow>(
+      `SELECT id, title, target_count, timer_total_ms, sort_order, hidden, current_count, state,
+        timer_ends_at, timer_remain_ms, completed_at, created_at, updated_at
+       FROM wc_challenges ORDER BY rowid`,
+    )
+    .toArray();
+  const persistedKeys = new Set<string>();
+  const allocatedKeys = new Set<string>();
+  const retiredKeys = new Set<string>();
+  const migratedRows = legacyRows.map((row) => {
+    const controlKey = allocateControlKey([persistedKeys, allocatedKeys, retiredKeys]);
+    allocatedKeys.add(controlKey);
+    return { ...row, controlKey };
+  });
+  const insertChallenge = `INSERT INTO wc_challenges_migration_17(
+  id, title, kind, unit, control_key, target_count, timer_total_ms, sort_order,
+  step, best_count, hidden, current_count, state, timer_ends_at, timer_remain_ms,
+  completed_at, created_at, updated_at
+) VALUES (?, ?, 'counter', NULL, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?);`;
+  sql.exec(MIGRATION_17_CREATE_CHALLENGES_TABLE);
+  sql.exec(MIGRATION_17_CREATE_RETIRED_KEYS_TABLE);
+  for (const row of migratedRows) {
+    sql.exec(
+      insertChallenge,
+      row.id,
+      row.title,
+      row.controlKey,
+      row.target_count,
+      row.timer_total_ms,
+      row.sort_order,
+      row.current_count,
+      row.hidden,
+      row.current_count,
+      row.state,
+      row.timer_ends_at,
+      row.timer_remain_ms,
+      row.completed_at,
+      row.created_at,
+      row.updated_at,
+    );
+  }
+  sql.exec(MIGRATION_17_DROP_LEGACY_TABLE);
+  sql.exec(MIGRATION_17_RENAME_TABLE);
+};
+
+const MIGRATION_4_TIMER_CLEANUP = "UPDATE wc_challenges SET timer_ends_at = NULL WHERE state = 'done' AND timer_ends_at IS NOT NULL";
+const MIGRATION_7_STYLE_BACKFILL = "UPDATE wc_meta SET style_id = 'plain-list', numbered = 1 WHERE style_id = 'plain-numbered'";
+const MIGRATION_17_DROP_TEMPORARY_TABLE = "DROP TABLE IF EXISTS wc_challenges_migration_17";
+const MIGRATION_17_DROP_LEGACY_TABLE = "DROP TABLE wc_challenges";
+const MIGRATION_17_RENAME_TABLE = "ALTER TABLE wc_challenges_migration_17 RENAME TO wc_challenges";
+
+/**
+ * Migration 1 ist der einmalige Bootstrap für den Host: Sie legt den Ledger
+ * selbst, alle Host-Tabellen und die HUD-Grundtabellen an. Im tatsächlichen
+ * SQL gibt es hier noch keine `wc_`-Tabelle. Die eine Ledger-Zeile gehört
+ * deshalb `host`, damit der querschnittliche Bootstrap genau einmal verbucht
+ * wird; `hud` bleibt bis zu einer eigenen HUD-Migration bei Stand 0.
+ *
+ * Die Obergrenze 20 ist EINGEFROREN und wird nie wieder erhöht. Diese Liste
+ * beschreibt ausschließlich den Bestand vor der Namespace-Umstellung, und
+ * eine Datenbank im alten Format kann höchstens bei Version 20 stehen. Jede
+ * spätere Migration trägt ihren Namespace von Anfang an im Eintrag; der
+ * Backfill sieht sie nie, weil er bei vorhandener `namespace`-Spalte sofort
+ * zurückkehrt. Wer hier mitzählt, verschiebt Bestandszeilen in den falschen
+ * Namespace.
+ */
+const LEGACY_NAMESPACE_RANGES: readonly {
+  namespace: MigrationNamespace;
+  firstVersion: number;
+  lastVersion: number;
+}[] = [
+  { namespace: "host", firstVersion: 1, lastVersion: 2 },
+  { namespace: "challenges", firstVersion: 3, lastVersion: 20 },
+];
+
+/**
+ * Ordnet eine historische globale Versionsnummer (Alt-Stand vor der
+ * Namespace-Spalte, also 1 bis 20) ihrem festen Namespace zu. Einzige Stelle,
+ * an der diese Regel steht — Tests nutzen sie statt sie zu duplizieren.
+ */
+export const legacyNamespaceForVersion = (version: number): MigrationNamespace => {
+  const range = LEGACY_NAMESPACE_RANGES.find(
+    ({ firstVersion, lastVersion }) => version >= firstVersion && version <= lastVersion,
+  );
+  if (range === undefined) throw new Error(`Keine Legacy-Namespace-Zuordnung für Version ${String(version)}`);
+  return range.namespace;
+};
+
+const MIGRATIONS: readonly Migration[] = [
+  { namespace: "host", version: 1, statements: splitSqlStatements(MIGRATION_1) },
+  { namespace: "host", version: 2, guard: hasOverlayTokenEnvelope, statements: splitSqlStatements(MIGRATION_2) },
+  { namespace: "host", version: 3, guard: hasStateHistoryModuleColumns, run: migrateStateHistory },
+  { namespace: "challenges", version: 3, statements: splitSqlStatements(MIGRATION_3) },
+  { namespace: "challenges", version: 4, guard: hasChallengeHidden, statements: splitSqlStatements(MIGRATION_4) },
+  { namespace: "challenges", version: 4, statements: [MIGRATION_4_TIMER_CLEANUP] },
+  { namespace: "challenges", version: 5, guard: hasChallengePlacement, statements: splitSqlStatements(MIGRATION_5) },
+  { namespace: "challenges", version: 6, guard: (sql) => !hasChallengeDescription(sql), statements: splitSqlStatements(MIGRATION_6) },
+  { namespace: "challenges", version: 7, guard: (sql) => hasChallengeMetaColumn(sql, "overflow_mode"), statements: splitSqlStatements(MIGRATION_7_OVERFLOW_MODE) },
+  { namespace: "challenges", version: 7, guard: (sql) => hasChallengeMetaColumn(sql, "overflow_tempo"), statements: splitSqlStatements(MIGRATION_7_OVERFLOW_TEMPO) },
+  { namespace: "challenges", version: 7, guard: (sql) => hasChallengeMetaColumn(sql, "numbered"), statements: splitSqlStatements(MIGRATION_7_NUMBERED) },
+  { namespace: "challenges", version: 7, guard: (sql) => hasChallengeMetaColumn(sql, "done_order"), statements: splitSqlStatements(MIGRATION_7_DONE_ORDER) },
+  { namespace: "challenges", version: 7, statements: [MIGRATION_7_STYLE_BACKFILL] },
+  { namespace: "challenges", version: 8, guard: (sql) => hasChallengeMetaColumn(sql, "global_timer_mode"), statements: splitSqlStatements(MIGRATION_8_GLOBAL_TIMER_MODE) },
+  { namespace: "challenges", version: 9, guard: hasChallengeTimerRemain, statements: splitSqlStatements(MIGRATION_9_CHALLENGE_TIMER_REMAIN) },
+  { namespace: "challenges", version: 10, guard: (sql) => hasChallengeMetaColumn(sql, "header_style"), statements: [MIGRATION_10_HEADER_STYLE] },
+  {
+    namespace: "challenges",
+    version: 11,
+    guard: (sql) => hasMaxVisibleRowsCheck(sql) || hasChallengeMetaColumn(sql, "surface_mode"),
+    statements: splitSqlStatements(MIGRATION_11_WC_META_REBUILD),
+  },
+  {
+    namespace: "challenges",
+    version: 11,
+    guard: (sql) => hasMaxVisibleRowsCheck(sql) || !hasChallengeMetaColumn(sql, "surface_mode"),
+    statements: splitSqlStatements(MIGRATION_11_WC_META_REBUILD_LEGACY_SURFACE_MODE),
+  },
+  { namespace: "challenges", version: 12, guard: (sql) => hasChallengeMetaColumn(sql, "font_family"), statements: [MIGRATION_12_FONT_FAMILY] },
+  { namespace: "challenges", version: 12, guard: (sql) => hasChallengeMetaColumn(sql, "font_scale"), statements: [MIGRATION_12_FONT_SCALE] },
+  {
+    namespace: "challenges",
+    version: 13,
+    guard: (sql) => hasChallengeMetaColumn(sql, "surface_opacity") || !hasChallengeMetaColumn(sql, "surface_mode"),
+    statements: [MIGRATION_13_SURFACE_OPACITY_ADD],
+  },
+  {
+    namespace: "challenges",
+    version: 13,
+    guard: (sql) => !(hasChallengeMetaColumn(sql, "surface_opacity") && hasChallengeMetaColumn(sql, "surface_mode")),
+    statements: [MIGRATION_13_SURFACE_OPACITY_BACKFILL],
+  },
+  {
+    namespace: "challenges",
+    version: 13,
+    guard: (sql) => !(hasChallengeMetaColumn(sql, "surface_opacity") && hasChallengeMetaColumn(sql, "surface_mode")),
+    statements: [MIGRATION_13_SURFACE_MODE_DROP],
+  },
+  { namespace: "challenges", version: 14, guard: (sql) => hasChallengeMetaColumn(sql, "penalty_text"), statements: [MIGRATION_14_PENALTY_TEXT] },
+  { namespace: "challenges", version: 15, guard: (sql) => hasChallengeMetaColumn(sql, "penalty_label"), statements: [MIGRATION_15_PENALTY_LABEL] },
+  { namespace: "challenges", version: 16, guard: (sql) => hasChallengeMetaColumn(sql, "text_emphasis"), statements: [MIGRATION_16_TEXT_EMPHASIS] },
+  { namespace: "challenges", version: 17, run: migrateChallenges17 },
+  { namespace: "challenges", version: 18, guard: (sql) => hasChallengeMetaColumn(sql, "key_visible"), statements: [MIGRATION_18_KEY_VISIBLE] },
+  { namespace: "challenges", version: 19, guard: hasChallengeSetsTable, statements: splitSqlStatements(MIGRATION_19_SETS) },
+  { namespace: "challenges", version: 20, statements: [MIGRATION_20_THEME_MODE] },
+];
+
+const migrationLedgerColumns = (sql: SqlStorage): readonly string[] =>
+  sql
+    .exec<{ name: string }>("PRAGMA table_info(_sql_schema_migrations)")
+    .toArray()
+    .map(({ name }) => name);
+
+const rebuildMigrationLedgerColumns = (sql: SqlStorage): readonly string[] =>
+  sql
+    .exec<{ name: string }>("PRAGMA table_info(_sql_schema_migrations_namespaced)")
+    .toArray()
+    .map(({ name }) => name);
+
+const backfillLegacyMigrationLedger = (sql: SqlStorage): void => {
+  const currentLedgerColumns = migrationLedgerColumns(sql);
+  const rebuildLedgerColumns = rebuildMigrationLedgerColumns(sql);
+
+  if (currentLedgerColumns.includes("namespace")) return;
+  if (currentLedgerColumns.length === 0 && rebuildLedgerColumns.length > 0) {
+    sql.exec("ALTER TABLE _sql_schema_migrations_namespaced RENAME TO _sql_schema_migrations");
+    return;
+  }
+  if (currentLedgerColumns.length === 0) return;
+
+  sql.exec(`
+    CREATE TABLE IF NOT EXISTS _sql_schema_migrations_namespaced (
+      namespace TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      build_id TEXT NOT NULL,
+      applied_at TEXT NOT NULL,
+      PRIMARY KEY (namespace, version)
+    )
+  `);
+  for (const { namespace, firstVersion, lastVersion } of LEGACY_NAMESPACE_RANGES) {
+    sql.exec(
+      "INSERT OR IGNORE INTO _sql_schema_migrations_namespaced(namespace, version, build_id, applied_at) SELECT ?, version, build_id, applied_at FROM _sql_schema_migrations WHERE version BETWEEN ? AND ?",
+      namespace,
+      firstVersion,
+      lastVersion,
+    );
+  }
+  sql.exec("DROP TABLE _sql_schema_migrations");
+  sql.exec("ALTER TABLE _sql_schema_migrations_namespaced RENAME TO _sql_schema_migrations");
+};
+
+const migrationVersionWasApplied = (sql: SqlStorage, namespace: MigrationNamespace, version: number): boolean =>
+  sql
+    .exec<{ version: number }>(
+      "SELECT version FROM _sql_schema_migrations WHERE namespace = ? AND version = ?",
+      namespace,
+      version,
+    )
+    .toArray().length > 0;
+
+const recordMigration = (sql: SqlStorage, namespace: MigrationNamespace, version: number, buildId: string): void => {
+  sql.exec(
+    "INSERT INTO _sql_schema_migrations(namespace, version, build_id, applied_at) VALUES (?, ?, ?, ?)",
+    namespace,
+    version,
+    buildId,
+    new Date().toISOString(),
+  );
+};
 
 export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
-  sql.exec(MIGRATION_1);
-  const versionOneWasApplied = sql
-    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 1")
-    .toArray().length > 0;
-  if (!versionOneWasApplied) {
-    sql.exec(
-      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
-      1,
-      buildId,
-      new Date().toISOString(),
-    );
-  }
-  const versionTwoWasApplied = sql
-    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 2")
-    .toArray().length > 0;
-  if (!versionTwoWasApplied) {
-    // Frische Datenbanken bekommen die Spalte schon aus MIGRATION_1. Der ALTER
-    // laeuft deshalb nur, wenn sie wirklich fehlt: SQLite kennt kein
-    // IF NOT EXISTS, und ein Abbruch zwischen ALTER und Versionseintrag wuerde
-    // den Kanal sonst bei jedem Start an "duplicate column name" aufhaengen.
-    if (!hasOverlayTokenEnvelope(sql)) sql.exec(MIGRATION_2);
-    sql.exec(
-      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
-      2,
-      buildId,
-      new Date().toISOString(),
-    );
-  }
-  const versionThreeWasApplied = sql
-    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 3")
-    .toArray().length > 0;
-  if (!versionThreeWasApplied) {
-    sql.exec(MIGRATION_3);
-    sql.exec(
-      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
-      3,
-      buildId,
-      new Date().toISOString(),
-    );
-  }
-  const versionFourWasApplied = sql
-    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 4")
-    .toArray().length > 0;
-  if (!versionFourWasApplied) {
-    if (!hasChallengeHidden(sql)) sql.exec(MIGRATION_4);
-    sql.exec("UPDATE wc_challenges SET timer_ends_at = NULL WHERE state = 'done' AND timer_ends_at IS NOT NULL");
-    sql.exec(
-      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
-      4,
-      buildId,
-      new Date().toISOString(),
-    );
-  }
-  const versionFiveWasApplied = sql
-    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 5")
-    .toArray().length > 0;
-  if (!versionFiveWasApplied) {
-    if (!hasChallengePlacement(sql)) sql.exec(MIGRATION_5);
-    sql.exec(
-      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
-      5,
-      buildId,
-      new Date().toISOString(),
-    );
-  }
-  const versionSixWasApplied = sql
-    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 6")
-    .toArray().length > 0;
-  if (!versionSixWasApplied) {
-    if (hasChallengeDescription(sql)) sql.exec(MIGRATION_6);
-    sql.exec(
-      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
-      6,
-      buildId,
-      new Date().toISOString(),
-    );
-  }
-  const versionSevenWasApplied = sql
-    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 7")
-    .toArray().length > 0;
-  if (!versionSevenWasApplied) {
-    if (!hasChallengeMetaColumn(sql, "overflow_mode")) sql.exec(MIGRATION_7_OVERFLOW_MODE);
-    if (!hasChallengeMetaColumn(sql, "overflow_tempo")) sql.exec(MIGRATION_7_OVERFLOW_TEMPO);
-    if (!hasChallengeMetaColumn(sql, "numbered")) sql.exec(MIGRATION_7_NUMBERED);
-    if (!hasChallengeMetaColumn(sql, "done_order")) sql.exec(MIGRATION_7_DONE_ORDER);
-    sql.exec("UPDATE wc_meta SET style_id = 'plain-list', numbered = 1 WHERE style_id = 'plain-numbered'");
-    sql.exec(
-      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
-      7,
-      buildId,
-      new Date().toISOString(),
-    );
-  }
-  const versionEightWasApplied = sql
-    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 8")
-    .toArray().length > 0;
-  if (!versionEightWasApplied) {
-    if (!hasChallengeMetaColumn(sql, "global_timer_mode")) sql.exec(MIGRATION_8_GLOBAL_TIMER_MODE);
-    sql.exec(
-      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
-      8,
-      buildId,
-      new Date().toISOString(),
-    );
-  }
-  const versionNineWasApplied = sql
-    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 9")
-    .toArray().length > 0;
-  if (!versionNineWasApplied) {
-    if (!hasChallengeTimerRemain(sql)) sql.exec(MIGRATION_9_CHALLENGE_TIMER_REMAIN);
-    sql.exec(
-      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
-      9,
-      buildId,
-      new Date().toISOString(),
-    );
-  }
-  const versionTenWasApplied = sql
-    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 10")
-    .toArray().length > 0;
-  if (!versionTenWasApplied) {
-    if (!hasChallengeMetaColumn(sql, "header_style")) sql.exec(MIGRATION_10_HEADER_STYLE);
-    sql.exec(
-      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
-      10,
-      buildId,
-      new Date().toISOString(),
-    );
-  }
-  const versionElevenWasApplied = sql
-    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 11")
-    .toArray().length > 0;
-  if (!versionElevenWasApplied) {
-    if (!hasMaxVisibleRowsCheck(sql)) {
-      sql.exec(
-        hasChallengeMetaColumn(sql, "surface_mode")
-          ? MIGRATION_11_WC_META_REBUILD_LEGACY_SURFACE_MODE
-          : MIGRATION_11_WC_META_REBUILD,
-      );
+  backfillLegacyMigrationLedger(sql);
+
+  for (let index = 0; index < MIGRATIONS.length;) {
+    const namespace = MIGRATIONS[index]?.namespace;
+    const version = MIGRATIONS[index]?.version;
+    if (namespace === undefined || version === undefined) break;
+
+    const firstEntry = index;
+    while (
+      index < MIGRATIONS.length
+      && MIGRATIONS[index]?.namespace === namespace
+      && MIGRATIONS[index]?.version === version
+    ) index += 1;
+    const entries = MIGRATIONS.slice(firstEntry, index);
+    const versionWasApplied = version === 1 ? false : migrationVersionWasApplied(sql, namespace, version);
+
+    if (!versionWasApplied) {
+      for (const migration of entries) {
+        if (migration.guard?.(sql) === true) continue;
+        if (migration.run !== undefined) migration.run(sql);
+        else for (const statement of migration.statements) sql.exec(statement);
+      }
     }
-    sql.exec(
-      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
-      11,
-      buildId,
-      new Date().toISOString(),
-    );
-  }
-  const versionTwelveWasApplied = sql
-    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 12")
-    .toArray().length > 0;
-  if (!versionTwelveWasApplied) {
-    if (!hasChallengeMetaColumn(sql, "font_family")) sql.exec(MIGRATION_12_FONT_FAMILY);
-    if (!hasChallengeMetaColumn(sql, "font_scale")) sql.exec(MIGRATION_12_FONT_SCALE);
-    sql.exec(
-      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
-      12,
-      buildId,
-      new Date().toISOString(),
-    );
-  }
-  const versionThirteenWasApplied = sql
-    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 13")
-    .toArray().length > 0;
-  if (!versionThirteenWasApplied) {
-    // Frische Datenbanken und Tabellen, die MIGRATION_11 bereits neu aufgebaut
-    // hat, besitzen die neue Spalte schon. Nur echte Legacy-Tabellen brauchen
-    // den ALTER/Backfill/Drop-Schritt; so läuft der Backfill nicht doppelt.
-    if (!hasChallengeMetaColumn(sql, "surface_opacity") && hasChallengeMetaColumn(sql, "surface_mode")) {
-      sql.exec(MIGRATION_13_SURFACE_OPACITY_ADD);
+
+    // Migration 1 muss vor dem ersten Ledger-Check die Ledger-Tabelle anlegen.
+    // Danach gilt auch für sie dieselbe Eintragslogik wie für alle Folgemigrationen.
+    if (version === 1 ? !migrationVersionWasApplied(sql, namespace, version) : !versionWasApplied) {
+      recordMigration(sql, namespace, version, buildId);
     }
-    if (hasChallengeMetaColumn(sql, "surface_opacity") && hasChallengeMetaColumn(sql, "surface_mode")) {
-      sql.exec(MIGRATION_13_SURFACE_OPACITY_BACKFILL);
-      sql.exec(MIGRATION_13_SURFACE_MODE_DROP);
-    }
-    sql.exec(
-      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
-      13,
-      buildId,
-      new Date().toISOString(),
-    );
-  }
-  const versionFourteenWasApplied = sql
-    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 14")
-    .toArray().length > 0;
-  if (!versionFourteenWasApplied) {
-    if (!hasChallengeMetaColumn(sql, "penalty_text")) sql.exec(MIGRATION_14_PENALTY_TEXT);
-    sql.exec(
-      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
-      14,
-      buildId,
-      new Date().toISOString(),
-    );
-  }
-  const versionFifteenWasApplied = sql
-    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 15")
-    .toArray().length > 0;
-  if (!versionFifteenWasApplied) {
-    if (!hasChallengeMetaColumn(sql, "penalty_label")) sql.exec(MIGRATION_15_PENALTY_LABEL);
-    sql.exec(
-      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
-      15,
-      buildId,
-      new Date().toISOString(),
-    );
-  }
-  const versionSixteenWasApplied = sql
-    .exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE version = 16")
-    .toArray().length > 0;
-  if (!versionSixteenWasApplied) {
-    if (!hasChallengeMetaColumn(sql, "text_emphasis")) sql.exec(MIGRATION_16_TEXT_EMPHASIS);
-    sql.exec(
-      "INSERT INTO _sql_schema_migrations(version, build_id, applied_at) VALUES (?, ?, ?)",
-      16,
-      buildId,
-      new Date().toISOString(),
-    );
   }
 };

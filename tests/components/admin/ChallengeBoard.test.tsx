@@ -10,6 +10,7 @@ import {
 import type {
   BoardSaveResponse,
   ChallengeBoardSnapshot,
+  ChallengeSetV1,
 } from "../../../src/modules/win-challenges/contracts/schemas";
 import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
 
@@ -22,9 +23,14 @@ const challenge = (
 ): ChallengeBoardSnapshot["challenges"][number] => ({
   id,
   title,
+  kind: "counter",
+  unit: null,
+  controlKey: "K7RP",
   targetCount: 10,
   timerTotalMs: null,
   sortOrder: 0,
+  step: 1,
+  bestCount: 0,
   hidden: false,
   currentCount: 0,
   state: "pending",
@@ -45,7 +51,7 @@ const snapshot = (
   settingsRevision: 1,
   settings: {
     styleId: "plain-list",
-    themeMode: "inherit",
+    themeMode: "own",
     surfaceOpacity: 100,
     headerStyle: "default",
     textEmphasis: "auto",
@@ -56,7 +62,7 @@ const snapshot = (
     penaltyText: "",
     effectsEnabled: true,
     maxVisible: 5,
-    overflowMode: "cut", overflowTempo: "medium", numbered: false, doneOrder: "end", globalTimerMode: "down",
+    overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end", globalTimerMode: "down",
     globalTimer: null,
     placement: { x: 300, y: 8, scale: 1 },
   },
@@ -67,6 +73,29 @@ const responseFor = (next: ChallengeBoardSnapshot, createdIds: Record<string, st
   snapshot: next,
   createdIds,
 });
+
+const setFileChallenge: ChallengeSetV1["challenges"][number] = {
+  title: "Importierte Challenge",
+  kind: "counter",
+  unit: null,
+  targetCount: 5,
+  timerTotalMs: null,
+  sortOrder: 0,
+  step: 1,
+  hidden: false,
+};
+
+const setFilePayload = (overrides: Partial<ChallengeSetV1> = {}): ChallengeSetV1 => ({
+  schemaVersion: 1,
+  name: "Elden Ring Bingo",
+  createdAt: instant,
+  challenges: [setFileChallenge],
+  ...overrides,
+});
+
+const setFile = (overrides: Partial<ChallengeSetV1> = {}, name = "elden-ring.json"): File => new File([
+  JSON.stringify(setFilePayload(overrides)),
+], name, { type: "application/json" });
 
 // Kein modul-eigener Speichern-Button mehr (die globale Speicherleiste ruft save() ueber
 // diesen Griff auf) – Tests loesen das Speichern daher genauso aus: ueber den per
@@ -97,6 +126,172 @@ afterEach(() => {
 });
 
 describe("ChallengeBoard", () => {
+  it("zeigt im leeren Board die Set-Aktion deaktiviert mit einem Grund", async () => {
+    renderBoard(snapshot([]));
+
+    expect(await screen.findByText("Noch kein Set")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Aktuelles Board als Set sichern" })).toBeDisabled();
+    expect(screen.getByText("Export nicht verfügbar: Das Board ist leer.")).toBeInTheDocument();
+  });
+
+  it("füllt der Import nur den lokalen Entwurf und markiert den nächsten Save als Set-Wechsel", async () => {
+    const initial = snapshot([challenge("one", "Alte Challenge")]);
+    const imported = snapshot([challenge("imported", "Importierte Challenge", { targetCount: 5 })], 2);
+    const save = vi.fn<ChallengeBoardApi["save"]>().mockResolvedValue(responseFor(imported, { "client-import": "imported" }));
+    const { triggerSave, save: saveSpy } = renderBoard(initial, save);
+    const fileInput = await screen.findByLabelText("Set-Datei auswählen");
+
+    fireEvent.change(fileInput, { target: { files: [setFile()] } });
+
+    expect(await screen.findByDisplayValue("Importierte Challenge")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Alte Challenge")).not.toBeInTheDocument();
+    expect(saveSpy).not.toHaveBeenCalled();
+
+    await triggerSave();
+    expect(saveSpy.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ reason: "set-switch" }));
+  });
+
+  it("fragt vor einem Import in einen ungespeicherten Entwurf und lässt ihn bei Ablehnung unverändert", async () => {
+    const user = userEvent.setup();
+    const initial = snapshot([challenge("one", "Lokaler Entwurf")]);
+    renderBoard(initial);
+    const title = await screen.findByDisplayValue("Lokaler Entwurf");
+    await user.clear(title);
+    await user.type(title, "Meine Änderung");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const fileInput = screen.getByLabelText("Set-Datei auswählen");
+
+    fireEvent.change(fileInput, { target: { files: [setFile()] } });
+
+    const dialog = await screen.findByRole("dialog", { name: "Ungespeicherte Änderungen" });
+    expect(dialog).toBeInTheDocument();
+    expect(confirm).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: "Abbrechen" }));
+    expect(screen.getByDisplayValue("Meine Änderung")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Importierte Challenge")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["zu große Dateien", new File(["x".repeat(65 * 1024 + 1)], "zu-gross.json"), "Set-Datei: zu-gross.json ist zu groß (maximal 64 KiB)."],
+    ["kaputtes JSON", new File(["{ kaputt"], "kaputt.json"), "Set-Datei: JSON ist ungültig."],
+    ["fremde Version", new File([JSON.stringify({ ...setFilePayload(), schemaVersion: 2 })], "version.json"), "Set-Datei schemaVersion: Version 2 wird nicht unterstützt; erwartet wird Version 1."],
+    ["zu viele Aufgaben", setFile({ challenges: Array.from({ length: 31 }, (_, index) => ({ ...setFileChallenge, title: `Challenge ${String(index)}` })) }), "Set-Datei challenges: 31 Aufgaben erkannt; maximal 30 sind erlaubt."],
+  ])("verändert den Draft nicht bei %s", async (_caseName, invalidFile, message) => {
+    const initial = snapshot([challenge("one", "Bleibt erhalten")]);
+    renderBoard(initial);
+    await screen.findByDisplayValue("Bleibt erhalten");
+    fireEvent.change(screen.getByLabelText("Set-Datei auswählen"), { target: { files: [invalidFile] } });
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Bleibt erhalten")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Importierte Challenge")).not.toBeInTheDocument();
+  });
+
+  it("zeigt den importierten Set-Namen und den geänderten Zustand, bis der Save erfolgreich war", async () => {
+    const user = userEvent.setup();
+    const initial = snapshot([challenge("one", "Alte Challenge")]);
+    const imported = snapshot([challenge("imported", "Importierte Challenge", { targetCount: 5 })], 2);
+    const save = vi.fn<ChallengeBoardApi["save"]>().mockResolvedValue(responseFor(imported, { "client-import": "imported" }));
+    const { triggerSave } = renderBoard(initial, save);
+    const fileInput = await screen.findByLabelText("Set-Datei auswählen");
+
+    fireEvent.change(fileInput, { target: { files: [setFile()] } });
+    await screen.findByDisplayValue("Importierte Challenge");
+    expect(screen.getByText("Elden Ring Bingo · geändert")).toBeInTheDocument();
+    await user.clear(screen.getByDisplayValue("Importierte Challenge"));
+    await user.type(screen.getByLabelText("Challenge"), "Noch angepasst");
+    expect(screen.getByText("Elden Ring Bingo · geändert")).toBeInTheDocument();
+
+    await triggerSave();
+
+    await waitFor(() => expect(screen.getByText("Elden Ring Bingo")).toBeInTheDocument());
+    expect(screen.queryByText("Elden Ring Bingo · geändert")).not.toBeInTheDocument();
+    expect(screen.getByText("Elden Ring Bingo")).toHaveClass("challenge-set-name--published");
+    expect(screen.getByText("Entwurf veröffentlicht.")).toBeInTheDocument();
+
+    await user.clear(screen.getByDisplayValue("Importierte Challenge"));
+    await user.type(screen.getByLabelText("Challenge"), "Dritte Anpassung");
+    expect(screen.queryByText("Entwurf veröffentlicht.")).not.toBeInTheDocument();
+  });
+
+  it("vergisst ein Set bei einem externen Update eines sauberen Boards", async () => {
+    const callbacks: { onChallengeUpdate?: (update: ChallengeUpdate) => void } = {};
+    const initial = snapshot([challenge("one", "Alte Challenge")]);
+    const imported = snapshot([challenge("imported", "Importierte Challenge", { targetCount: 5 })], 2);
+    const save = vi.fn<ChallengeBoardApi["save"]>().mockResolvedValue(responseFor(imported, { "client-import": "imported" }));
+    const api: ChallengeBoardApi = {
+      load: vi.fn(() => Promise.resolve(initial)),
+      save,
+      subscribe: (subscription) => {
+        callbacks.onChallengeUpdate = subscription.onChallengeUpdate;
+        return () => undefined;
+      },
+    };
+    let handle: ChallengeBoardSaveHandle | null = null;
+    render(<ChallengeBoard api={api} onHandleChange={(next) => { handle = next; }} />);
+
+    fireEvent.change(await screen.findByLabelText("Set-Datei auswählen"), { target: { files: [setFile()] } });
+    await screen.findByDisplayValue("Importierte Challenge");
+    await act(async () => { await handle?.save(); });
+    expect(screen.getByText("Elden Ring Bingo")).toBeInTheDocument();
+
+    const external = snapshot([challenge("other", "Andere Challenge")], 3);
+    const emitExternalUpdate = callbacks.onChallengeUpdate;
+    if (emitExternalUpdate === undefined) throw new Error("Subscription wurde nicht registriert.");
+    act(() => emitExternalUpdate({ ...external, settings: external.settings, event: null }));
+
+    await waitFor(() => expect(screen.queryByText("Elden Ring Bingo")).not.toBeInTheDocument());
+    expect(screen.getByDisplayValue("Andere Challenge")).toBeInTheDocument();
+  });
+
+  it("lässt lokale Set-Dateiaktionen offline verfügbar", async () => {
+    render(<ChallengeBoard api={{ load: vi.fn(() => Promise.resolve(snapshot([challenge("one", "Bellen")]))), save: vi.fn() }} online={false} />);
+
+    expect(await screen.findByRole("button", { name: "Set importieren" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Set exportieren" })).toBeEnabled();
+  });
+
+  it("exportiert den aktuellen Board-Entwurf ohne Fortschritt", async () => {
+    const user = userEvent.setup();
+    const initial = snapshot([challenge("one", "Bellen", { currentCount: 4, bestCount: 8, state: "active" })]);
+    const createObjectUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:test");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    renderBoard(initial);
+
+    await user.click(await screen.findByRole("button", { name: "Set exportieren" }));
+
+    const anchor = click.mock.instances[0];
+    expect((anchor as HTMLAnchorElement | undefined)?.download).toMatch(/^Challenge-Board-\d{4}-\d{2}-\d{2}\.json$/);
+    expect(createObjectUrl).toHaveBeenCalledOnce();
+    const blob = createObjectUrl.mock.calls[0]?.[0];
+    if (!(blob instanceof Blob)) throw new Error("Export muss einen Blob erzeugen.");
+    expect(await blob.text()).not.toContain("currentCount");
+    expect(await blob.text()).not.toContain("bestCount");
+  });
+
+  it("sendet bei einem gewöhnlichen Save nach dem Set-Save keinen Set-Wechsel-Grund", async () => {
+    const user = userEvent.setup();
+    const initial = snapshot([challenge("one", "Bellen")]);
+    const firstResponse = snapshot([challenge("one", "Erster Save")], 2);
+    const secondResponse = snapshot([challenge("one", "Zweiter Save")], 3);
+    const save = vi.fn<ChallengeBoardApi["save"]>()
+      .mockResolvedValueOnce(responseFor(firstResponse))
+      .mockResolvedValueOnce(responseFor(secondResponse));
+    const { triggerSave } = renderBoard(initial, save);
+    const fileInput = await screen.findByLabelText("Set-Datei auswählen");
+
+    fireEvent.change(fileInput, { target: { files: [setFile()] } });
+    await screen.findByDisplayValue("Importierte Challenge");
+    await triggerSave();
+    await user.clear(screen.getByDisplayValue("Erster Save"));
+    await user.type(screen.getByLabelText("Challenge"), "Zweiter Save");
+    await triggerSave();
+
+    expect(save.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ reason: "set-switch" }));
+    expect(save.mock.calls[1]?.[0]).not.toHaveProperty("reason");
+  });
+
   it("zeigt nur den Overlay-Text und gruppiert Laufzeitaktionen sowie Ziel und Timer kompakt", async () => {
     const initial = snapshot([challenge("one", "Bellen")]);
     renderBoard(initial);
@@ -123,7 +318,7 @@ describe("ChallengeBoard", () => {
     ]);
     const update = {
       ...initial,
-      settings: { ...initial.settings, themeId: "trail-wood" as const, numbered: true },
+      settings: { ...initial.settings, numbered: true },
       event: null,
     };
     render(<ChallengeBoard api={{ load: vi.fn(() => Promise.resolve(initial)), save: vi.fn() }} challengeUpdate={update} />);
@@ -167,6 +362,26 @@ describe("ChallengeBoard", () => {
       title: "Fünfmal bellen",
     });
     expect(save.mock.calls[0]?.[0].challenges[0]).not.toHaveProperty("description");
+  });
+
+  it("erhaelt kind, unit und step bei einer unbeteiligten Aenderung", async () => {
+    const user = userEvent.setup();
+    const initial = snapshot([
+      challenge("streak", "Serie", { kind: "streak", unit: null, step: 1, sortOrder: 0 }),
+      challenge("measure", "Messwert", { kind: "measure", unit: "kg", step: 5, sortOrder: 1 }),
+    ]);
+    const save = vi.fn<ChallengeBoardApi["save"]>().mockResolvedValue(responseFor(initial));
+    const { triggerSave } = renderBoard(initial, save);
+
+    const streakTitle = await screen.findByDisplayValue("Serie");
+    await user.clear(streakTitle);
+    await user.type(streakTitle, "Serie 2.0");
+    await triggerSave();
+
+    expect(save.mock.calls[0]?.[0].challenges).toEqual([
+      expect.objectContaining({ id: "streak", kind: "streak", unit: null, step: 1 }),
+      expect.objectContaining({ id: "measure", kind: "measure", unit: "kg", step: 5 }),
+    ]);
   });
 
   it("wendet clientId zu id an und sendet danach nur die echte ID", async () => {
@@ -280,6 +495,21 @@ describe("ChallengeBoard", () => {
     expect(screen.getByText(/behält seinen Endzeitpunkt/)).toBeInTheDocument();
   });
 
+  it("kündigt bei einem übererfüllten measure keinen Clamp beim Speichern an", async () => {
+    const initial = snapshot([challenge("measure", "Meter", {
+      kind: "measure",
+      unit: "m",
+      targetCount: 1_500,
+      currentCount: 1_800,
+      step: 50,
+    })]);
+    renderBoard(initial);
+
+    await screen.findByDisplayValue("Meter");
+    expect(screen.queryByText(/geklemmt/)).not.toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: "Meter Zielwert" })).toHaveAttribute("max", "1000000");
+  });
+
   it("zeigt einen revision_conflict mit Serverstand und überschreibt ihn nicht still", async () => {
     const user = userEvent.setup();
     const initial = snapshot([challenge("one", "Lokaler Entwurf")]);
@@ -325,7 +555,7 @@ describe("ChallengeBoard", () => {
     await user.type(title, "Mein Entwurf");
     onUpdate?.({
       ...incoming,
-      settings: { ...incoming.settings, themeId: "trail-wood" },
+      settings: incoming.settings,
       event: null,
     });
 
@@ -361,7 +591,7 @@ describe("ChallengeBoard", () => {
     const echoed = challenge("server-id", "Neue Challenge", { targetCount: null });
     const incoming = snapshot([echoed], 2);
     act(() => {
-      onUpdate?.({ ...incoming, settings: { ...incoming.settings, themeId: "trail-wood" }, event: null });
+      onUpdate?.({ ...incoming, settings: incoming.settings, event: null });
     });
 
     expect(screen.queryByText("Jemand anderes hat das Board gespeichert.")).not.toBeInTheDocument();
@@ -398,7 +628,7 @@ describe("ChallengeBoard", () => {
     render(<ChallengeBoard api={api} />);
 
     await waitFor(() => expect(onUpdate).toBeDefined());
-    onUpdate?.({ ...incoming, settings: { ...incoming.settings, themeId: "trail-wood" }, event: null });
+    onUpdate?.({ ...incoming, settings: incoming.settings, event: null });
     resolveLoad?.(initial);
     expect(await screen.findByDisplayValue("Aus Socket")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("Aus Load")).not.toBeInTheDocument();
@@ -436,7 +666,7 @@ describe("ChallengeBoard", () => {
     // per se noch unversöhnte Revision ein (z.B. von einem zweiten Editor) – das Board
     // erkennt zurecht einen echten Konflikt, weil unser lokaler Entwurf davon abweicht.
     const incoming = snapshot([challenge("one", "Fremde Änderung")], 3);
-    onUpdate?.({ ...incoming, settings: { ...incoming.settings, themeId: "trail-wood" }, event: null });
+    onUpdate?.({ ...incoming, settings: incoming.settings, event: null });
     expect(await screen.findByText("Jemand anderes hat das Board gespeichert.")).toBeInTheDocument();
 
     // Jetzt kommt die verspätete Antwort für unseren (jetzt veralteten) Request rein –

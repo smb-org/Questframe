@@ -444,7 +444,7 @@ export type HudEditorState = {
   selectResource: (selection: string) => void;
   save: (replace?: boolean) => Promise<ModuleSaveOutcome>;
   toggleVisibility: () => Promise<void>;
-  undo: (targetRevision: number) => Promise<void>;
+  undo: (channelSeq: number) => Promise<void>;
   commitEffect: (effect: ActiveEffect, featured: boolean) => void;
   removeEffect: (id: string) => void;
   addManualGuest: (input: string) => void;
@@ -459,10 +459,12 @@ export const useHudEditorState = ({
   initialBootstrap,
   api,
   onChallengeUpdate,
+  onChallengeUndoTargets,
 }: {
   initialBootstrap: BootstrapResponse;
   api: AdminApi;
   onChallengeUpdate?: (update: ChallengeUpdate) => void;
+  onChallengeUndoTargets?: (targets: UndoTarget[]) => void;
 }): HudEditorState => {
   const [committed, setCommitted] = useState(initialBootstrap.state);
   const [draft, setDraft] = useState(() => toDraft(initialBootstrap.state));
@@ -489,7 +491,7 @@ export const useHudEditorState = ({
   const applyUndoTargets = useCallback((targets: UndoTarget[], revision: number) => {
     if (revision < undoTargetsRevisionRef.current) return;
     undoTargetsRevisionRef.current = revision;
-    setUndoTargets(targets);
+    setUndoTargets(targets.filter((target) => target.moduleId === "hud"));
   }, []);
   const addAuditEntry = useCallback((entry: AuditEntry) => {
     const next = prependAuditEntry(auditRef.current, entry);
@@ -536,12 +538,12 @@ export const useHudEditorState = ({
       },
       onOnlineChange: setOnline,
       onOverlayPresence: (connectedSockets) => setOverlayToken((current) => ({ ...current, connectedSockets })),
-      onAudit: (entry, targets) => { addAuditEntry(entry); applyUndoTargets(targets, entry.revision); },
-      onUndoTargets: setUndoTargets,
+      onAudit: (entry, moduleId, targets) => { addAuditEntry(entry); if (moduleId === "hud") applyUndoTargets(targets, entry.revision); },
+      onUndoTargets: (moduleId, targets) => { if (moduleId === "hud") setUndoTargets(targets.filter((target) => target.moduleId === "hud")); else onChallengeUndoTargets?.(targets); },
     };
     if (onChallengeUpdate !== undefined) callbacks.onChallengeUpdate = onChallengeUpdate;
     return api.subscribe(callbacks);
-  }, [addAuditEntry, api, applyUndoTargets, onChallengeUpdate]);
+  }, [addAuditEntry, api, applyUndoTargets, onChallengeUndoTargets, onChallengeUpdate]);
 
   const pendingLeaseHashes = useMemo(() => {
     const committedHashes = new Set(uploadedHashes(committed));
@@ -598,10 +600,10 @@ export const useHudEditorState = ({
     if (obsUrl === "") return;
     try { await copyObsUrl(obsUrl); setError(""); setObsLinkCopied(true); if (obsLinkCopiedTimer.current !== null) window.clearTimeout(obsLinkCopiedTimer.current); obsLinkCopiedTimer.current = window.setTimeout(() => { setObsLinkCopied(false); obsLinkCopiedTimer.current = null; }, 2_000); } catch { setError("OBS-Link konnte nicht kopiert werden."); }
   };
-  const undo = async (targetRevision: number) => {
-    if (api.undo === undefined || !window.confirm(`Revision ${String(targetRevision)} wiederherstellen?`)) return;
+  const undo = async (channelSeq: number) => {
+    if (api.undo === undefined || !window.confirm(`Kanalzustand ${String(channelSeq)} wiederherstellen?`)) return;
     setSaving(true);
-    try { const response = await api.undo(committed.revision, targetRevision); setCommitted(response.state); setDraft(toDraft(response.state)); setDraftBaseRevision(response.state.revision); setRemoteConflict(null); addAuditEntry(response.auditEntry); applyUndoTargets(response.undoTargets, response.state.revision); setMessage(`Revision ${String(targetRevision)} wurde als neue Revision wiederhergestellt.`); } catch (caught) { setError(caught instanceof Error ? caught.message : "Undo fehlgeschlagen."); } finally { setSaving(false); }
+    try { const response = await api.undo("hud", channelSeq, committed.revision); setCommitted(response.state); setDraft(toDraft(response.state)); setDraftBaseRevision(response.state.revision); setRemoteConflict(null); addAuditEntry(response.auditEntry); applyUndoTargets(response.undoTargets, response.state.revision); setMessage("Der HUD-Zustand wurde wiederhergestellt."); } catch (caught) { setError(caught instanceof Error ? caught.message : "Undo fehlgeschlagen."); } finally { setSaving(false); }
   };
   const resolveRemoteConflict = () => {
     if (remoteConflict === null) return;
