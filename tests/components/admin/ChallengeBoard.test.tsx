@@ -148,10 +148,340 @@ const firstRow = (): HTMLElement => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
 describe("ChallengeBoard", () => {
+  // Gemeinsames Setup für die Live-Timer-Tests: Fake-Timer auf den festen Zeitpunkt setzen,
+  // eine einzelne Challenge mit den übergebenen Timer-Feldern rendern und den initialen
+  // Effekt abwarten. Was der jeweilige Test daraus prüft, bleibt bewusst im Test.
+  const renderLiveTimerRow = async (
+    title: string,
+    overrides: Partial<ChallengeBoardSnapshot["challenges"][number]>,
+  ): Promise<HTMLElement> => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(instant));
+    renderBoard(snapshot([challenge("timer", title, overrides)]));
+    await act(async () => { await Promise.resolve(); });
+    const row = screen.getByDisplayValue(title).closest("article");
+    if (!(row instanceof HTMLElement)) throw new Error("Challenge-Zeile fehlt.");
+    return row;
+  };
+
+  it("zeigt eine laufende Restzeit und zählt sie im Sekundentakt herunter", async () => {
+    const row = await renderLiveTimerRow("Laufende Challenge", {
+      timerTotalMs: 3_600_000,
+      state: "active",
+      timerEndsAt: new Date(new Date(instant).getTime() + 3_600_000).toISOString(),
+    });
+    expect(within(row).getByText("1:00:00")).toBeInTheDocument();
+
+    act(() => { vi.advanceTimersByTime(1_000); });
+
+    expect(within(row).getByText("59:59")).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it("zeigt Überzeit mit Plus und der Überzeit-Klasse", async () => {
+    const row = await renderLiveTimerRow("Überzogene Challenge", {
+      timerTotalMs: 60_000,
+      state: "active",
+      timerEndsAt: new Date(new Date(instant).getTime() - (390 * 3_600_000 + 34 * 60_000 + 21_000)).toISOString(),
+    });
+    const timer = within(row).getByText("+390:34:21");
+    expect(timer).toHaveClass("wc-is-overtime");
+    vi.useRealTimers();
+  });
+
+  it("zeigt eine pausierte Restzeit eingefroren mit Pausen-Kennung", async () => {
+    const row = await renderLiveTimerRow("Pausierte Challenge", {
+      timerTotalMs: 60_000,
+      timerRemainMs: 60_000,
+    });
+    expect(within(row).getByText("Ⅱ 1:00")).toBeInTheDocument();
+
+    act(() => { vi.advanceTimersByTime(1_000); });
+
+    expect(within(row).getByText("Ⅱ 1:00")).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it("setzt einen laufenden Tippvorgang im Titelfeld durch den Tick nicht zurück", async () => {
+    await renderLiveTimerRow("Alte Überschrift", {
+      timerTotalMs: 60_000,
+      state: "active",
+      timerEndsAt: new Date(new Date(instant).getTime() + 60_000).toISOString(),
+    });
+    const title = screen.getByDisplayValue("Alte Überschrift");
+    fireEvent.change(title, { target: { value: "Mein Entwurf" } });
+    act(() => { vi.advanceTimersByTime(1_000); });
+
+    expect(title).toHaveValue("Mein Entwurf");
+    vi.useRealTimers();
+  });
+
+  it("legt ohne laufenden Timer kein Intervall an", async () => {
+    await renderLiveTimerRow("Ohne Timer", {});
+
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
+  });
+
+  // Gemeinsames Setup für die Laufzeit-/Settings-Update-Tests: Board mit einer Challenge
+  // über eine Socket-Subscription rendern und eine Funktion zum Einspeisen von Updates über
+  // genau diesen Kanal zurückgeben. Zusätzliche API-Felder (z.B. save/listSets/getSet) und
+  // wie das Board vor dem Update bedient wird, bleiben bewusst im jeweiligen Test.
+  const renderBoardWithUpdateChannel = (
+    initial: ChallengeBoardSnapshot,
+    apiOverrides: Partial<ChallengeBoardApi> = {},
+  ): {
+    pushUpdate: (update: ChallengeUpdate) => void;
+    saveViaHandle: () => Promise<void>;
+  } => {
+    let onUpdate: ((update: ChallengeUpdate) => void) | undefined;
+    let handle: ChallengeBoardSaveHandle | null = null;
+    const api: ChallengeBoardApi = {
+      load: vi.fn(() => Promise.resolve(initial)),
+      save: vi.fn(),
+      subscribe: (callbacks) => {
+        onUpdate = callbacks.onChallengeUpdate;
+        return () => undefined;
+      },
+      ...apiOverrides,
+    };
+    render(<ChallengeBoard api={api} onHandleChange={(next) => { handle = next; }} />);
+    return {
+      pushUpdate: (update) => {
+        if (onUpdate === undefined) throw new Error("Subscription wurde nicht registriert.");
+        act(() => { onUpdate?.(update); });
+      },
+      saveViaHandle: () => act(async () => {
+        if (handle === null) throw new Error("Speicher-Griff fehlt.");
+        await handle.save();
+      }),
+    };
+  };
+
+  it("übernimmt einen neuen Laufzeitstand trotz gleicher Board-Revision", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(instant));
+    const initial = snapshot([challenge("one", "Laufende Challenge", { timerTotalMs: 3_600_000 })]);
+    const { pushUpdate } = renderBoardWithUpdateChannel(initial);
+
+    await act(async () => { await Promise.resolve(); });
+    act(() => { vi.advanceTimersByTime(10_000); });
+
+    const running = snapshot([challenge("one", "Laufende Challenge", {
+      timerTotalMs: 3_600_000,
+      state: "active",
+      timerEndsAt: new Date(Date.now() + 3_600_000).toISOString(),
+    })]);
+    pushUpdate({
+      ...running,
+      eventSeq: 1,
+      event: { scope: "challenge", type: "timer_started", challengeId: "one" },
+    });
+
+    const row = screen.getByDisplayValue("Laufende Challenge").closest("article");
+    if (!(row instanceof HTMLElement)) throw new Error("Challenge-Zeile fehlt.");
+    expect(within(row).getByText("1:00:00")).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it("übernimmt ein reines Laufzeit-Update in einen schmutzigen Entwurf ohne Konflikt", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(instant));
+    const initial = snapshot([challenge("one", "Alte Überschrift", { currentCount: 3 })]);
+    const { pushUpdate } = renderBoardWithUpdateChannel(initial);
+
+    await act(async () => { await Promise.resolve(); });
+    const title = screen.getByDisplayValue("Alte Überschrift");
+    fireEvent.change(title, { target: { value: "Teilweise getippter Titel" } });
+    const incoming = snapshot([challenge("one", "Fremde Überschrift", { currentCount: 4, bestCount: 4 })]);
+    pushUpdate({
+      ...incoming,
+      eventSeq: 1,
+      event: { scope: "challenge", type: "progressed", challengeId: "one", delta: 1, previousCount: 3, currentCount: 4 },
+    });
+
+    expect(screen.queryByText("Jemand anderes hat das Board gespeichert.")).not.toBeInTheDocument();
+    expect(title).toHaveValue("Teilweise getippter Titel");
+    const row = title.closest("article");
+    if (!(row instanceof HTMLElement)) throw new Error("Challenge-Zeile fehlt.");
+    expect(within(row).getByText("4 / 10")).toBeInTheDocument();
+  });
+
+  it("behält aktives Set, Auswahl und Meldung bei einem reinen Laufzeit-Update", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(instant));
+    const initial = snapshot([challenge("one", "Aktive Challenge", { currentCount: 3 })]);
+    const setSummary = {
+      id: "set-1",
+      type: "user" as const,
+      name: "Aktives Set",
+      hasProgress: true,
+      createdAt: instant,
+      updatedAt: instant,
+    };
+    const save = vi.fn<ChallengeBoardApi["save"]>().mockImplementation((request) => {
+      const definition = request.challenges[0];
+      const clientId = definition !== undefined && "clientId" in definition ? definition.clientId : "unbekannt";
+      return Promise.resolve(responseFor(snapshot([challenge("one", "Aktive Challenge", { currentCount: 3 })], 2), { [clientId]: "one" }));
+    });
+    const { pushUpdate, saveViaHandle } = renderBoardWithUpdateChannel(initial, {
+      save,
+      listSets: vi.fn(() => Promise.resolve([setSummary])),
+      getSet: vi.fn(() => Promise.resolve(setFilePayload({
+        name: "Aktives Set",
+        challenges: [{
+          ...setFileChallenge,
+          title: "Aktive Challenge",
+          targetCount: 10,
+          progress: { currentCount: 3, bestCount: 3, state: "pending", timerRemainMs: null, completedAt: null },
+        }],
+      }))),
+    });
+
+    await act(async () => { await Promise.resolve(); });
+    const select = screen.getByRole("combobox", { name: "Gespeichertes Set laden" });
+    fireEvent.change(select, { target: { value: "set-1" } });
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.click(screen.getByRole("button", { name: "Set in Entwurf laden" }));
+    await saveViaHandle();
+    expect(screen.getByText("Aktives Set", { selector: "strong" })).toBeInTheDocument();
+    expect(select).toHaveValue("set-1");
+    expect(screen.getByText("Entwurf veröffentlicht.")).toBeInTheDocument();
+
+    const incoming = snapshot([challenge("one", "Fremde Überschrift", { currentCount: 4, bestCount: 4 })], 2);
+    pushUpdate({
+      ...incoming,
+      eventSeq: 1,
+      event: { scope: "challenge", type: "progressed", challengeId: "one", delta: 1, previousCount: 3, currentCount: 4 },
+    });
+
+    expect(screen.getByText("Aktives Set", { selector: "strong" })).toBeInTheDocument();
+    expect(select).toHaveValue("set-1");
+    expect(screen.getByText("Entwurf veröffentlicht.")).toBeInTheDocument();
+    vi.useRealTimers();
+  });
+
+  it("behält aktives Set, Auswahl und Meldung bei einem Settings-Update", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(instant));
+    const initial = snapshot([challenge("one", "Aktive Challenge", { currentCount: 3 })]);
+    const setSummary = {
+      id: "set-1",
+      type: "user" as const,
+      name: "Aktives Set",
+      hasProgress: true,
+      createdAt: instant,
+      updatedAt: instant,
+    };
+    const saved = snapshot([challenge("one", "Aktive Challenge", { currentCount: 3 })], 2);
+    const save = vi.fn<ChallengeBoardApi["save"]>().mockResolvedValue(responseFor(saved, { "client-set": "one" }));
+    const { pushUpdate, saveViaHandle } = renderBoardWithUpdateChannel(initial, {
+      save,
+      listSets: vi.fn(() => Promise.resolve([setSummary])),
+      getSet: vi.fn(() => Promise.resolve(setFilePayload({
+        name: "Aktives Set",
+        challenges: [{
+          ...setFileChallenge,
+          title: "Aktive Challenge",
+          targetCount: 10,
+          progress: { currentCount: 3, bestCount: 3, state: "pending", timerRemainMs: null, completedAt: null },
+        }],
+      }))),
+    });
+
+    await act(async () => { await Promise.resolve(); });
+    const select = screen.getByRole("combobox", { name: "Gespeichertes Set laden" });
+    fireEvent.change(select, { target: { value: "set-1" } });
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.click(screen.getByRole("button", { name: "Set in Entwurf laden" }));
+    await saveViaHandle();
+
+    const incoming = snapshot([challenge("one", "Aktive Challenge", { currentCount: 3 })], 2);
+    pushUpdate({
+      ...incoming,
+      settingsRevision: 2,
+      settings: { ...incoming.settings, headerTitle: "Neue Kopfzeile" },
+      event: null,
+    });
+
+    expect(screen.getByText("Aktives Set", { selector: "strong" })).toBeInTheDocument();
+    expect(select).toHaveValue("set-1");
+    expect(screen.getByText("Entwurf veröffentlicht.")).toBeInTheDocument();
+    expect(screen.queryByText("Jemand anderes hat das Board gespeichert.")).not.toBeInTheDocument();
+  });
+
+  it("hält einen getippten Titel bei einem Settings-Update ohne Konflikt", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(instant));
+    const initial = snapshot([challenge("one", "Alte Überschrift")]);
+    const { pushUpdate } = renderBoardWithUpdateChannel(initial);
+
+    await act(async () => { await Promise.resolve(); });
+    const title = screen.getByDisplayValue("Alte Überschrift");
+    fireEvent.change(title, { target: { value: "Teilweise getippter Titel" } });
+    const incoming = snapshot([challenge("one", "Serverüberschrift")]);
+    pushUpdate({
+      ...incoming,
+      settingsRevision: 2,
+      settings: { ...incoming.settings, headerTitle: "Neue Kopfzeile" },
+      event: null,
+    });
+
+    expect(screen.queryByText("Jemand anderes hat das Board gespeichert.")).not.toBeInTheDocument();
+    expect(title).toHaveValue("Teilweise getippter Titel");
+  });
+
+  it("übernimmt beim Serverstand die aktualisierte Laufzeit aus dem Konflikt", async () => {
+    const user = userEvent.setup();
+    const initial = snapshot([challenge("one", "Lokaler Entwurf", { currentCount: 3 })]);
+    const { pushUpdate } = renderBoardWithUpdateChannel(initial);
+
+    const title = await screen.findByDisplayValue("Lokaler Entwurf");
+    await user.clear(title);
+    await user.type(title, "Mein Entwurf");
+    const foreign = snapshot([challenge("one", "Fremde Änderung", { currentCount: 4 })], 2);
+    pushUpdate({ ...foreign, event: null });
+    expect(await screen.findByText("Jemand anderes hat das Board gespeichert.")).toBeInTheDocument();
+
+    const runtime = snapshot([challenge("one", "Fremde Änderung", { currentCount: 5 })], 2);
+    pushUpdate({
+      ...runtime,
+      eventSeq: 1,
+      event: { scope: "challenge", type: "progressed", challengeId: "one", delta: 1, previousCount: 4, currentCount: 5 },
+    });
+
+    expect(screen.getByText("Jemand anderes hat das Board gespeichert.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Serverstand übernehmen" }));
+    const row = screen.getByDisplayValue("Fremde Änderung").closest("article");
+    if (!(row instanceof HTMLElement)) throw new Error("Challenge-Zeile fehlt.");
+    expect(within(row).getByText("5 / 10")).toBeInTheDocument();
+  });
+
+  it("erzeugt bei einer echten Board-Änderung trotz schmutzigem Entwurf weiterhin einen Konflikt", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(instant));
+    const initial = snapshot([challenge("one", "Alte Überschrift", { currentCount: 3 })]);
+    const { pushUpdate } = renderBoardWithUpdateChannel(initial);
+
+    await act(async () => { await Promise.resolve(); });
+    const title = screen.getByDisplayValue("Alte Überschrift");
+    fireEvent.change(title, { target: { value: "Mein Entwurf" } });
+    const incoming = snapshot([challenge("one", "Fremde Überschrift", { currentCount: 4, bestCount: 4 })], 2);
+    pushUpdate({
+      ...incoming,
+      eventSeq: 1,
+      event: { scope: "challenge", type: "progressed", challengeId: "one", delta: 1, previousCount: 3, currentCount: 4 },
+    });
+
+    expect(screen.getByText("Jemand anderes hat das Board gespeichert.")).toBeInTheDocument();
+    expect(title).toHaveValue("Mein Entwurf");
+  });
+
   it("zeigt im leeren Board die Set-Aktion deaktiviert mit einem Grund", async () => {
     renderBoard(snapshot([]));
 
@@ -714,6 +1044,14 @@ describe("ChallengeBoard", () => {
     });
 
     expect(screen.queryByText("Jemand anderes hat das Board gespeichert.")).not.toBeInTheDocument();
+    const runtimeDuringSave = snapshot([challenge("server-id", "Neue Challenge", { targetCount: null, currentCount: 1 })], 2);
+    act(() => {
+      onUpdate?.({
+        ...runtimeDuringSave,
+        eventSeq: 1,
+        event: { scope: "challenge", type: "progressed", challengeId: "server-id", delta: 1, previousCount: 0, currentCount: 1 },
+      });
+    });
     resolveSave?.(responseFor(incoming, { [firstDefinition.clientId]: "server-id" }));
     await waitFor(() => expect(screen.getByDisplayValue("Neue Challenge")).toBeInTheDocument());
     expect(screen.queryByText("Jemand anderes hat das Board gespeichert.")).not.toBeInTheDocument();

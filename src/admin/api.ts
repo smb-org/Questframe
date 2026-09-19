@@ -42,6 +42,7 @@ import {
 } from "../modules/win-challenges/contracts/schemas";
 import { parseChallengeUpdate } from "../challenges/wire";
 import { startSocketHeartbeat } from "../shared/reconnect";
+import { createTimeSyncClient, TIME_SYNC_INTERVAL_MS } from "../shared/time-sync";
 import type { AdminApi } from "./AdminWorkspace";
 
 export class AdminApiError extends Error {
@@ -255,11 +256,14 @@ export class BrowserAdminApi implements AdminApi {
     onAudit: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onAudit"];
     onUndoTargets: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onUndoTargets"];
     onChallengeUpdate?: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onChallengeUpdate"];
+    onTimeOffset?: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onTimeOffset"];
   }): () => void => {
     let disposed = false;
     let socket: WebSocket | null = null;
     let stopHeartbeat: (() => void) | null = null;
     let timer: number | null = null;
+    let timeSyncTimer: number | null = null;
+    let timeSync: ReturnType<typeof createTimeSyncClient> | null = null;
     let attempt = 0;
     const connect = () => {
       if (disposed) return;
@@ -267,11 +271,18 @@ export class BrowserAdminApi implements AdminApi {
       socket = new WebSocket(
         `${protocol}//${window.location.host}/ws/editor?tab=${encodeURIComponent(this.tabId)}`,
       );
+      timeSync = createTimeSyncClient({
+        send: (message) => { socket?.send(message); },
+        onOffset: (offsetMs) => { callbacks.onTimeOffset?.(offsetMs); },
+      });
       socket.addEventListener("open", () => {
         stopHeartbeat?.();
         stopHeartbeat = startSocketHeartbeat(socket as WebSocket);
         attempt = 0;
         callbacks.onOnlineChange(true);
+        timeSync?.requestSamples();
+        if (timeSyncTimer !== null) window.clearInterval(timeSyncTimer);
+        timeSyncTimer = window.setInterval(() => { timeSync?.requestSamples(); }, TIME_SYNC_INTERVAL_MS);
       });
       socket.addEventListener("message", (event) => {
         if (typeof event.data !== "string") return;
@@ -288,7 +299,9 @@ export class BrowserAdminApi implements AdminApi {
         }
         const message = serverMessageSchema.safeParse(input);
         if (!message.success) return;
-        if (message.data.type === "snapshot" || message.data.type === "state_committed") {
+        if (message.data.type === "time_sync") {
+          timeSync?.accept(message.data, Date.now());
+        } else if (message.data.type === "snapshot" || message.data.type === "state_committed") {
           callbacks.onState(message.data.state);
         } else if (message.data.type === "audit_appended") {
           callbacks.onAudit(message.data.entry, message.data.moduleId, message.data.undoTargets);
@@ -301,6 +314,10 @@ export class BrowserAdminApi implements AdminApi {
       socket.addEventListener("close", () => {
         stopHeartbeat?.();
         stopHeartbeat = null;
+        timeSync?.reset();
+        timeSync = null;
+        if (timeSyncTimer !== null) window.clearInterval(timeSyncTimer);
+        timeSyncTimer = null;
         if (disposed) return;
         callbacks.onOnlineChange(false);
         const delay = Math.min(30_000, 750 * 2 ** attempt);
@@ -314,6 +331,8 @@ export class BrowserAdminApi implements AdminApi {
       stopHeartbeat?.();
       stopHeartbeat = null;
       if (timer !== null) window.clearTimeout(timer);
+      if (timeSyncTimer !== null) window.clearInterval(timeSyncTimer);
+      timeSync?.reset();
       socket?.close();
     };
   };

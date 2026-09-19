@@ -30,6 +30,13 @@ import {
 } from "../contracts/schemas";
 import { maxCountForKind } from "../contracts/predicates";
 import type { ChallengeSetProgress } from "../domain/set-codec";
+import { deriveChallengeTimerState } from "../domain/timers";
+import {
+  formatTimerText,
+  remainingFor,
+  timerAriaLabel,
+  timerIsOvertime,
+} from "./timer";
 
 export type ChallengeBoardSubscription = {
   onChallengeUpdate: (update: ChallengeUpdate) => void;
@@ -86,6 +93,11 @@ type ActiveSet = {
   hasProgress: boolean;
 };
 
+type ChallengeRuntimeFields = Pick<
+  Challenge,
+  "currentCount" | "bestCount" | "state" | "timerEndsAt" | "timerRemainMs" | "completedAt"
+>;
+
 const snapshotFromUpdate = (update: ChallengeUpdate): ChallengeBoardSnapshot => {
   return {
     eventSeq: update.eventSeq,
@@ -119,6 +131,48 @@ const draftsFromSnapshot = (snapshot: ChallengeBoardSnapshot): ChallengeDraft[] 
   [...snapshot.challenges]
     .sort((left, right) => left.sortOrder - right.sortOrder)
     .map(draftFromChallenge);
+
+const runtimeFieldsFromChallenge = (challenge: Challenge): ChallengeRuntimeFields => ({
+  currentCount: challenge.currentCount,
+  bestCount: challenge.bestCount,
+  state: challenge.state,
+  timerEndsAt: challenge.timerEndsAt,
+  timerRemainMs: challenge.timerRemainMs,
+  completedAt: challenge.completedAt,
+});
+
+const mergeRuntimeSnapshot = (
+  current: ChallengeBoardSnapshot,
+  incoming: ChallengeBoardSnapshot,
+): ChallengeBoardSnapshot => {
+  const incomingById = new Map(incoming.challenges.map((challenge) => [challenge.id, challenge]));
+  return {
+    ...current,
+    eventSeq: incoming.eventSeq,
+    settingsRevision: incoming.settingsRevision,
+    settings: incoming.settings,
+    challenges: current.challenges.map((challenge) => {
+      const incomingChallenge = incomingById.get(challenge.id);
+      return incomingChallenge === undefined
+        ? challenge
+        : { ...challenge, ...runtimeFieldsFromChallenge(incomingChallenge) };
+    }),
+  };
+};
+
+const mergeRuntimeDrafts = (
+  drafts: readonly ChallengeDraft[],
+  incoming: ChallengeBoardSnapshot,
+): ChallengeDraft[] => {
+  const incomingById = new Map(incoming.challenges.map((challenge) => [challenge.id, challenge]));
+  return drafts.map((draft) => {
+    if (!("id" in draft.identity)) return draft;
+    const incomingChallenge = incomingById.get(draft.identity.id);
+    return incomingChallenge === undefined
+      ? draft
+      : { ...draft, ...runtimeFieldsFromChallenge(incomingChallenge) };
+  });
+};
 
 const draftsFromDefinitions = (
   definitions: readonly ChallengeDefinition[],
@@ -341,11 +395,30 @@ const defaultDraft = (sortOrder: number): ChallengeDraft => ({
 
 type ChallengeRowLayout = "stacked" | "compact";
 
+const useChallengeBoardNow = (
+  drafts: readonly ChallengeDraft[],
+  clockOffsetMs: number,
+  clockSeed: number,
+): number => {
+  const [localNow, setLocalNow] = useState(clockSeed);
+  const hasLiveTimer = drafts.some((draft) => draft.timerEndsAt !== null);
+
+  useEffect(() => {
+    if (!hasLiveTimer) return;
+    const interval = window.setInterval(() => setLocalNow(Date.now()), 1_000);
+    return () => window.clearInterval(interval);
+  }, [hasLiveTimer]);
+
+  const now = Math.max(localNow, clockSeed);
+  return now + clockOffsetMs;
+};
+
 type ChallengeRowProps = {
   draft: ChallengeDraft;
   index: number;
   total: number;
   disabled: boolean;
+  now: number;
   numbered: boolean;
   number: number | undefined;
   layout?: ChallengeRowLayout;
@@ -361,6 +434,7 @@ const ChallengeRow = ({
   index,
   total,
   disabled,
+  now,
   numbered,
   number,
   layout = "stacked",
@@ -372,6 +446,20 @@ const ChallengeRow = ({
 }: ChallengeRowProps) => {
   const hasTarget = draft.targetCount !== null;
   const hasTimer = draft.timerTotalMs !== null;
+  const timerState = deriveChallengeTimerState(draft, now);
+  const remainingMs = remainingFor(draft.timerEndsAt, draft.timerRemainMs, timerState, now);
+  const showTimer = timerState !== "idle";
+  const overtime = timerIsOvertime(remainingMs);
+  const timerText = formatTimerText(timerState, remainingMs, draft.state === "done");
+  const timerDisplay = showTimer ? (
+    <span
+      aria-label={timerAriaLabel(remainingMs, draft.state === "done")}
+      className={`challenge-source__time${overtime ? " wc-is-overtime" : ""}`}
+      data-state={draft.state === "done" ? "done" : timerState}
+    >
+      {timerText}
+    </span>
+  ) : null;
   const orderControls = (
     <div className="challenge-row-order">
       <button
@@ -415,6 +503,7 @@ const ChallengeRow = ({
           ? `Stand ${String(draft.currentCount)}`
           : `${String(draft.currentCount)} / ${String(draft.targetCount)}`}
       </strong>
+      {timerDisplay}
       {layout === "stacked" && (
         <>
           <button
@@ -613,6 +702,7 @@ const ChallengeRow = ({
 type ChallengeBoardListProps = {
   drafts: readonly ChallengeDraft[];
   disabled: boolean;
+  now: number;
   numbered: boolean;
   layout?: ChallengeRowLayout;
   ariaLabel?: string;
@@ -626,6 +716,7 @@ type ChallengeBoardListProps = {
 const ChallengeBoardList = ({
   drafts,
   disabled,
+  now,
   numbered,
   layout = "stacked",
   ariaLabel = "Challenge-Definitionen",
@@ -644,6 +735,7 @@ const ChallengeBoardList = ({
         index={index}
         key={draft.key}
         layout={layout}
+        now={now}
         numbered={numbered}
         number={numbered && !draft.hidden ? drafts.slice(0, index + 1).filter((candidate) => !candidate.hidden).length : undefined}
         onChange={(patch) => onChange(draft.key, patch)}
@@ -913,12 +1005,14 @@ export const ChallengeBoard = ({
   api,
   onOnlineChange,
   challengeUpdate,
+  clockOffsetMs = 0,
   online: onlineOverride,
   onHandleChange,
 }: {
   api: ChallengeBoardApi;
   onOnlineChange?: (online: boolean) => void;
   challengeUpdate?: ChallengeUpdate | null;
+  clockOffsetMs?: number;
   online?: boolean;
   onHandleChange?: (handle: ChallengeBoardSaveHandle) => void;
 }) => {
@@ -941,6 +1035,7 @@ export const ChallengeBoard = ({
   const [setName, setSetName] = useState("");
   const [includeProgress, setIncludeProgress] = useState(true);
   const [setBusy, setSetBusy] = useState(false);
+  const [clockSeed, setClockSeed] = useState(() => Date.now());
   const [pendingServerSet, setPendingServerSet] = useState<PendingServerSet | null>(null);
   const [pendingServerSetDelete, setPendingServerSetDelete] = useState<PendingServerSetDelete | null>(null);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
@@ -968,11 +1063,31 @@ export const ChallengeBoard = ({
     [drafts, snapshot],
   );
   const numbered = challengeUpdate?.settings.numbered === true;
+  const now = useChallengeBoardNow(drafts, clockOffsetMs, clockSeed);
 
   const applyChallengeUpdate = useCallback((update: ChallengeUpdate) => {
     const incoming = snapshotFromUpdate(update);
     const current = snapshotRef.current;
-    if (current !== null && incoming.boardRevision <= current.boardRevision) return;
+    const isRuntimeUpdate = current !== null
+      && incoming.boardRevision === current.boardRevision
+      && (incoming.settingsRevision > current.settingsRevision || incoming.eventSeq > current.eventSeq);
+    if (
+      current !== null &&
+      !isRuntimeUpdate &&
+      incoming.boardRevision <= current.boardRevision &&
+      incoming.settingsRevision <= current.settingsRevision
+    ) return;
+    setClockSeed(() => Date.now());
+    if (isRuntimeUpdate) {
+      const next = mergeRuntimeSnapshot(current, incoming);
+      const nextDrafts = mergeRuntimeDrafts(draftsRef.current, incoming);
+      snapshotRef.current = next;
+      draftsRef.current = nextDrafts;
+      setSnapshot(next);
+      setDrafts(nextDrafts);
+      setConflict((currentConflict) => currentConflict === null ? null : mergeRuntimeSnapshot(currentConflict, incoming));
+      return;
+    }
     if (savingRef.current && sameFieldsIgnoringIdentity(draftsRef.current, draftsFromSnapshot(incoming))) {
       snapshotRef.current = incoming;
       setSnapshot(incoming);
@@ -999,6 +1114,7 @@ export const ChallengeBoard = ({
   }, []);
 
   const applySnapshot = useCallback((next: ChallengeBoardSnapshot, nextMessage = "") => {
+    setClockSeed(() => Date.now());
     snapshotRef.current = next;
     setSnapshot(next);
     setDrafts(draftsFromSnapshot(next));
@@ -1360,6 +1476,7 @@ export const ChallengeBoard = ({
       ) {
         draftsPendingReconciliationRef.current = false;
         const resolvedDrafts = applyCreatedIds(drafts, response);
+        setClockSeed(() => Date.now());
         setSnapshot(response.snapshot);
         setDrafts(resolvedDrafts);
         setConflict(null);
@@ -1633,6 +1750,7 @@ export const ChallengeBoard = ({
       <ChallengeBoardList
         drafts={drafts}
         disabled={saving || !effectiveOnline}
+        now={now}
         numbered={numbered}
         onChange={updateDraft}
         onDelete={deleteDraft}
@@ -1674,6 +1792,7 @@ export const ChallengeBoard = ({
         onMove={moveDraft}
         open={fullscreen}
         numbered={numbered}
+        now={now}
         triggerRef={fullscreenTriggerRef}
       />
     </section>

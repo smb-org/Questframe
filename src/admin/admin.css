@@ -15,6 +15,7 @@
   --green: #5ed08a;
   --red: #f36d74;
   --violet: #a970ff;
+  --wc-overtime: #c04f59;
   --offline-banner-height: 40px;
 }
 
@@ -481,6 +482,9 @@ input[type="color"] { padding: 4px; }
 .challenge-toggle-field input[type="number"] { min-width: 0; }
 .challenge-row-runtime { min-width: 0; display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--muted); }
 .challenge-row-runtime strong { color: var(--text); font-size: 14px; font-variant-numeric: tabular-nums; }
+.challenge-row-runtime .challenge-source__time { min-width: 9ch; color: var(--accent); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.challenge-row-runtime .challenge-source__time[data-state="paused"] { color: var(--muted); }
+.challenge-row-runtime .challenge-source__time.wc-is-overtime { color: var(--wc-overtime); }
 .challenge-row-runtime small { color: var(--accent-bright); font-size: 10px; line-height: 1.2; }
 .challenge-state { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 800; text-transform: uppercase; }
 .challenge-state i { width: 8px; height: 8px; border-radius: 2px; background: var(--muted); }

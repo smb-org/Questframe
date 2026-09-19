@@ -14,6 +14,52 @@ export const formatRemaining = (milliseconds: number): string => {
   return `${prefix}${String(minutes)}:${String(rest).padStart(2, "0")}`;
 };
 
+export const timerIsOvertime = (remainingMs: number): boolean => remainingMs < 0;
+
+export const formatTimerText = (
+  state: TimerState,
+  remainingMs: number,
+  completed = false,
+): string => `${state === "paused" && !completed ? "Ⅱ " : ""}${formatRemaining(remainingMs)}`;
+
+export const timerAriaLabel = (
+  remainingMs: number,
+  completed = false,
+): string => {
+  if (completed) {
+    return timerIsOvertime(remainingMs)
+      ? `Überzeit bei Abschluss ${formatRemaining(remainingMs)}`
+      : `Rest bei Abschluss ${formatRemaining(remainingMs)}`;
+  }
+  return `Restzeit ${formatRemaining(remainingMs)}`;
+};
+
+export const timerStatusLabel = (
+  state: TimerState,
+  critical: boolean,
+  mode: GlobalTimerMode,
+): string | null => state === "paused"
+  ? "pausiert"
+  : state === "expired" && mode === "down"
+    ? "abgelaufen"
+    : critical
+      ? "kritisch"
+      : null;
+
+export const timerClassName = (
+  state: TimerState,
+  critical: boolean,
+  mode: GlobalTimerMode,
+  remainingMs: number,
+): string => {
+  const classes: string[] = [];
+  if (state === "paused") classes.push("challenge-source__timer--paused");
+  if (state === "expired" && mode === "down") classes.push("challenge-source__timer--expired");
+  if (mode === "down" && timerIsOvertime(remainingMs)) classes.push("wc-is-overtime");
+  if (critical) classes.push("challenge-source__timer--critical");
+  return classes.join(" ");
+};
+
 export const displayedMsFor = (
   mode: GlobalTimerMode,
   totalMs: number,

@@ -6,28 +6,19 @@ import type {
   GlobalTimer,
 } from "../../../shared/contracts/win-challenges";
 import { challengeNumbers, formatChallengeStand, selectVisible } from "../domain/visibility";
-import { deriveChallengeTimerState, deriveTimerState, type TimerState } from "../domain/timers";
+import { deriveChallengeTimerState, deriveTimerState } from "../domain/timers";
 import {
   formatRemaining,
+  formatTimerText,
   displayedMsFor,
   remainingFor,
+  timerAriaLabel,
+  timerClassName,
+  timerIsOvertime,
   timerIsCritical,
+  timerStatusLabel,
 } from "./timer";
 import { useScrollOffset } from "./scroll";
-
-const timerClass = (
-  state: TimerState,
-  critical: boolean,
-  mode: ChallengeUpdate["settings"]["globalTimerMode"],
-  remainingMs: number,
-): string => {
-  const classes: string[] = [];
-  if (state === "paused") classes.push("challenge-source__timer--paused");
-  if (state === "expired" && mode === "down") classes.push("challenge-source__timer--expired");
-  if (mode === "down" && remainingMs < 0) classes.push("wc-is-overtime");
-  if (critical) classes.push("challenge-source__timer--critical");
-  return classes.join(" ");
-};
 
 export type ChallengeLogCeremonyTarget =
   | { kind: "challenge"; id: string }
@@ -57,18 +48,12 @@ const GlobalTimerDisplay = ({
   const remainingMs = remainingFor(timer.endsAt, timer.pausedRemainMs, state, now);
   const critical = timerIsCritical(state, remainingMs, mode);
   const displayedMs = displayedMsFor(mode, timer.totalMs, remainingMs);
-  const statusLabel = state === "paused"
-    ? "pausiert"
-    : state === "expired" && mode === "down"
-      ? "abgelaufen"
-      : critical
-        ? "kritisch"
-        : null;
+  const statusLabel = timerStatusLabel(state, critical, mode);
   return (
     <span
       key={ceremonyTarget ? ceremonySeq : undefined}
       aria-label={`Globaler Timer: ${formatRemaining(displayedMs)}${statusLabel === null ? "" : `, ${statusLabel}`}${mode === "up" ? ", hochzählend" : ""}`}
-      className={`challenge-source__timer ${timerClass(state, critical, mode, remainingMs)}`}
+      className={`challenge-source__timer ${timerClassName(state, critical, mode, remainingMs)}`}
       data-critical={critical ? "true" : "false"}
       data-state={state}
       data-ceremony-target={ceremonyTarget ? "true" : undefined}
@@ -107,7 +92,7 @@ const ChallengeRow = ({
   const showingKey = !done && keyVisible;
   const timerState = deriveChallengeTimerState(challenge, now);
   const remainingMs = remainingFor(challenge.timerEndsAt, challenge.timerRemainMs, timerState, now);
-  const overtime = remainingMs < 0;
+  const overtime = timerIsOvertime(remainingMs);
   const drain = useMemo(() => {
     if (challenge.timerTotalMs === null) return null;
     // eslint-disable-next-line react-hooks/purity -- Der Snapshot darf nur bei einem Timerwechsel neu berechnet werden.
@@ -128,7 +113,7 @@ const ChallengeRow = ({
   const showTime = done
     ? challenge.timerRemainMs !== null
     : timerState === "running" || timerState === "paused" || timerState === "expired";
-  const timeText = formatRemaining(remainingMs);
+  const timeText = formatTimerText(timerState, remainingMs, done);
   const targetCount = challenge.targetCount;
   const progress = targetCount === null
     ? null
@@ -215,11 +200,11 @@ const ChallengeRow = ({
           )}
           {showTime && (
             <span
-              aria-label={done && remainingMs < 0 ? `Überzeit bei Abschluss ${timeText}` : done ? `Rest bei Abschluss ${timeText}` : `Restzeit ${timeText}`}
+              aria-label={timerAriaLabel(remainingMs, done)}
               className="challenge-source__time"
               data-state={done ? "done" : timerState}
             >
-              {timerState === "paused" && !done ? "Ⅱ " : ""}{timeText}
+              {timeText}
             </span>
           )}
         </span>
