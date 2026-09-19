@@ -25,6 +25,15 @@ import {
 
 export { ChannelObject } from "../channel/channel-object";
 
+// Größte Einzelroute hinter dem Proxy ist der Medien-Upload mit 256 KiB
+// (channel-object.ts, uploadMedia); alle JSON-Routen liegen deutlich darunter
+// (readJson-Limits bis 24 KiB). Die Schranke sitzt exakt auf dieser größten
+// echten Route: Session-Routen wie /api/state prüfen die Session erst im
+// Durable Object, ein Client ohne gültiges Cookie kann den Worker also vor
+// der 401 zum Puffern zwingen. Ohne Content-Length-Header greift dafür der
+// Lese-Loop in proxyToChannel, nicht dieser Wert allein.
+export const MAX_PROXY_BODY_BYTES = 262_144;
+
 const SESSION_COOKIE = "irl-stream-hud-session";
 const OAUTH_COOKIE = "irl-stream-hud-oauth-binding";
 const LOCAL_COOKIE_KEYRING = JSON.stringify({
@@ -92,6 +101,41 @@ const sessionHeaders = async (request: Request, env: AppEnv): Promise<Headers> =
   return headers;
 };
 
+// Liest den Body in Chunks statt per `arrayBuffer()`, damit eine Anfrage ohne
+// Content-Length-Header (die also den Vorabcheck in `proxyToChannel` umgeht)
+// nicht trotzdem beliebig viel Speicher belegen kann: sobald die Summe
+// `maxBytes` übersteigt, bricht der Loop sofort per `reader.cancel()` ab -
+// nie mehr als `maxBytes` + ein Chunk landet im Speicher. Der Reader gehört
+// hier dem Worker selbst (nicht `stub.fetch()`), das Canceln scheitert also
+// nicht am Lock, der proxyToChannel bei einer bereits weitergereichten
+// Stream-Referenz sonst treffen würde (siehe Kommentar dort).
+const readBoundedBody = async (
+  request: Request,
+  maxBytes: number,
+): Promise<ArrayBuffer | "too_large"> => {
+  if (request.body === null) return new ArrayBuffer(0);
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      return "too_large";
+    }
+    chunks.push(value);
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return merged.buffer;
+};
+
 const proxyToChannel = async (
   request: Request,
   env: AppEnv,
@@ -100,11 +144,38 @@ const proxyToChannel = async (
 ): Promise<Response> => {
   const headers = await sessionHeaders(request, env);
   for (const [name, value] of new Headers(extraHeaders)) headers.set(name, value);
-  const body = request.method === "GET" || request.method === "HEAD" ? undefined : request.body;
   const contentType = request.headers.get("content-type");
   if (contentType !== null) headers.set("content-type", contentType);
   const init: RequestInit = { method: request.method, headers };
-  if (body !== undefined) init.body = body;
+  // Das Durable Object antwortet bei Auth-, CSRF- und Rate-Limit-Fehlern
+  // absichtlich VOR dem Body-Parse (Reihenfolge Auth → CSRF → Body bleibt so).
+  // Ein live durchgereichter Stream (`request.body`) bliebe in genau diesen
+  // Fällen unkonsumiert liegen - workerd wirft dann beim Abbau der Anfrage
+  // "Can't read from request stream after response has been sent." (Linux)
+  // bzw. bricht mit "disconnected: read end of pipe was aborted" ab (macOS),
+  // weil der interne Reader, den `stub.fetch()` auf dem Stream anlegt, nie
+  // einen Leser bekommt und sich danach auch nicht mehr canceln lässt
+  // (bereits gelockt). Der Worker puffert den Body deshalb vollständig,
+  // bevor er weitergereicht wird: ein Uint8Array hat keinen
+  // Stream-Lebenszyklus, den man vergessen kann abzuräumen.
+  //
+  // Sessionrouten (z.B. /api/state) prüfen die Session erst im Durable
+  // Object - ein Client ohne gültiges Cookie erreicht hier also trotzdem den
+  // Puffer-Schritt, bevor er die 401 bekommt. `MAX_PROXY_BODY_BYTES` sitzt
+  // deshalb exakt auf der größten echten Route (Medien-Upload, 256 KiB) statt
+  // großzügig darüber, und `readBoundedBody` bricht auch ohne
+  // Content-Length-Header früh ab.
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    const contentLength = request.headers.get("content-length");
+    if (contentLength !== null && Number(contentLength) > MAX_PROXY_BODY_BYTES) {
+      return errorResponse(413, "payload_too_large", "Die Anfrage ist zu groß.");
+    }
+    const bytes = await readBoundedBody(request, MAX_PROXY_BODY_BYTES);
+    if (bytes === "too_large") {
+      return errorResponse(413, "payload_too_large", "Die Anfrage ist zu groß.");
+    }
+    if (bytes.byteLength > 0) init.body = bytes;
+  }
   return getChannelStub(env).fetch(
     new Request(`https://channel.internal${pathname}`, init),
   );
