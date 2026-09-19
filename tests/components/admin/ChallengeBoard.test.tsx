@@ -321,6 +321,73 @@ describe("ChallengeBoard", () => {
     expect(await screen.findByText("Set konnte nicht gespeichert werden (503).")).toBeInTheDocument();
   });
 
+  it("zeigt Feldfehler auch beim Laden mit dem Titel der betroffenen Challenge", async () => {
+    const user = userEvent.setup();
+    const getSet = vi.fn<NonNullable<ChallengeBoardApi["getSet"]>>().mockRejectedValue(Object.assign(new Error("Bitte Eingaben prüfen."), {
+      fieldErrors: {
+        "set.challenges[0].progress.timerRemainMs": "Eingefrorene Restzeit ist ungültig.",
+      },
+    }));
+    const api: ChallengeBoardApi = {
+      load: vi.fn(() => Promise.resolve(snapshot([challenge("one", "Kaputte Challenge")]))),
+      save: vi.fn(),
+      listSets: vi.fn(() => Promise.resolve([{
+        id: "kaputt",
+        type: "user" as const,
+        name: "Kaputtes Set",
+        hasProgress: true,
+        createdAt: instant,
+        updatedAt: instant,
+      }])),
+      getSet,
+    };
+    render(<ChallengeBoard api={api} />);
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Gespeichertes Set laden" }), "kaputt");
+
+    expect(await screen.findByText("Kaputte Challenge: Eingefrorene Restzeit ist ungültig. (timerRemainMs)")).toBeInTheDocument();
+  });
+
+  it("bereitet Feldfehler auch beim Datei-Import mit dem Challenge-Titel auf", async () => {
+    renderBoard(snapshot([challenge("one", "Kaputte Datei")]));
+    const invalidProgressFile = new File([JSON.stringify(setFilePayload({
+      challenges: [{
+        ...setFileChallenge,
+        progress: { currentCount: 0, bestCount: 0, state: "pending", completedAt: null },
+      } as unknown as ChallengeSetV1["challenges"][number]],
+    }))], "kaputt.json", { type: "application/json" });
+
+    fireEvent.change(await screen.findByLabelText("Set-Datei auswählen"), { target: { files: [invalidProgressFile] } });
+
+    expect(await screen.findByText("Kaputte Datei: Eingefrorene Restzeit muss null oder -21.600.000–21.600.000 ms sein. (timerRemainMs)")).toBeInTheDocument();
+  });
+
+  it("löscht ein ausgewähltes Server-Set aus der Liste auch ohne erfolgreiches Laden", async () => {
+    const user = userEvent.setup();
+    const deleteSet = vi.fn<NonNullable<ChallengeBoardApi["deleteSet"]>>().mockResolvedValue("kaputt");
+    const api: ChallengeBoardApi = {
+      load: vi.fn(() => Promise.resolve(snapshot([challenge("one", "Aktuelles Board")]))),
+      save: vi.fn(),
+      listSets: vi.fn(() => Promise.resolve([{
+        id: "kaputt",
+        type: "user" as const,
+        name: "Kaputtes Set",
+        hasProgress: true,
+        createdAt: instant,
+        updatedAt: instant,
+      }])),
+      getSet: vi.fn(() => Promise.reject(new Error("Set-Payload ist kaputt."))),
+      deleteSet,
+    };
+    render(<ChallengeBoard api={api} />);
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Gespeichertes Set laden" }), "kaputt");
+    await user.click(await screen.findByRole("button", { name: "Ausgewähltes Server-Set löschen" }));
+    await user.click(await screen.findByRole("button", { name: "Endgültig löschen" }));
+
+    expect(deleteSet).toHaveBeenCalledWith("kaputt");
+  });
+
   it("sendet bei einem gewöhnlichen Save nach dem Set-Save keinen Set-Wechsel-Grund", async () => {
     const user = userEvent.setup();
     const initial = snapshot([challenge("one", "Bellen")]);

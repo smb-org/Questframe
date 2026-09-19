@@ -23,3 +23,6 @@ docs/superpowers/
 src/assets/provenance/muapi/mockups/
 src/assets/provenance/muapi/parts/
 docs/design/classic-unitframe-mockups.html
+
+# Isolierte Worktrees von Agenten liegen im Repo, gehören aber nie hinein
+.claude/worktrees/

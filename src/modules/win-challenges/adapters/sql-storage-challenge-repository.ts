@@ -5,7 +5,6 @@ import {
   challengeDefinitionSchema,
   challengePlacementSchema,
   challengeSchema,
-  challengeSetV1Schema,
   globalTimerSchema,
   settingsSchema,
   type Challenge,
@@ -26,7 +25,7 @@ import {
   normalizeChallengeSetName,
 } from "../contracts/predicates";
 import { mergeDefinition, normalizeSortOrder } from "../domain/definitions";
-import { encodeChallengeSet } from "../domain/set-codec";
+import { encodeChallengeSet, parseChallengeSetForRead } from "../domain/set-codec";
 import type { DomainNow } from "../domain/timers";
 import {
   IdempotencyMismatchError,
@@ -893,7 +892,7 @@ export class SqlStorageChallengeRepository implements ChallengeRepository {
       throw new Error("Set-Payload ist kein gültiges JSON.");
     }
     const parsedStored = storedChallengeSetSchema.parse(stored);
-    const payload = challengeSetV1Schema.parse({
+    const payload = parseChallengeSetForRead({
       schemaVersion: parsedStored.schemaVersion,
       name: parsedRow.metadata.name,
       createdAt: parsedRow.metadata.created_at,
