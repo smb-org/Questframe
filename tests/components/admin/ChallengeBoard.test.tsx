@@ -114,6 +114,31 @@ const renderBoard = (initial: ChallengeBoardSnapshot, save = vi.fn<ChallengeBoar
   return { api, save, triggerSave };
 };
 
+// Gemeinsames Setup für die "Set speichern schlägt fehl"-Tests: drei Challenges anlegen
+// (Index 0 und 2 werden für die Feldfehler-Zuordnung gebraucht), saveSet mit dem
+// übergebenen Fehler ablehnen lassen, Board rendern und den Speichern-Vorgang auslösen.
+// Was der jeweilige Test daraus prüft, bleibt bewusst im Test, nicht hier.
+const speichereSetUndScheitereMit = async (saveSetError: Error): Promise<void> => {
+  const user = userEvent.setup();
+  const initial = snapshot([
+    challenge("one", "Passanten anbellen wie ein sehr wütender Hund", { sortOrder: 0 }),
+    challenge("two", "Liegestütze", { sortOrder: 1 }),
+    challenge("three", "Wasser trinken", { sortOrder: 2 }),
+  ]);
+  const saveSet = vi.fn<NonNullable<ChallengeBoardApi["saveSet"]>>().mockRejectedValue(saveSetError);
+  const api: ChallengeBoardApi = {
+    load: vi.fn(() => Promise.resolve(initial)),
+    save: vi.fn(),
+    listSets: vi.fn(() => Promise.resolve([])),
+    getSet: vi.fn(),
+    saveSet,
+  };
+  render(<ChallengeBoard api={api} />);
+
+  await user.type(await screen.findByLabelText("Name des Server-Sets"), "Mein Set");
+  await user.click(screen.getByRole("button", { name: "Set speichern" }));
+};
+
 const firstRow = (): HTMLElement => {
   const row = document.querySelector(".challenge-board-row");
   if (!(row instanceof HTMLElement)) throw new Error("Challenge-Zeile fehlt.");
@@ -268,6 +293,32 @@ describe("ChallengeBoard", () => {
     if (!(blob instanceof Blob)) throw new Error("Export muss einen Blob erzeugen.");
     expect(await blob.text()).not.toContain("currentCount");
     expect(await blob.text()).not.toContain("bestCount");
+  });
+
+  it("zeigt beim Set speichern mehrere Feldfehler mit dem Titel der betroffenen Challenge", async () => {
+    await speichereSetUndScheitereMit(
+      Object.assign(new Error("Bitte Eingaben prüfen."), {
+        fieldErrors: {
+          "set.challenges[0].progress.timerRemainMs": "Eingefrorene Restzeit muss null oder -21.600.000–21.600.000 ms sein.",
+          "set.challenges[2].progress.timerRemainMs": "Eingefrorene Restzeit muss null oder -21.600.000–21.600.000 ms sein.",
+        },
+      }),
+    );
+
+    expect(await screen.findByText(
+      "Passanten anbellen wie ein sehr wütender Hund: Eingefrorene Restzeit muss null oder -21.600.000–21.600.000 ms sein. (timerRemainMs)",
+    )).toBeInTheDocument();
+    expect(screen.getByText(
+      "Wasser trinken: Eingefrorene Restzeit muss null oder -21.600.000–21.600.000 ms sein. (timerRemainMs)",
+    )).toBeInTheDocument();
+    const errorLines = document.querySelectorAll(".challenge-set-status--error");
+    expect(errorLines).toHaveLength(2);
+  });
+
+  it("zeigt beim Set speichern ohne Feldfehler weiterhin nur die allgemeine Fehlermeldung", async () => {
+    await speichereSetUndScheitereMit(new Error("Set konnte nicht gespeichert werden (503)."));
+
+    expect(await screen.findByText("Set konnte nicht gespeichert werden (503).")).toBeInTheDocument();
   });
 
   it("sendet bei einem gewöhnlichen Save nach dem Set-Save keinen Set-Wechsel-Grund", async () => {

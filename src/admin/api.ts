@@ -47,6 +47,7 @@ import type { AdminApi } from "./AdminWorkspace";
 export class AdminApiError extends Error {
   readonly status: number;
   readonly code: string;
+  readonly fieldErrors?: Record<string, string>;
   readonly currentRevision?: number;
   readonly currentSnapshot?: unknown;
 
@@ -54,6 +55,7 @@ export class AdminApiError extends Error {
     status: number,
     code: string,
     message: string,
+    fieldErrors?: Record<string, string>,
     currentRevision?: number,
     currentSnapshot?: unknown,
   ) {
@@ -61,6 +63,7 @@ export class AdminApiError extends Error {
     this.name = "AdminApiError";
     this.status = status;
     this.code = code;
+    if (fieldErrors !== undefined) this.fieldErrors = fieldErrors;
     if (currentRevision !== undefined) this.currentRevision = currentRevision;
     if (currentSnapshot !== undefined) this.currentSnapshot = currentSnapshot;
   }
@@ -335,12 +338,14 @@ export class BrowserAdminApi implements AdminApi {
     if (response.ok) return response;
     let code = "request_failed";
     let message = `Anfrage fehlgeschlagen (${String(response.status)}).`;
+    let fieldErrors: Record<string, string> | undefined;
     let currentRevision: number | undefined;
     let currentSnapshot: unknown;
     try {
       const parsed = apiErrorSchema.parse(await response.clone().json());
       code = parsed.error.code;
       message = parsed.error.message;
+      fieldErrors = parsed.error.fieldErrors;
       currentRevision = parsed.error.currentRevision;
       currentSnapshot = parsed.error.currentSnapshot;
     } catch {
@@ -359,6 +364,6 @@ export class BrowserAdminApi implements AdminApi {
       });
       if (retry.ok) return retry;
     }
-    throw new AdminApiError(response.status, code, message, currentRevision, currentSnapshot);
+    throw new AdminApiError(response.status, code, message, fieldErrors, currentRevision, currentSnapshot);
   }
 }

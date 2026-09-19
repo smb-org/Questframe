@@ -61,6 +61,11 @@ import {
   normalizeChallengeText,
 } from "./predicates";
 
+/**
+ * Nicht in `z.union([…, z.null()])` wickeln, wenn das Prädikat `null` selbst
+ * erlaubt: Bei einer Union verwirft Zod die Einzelmeldungen und meldet nur
+ * noch „Invalid input". Genau das machte einen Set-Fehler unlesbar.
+ */
 const custom = <T>(
   predicate: (value: unknown) => value is T,
   message: string,
@@ -269,7 +274,7 @@ const challengeSetProgressSchema = z.strictObject({
   currentCount: currentCountSchema,
   bestCount: currentCountSchema,
   state: challengeStateSchema,
-  timerRemainMs: z.union([timerRemainMsSchema, z.null()]),
+  timerRemainMs: timerRemainMsSchema,
   completedAt: z.union([instantSchema, z.null()]),
 });
 
@@ -354,7 +359,7 @@ export const challengeSchema = z
     currentCount: currentCountSchema,
     state: challengeStateSchema,
     timerEndsAt: z.union([instantSchema, z.null()]),
-    timerRemainMs: z.union([timerRemainMsSchema, z.null()]),
+    timerRemainMs: timerRemainMsSchema,
     completedAt: z.union([instantSchema, z.null()]),
     createdAt: instantSchema,
     updatedAt: instantSchema,
@@ -374,7 +379,7 @@ export const globalTimerSchema = z
   .strictObject({
     totalMs: requiredGlobalTimerTotalMsSchema,
     endsAt: z.union([instantSchema, z.null()]),
-    pausedRemainMs: z.union([pausedRemainMsSchema, z.null()]),
+    pausedRemainMs: pausedRemainMsSchema,
   })
   .superRefine((value, context) => {
     if (value.endsAt !== null && value.pausedRemainMs !== null) {

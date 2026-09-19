@@ -195,6 +195,26 @@ const sameDefinitions = (
   right: readonly ChallengeDraft[],
 ): boolean => JSON.stringify(definitionsFromDrafts(left)) === JSON.stringify(definitionsFromDrafts(right));
 
+// Server-Feldfehler kommen als technischer Pfad wie "set.challenges[0].progress.timerRemainMs"
+// zurueck – fuer einen Streamer unlesbar. Wenn der Pfad eine Challenge-Position enthaelt,
+// wird der Titel aus dem eigenen Entwurf ergaenzt; der technische Feldname bleibt dabei
+// sichtbar (hilft beim Melden). Keine Uebersetzungstabelle fuer alle Feldnamen.
+const CHALLENGE_INDEX_IN_PATH = /challenges\[(\d+)\]/;
+
+const describeSetFieldErrors = (
+  fieldErrors: Record<string, string>,
+  drafts: readonly ChallengeDraft[],
+): string =>
+  Object.entries(fieldErrors)
+    .map(([path, message]) => {
+      const segments = path.split(".");
+      const leaf = segments[segments.length - 1] ?? path;
+      const indexMatch = CHALLENGE_INDEX_IN_PATH.exec(path);
+      const title = indexMatch === null ? undefined : drafts[Number(indexMatch[1])]?.title;
+      return `${title === undefined ? "" : `${title}: `}${message} (${leaf})`;
+    })
+    .join("\n");
+
 const definitionFieldsOnly = (draft: ChallengeDraft) => ({
   title: draft.title,
   targetCount: draft.targetCount,
@@ -1124,7 +1144,14 @@ export const ChallengeBoard = ({
       setSetFileMessage("Set gespeichert.");
       await reloadSets();
     } catch (caught) {
-      setSetFileError(caught instanceof Error ? caught.message : "Set konnte nicht gespeichert werden.");
+      const candidate = typeof caught === "object" && caught !== null
+        ? caught as { fieldErrors?: Record<string, string> }
+        : {};
+      setSetFileError(
+        candidate.fieldErrors !== undefined
+          ? describeSetFieldErrors(candidate.fieldErrors, drafts)
+          : caught instanceof Error ? caught.message : "Set konnte nicht gespeichert werden.",
+      );
     } finally {
       setSetBusy(false);
     }
@@ -1428,7 +1455,9 @@ export const ChallengeBoard = ({
           </button>
         </div>
         {setFileState === "reading" && <span aria-live="polite" className="challenge-set-status">Set-Datei wird gelesen …</span>}
-        {setFileError !== "" && <span className="challenge-set-status challenge-set-status--error" role="alert">{setFileError}</span>}
+        {setFileError !== "" && setFileError.split("\n").map((line, index) => (
+          <span className="challenge-set-status challenge-set-status--error" key={index} role="alert">{line}</span>
+        ))}
         {setFileMessage !== "" && setFileState === "idle" && <span aria-live="polite" className="challenge-set-status challenge-set-status--success">{setFileMessage}</span>}
         {drafts.length === 0 && <span className="challenge-set-status challenge-set-status--hint">Export nicht verfügbar: Das Board ist leer.</span>}
       </div>

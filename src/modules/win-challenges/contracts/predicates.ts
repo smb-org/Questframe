@@ -15,6 +15,7 @@ export const MAX_CHALLENGE_SETS = 20 as const;
 export const MAX_CHALLENGE_SET_NAME_GRAPHEMES = 24 as const;
 export const MAX_COUNT = 999 as const;
 export const MAX_CHALLENGE_STEP = 1_000_000 as const;
+export const MAX_TIMER_REMAIN_MS = 21_600_000 as const;
 export const MAX_MEASURE_COUNT = MAX_CHALLENGE_STEP;
 export const MAX_CHALLENGE_UNIT_GRAPHEMES = 12 as const;
 export const MAX_VISIBLE_ROWS = 20 as const;
@@ -113,14 +114,14 @@ export const isTimerTotalMs = (value: unknown): value is number | null =>
   (typeof value === "number" &&
     Number.isSafeInteger(value) &&
     value >= 10_000 &&
-    value <= 21_600_000);
+    value <= MAX_TIMER_REMAIN_MS);
 
 export const isTimerRemainMs = (value: unknown): value is number | null =>
   value === null ||
   (typeof value === "number" &&
     Number.isSafeInteger(value) &&
-    value >= -21_600_000 &&
-    value <= 21_600_000);
+    value >= -MAX_TIMER_REMAIN_MS &&
+    value <= MAX_TIMER_REMAIN_MS);
 
 export const isGlobalTimerTotalMs = (value: unknown): value is number | null =>
   value === null ||
