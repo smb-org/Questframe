@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { ChallengeSetV1 } from "../../../src/modules/win-challenges/contracts/schemas";
+import { MAX_TIMER_REMAIN_MS } from "../../../src/modules/win-challenges/contracts/predicates";
 import {
   MAX_CHALLENGE_SET_FILE_BYTES,
   downloadChallengeSet,
@@ -74,6 +75,48 @@ describe("Challenge-Set-Dateien", () => {
     await expect(readChallengeSetFile(file(JSON.stringify({ ...payload(), challenges: [{ ...challenge, targetCount: 0 }] })))).rejects.toThrow(
       "Set-Datei challenges.0.targetCount:",
     );
+  });
+
+  it("klemmt beim Lesen nur eine numerisch überzogene Restzeit an die Grenze", async () => {
+    const result = await readChallengeSetFile(file(JSON.stringify(payload({
+      challenges: [{
+        ...challenge,
+        progress: {
+          currentCount: 0,
+          bestCount: 0,
+          state: "pending",
+          timerRemainMs: -MAX_TIMER_REMAIN_MS - 123_456,
+          completedAt: null,
+        },
+      }],
+    }))));
+
+    expect(result.payload.challenges[0]?.progress?.timerRemainMs).toBe(-MAX_TIMER_REMAIN_MS);
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ["fehlendes Feld", { currentCount: 0, bestCount: 0, state: "pending", completedAt: null }],
+    ["falscher Typ", { currentCount: 0, bestCount: 0, state: "pending", timerRemainMs: "zu viel", completedAt: null }],
+  ])("lehnt beim Lesen einen echten Schemafehler trotz Toleranz ab (%s)", async (_name, progress) => {
+    await expect(readChallengeSetFile(file(JSON.stringify(payload({
+      challenges: [{ ...challenge, progress } as unknown as ChallengeSetV1["challenges"][number]],
+    }))))).rejects.toThrow("Set-Datei challenges.0.progress.timerRemainMs:");
+  });
+
+  it("lehnt unbekannte Schlüssel auch neben einer überzogenen Restzeit ab", async () => {
+    await expect(readChallengeSetFile(file(JSON.stringify(payload({
+      challenges: [{
+        ...challenge,
+        unexpected: true,
+        progress: {
+          currentCount: 0,
+          bestCount: 0,
+          state: "pending",
+          timerRemainMs: -MAX_TIMER_REMAIN_MS - 1,
+          completedAt: null,
+        },
+      } as unknown as ChallengeSetV1["challenges"][number]],
+    }))))).rejects.toThrow("Set-Datei challenges.0:");
   });
 
   it("legt den Set-Namen mit Datum im Download-Dateinamen ab", () => {

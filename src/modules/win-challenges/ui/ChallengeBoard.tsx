@@ -804,6 +804,11 @@ type PendingServerSet = {
   summary: ChallengeSetSummary | null;
 };
 
+type PendingServerSetDelete = {
+  id: string;
+  name: string;
+};
+
 const ChallengeSetLoadConfirmation = ({
   pending,
   onCancel,
@@ -858,6 +863,52 @@ const ChallengeSetLoadConfirmation = ({
   );
 };
 
+const ChallengeSetDeleteConfirmation = ({
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  pending: PendingServerSetDelete | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) => {
+  const confirmRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (pending !== null) confirmRef.current?.focus();
+  }, [pending]);
+
+  if (pending === null) return null;
+  return (
+    <div className="effect-backdrop" role="presentation" onMouseDown={onCancel}>
+      <section
+        aria-describedby="challenge-set-delete-copy"
+        aria-labelledby="challenge-set-delete-heading"
+        aria-modal="true"
+        className="effect-flyover challenge-set-confirm-flyover"
+        onMouseDown={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        <header className="effect-flyover-header">
+          <div>
+            <span className="eyebrow">Server-Set</span>
+            <h2 id="challenge-set-delete-heading">Set löschen?</h2>
+          </div>
+          <button aria-label="Löschdialog schließen" className="icon-button" onClick={onCancel} type="button"><X size={18} /></button>
+        </header>
+        <div className="challenge-set-confirm-copy" id="challenge-set-delete-copy">
+          <strong>{pending.name}</strong>
+          <p>Das gespeicherte Set wird unwiderruflich gelöscht.</p>
+        </div>
+        <footer className="effect-actions">
+          <button className="button button--quiet" onClick={onCancel} type="button">Abbrechen</button>
+          <button className="button button--primary" onClick={onConfirm} ref={confirmRef} type="button">Endgültig löschen</button>
+        </footer>
+      </section>
+    </div>
+  );
+};
+
 export const ChallengeBoard = ({
   api,
   onOnlineChange,
@@ -891,6 +942,7 @@ export const ChallengeBoard = ({
   const [includeProgress, setIncludeProgress] = useState(true);
   const [setBusy, setSetBusy] = useState(false);
   const [pendingServerSet, setPendingServerSet] = useState<PendingServerSet | null>(null);
+  const [pendingServerSetDelete, setPendingServerSetDelete] = useState<PendingServerSetDelete | null>(null);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [draggedKey, setDraggedKey] = useState<string | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
@@ -1023,6 +1075,15 @@ export const ChallengeBoard = ({
   }, [applyChallengeUpdate, challengeUpdate]);
 
   const effectiveOnline = onlineOverride ?? online;
+  const selectedServerSet = serverSets.find((set) => set.id === setSelection) ?? null;
+
+  const setFieldErrorMessage = (caught: unknown, fallback: string): string => {
+    const candidate = typeof caught === "object" && caught !== null
+      ? caught as { fieldErrors?: Record<string, string> }
+      : {};
+    if (candidate.fieldErrors !== undefined) return describeSetFieldErrors(candidate.fieldErrors, drafts);
+    return caught instanceof Error ? caught.message : fallback;
+  };
 
   const readImportedSet = async (file: File): Promise<void> => {
     setSetFileState("reading");
@@ -1041,7 +1102,7 @@ export const ChallengeBoard = ({
       setError("");
       setSetFileMessage(`Set-Datei geladen: ${result.fileName}. Entwurf noch nicht veröffentlicht.`);
     } catch (caught) {
-      setSetFileError(caught instanceof Error ? caught.message : "Set-Datei konnte nicht gelesen werden.");
+      setSetFileError(setFieldErrorMessage(caught, "Set-Datei konnte nicht gelesen werden."));
     } finally {
       setSetFileState("idle");
     }
@@ -1085,8 +1146,7 @@ export const ChallengeBoard = ({
       setError("");
       setSetFileMessage("Vorschau bereit. Das Set wurde noch nicht in den Entwurf geladen.");
     } catch (caught) {
-      setSetFileError(caught instanceof Error ? caught.message : "Set konnte nicht geladen werden.");
-      setSetSelection(activeSet?.id ?? "");
+      setSetFileError(setFieldErrorMessage(caught, "Set konnte nicht geladen werden."));
     } finally {
       setSetBusy(false);
     }
@@ -1144,33 +1204,38 @@ export const ChallengeBoard = ({
       setSetFileMessage("Set gespeichert.");
       await reloadSets();
     } catch (caught) {
-      const candidate = typeof caught === "object" && caught !== null
-        ? caught as { fieldErrors?: Record<string, string> }
-        : {};
-      setSetFileError(
-        candidate.fieldErrors !== undefined
-          ? describeSetFieldErrors(candidate.fieldErrors, drafts)
-          : caught instanceof Error ? caught.message : "Set konnte nicht gespeichert werden.",
-      );
+      setSetFileError(setFieldErrorMessage(caught, "Set konnte nicht gespeichert werden."));
     } finally {
       setSetBusy(false);
     }
   };
 
-  const deleteServerSet = async (): Promise<void> => {
-    if (api.deleteSet === undefined || activeSet?.type !== "user" || activeSet.id === null || setBusy) return;
-    if (!window.confirm(`Set „${activeSet.name}“ löschen?`)) return;
+  const requestDeleteServerSet = (target?: ChallengeSetSummary): void => {
+    if (api.deleteSet === undefined || setBusy) return;
+    const id = target?.id ?? (activeSet?.type === "user" ? activeSet.id : null);
+    const name = target?.name ?? (activeSet?.type === "user" ? activeSet.name : null);
+    if (id === null || name === null) return;
+    setPendingServerSetDelete({ id, name });
+  };
+
+  const confirmDeleteServerSet = async (): Promise<void> => {
+    const pending = pendingServerSetDelete;
+    if (api.deleteSet === undefined || pending === null || setBusy) return;
+    setPendingServerSetDelete(null);
     setSetBusy(true);
     setSetFileError("");
     try {
-      await api.deleteSet(activeSet.id);
-      setActiveSet(null);
-      setSetSelection("");
-      setSetName("");
+      await api.deleteSet(pending.id);
+      if (pendingServerSet?.id === pending.id) setPendingServerSet(null);
+      if (activeSet?.id === pending.id) {
+        setActiveSet(null);
+        setSetName("");
+      }
+      if (setSelection === pending.id) setSetSelection("");
       setSetFileMessage("Set gelöscht.");
       await reloadSets();
     } catch (caught) {
-      setSetFileError(caught instanceof Error ? caught.message : "Set konnte nicht gelöscht werden.");
+      setSetFileError(setFieldErrorMessage(caught, "Set konnte nicht gelöscht werden."));
     } finally {
       setSetBusy(false);
     }
@@ -1411,18 +1476,29 @@ export const ChallengeBoard = ({
                 >
                   Set speichern
                 </button>
-                {api.deleteSet !== undefined && activeSet?.type === "user" && (
-                  <button
-                    aria-label="Aktives Server-Set löschen"
-                    className="button button--quiet challenge-set-action"
-                    disabled={setBusy || saving || !effectiveOnline}
-                    onClick={() => void deleteServerSet()}
-                    type="button"
-                  >
-                    <Trash2 size={16} /> Löschen
-                  </button>
-                )}
               </>
+            )}
+            {api.deleteSet !== undefined && activeSet?.type === "user" && (
+              <button
+                aria-label="Aktives Server-Set löschen"
+                className="button button--quiet challenge-set-action"
+                disabled={setBusy || saving || !effectiveOnline}
+                onClick={() => requestDeleteServerSet()}
+                type="button"
+              >
+                <Trash2 size={16} /> Löschen
+              </button>
+            )}
+            {api.deleteSet !== undefined && selectedServerSet !== null && selectedServerSet.type === "user" && !(activeSet?.type === "user" && activeSet.id === selectedServerSet.id) && (
+              <button
+                aria-label="Ausgewähltes Server-Set löschen"
+                className="button button--quiet challenge-set-action"
+                disabled={setBusy || saving || !effectiveOnline}
+                onClick={() => requestDeleteServerSet(selectedServerSet)}
+                type="button"
+              >
+                <Trash2 size={16} /> Auswahl löschen
+              </button>
             )}
           </div>
         )}
@@ -1472,6 +1548,11 @@ export const ChallengeBoard = ({
         onCancel={cancelServerSetLoad}
         onConfirm={confirmServerSetLoad}
         pending={pendingServerSet}
+      />
+      <ChallengeSetDeleteConfirmation
+        onCancel={() => setPendingServerSetDelete(null)}
+        onConfirm={() => void confirmDeleteServerSet()}
+        pending={pendingServerSetDelete}
       />
 
       {conflict !== null && (

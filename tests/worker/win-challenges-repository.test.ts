@@ -4,7 +4,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { runMigrations, legacyNamespaceForVersion } from "../../src/channel/migrations";
 import { createSqlStorageChallengeRepository, type SqlStorageChallengeRepository } from "../../src/modules/win-challenges/adapters/sql-storage-challenge-repository";
-import { MAX_COUNT } from "../../src/modules/win-challenges/contracts/predicates";
+import { MAX_COUNT, MAX_TIMER_REMAIN_MS } from "../../src/modules/win-challenges/contracts/predicates";
 import { createWinChallenges, hashChallengeCommand } from "../../src/modules/win-challenges/service/commands";
 import { IdempotencyMismatchError } from "../../src/modules/win-challenges/repository/challenge-repository";
 import type { Challenge, ChallengeDefinition, ChallengeSetSummary } from "../../src/modules/win-challenges/contracts/schemas";
@@ -812,6 +812,57 @@ describe("win-challenges repository and migration", () => {
     expect(listed).toEqual([expect.objectContaining({ id: saved.summary.id, name: "Mit Stand", hasProgress: true })]);
     const loaded = await inRepository((repository) => repository.readSet(saved.summary.id));
     expect(loaded?.payload.challenges[0]?.progress).toMatchObject({ currentCount: 7, bestCount: 9 });
+  });
+
+  it("klemmt alte überzogene Restzeiten beim Kanal-Lesen und lehnt andere Schemafehler weiter ab", async () => {
+    const created = await inRepository((repository) => repository.saveBoard({
+      baseBoardRevision: 1,
+      definitions: [definition("Legacy-Set", 0)],
+      now,
+    }));
+    const challenge = onlyChallenge(created.snapshot.challenges);
+    await inRepository((repository) => {
+      repository.transaction((transaction) => {
+        transaction.updateChallengeRuntime(challenge.id, {
+          currentCount: 1,
+          bestCount: 1,
+          state: "pending",
+          timerEndsAt: null,
+          timerRemainMs: -2_000,
+          completedAt: null,
+          hidden: false,
+        }, now);
+      });
+    });
+    const saved = await inRepository((repository) => repository.saveSet({ name: "Legacy-Set", includeProgress: true, now }));
+
+    await runInDurableObject(stub, (_instance, state) => {
+      const row = state.storage.sql.exec<{ payload: string }>("SELECT payload FROM wc_sets WHERE id = ?", saved.summary.id).toArray()[0];
+      if (row === undefined) throw new Error("Set-Payload fehlt.");
+      const payload = JSON.parse(row.payload) as {
+        challenges: Array<{ progress?: { timerRemainMs?: unknown } }>;
+      };
+      const progress = payload.challenges[0]?.progress;
+      if (progress === undefined) throw new Error("Set-Fortschritt fehlt.");
+      progress.timerRemainMs = -MAX_TIMER_REMAIN_MS - 123_456;
+      state.storage.sql.exec("UPDATE wc_sets SET payload = ? WHERE id = ?", JSON.stringify(payload), saved.summary.id);
+    });
+
+    const loaded = await inRepository((repository) => repository.readSet(saved.summary.id));
+    expect(loaded?.payload.challenges[0]?.progress?.timerRemainMs).toBe(-MAX_TIMER_REMAIN_MS);
+
+    await runInDurableObject(stub, (_instance, state) => {
+      const row = state.storage.sql.exec<{ payload: string }>("SELECT payload FROM wc_sets WHERE id = ?", saved.summary.id).toArray()[0];
+      if (row === undefined) throw new Error("Set-Payload fehlt.");
+      const payload = JSON.parse(row.payload) as {
+        challenges: Array<{ progress?: Record<string, unknown> }>;
+      };
+      const progress = payload.challenges[0]?.progress;
+      if (progress === undefined) throw new Error("Set-Fortschritt fehlt.");
+      delete progress.timerRemainMs;
+      state.storage.sql.exec("UPDATE wc_sets SET payload = ? WHERE id = ?", JSON.stringify(payload), saved.summary.id);
+    });
+    await expect(inRepository((repository) => repository.readSet(saved.summary.id))).rejects.toThrow();
   });
 
   it("lehnt den 21. Benutzersatz und normalisierte Dubletten ab, zählt die Autosicherung aber nicht", async () => {

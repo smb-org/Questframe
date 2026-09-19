@@ -2,6 +2,7 @@ import {
   challengeSetV1Schema,
   type ChallengeSetV1,
 } from "../../modules/win-challenges/contracts/schemas";
+import { normalizeChallengeSetForRead } from "../../modules/win-challenges/domain/set-codec";
 import { MAX_CHALLENGES } from "../../modules/win-challenges/contracts/predicates";
 
 export const MAX_CHALLENGE_SET_FILE_BYTES = 64 * 1024;
@@ -12,6 +13,7 @@ export class ChallengeSetFileError extends Error {
   constructor(
     readonly code: ChallengeSetFileErrorCode,
     message: string,
+    readonly fieldErrors?: Record<string, string>,
   ) {
     super(message);
     this.name = "ChallengeSetFileError";
@@ -23,8 +25,14 @@ type ReadableChallengeSetFile = Pick<File, "name" | "size" | "text">;
 const fieldName = (path: readonly PropertyKey[]): string =>
   path.length === 0 ? "Datei" : path.map((part) => String(part)).join(".");
 
-const setFileError = (code: ChallengeSetFileErrorCode, message: string): ChallengeSetFileError =>
-  new ChallengeSetFileError(code, message);
+const fieldErrorName = (path: readonly PropertyKey[]): string =>
+  path.map((part, index) => typeof part === "number" ? `[${String(part)}]` : `${index > 0 ? "." : ""}${String(part)}`).join("");
+
+const setFileError = (
+  code: ChallengeSetFileErrorCode,
+  message: string,
+  fieldErrors?: Record<string, string>,
+): ChallengeSetFileError => new ChallengeSetFileError(code, message, fieldErrors);
 
 export const readChallengeSetFile = async (
   file: ReadableChallengeSetFile,
@@ -59,12 +67,16 @@ export const readChallengeSetFile = async (
     }
   }
 
-  const parsed = challengeSetV1Schema.safeParse(value);
+  const parsed = challengeSetV1Schema.safeParse(normalizeChallengeSetForRead(value));
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
+    const fieldErrors = Object.fromEntries(
+      parsed.error.issues.map((currentIssue) => [fieldErrorName(currentIssue.path), currentIssue.message]),
+    );
     throw setFileError(
       "invalid-schema",
       `Set-Datei ${fieldName(issue?.path ?? [])}: ${issue?.message ?? "Datei entspricht nicht dem Set-Format."}`,
+      fieldErrors,
     );
   }
   return { payload: parsed.data, fileName: file.name };
