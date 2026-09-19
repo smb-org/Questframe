@@ -19,6 +19,17 @@ describe("lightweight overlay wire boundary", () => {
     expect(parseOverlayMessage({ type: "token_revoked" })).toEqual({ type: "token_revoked" });
   });
 
+  it("akzeptiert gültige time_sync-Nachrichten und verwirft fehlende oder zusätzliche Schlüssel", () => {
+    const valid = {
+      type: "time_sync" as const,
+      clientTimestamp: 1_700_000_000_000,
+      serverTime: "2026-09-14T10:00:00.000Z",
+    };
+    expect(parseOverlayMessage(valid)).toEqual(valid);
+    expect(parseOverlayMessage({ type: "time_sync", clientTimestamp: valid.clientTimestamp })).toBeNull();
+    expect(parseOverlayMessage({ ...valid, extra: true })).toBeNull();
+  });
+
   it("accepts section visibility flags and rejects non-booleans", () => {
     const hidden = {
       ...state,

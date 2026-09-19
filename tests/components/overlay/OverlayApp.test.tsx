@@ -15,10 +15,27 @@ const token = "A".repeat(43);
 const actor = { twitchUserId: "123", displayName: "Moderator" };
 const channelState = () => createDefaultState(actor, "2026-08-29T12:00:00.000Z");
 
+const timedChannelState = () => ({
+  ...channelState(),
+  effects: [{
+    id: "effect-1",
+    catalogId: "buff-gestaerkt",
+    kind: "buff" as const,
+    name: "Gestärkt",
+    description: "Bereit",
+    iconId: "buff-gestaerkt",
+    stacks: null,
+    expiresAt: "2026-08-29T12:05:00.000Z",
+    order: 0,
+  }],
+  featuredEffectId: "effect-1",
+});
+
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
   readonly url: string;
   readonly protocols: string[];
+  readonly sentMessages: string[] = [];
   closed = false;
   private readonly listeners = new Map<string, Array<(event: Event & { data?: unknown }) => void>>();
 
@@ -43,6 +60,10 @@ class FakeWebSocket {
   close() {
     this.closed = true;
   }
+
+  send(data: string) {
+    this.sentMessages.push(data);
+  }
 }
 
 beforeEach(() => {
@@ -61,6 +82,44 @@ afterEach(() => {
 });
 
 describe("OverlayApp realtime shell", () => {
+  it("rechnet Effekt-Countdowns mit der gemessenen Serverzeit statt mit einer falsch gehenden lokalen Uhr", async () => {
+    vi.useFakeTimers();
+    const localNow = Date.parse("2026-08-29T12:00:00.000Z");
+    vi.setSystemTime(localNow);
+    render(<OverlayApp />);
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0];
+    act(() => { socket?.emit("open"); });
+    expect(socket?.sentMessages).toHaveLength(3);
+    const { clientTimestamp } = JSON.parse(socket?.sentMessages[0] ?? "{}") as { clientTimestamp: number };
+    act(() => {
+      socket?.emit("message", JSON.stringify({ type: "snapshot", state: timedChannelState() }));
+      socket?.emit("message", JSON.stringify({
+        type: "time_sync",
+        clientTimestamp,
+        serverTime: "2026-08-29T12:02:01.000Z",
+      }));
+    });
+
+    expect(screen.getAllByText("3:00")).toHaveLength(2);
+    vi.useRealTimers();
+  });
+
+  it("läuft ohne time_sync-Antwort mit Offset null und der lokalen Zeit weiter", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.parse("2026-08-29T12:00:00.000Z"));
+    render(<OverlayApp />);
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0];
+    act(() => {
+      socket?.emit("open");
+      socket?.emit("message", JSON.stringify({ type: "snapshot", state: timedChannelState() }));
+    });
+
+    expect(screen.getAllByText("5:00")).toHaveLength(2);
+    vi.useRealTimers();
+  });
+
   it("behandelt challenge_update nicht als HUD-zustandstragende Nachricht", () => {
     expect(isStateBearingMessage({ eventSeq: 1, boardRevision: 1, settingsRevision: 1 })).toBe(false);
   });
@@ -215,13 +274,17 @@ describe("OverlayApp realtime shell", () => {
       first?.emit("open");
       first?.emit("close");
     });
+    expect(first?.sentMessages).toHaveLength(3);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(950);
     });
     expect(FakeWebSocket.instances).toHaveLength(2);
+    const second = FakeWebSocket.instances[1];
+    act(() => { second?.emit("open"); });
+    expect(second?.sentMessages).toHaveLength(3);
 
     view.unmount();
-    expect(FakeWebSocket.instances[1]?.closed).toBe(true);
+    expect(second?.closed).toBe(true);
     act(() => {
       FakeWebSocket.instances[1]?.emit("close");
     });

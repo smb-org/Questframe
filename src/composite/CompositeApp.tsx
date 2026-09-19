@@ -197,7 +197,7 @@ export const CompositeApp = ({
           return;
         }
         if (discriminated.kind === "hud") {
-          if (discriminated.message === null || discriminated.message.type === "token_revoked") {
+          if (discriminated.message === null) {
             fail("hud");
             return;
           }

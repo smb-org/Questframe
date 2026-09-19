@@ -85,8 +85,8 @@ export async function mutateObsToken({
   expectedGeneration: number;
 }): Promise<OverlayTokenResponse | DockTokenResponse> {
   const mutate = kind === "overlay"
-    ? api.mutateOverlayToken?.bind(api)
-    : api.mutateDockToken?.bind(api);
+    ? api.mutateOverlayToken
+    : api.mutateDockToken;
   if (mutate === undefined) {
     throw new Error(kind === "overlay" ? "OBS-Link kann nicht erzeugt werden." : "Dock-Link kann nicht erzeugt werden.");
   }

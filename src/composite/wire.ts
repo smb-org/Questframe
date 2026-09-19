@@ -2,7 +2,10 @@ import { parseOverlayMessage } from "../overlay/wire";
 import { isStateBearingMessage } from "../overlay/message-policy";
 import { parseChallengeMessage } from "../challenges/wire";
 
-type ParsedOverlayMessage = NonNullable<ReturnType<typeof parseOverlayMessage>>;
+type ParsedOverlayMessage = Extract<
+  NonNullable<ReturnType<typeof parseOverlayMessage>>,
+  { type: "snapshot" | "state_committed" }
+>;
 type ParsedChallengeMessage = NonNullable<ReturnType<typeof parseChallengeMessage>>;
 
 export type CompositeDiscrimination =
@@ -14,11 +17,18 @@ export type CompositeDiscrimination =
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
+const parseHudMessage = (input: unknown): ParsedOverlayMessage | null => {
+  const parsed = parseOverlayMessage(input);
+  return parsed !== null && (parsed.type === "snapshot" || parsed.type === "state_committed")
+    ? parsed
+    : null;
+};
+
 export const discriminateCompositeMessage = (input: unknown): CompositeDiscrimination => {
   // Die bestehende Policy ist die einzige Quelle dafür, welche Nachrichten den
   // HUD-Parser adressieren. Sie wird absichtlich nicht dupliziert.
   if (isStateBearingMessage(input)) {
-    return { kind: "hud", message: parseOverlayMessage(input) };
+    return { kind: "hud", message: parseHudMessage(input) };
   }
   if (isRecord(input) && input.type === "token_revoked") {
     const parsed = parseOverlayMessage(input);

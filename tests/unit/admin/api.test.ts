@@ -96,6 +96,74 @@ afterEach(() => {
 });
 
 describe("BrowserAdminApi", () => {
+  it("behält die Bindung bei gelösten Challenge-Methoden", async () => {
+    const summary = {
+      id: "set-1",
+      type: "user" as const,
+      name: "Mein Set",
+      hasProgress: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const set = {
+      schemaVersion: 1 as const,
+      name: "Mein Set",
+      createdAt: now,
+      challenges: [],
+    };
+    const challengeSnapshot = {
+      eventSeq: 0,
+      boardRevision: 1,
+      settingsRevision: 1,
+      settings: {
+        styleId: "plain-list" as const,
+        themeMode: "own" as const,
+        surfaceOpacity: 100,
+        headerStyle: "default" as const,
+        textEmphasis: "auto" as const,
+        fontFamily: "theme" as const,
+        fontScale: 1,
+        headerTitle: "CHALLENGES",
+        penaltyLabel: "STRAFE",
+        penaltyText: "",
+        effectsEnabled: true,
+        maxVisible: 5,
+        overflowMode: "cut" as const,
+        overflowTempo: "medium" as const,
+        numbered: false,
+        keyVisible: false,
+        doneOrder: "end" as const,
+        globalTimerMode: "down" as const,
+        globalTimer: null,
+        placement: { x: 300, y: 8, scale: 1 },
+      },
+      challenges: [],
+    };
+    const response = {
+      list: { sets: [summary] },
+      set: { summary, set },
+      board: { snapshot: challengeSnapshot, createdIds: {} },
+    };
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json(response.list))
+      .mockResolvedValueOnce(Response.json(response.set))
+      .mockResolvedValueOnce(Response.json(response.set))
+      .mockResolvedValueOnce(Response.json(response.board));
+    vi.stubGlobal("fetch", fetcher);
+    const api = new BrowserAdminApi();
+    const listChallengeSets = api.listChallengeSets;
+    const getChallengeSet = api.getChallengeSet;
+    const saveChallengeSet = api.saveChallengeSet;
+    const saveChallengeBoard = api.saveChallengeBoard;
+
+    await expect(Promise.all([
+      listChallengeSets(),
+      getChallengeSet("set-1"),
+      saveChallengeSet({ name: "Mein Set", includeProgress: false }),
+      saveChallengeBoard({ baseBoardRevision: 1, challenges: [] }),
+    ])).resolves.toEqual([response.list, response.set, response.set, response.board]);
+  });
+
   it("sends session challenge commands with the editor tab, CSRF token, and UUID command", async () => {
     const command: Command = {
       commandId: "dc95708a-645a-4bc0-9ca3-7ffbd42e6662",

@@ -262,7 +262,7 @@ const ChallengeSettingsPanel = ({ api, online, challengeUpdate, placementDraft, 
     if (challengeUpdate === null) return;
     applyRemoteSnapshot({ eventSeq: challengeUpdate.eventSeq, boardRevision: challengeUpdate.boardRevision, settingsRevision: challengeUpdate.settingsRevision, settings: challengeUpdate.settings, challenges: challengeUpdate.challenges });
   }, [applyRemoteSnapshot, challengeUpdate]);
-  const saveChallengeSettings = api.saveChallengeSettings?.bind(api);
+  const saveChallengeSettings = api.saveChallengeSettings;
   const dirty = snapshot !== null && settingsDraft !== null && effectivePlacement !== null && (!sameChallengeSettingsDraft(settingsDraft, settingsDraftFrom(snapshot.settings)) || !sameChallengePlacement(effectivePlacement, snapshot.settings.placement));
   const updatePlacement = (next: ChallengePlacement) => { setPlacement(next); placementRef.current = next; onPlacementDraftChange?.(next); setMessage(""); };
   const updateSettings = (patch: Partial<ChallengeSettingsDraft>) => {
@@ -743,8 +743,8 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
     const saveChallengeSet = api.saveChallengeSet;
     const deleteChallengeSet = api.deleteChallengeSet;
     return {
-      load: api.getChallengeBoard.bind(api),
-      save: api.saveChallengeBoard.bind(api),
+      load: api.getChallengeBoard,
+      save: api.saveChallengeBoard,
       ...(listChallengeSets === undefined ? {} : {
         listSets: async () => (await listChallengeSets()).sets,
       }),
@@ -756,7 +756,7 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
           (await saveChallengeSet(request)).summary,
       }),
       ...(deleteChallengeSet === undefined ? {} : {
-        deleteSet: deleteChallengeSet.bind(api),
+        deleteSet: deleteChallengeSet,
       }),
     };
   }, [api]);

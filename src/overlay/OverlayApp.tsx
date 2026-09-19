@@ -20,6 +20,7 @@ import { HudRenderer } from "./HudRenderer";
 import { isStateBearingMessage } from "./message-policy";
 import { useOverlayMediaUrls } from "./useOverlayMediaUrls";
 import { parseOverlayMessage } from "./wire";
+import { createTimeSyncClient, TIME_SYNC_INTERVAL_MS } from "../shared/time-sync";
 
 const OVERLAY_WATCHDOG_MARKER = "irl-stream-hud:overlay-watchdog-reload-at";
 const OVERLAY_WATCHDOG_DELAY_MS = 1_000;
@@ -32,7 +33,9 @@ const OVERLAY_WATCHDOG_DELAY_MS = 1_000;
 
 export const OverlayApp = ({ reloadPage = reloadWindow }: { reloadPage?: () => void } = {}) => {
   const [state, setState] = useState<ChannelState | null>(null);
-  const [nowMilliseconds, setNowMilliseconds] = useState(() => Date.now());
+  const [localNowMilliseconds, setLocalNowMilliseconds] = useState(() => Date.now());
+  const [clockOffsetMs, setClockOffsetMs] = useState(0);
+  const nowMilliseconds = localNowMilliseconds + clockOffsetMs;
   const params = useMemo(
     () => new URLSearchParams(window.location.hash.replace(/^#/, "")),
     [],
@@ -43,7 +46,7 @@ export const OverlayApp = ({ reloadPage = reloadWindow }: { reloadPage?: () => v
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      setNowMilliseconds(Date.now());
+      setLocalNowMilliseconds(Date.now());
     }, 1_000);
     return () => {
       window.clearInterval(timer);
@@ -56,6 +59,8 @@ export const OverlayApp = ({ reloadPage = reloadWindow }: { reloadPage?: () => v
     let socket: WebSocket | null = null;
     let stopHeartbeat: (() => void) | null = null;
     let retryTimer: number | null = null;
+    let timeSyncTimer: number | null = null;
+    let timeSync: ReturnType<typeof createTimeSyncClient> | null = null;
     let retry = 0;
     let fingerprint = "";
     let revoked = false;
@@ -82,10 +87,17 @@ export const OverlayApp = ({ reloadPage = reloadWindow }: { reloadPage?: () => v
         OVERLAY_SOCKET_PROTOCOL,
         token,
       ]);
+      timeSync = createTimeSyncClient({
+        send: (message) => { socket?.send(message); },
+        onOffset: setClockOffsetMs,
+      });
       socket.addEventListener("open", () => {
         stopHeartbeat?.();
         stopHeartbeat = startSocketHeartbeat(socket as WebSocket);
         retry = 0;
+        timeSync?.requestSamples();
+        if (timeSyncTimer !== null) window.clearInterval(timeSyncTimer);
+        timeSyncTimer = window.setInterval(() => { timeSync?.requestSamples(); }, TIME_SYNC_INTERVAL_MS);
       });
       socket.addEventListener("message", (event) => {
         if (typeof event.data !== "string") return;
@@ -100,6 +112,10 @@ export const OverlayApp = ({ reloadPage = reloadWindow }: { reloadPage?: () => v
           // `challenge_update` gehört zur eigenen Quelle: ein Parse-Fehler dort
           // darf das HUD vor Zuschauern niemals neu laden.
           if (isStateBearingMessage(input)) scheduleWatchdog();
+          return;
+        }
+        if (parsed.type === "time_sync") {
+          timeSync?.accept(parsed, Date.now());
           return;
         }
         if (parsed.type === "snapshot" || parsed.type === "state_committed") {
@@ -120,6 +136,11 @@ export const OverlayApp = ({ reloadPage = reloadWindow }: { reloadPage?: () => v
       socket.addEventListener("close", () => {
         stopHeartbeat?.();
         stopHeartbeat = null;
+        timeSync?.reset();
+        timeSync = null;
+        setClockOffsetMs(0);
+        if (timeSyncTimer !== null) window.clearInterval(timeSyncTimer);
+        timeSyncTimer = null;
         if (disposed || revoked) return;
         const delay = nextReconnectDelayMs(retry);
         retry += 1;
@@ -145,6 +166,10 @@ export const OverlayApp = ({ reloadPage = reloadWindow }: { reloadPage?: () => v
       disposed = true;
       stopHeartbeat?.();
       stopHeartbeat = null;
+      timeSync?.reset();
+      timeSync = null;
+      if (timeSyncTimer !== null) window.clearInterval(timeSyncTimer);
+      timeSyncTimer = null;
       cancelWatchdog();
       if (retryTimer !== null) window.clearTimeout(retryTimer);
       socket?.close();
