@@ -98,7 +98,7 @@ describe("scripts/render-headers.mjs", () => {
   });
 
   it("fällt ohne Umgebung auf den lokalen Origin zurück", () => {
-    expect(publicOriginFor(undefined, undefined).host).toBe("localhost:5173");
+    expect(publicOriginFor(undefined, undefined).host).toBe("localhost:7173");
   });
 
   it("scheitert ohne PUBLIC_ORIGIN oder bei einer unsicheren URL", () => {

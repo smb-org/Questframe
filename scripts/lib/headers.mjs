@@ -5,7 +5,7 @@
 
 // Der lokale "pnpm run build" kennt keine Umgebung und braucht deshalb keinen
 // öffentlichen Origin.
-const LOCAL_HOST = "localhost:5173";
+const LOCAL_HOST = "localhost:7173";
 
 export const publicOriginFor = (environment, publicOrigin) => {
   if (environment === undefined || environment === "") {

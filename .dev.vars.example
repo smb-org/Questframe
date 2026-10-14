@@ -1,7 +1,7 @@
 TWITCH_CLIENT_ID=local-twitch-client-id
 TWITCH_CLIENT_SECRET=replace-with-twitch-client-secret
 BROADCASTER_ID=12345678901234567890
-PUBLIC_ORIGIN=http://localhost:5173
+PUBLIC_ORIGIN=http://localhost:7173
 CAPSULE_ID=irl-stream-hud-local
 CAPSULE_NAME=Questframe Local
 TIMEZONE=Europe/Berlin

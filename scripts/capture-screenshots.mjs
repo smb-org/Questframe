@@ -2,7 +2,7 @@ import { chromium } from "@playwright/test";
 import { mkdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
-const BASE_URL = "http://localhost:5173";
+const BASE_URL = "http://localhost:7173";
 const OUTPUT_DIR = path.resolve("docs/images");
 const MAX_FILE_BYTES = 1_000_000;
 const VIEWPORT = { width: 1_200, height: 720 };

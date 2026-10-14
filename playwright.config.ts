@@ -10,14 +10,14 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: [["html", { open: "never" }], ["list"]],
   use: {
-    baseURL: "http://localhost:5173",
+    baseURL: "http://localhost:7173",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
   webServer: {
     command: "pnpm run dev",
     // Vite lauscht nur auf ::1, daher localhost statt 127.0.0.1.
-    url: "http://localhost:5173/",
+    url: "http://localhost:7173/",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
