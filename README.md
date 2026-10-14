@@ -40,6 +40,8 @@ cp .dev.vars.example .dev.vars
 pnpm run dev
 ```
 
+Der Dev-Server läuft fest auf `http://localhost:7173` (Preview auf 7174) und bricht ab, falls der Port belegt ist. Wer sich lokal über Twitch statt über `/auth/dev` anmelden will, trägt in der Twitch-App zusätzlich `http://localhost:7173/auth/twitch/callback` als OAuth-Redirect-URL ein.
+
 Für lokale Entwicklung steht `/auth/dev` als absichtlich nur unter `APP_ENV=local` verfügbarer Login bereit. Danach öffnet `/admin` die Konsole. Das lokale Cloudflare-SQLite-Durable-Object liegt in Wranglers Projektzustand und berührt weder Staging noch Production.
 
 Die zehn Beispiel-Bindings müssen vor dem Start geprüft beziehungsweise ersetzt werden; insbesondere alle `replace-with-…`-Werte. Einen passenden 32-Byte-Base64url-Wert erzeugt beispielsweise:
