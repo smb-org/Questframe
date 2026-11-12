@@ -87,6 +87,22 @@ describe("Bingo-API", () => {
     expect(board.marks).toEqual([]);
   });
 
+  // Ergänzt von Codex.
+  // Value: protects=Dock-Anfragen bleiben von Bingo-Lesen und -Ändern ausgeschlossen; fails_when=der Dock-Header-Prüfer in einem Zugriffspfad entfällt; why_new=API-Tests prüfen bisher nur Editor-Sessions; seam=none; no_claim=keine echte Dock-Session (Header direkt simuliert)
+  it("lehnt den Dock bei Lese- und Schreibzugriff auf Bingo ab", async () => {
+    const before = await readBingo();
+    const read = await fetchWorker("/api/bingo", { headers: { "x-dock-token": "dock-token" } });
+    const mark = await fetchWorker("/api/bingo/mark", {
+      method: "POST",
+      headers: { "x-dock-token": "dock-token", "content-type": "application/json" },
+      body: JSON.stringify({ cellId: before.card.cells[0]?.id, marked: true, expectedMarkRevision: before.markRevision }),
+    });
+
+    expect(read.status).toBe(403);
+    expect(mark.status).toBe(403);
+    expect(await readBingo()).toEqual(before);
+  });
+
   it("marks and resets with revision conflicts in the challenge error shape", async () => {
     const challengesBefore = await (await fetchWorker("/api/challenges", { headers: authenticatedHeaders() })).json();
     const saved = await saveCard(card(), 0);
