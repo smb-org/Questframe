@@ -61,6 +61,7 @@ const bootstrap = (): BootstrapResponse => ({
   recentAudit: [],
   undoTargets: [],
   challengeUndoTargets: [],
+  bingoUndoTargets: [],
   csrfToken: "csrf-token-with-enough-entropy",
   serverTime: "2026-08-29T12:00:00.000Z",
 });

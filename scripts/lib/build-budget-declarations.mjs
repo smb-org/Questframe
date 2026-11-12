@@ -1,4 +1,4 @@
-export const createBudgetDeclarations = (temporalKey, challengeStyleKeys, qrCodeKey) => [
+export const createBudgetDeclarations = (temporalKey, challengeStyleKeys, qrCodeKey, bingoEntryKey) => [
   {
     type: "surface",
     key: "src/overlay/OverlayApp.tsx",
@@ -55,6 +55,17 @@ export const createBudgetDeclarations = (temporalKey, challengeStyleKeys, qrCode
     javascriptBudget: 100 * 1024,
     transferLabel: "Composite-Quelle initial static transfer",
     transferBudget: 350 * 1024,
+    transferAssets: ["shell", "font", "hudMedia", "effects", "audio"],
+  },
+  {
+    type: "surface",
+    key: bingoEntryKey,
+    label: "Bingo-Quelle",
+    staticRoots: ["index.html"],
+    javascriptLabel: "Bingo-Quelle initial JavaScript",
+    javascriptBudget: 80 * 1024,
+    transferLabel: "Bingo-Quelle initial static transfer",
+    transferBudget: 512 * 1024,
     transferAssets: ["shell", "font", "hudMedia", "effects", "audio"],
   },
   {

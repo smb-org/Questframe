@@ -12,6 +12,7 @@ const overlayKey = "src/overlay/OverlayApp.tsx";
 const adminKey = "src/admin/AdminApp.tsx";
 const challengeSourceKey = "src/challenges/ChallengeSourceApp.tsx";
 const compositeKey = "src/composite/CompositeApp.tsx";
+const bingoSourceKey = "src/bingo/BingoSourceApp.tsx";
 // pnpm verschachtelt den aufgeloesten Pfad unter node_modules/.pnpm/..., deshalb
 // matchen wir weiterhin per Suffix statt gegen ein package-manager-spezifisches Layout.
 const temporalKeySuffix = "@js-temporal/polyfill/dist/index.esm.js";
@@ -63,7 +64,7 @@ const sharedChallengeLoaderKeys = [
   "src/challenges/style-loader.ts",
 ].filter((key) => manifest[key] !== undefined);
 const budgetDeclarations = [
-  ...createBudgetDeclarations(temporalKey, challengeStyleKeys, qrCodeKey),
+  ...createBudgetDeclarations(temporalKey, challengeStyleKeys, qrCodeKey, bingoSourceKey),
   ...sharedChallengeLoaderKeys.map((key) => ({
     type: "exempt",
     key,

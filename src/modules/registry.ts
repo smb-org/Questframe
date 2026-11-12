@@ -14,6 +14,7 @@
  */
 import { createChallengeHttpHandler, challengeHistory } from "./win-challenges/adapters/http-facade";
 import { createHudModule } from "./hud/http-facade";
+import { bingoHistory, createBingoHttpHandler } from "./bingo/adapters/http-facade";
 import type { DockTokenRecord } from "./win-challenges/repository/challenge-repository";
 import type { AuditEntry, UndoTarget } from "../shared/contracts/api";
 import type { ChannelState } from "../shared/contracts/state";
@@ -69,11 +70,21 @@ const CHALLENGES_SOCKET_DEFINITIONS = [
   },
 ] as const satisfies readonly SocketDefinitionInput[];
 
+const BINGO_SOCKET_DEFINITIONS = [
+  {
+    tag: "bingo",
+    limitKey: "maxBingoSockets",
+    display: true,
+    protocol: OVERLAY_SOCKET_PROTOCOL,
+  },
+] as const satisfies readonly SocketDefinitionInput[];
+
 export const SOCKET_DEFINITIONS = [
   HOST_SOCKET_DEFINITIONS[0],
   ...HUD_SOCKET_DEFINITIONS,
   HOST_SOCKET_DEFINITIONS[1],
   ...CHALLENGES_SOCKET_DEFINITIONS,
+  ...BINGO_SOCKET_DEFINITIONS,
 ] as const satisfies readonly SocketDefinitionInput[];
 
 export type SocketTag = (typeof SOCKET_DEFINITIONS)[number]["tag"];
@@ -108,6 +119,7 @@ export const SOCKETS = {
   overlay: HUD_SOCKET_DEFINITIONS[0],
   challenge: CHALLENGES_SOCKET_DEFINITIONS[0],
   dock: CHALLENGES_SOCKET_DEFINITIONS[1],
+  bingo: BINGO_SOCKET_DEFINITIONS[0],
 } as const satisfies { [tag in SocketTag]: SocketDefinition };
 
 export type ModuleContext = {
@@ -264,12 +276,30 @@ const challengesModule = {
   history: challengeHistory,
 } as const satisfies OverlayModuleDefinition;
 
+const bingoModuleDefinition = {
+  id: "bingo",
+  routePrefixes: ["/bingo"],
+  socketPaths: ["/ws/bingo"],
+  socketTags: BINGO_SOCKET_DEFINITIONS.map(({ tag }) => tag),
+  socketDefinitions: BINGO_SOCKET_DEFINITIONS,
+  tables: { kind: "prefix", prefix: "bg_" },
+  wireScopes: [],
+  migrationNamespace: "bingo",
+  budgetKeys: ["Bingo-Quelle"],
+} as const satisfies OverlayModuleDefinition;
+
+const bingoModule = {
+  ...bingoModuleDefinition,
+  handle: createBingoHttpHandler(bingoModuleDefinition.socketTags),
+  history: bingoHistory,
+} as const satisfies OverlayModuleDefinition;
+
 /**
  * Ableitungsquelle. `as const` hält die Literaltypen, aus denen `ModuleId`
  * entsteht — ein drittes Modul kostet damit genau einen Eintrag hier und
  * keine Typänderung daneben.
  */
-const REGISTRY_ENTRIES = [hudModule, challengesModule] as const satisfies readonly OverlayModuleDefinition[];
+const REGISTRY_ENTRIES = [hudModule, challengesModule, bingoModule] as const satisfies readonly OverlayModuleDefinition[];
 
 export type ModuleId = (typeof REGISTRY_ENTRIES)[number]["id"];
 export type OverlayModule = OverlayModuleDefinition & { id: ModuleId };

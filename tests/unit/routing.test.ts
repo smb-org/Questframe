@@ -8,6 +8,8 @@ describe("Routenauflösung", () => {
     ["/overlay/all/", { surface: "composite", app: "composite", workspace: "hud" }],
     ["/overlay/challenges", { surface: "challenges", app: "challenges", workspace: "hud" }],
     ["/overlay/challenges/", { surface: "challenges", app: "challenges", workspace: "hud" }],
+    ["/overlay/bingo", { surface: "bingo", app: "bingo", workspace: "hud" }],
+    ["/overlay/bingo/", { surface: "bingo", app: "bingo", workspace: "hud" }],
     ["/overlay", { surface: "overlay", app: "overlay", workspace: "hud" }],
     ["/overlay/", { surface: "overlay", app: "overlay", workspace: "hud" }],
     ["/overlaychallenges", { surface: "admin", app: "admin", workspace: "hud" }],

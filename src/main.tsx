@@ -25,6 +25,10 @@ if (route.app === "overlay") {
   void import("./challenges/ChallengeSourceApp").then(({ ChallengeSourceApp }) => {
     reactRoot.render(<StrictMode><ChallengeSourceApp /></StrictMode>);
   });
+} else if (route.app === "bingo") {
+  void import("./bingo/BingoSourceApp").then(({ BingoSourceApp }) => {
+    reactRoot.render(<StrictMode><BingoSourceApp /></StrictMode>);
+  });
 } else if (route.app === "composite") {
   void import("./composite/CompositeApp").then(({ CompositeApp }) => {
     reactRoot.render(<StrictMode><CompositeApp /></StrictMode>);

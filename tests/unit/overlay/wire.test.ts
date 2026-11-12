@@ -37,18 +37,34 @@ describe("lightweight overlay wire boundary", () => {
       groupVisible: false,
       compositeHudVisible: false,
       compositeChallengesVisible: false,
+      compositeBingoVisible: true,
     };
     expect(parseOverlayState(hidden)).toEqual(hidden);
     expect(parseOverlayState({ ...state, petVisible: "false" })).toBeNull();
     expect(parseOverlayState({ ...state, groupVisible: 0 })).toBeNull();
     expect(parseOverlayState({ ...state, compositeHudVisible: "false" })).toBeNull();
     expect(parseOverlayState({ ...state, compositeChallengesVisible: 0 })).toBeNull();
+    expect(parseOverlayState({ ...state, compositeBingoVisible: "false" })).toBeNull();
   });
 
-  it("requires the composite visibility flags in the exact overlay snapshot shape", () => {
-    const { compositeHudVisible: _hudVisible, compositeChallengesVisible: _challengesVisible, ...legacy } = state;
-    void [_hudVisible, _challengesVisible];
+  it("defaults bingo visibility for exact legacy snapshots without the new key", () => {
+    const { compositeBingoVisible: _bingoVisible, ...legacy } = state;
+    void _bingoVisible;
     expect(parseOverlayMessage({ type: "snapshot", state })).toEqual({ type: "snapshot", state });
+    expect(parseOverlayMessage({ type: "snapshot", state: legacy })).toEqual({
+      type: "snapshot",
+      state: { ...state, compositeBingoVisible: false },
+    });
+  });
+
+  it("still requires the existing composite visibility flags", () => {
+    const {
+      compositeHudVisible: _hudVisible,
+      compositeChallengesVisible: _challengesVisible,
+      compositeBingoVisible: _bingoVisible,
+      ...legacy
+    } = state;
+    void [_hudVisible, _challengesVisible, _bingoVisible];
     expect(parseOverlayMessage({ type: "snapshot", state: legacy })).toBeNull();
   });
 

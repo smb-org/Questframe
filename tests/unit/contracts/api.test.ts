@@ -28,9 +28,10 @@ describe("API contracts", () => {
       groupVisible: _groupVisible,
       compositeHudVisible: _compositeHudVisible,
       compositeChallengesVisible: _compositeChallengesVisible,
+      compositeBingoVisible: _compositeBingoVisible,
       ...legacyDraft
     } = draft;
-    void [_petVisible, _groupVisible, _compositeHudVisible, _compositeChallengesVisible];
+    void [_petVisible, _groupVisible, _compositeHudVisible, _compositeChallengesVisible, _compositeBingoVisible];
     expect(() => saveRequestSchema.parse({ baseRevision: revision, state: legacyDraft })).toThrow();
     expect(() =>
       saveRequestSchema.parse({
@@ -110,6 +111,7 @@ describe("API contracts", () => {
           maxActiveEffects: 8,
           maxEditorSockets: 10,
           maxOverlaySockets: 10,
+          maxBingoSockets: 15,
           maxMediaBytes: 8_388_608,
         },
         overlayToken: {
@@ -133,6 +135,7 @@ describe("API contracts", () => {
       recentAudit: [],
       undoTargets: [],
       challengeUndoTargets: [],
+      bingoUndoTargets: [],
       csrfToken: "csrf-token-with-enough-entropy",
       serverTime: "2026-08-29T12:00:00.000Z",
     };
@@ -203,6 +206,11 @@ describe("API contracts", () => {
       entry: auditEntry,
       undoTargets,
     });
+    expect(serverMessageSchema.parse({ type: "history_changed", moduleId: "bingo", undoTargets })).toEqual({
+      type: "history_changed",
+      moduleId: "bingo",
+      undoTargets,
+    });
     expect(undoRequestSchema.parse({ moduleId: "hud", channelSeq: 1, baseRevision: 2 })).toEqual({
       moduleId: "hud",
       channelSeq: 1,
@@ -220,6 +228,21 @@ describe("API contracts", () => {
       baseBoardRevision: 3,
       baseSettingsRevision: 4,
       baseEventSeq: 5,
+    });
+    expect(undoRequestSchema.parse({
+      moduleId: "bingo",
+      channelSeq: 3,
+      baseCardRevision: 7,
+      baseMarkRevision: 9,
+      baseGeneration: 2,
+      baseStyle: "marker",
+    })).toEqual({
+      moduleId: "bingo",
+      channelSeq: 3,
+      baseCardRevision: 7,
+      baseMarkRevision: 9,
+      baseGeneration: 2,
+      baseStyle: "marker",
     });
     expect(() => serverMessageSchema.parse({
       type: "audit_appended",

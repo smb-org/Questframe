@@ -51,7 +51,7 @@
     "type": "table",
     "name": "bg_board",
     "tbl_name": "bg_board",
-    "sql": "CREATE TABLE bg_board ( singleton INTEGER PRIMARY KEY CHECK ( singleton = 1 ) , title TEXT NOT NULL , size INTEGER NOT NULL CHECK ( size IN ( 3 , 4 , 5 ) ) , cells_json TEXT NOT NULL , marks_json TEXT NOT NULL , card_revision INTEGER NOT NULL CHECK ( card_revision >= 0 ) , mark_revision INTEGER NOT NULL CHECK ( mark_revision >= 0 ) , generation INTEGER NOT NULL CHECK ( generation >= 0 ) , placement_x INTEGER NOT NULL DEFAULT 300 CHECK ( placement_x BETWEEN 0 AND 384 ) , placement_y INTEGER NOT NULL DEFAULT 8 CHECK ( placement_y BETWEEN 0 AND 216 ) , placement_scale REAL NOT NULL DEFAULT 1 CHECK ( placement_scale BETWEEN 0.75 AND 2 ) , style TEXT NOT NULL DEFAULT 'marker' CHECK ( style IN ( 'marker' , 'broadcast' ) ) , created_at TEXT NOT NULL , updated_at TEXT NOT NULL )"
+    "sql": "CREATE TABLE bg_board ( singleton INTEGER PRIMARY KEY CHECK ( singleton = 1 ) , title TEXT NOT NULL , size INTEGER NOT NULL CHECK ( size IN ( 3 , 4 , 5 ) ) , cells_json TEXT NOT NULL , marks_json TEXT NOT NULL , card_revision INTEGER NOT NULL CHECK ( card_revision >= 0 ) , mark_revision INTEGER NOT NULL CHECK ( mark_revision >= 0 ) , generation INTEGER NOT NULL CHECK ( generation >= 0 ) , placement_x INTEGER NOT NULL DEFAULT 8 CHECK ( placement_x BETWEEN 0 AND 384 ) , placement_y INTEGER NOT NULL DEFAULT 120 CHECK ( placement_y BETWEEN 0 AND 216 ) , placement_scale REAL NOT NULL DEFAULT 1 CHECK ( placement_scale BETWEEN 0.75 AND 2 ) , style TEXT NOT NULL DEFAULT 'marker' CHECK ( style IN ( 'marker' , 'broadcast' ) ) , created_at TEXT NOT NULL , updated_at TEXT NOT NULL )"
   },
   {
     "type": "table",

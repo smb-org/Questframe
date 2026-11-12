@@ -620,6 +620,37 @@ const worker = {
       return handleTwitchLookup(request, env);
     }
 
+    const bingoRoutes: Record<string, { pathname: string; protection: "read" | "editor" }> = {
+      "GET /api/bingo": { pathname: "/bingo", protection: "read" },
+      "GET /api/bingo/sets": { pathname: "/bingo/sets", protection: "read" },
+      "POST /api/bingo/sets": { pathname: "/bingo/sets", protection: "editor" },
+      "POST /api/bingo/mark": { pathname: "/bingo/mark", protection: "editor" },
+      "POST /api/bingo/reset": { pathname: "/bingo/reset", protection: "editor" },
+      "PUT /api/bingo/board": { pathname: "/bingo/board", protection: "editor" },
+      "PUT /api/bingo/style": { pathname: "/bingo/style", protection: "editor" },
+      "GET /api/bingo/export": { pathname: "/bingo/export", protection: "read" },
+      "POST /api/bingo/import": { pathname: "/bingo/import", protection: "editor" },
+    };
+    const bingoSetIdPath = url.pathname.startsWith("/api/bingo/sets/");
+    const bingoRoute = bingoRoutes[`${request.method} ${url.pathname}`]
+      ?? (bingoSetIdPath && request.method === "GET"
+        ? { pathname: `/bingo/sets/${url.pathname.slice("/api/bingo/sets/".length)}`, protection: "read" as const }
+        : bingoSetIdPath && request.method === "DELETE"
+          ? { pathname: `/bingo/sets/${url.pathname.slice("/api/bingo/sets/".length)}`, protection: "editor" as const }
+          : bingoSetIdPath && request.method === "POST" && url.pathname.endsWith("/load")
+            ? { pathname: `/bingo/sets/${url.pathname.slice("/api/bingo/sets/".length)}`, protection: "editor" as const }
+            : undefined);
+    if (bingoRoute !== undefined) {
+      const originError = bingoRoute.protection === "read"
+        ? requireSameOriginRead(request, env)
+        : requireSameOriginMutation(request, env);
+      if (originError !== null) return originError;
+      if (request.headers.get("authorization") !== null || request.headers.get("x-dock-token") !== null) {
+        return errorResponse(403, "forbidden", "Bingo-Routen sind ausschließlich für Editoren verfügbar.");
+      }
+      return proxyToChannel(request, env, bingoRoute.pathname);
+    }
+
     const challengeRoutes: Record<string, { pathname: string; protection: "read" | "editor" | "command" }> = {
       "GET /api/challenges": { pathname: "/challenges", protection: "read" },
       "GET /api/challenges/sets": { pathname: "/challenges/sets", protection: "read" },
@@ -741,7 +772,7 @@ const worker = {
       return withCors;
     }
 
-    if (request.method === "GET" && (url.pathname === "/ws/overlay" || url.pathname === "/ws/composite" || url.pathname === "/ws/challenge")) {
+    if (request.method === "GET" && (url.pathname === "/ws/overlay" || url.pathname === "/ws/composite" || url.pathname === "/ws/challenge" || url.pathname === "/ws/bingo")) {
       const protocolHeader = request.headers.get("sec-websocket-protocol");
       const protocolEntries = protocolHeader?.split(",").map((entry) => entry.trim()) ?? [];
       const [protocolName, token] = protocolEntries;

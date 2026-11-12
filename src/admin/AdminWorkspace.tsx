@@ -19,6 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   AuditEntry,
+  BingoUndoBaseRevisions,
   BootstrapResponse,
   ChallengeUndoBaseRevisions,
   DockTokenResponse,
@@ -54,6 +55,7 @@ import {
   type SettingsSaveRequest,
   type SettingsSaveResponse,
 } from "../modules/win-challenges/contracts/schemas";
+import type { BingoUndoResponse } from "../modules/bingo/contracts/schemas";
 import { GLOBAL_TIMER_UP_CAP_MS, MAX_VISIBLE_ROWS } from "../modules/win-challenges/contracts/predicates";
 import { ChallengeBoard, type ChallengeBoardApi, type ChallengeBoardSaveHandle } from "../modules/win-challenges/ui/ChallengeBoard";
 import { ChallengeLog } from "../modules/win-challenges/ui/ChallengeLog";
@@ -78,6 +80,7 @@ export type AdminApi = {
   undo?: {
     (moduleId: "hud", channelSeq: number, baseRevision: number): Promise<SaveResponse>;
     (moduleId: "challenges", channelSeq: number, baseRevision: ChallengeUndoBaseRevisions): Promise<ChallengeUndoResponse>;
+    (moduleId: "bingo", channelSeq: number, baseRevision: BingoUndoBaseRevisions): Promise<BingoUndoResponse>;
   } | undefined;
   mutateOverlayToken?: ((rotate: boolean, request: { requestId: string; expectedGeneration: number }) => Promise<OverlayTokenResponse>) | undefined;
   mutateDockToken?: ((rotate: boolean, request: { requestId: string; expectedGeneration: number }) => Promise<DockTokenResponse>) | undefined;
@@ -573,6 +576,7 @@ const ModuleVisibilityControls = ({ state }: { state: HudEditorState }) => (
   <div aria-label="Im Sammel-Overlay zeigen" className="preview-module-toggles" role="group" title="Die Vorschau reagiert sofort. Die OBS-Quelle übernimmt die Auswahl erst mit dem Speichern.">
     <button aria-checked={state.draft.compositeHudVisible} aria-label="HUD im Sammel-Overlay anzeigen" className={`preview-module-toggle ${state.draft.compositeHudVisible ? "is-on" : "is-off"}`} disabled={state.locked} onClick={() => state.setDraft((current) => ({ ...current, compositeHudVisible: !current.compositeHudVisible }))} role="switch" type="button"><span>HUD</span><i aria-hidden="true" /></button>
     <button aria-checked={state.draft.compositeChallengesVisible} aria-label="Challenges im Sammel-Overlay anzeigen" className={`preview-module-toggle ${state.draft.compositeChallengesVisible ? "is-on" : "is-off"}`} disabled={state.locked} onClick={() => state.setDraft((current) => ({ ...current, compositeChallengesVisible: !current.compositeChallengesVisible }))} role="switch" type="button"><span>Challenges</span><i aria-hidden="true" /></button>
+    <button aria-checked={state.draft.compositeBingoVisible} aria-label="Bingo im Sammel-Overlay anzeigen" className={`preview-module-toggle ${state.draft.compositeBingoVisible ? "is-on" : "is-off"}`} disabled={state.locked} onClick={() => state.setDraft((current) => ({ ...current, compositeBingoVisible: !current.compositeBingoVisible }))} role="switch" type="button"><span>Bingo</span><i aria-hidden="true" /></button>
   </div>
 );
 
@@ -653,6 +657,7 @@ const GlobalSaveBar = ({ modules, online, onNavigate }: { modules: SaveAllModule
 const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBootstrap: BootstrapResponse; api: AdminApi; initialTab: AdminWorkspaceId }) => {
   const [challengeUpdate, setChallengeUpdate] = useState<ChallengeUpdate | null>(null);
   const [challengeUndoTargets, setChallengeUndoTargets] = useState(initialBootstrap.challengeUndoTargets);
+  const [, setBingoUndoTargets] = useState(initialBootstrap.bingoUndoTargets);
   const [challengeSettingsDraft, setChallengeSettingsDraft] = useState<ChallengeSettingsDraft | null>(null);
   const [challengePlacementDraft, setChallengePlacementDraft] = useState<ChallengePlacement | null>(null);
   const [previewZoom, setPreviewZoom] = useState(100);
@@ -665,7 +670,7 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
   const [settingsHandle, setSettingsHandle] = useState<ModuleSaveHandle | null>(null);
   const [boardHandle, setBoardHandle] = useState<ChallengeBoardSaveHandle | null>(null);
   const [clockOffsetMs, setClockOffsetMs] = useState(0);
-  const state = useHudEditorState({ initialBootstrap, api, onChallengeUpdate: setChallengeUpdate, onChallengeUndoTargets: setChallengeUndoTargets, onTimeOffset: setClockOffsetMs });
+  const state = useHudEditorState({ initialBootstrap, api, onChallengeUpdate: setChallengeUpdate, onChallengeUndoTargets: setChallengeUndoTargets, onBingoUndoTargets: setBingoUndoTargets, onTimeOffset: setClockOffsetMs });
   useEffect(() => {
     if (api.getChallengeBoard === undefined) return;
     let disposed = false;

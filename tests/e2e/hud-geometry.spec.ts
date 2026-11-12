@@ -118,6 +118,7 @@ const publishDenseState = (page: Page, themeId: string, scale = 1) =>
           compositeHudVisible: true,
           groupVisible: true,
           compositeChallengesVisible: true,
+          compositeBingoVisible: false,
           player: {
             name: "Alexandra Bergsteigerin XY",
             title: "Chefin der Hochgebirgsexpedition",

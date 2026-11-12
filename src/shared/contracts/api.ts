@@ -70,6 +70,7 @@ export const MAX_OVERLAY_SOCKETS = 15 as const;
 export const MAX_COMPOSITE_SOCKETS = 15 as const;
 export const MAX_CHALLENGE_SOCKETS = 15 as const;
 export const MAX_DOCK_SOCKETS = 15 as const;
+export const MAX_BINGO_SOCKETS = 15 as const;
 
 // Ab wann eine Verbindung ohne Heartbeat als verwaist gilt. Großzügig bemessen,
 // und zwar aus einem konkreten Grund: Browser drosseln Timer in Hintergrund-Tabs
@@ -90,6 +91,7 @@ export const limitsSchema = z.strictObject({
   maxCompositeSockets: z.union([z.literal(10), z.literal(MAX_COMPOSITE_SOCKETS)]).optional(),
   maxChallengeSockets: z.union([z.literal(2), z.literal(10), z.literal(MAX_CHALLENGE_SOCKETS)]).optional(),
   maxDockSockets: z.union([z.literal(2), z.literal(MAX_DOCK_SOCKETS)]).optional(),
+  maxBingoSockets: z.literal(MAX_BINGO_SOCKETS).optional(),
   maxMediaBytes: z.literal(8_388_608),
 });
 
@@ -121,7 +123,7 @@ export const auditEntrySchema = z.strictObject({
   createdAt: z.iso.datetime({ offset: true }),
 });
 
-export const undoModuleIdSchema = z.enum(["hud", "challenges"]);
+export const undoModuleIdSchema = z.enum(["hud", "challenges", "bingo"]);
 
 export const undoTargetSchema = z.strictObject({
   channelSeq: z.number().int().min(1),
@@ -173,6 +175,7 @@ export const bootstrapResponseSchema = z.strictObject({
   recentAudit: z.array(auditEntrySchema).max(50),
   undoTargets: z.array(undoTargetSchema).max(20),
   challengeUndoTargets: z.array(undoTargetSchema).max(20).default([]),
+  bingoUndoTargets: z.array(undoTargetSchema).max(20).default([]),
   csrfToken: z.string().min(16).max(128),
   serverTime: z.iso.datetime({ offset: true }),
 });
@@ -200,6 +203,13 @@ export const undoRequestSchema = z.strictObject({
   baseBoardRevision: z.number().int().min(1),
   baseSettingsRevision: z.number().int().min(1),
   baseEventSeq: z.number().int().nonnegative(),
+})).or(z.strictObject({
+  moduleId: z.literal("bingo"),
+  channelSeq: z.number().int().min(1),
+  baseCardRevision: z.number().int().nonnegative(),
+  baseMarkRevision: z.number().int().nonnegative(),
+  baseGeneration: z.number().int().nonnegative(),
+  baseStyle: z.enum(["marker", "broadcast"]),
 }));
 
 export const visibilityRequestSchema = z.strictObject({
@@ -327,6 +337,12 @@ export type ChallengeUndoBaseRevisions = {
   boardRevision: number;
   settingsRevision: number;
   eventSeq: number;
+};
+export type BingoUndoBaseRevisions = {
+  cardRevision: number;
+  markRevision: number;
+  generation: number;
+  style: "marker" | "broadcast";
 };
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
