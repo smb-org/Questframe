@@ -717,22 +717,23 @@ const recordMigration = (sql: SqlStorage, namespace: MigrationNamespace, version
   );
 };
 
-export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
+export const runMigrations = (sql: SqlStorage, buildId = "dev", migrations: readonly Migration[] = MIGRATIONS): void => {
   backfillLegacyMigrationLedger(sql);
 
-  for (let index = 0; index < MIGRATIONS.length;) {
-    const namespace = MIGRATIONS[index]?.namespace;
-    const version = MIGRATIONS[index]?.version;
+  for (let index = 0; index < migrations.length;) {
+    const namespace = migrations[index]?.namespace;
+    const version = migrations[index]?.version;
     if (namespace === undefined || version === undefined) break;
 
     const firstEntry = index;
     while (
-      index < MIGRATIONS.length
-      && MIGRATIONS[index]?.namespace === namespace
-      && MIGRATIONS[index]?.version === version
+      index < migrations.length
+      && migrations[index]?.namespace === namespace
+      && migrations[index]?.version === version
     ) index += 1;
-    const entries = MIGRATIONS.slice(firstEntry, index);
-    const versionWasApplied = version === 1 ? false : migrationVersionWasApplied(sql, namespace, version);
+    const entries = migrations.slice(firstEntry, index);
+    const isHostBootstrapMigration = namespace === "host" && version === 1;
+    const versionWasApplied = isHostBootstrapMigration ? false : migrationVersionWasApplied(sql, namespace, version);
 
     if (!versionWasApplied) {
       for (const migration of entries) {
@@ -742,9 +743,9 @@ export const runMigrations = (sql: SqlStorage, buildId = "dev"): void => {
       }
     }
 
-    // Migration 1 muss vor dem ersten Ledger-Check die Ledger-Tabelle anlegen.
-    // Danach gilt auch für sie dieselbe Eintragslogik wie für alle Folgemigrationen.
-    if (version === 1 ? !migrationVersionWasApplied(sql, namespace, version) : !versionWasApplied) {
+    // host/1 muss vor dem ersten Ledger-Check die Ledger-Tabelle anlegen.
+    // Danach wird auch host/1 anhand seiner eigenen Ledger-Zeile verbucht.
+    if (isHostBootstrapMigration ? !migrationVersionWasApplied(sql, namespace, version) : !versionWasApplied) {
       recordMigration(sql, namespace, version, buildId);
     }
   }
