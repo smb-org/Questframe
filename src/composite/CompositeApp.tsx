@@ -1,4 +1,5 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ComponentProps, ComponentType, LazyExoticComponent } from "react";
 
 import type { ChannelState } from "../shared/contracts/state";
 import type { ChallengeUpdate } from "../shared/contracts/win-challenges";
@@ -17,6 +18,7 @@ import type { ChallengeStyleLoader } from "../challenges/style-loader";
 import { tokenFromLocation } from "../challenges/wire";
 import { useChallengePresentation } from "../challenges/useChallengePresentation";
 import type { BingoStyleLoader } from "../bingo/style-loader";
+import type { BingoSourceApp } from "../bingo/BingoSourceApp";
 import {
   fingerprintOverlayToken,
   loadOverlaySnapshot,
@@ -28,7 +30,53 @@ import { useOverlayMediaUrls } from "../overlay/useOverlayMediaUrls";
 import { discriminateCompositeMessage } from "./wire";
 import "./composite.css";
 
-const BingoSource = lazy(() => import("../bingo/BingoSourceApp").then(({ BingoSourceApp }) => ({ default: BingoSourceApp })));
+type BingoSourceModule = { default: ComponentType<NonNullable<ComponentProps<typeof BingoSourceApp>>> };
+type BingoSourceLoader = () => Promise<BingoSourceModule>;
+
+const loadBingoSource: BingoSourceLoader = () => import("../bingo/BingoSourceApp").then(({ BingoSourceApp: app }) => ({ default: app }));
+
+type BingoSourceBoundaryProps = {
+  loadSource: BingoSourceLoader;
+  loadStyle?: BingoStyleLoader;
+  onRetry: () => void;
+  reloadPage: () => void;
+};
+
+type BingoSourceBoundaryState = {
+  failed: boolean;
+  source: LazyExoticComponent<ComponentType<NonNullable<ComponentProps<typeof BingoSourceApp>>>>;
+};
+
+const BINGO_SOURCE_RETRY_DELAY_MS = 30_000;
+
+class BingoSourceErrorBoundary extends Component<BingoSourceBoundaryProps, BingoSourceBoundaryState> {
+  constructor(props: BingoSourceBoundaryProps) {
+    super(props);
+    this.state = { failed: false, source: lazy(props.loadSource) };
+  }
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  private retryTimer: number | null = null;
+
+  // Im Stream nichts anzeigen: OBS-Quellen sind nicht klickbar, also still neu versuchen.
+  // ponytail: festes Intervall ohne Obergrenze, Backoff erst wenn Chunk-Ausfälle real vorkommen.
+  override componentDidCatch(): void {
+    this.retryTimer = window.setTimeout(this.props.onRetry, BINGO_SOURCE_RETRY_DELAY_MS);
+  }
+
+  override componentWillUnmount(): void {
+    if (this.retryTimer !== null) window.clearTimeout(this.retryTimer);
+  }
+
+  override render() {
+    if (this.state.failed) return null;
+    const BingoSource = this.state.source;
+    return <Suspense fallback={null}><BingoSource {...(this.props.loadStyle === undefined ? {} : { loadStyle: this.props.loadStyle })} reloadPage={this.props.reloadPage} /></Suspense>;
+  }
+}
 
 const COMPOSITE_WATCHDOG_MARKER = "irl-stream-hud:composite-watchdog-reload-at";
 const COMPOSITE_WATCHDOG_DELAY_MS = 1_000;
@@ -52,12 +100,14 @@ const clearWatchdogTimer = (timerRef: { current: number | null }): void => {
 export type CompositeAppProps = {
   loadStyle?: ChallengeStyleLoader;
   loadBingoStyle?: BingoStyleLoader;
+  loadBingoSource?: BingoSourceLoader;
   reloadPage?: () => void;
 };
 
 export const CompositeApp = ({
   loadStyle = loadChallengeStyle,
   loadBingoStyle: loadBingoStyleProp,
+  loadBingoSource: loadBingoSourceProp,
   reloadPage = reloadWindow,
 }: CompositeAppProps = {}) => {
   const [hudState, setHudState] = useState<ChannelState | null>(null);
@@ -279,7 +329,7 @@ export const CompositeApp = ({
     ) : null;
   const bingoVisible = hudState?.compositeBingoVisible ?? false;
   const bingo = bingoVisible
-    ? <Suspense fallback={null}><BingoSource key={bingoSourceGeneration} {...(loadBingoStyleProp === undefined ? {} : { loadStyle: loadBingoStyleProp })} reloadPage={restartBingoSource} /></Suspense>
+    ? <BingoSourceErrorBoundary key={bingoSourceGeneration} loadSource={loadBingoSourceProp ?? loadBingoSource} {...(loadBingoStyleProp === undefined ? {} : { loadStyle: loadBingoStyleProp })} onRetry={restartBingoSource} reloadPage={restartBingoSource} />
     : null;
 
   if (hud === null && challenges === null && bingo === null) return null;

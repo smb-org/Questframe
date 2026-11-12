@@ -66,8 +66,21 @@ const sameDraft = (left: BingoCardDraft | null, right: BingoCardDraft, board: Bi
   && left.placement.y === right.placement.y
   && left.placement.scale === right.placement.scale;
 
-const cellsForSize = (cells: BingoCard["cells"], size: BingoCard["size"]): BingoCard["cells"] =>
-  Array.from({ length: size * size }, (_, index) => cells[index] ?? ({ id: `cell-${String(index)}`, text: `Feld ${String(index + 1)}` }));
+const cellsForSize = (cells: BingoCard["cells"], size: BingoCard["size"]): BingoCard["cells"] => {
+  const usedIds = new Set(cells.map(({ id }) => id));
+  return Array.from({ length: size * size }, (_, index) => {
+    const existing = cells[index];
+    if (existing !== undefined) return existing;
+    let candidate = index;
+    let id = `cell-${String(candidate)}`;
+    while (usedIds.has(id)) {
+      candidate += 1;
+      id = `cell-${String(candidate)}`;
+    }
+    usedIds.add(id);
+    return { id, text: `Feld ${String(index + 1)}` };
+  });
+};
 
 const updateFromBoard = (board: BingoBoardState): BingoUpdateMessage => ({ type: "bingo_update", board });
 
@@ -168,7 +181,11 @@ export const BingoAdminPanel = ({
     const current = errorValue.code === "revision_conflict" ? responseBoard(errorValue.currentSnapshot) : null;
     const baseCardRevision = draftBaseCardRevisionRef.current ?? boardRef.current?.cardRevision ?? current?.cardRevision ?? 0;
     if (current !== null && current.cardRevision > baseCardRevision) setConflicted(true);
-    if (current !== null) {
+    const latest = boardRef.current;
+    if (current !== null && (latest === null || (
+      current.cardRevision >= latest.cardRevision
+      && current.markRevision >= latest.markRevision
+    ))) {
       boardRef.current = current;
       setBoard(current);
     }
@@ -255,7 +272,7 @@ export const BingoAdminPanel = ({
 
   const changeStyle = async (style: BingoStyleId): Promise<void> => {
     const current = boardRef.current;
-    if (current === null || current.style === style || busy || !online || conflicted) return;
+    if (current === null || current.style === style || busy || !online || conflicted || dirty) return;
     setBusy(true);
     setError("");
     setMessage("");
@@ -445,7 +462,7 @@ export const BingoAdminPanel = ({
         {conflicted ? <>
           <span role="alert">{error || "Die Bingo-Karte wurde parallel geändert. Dein Entwurf bleibt erhalten."}</span>
           {board !== null && <button className="button button--quiet bingo-admin-message-action" onClick={takeServerCard} type="button">Aktuelle Karte übernehmen</button>}
-        </> : error !== "" ? <span role="alert">{error}</span> : message !== "" ? <span>{message}</span> : <span aria-hidden="true">&nbsp;</span>}
+        </> : error !== "" ? <span role="alert">{error}</span> : message !== "" ? <span>{message}</span> : dirty ? <span>Stil erst nach dem Speichern des Kartenentwurfs ändern.</span> : <span aria-hidden="true">&nbsp;</span>}
       </div>
 
       <section aria-labelledby="bingo-live-heading" className="bingo-admin-live-card">
@@ -477,7 +494,7 @@ export const BingoAdminPanel = ({
         <div className="bingo-admin-card-fields">
           <label><span>Kartentitel</span><input disabled={draft === null || busy || !online} maxLength={24} onChange={(event) => { if (draft !== null) changeDraft({ ...draft, title: event.currentTarget.value }); }} type="text" value={draft?.title ?? ""} /></label>
           <label><span>Kartengröße</span><select disabled={draft === null || busy || !online} onChange={(event) => { if (draft !== null) { const size = Number(event.currentTarget.value) as BingoCardDraft["size"]; changeDraft({ ...draft, size, cells: cellsForSize(draft.cells, size) }); } }} value={draft?.size ?? 3}>{[3, 4, 5].map((size) => <option key={size} value={size}>{size} × {size}</option>)}</select></label>
-          <label><span>Stil</span><select aria-label="Bingo-Stil" disabled={board === null || busy || !online || conflicted} onChange={(event) => void changeStyle(event.currentTarget.value as BingoStyleId)} value={board?.style ?? "marker"}><option value="marker">Marker</option><option value="broadcast">Broadcast</option></select></label>
+          <label><span>Stil</span><select aria-label="Bingo-Stil" disabled={board === null || busy || !online || conflicted || dirty} onChange={(event) => void changeStyle(event.currentTarget.value as BingoStyleId)} value={board?.style ?? "marker"}><option value="marker">Marker</option><option value="broadcast">Broadcast</option></select></label>
         </div>
 
         <div className="bingo-admin-set-tools">

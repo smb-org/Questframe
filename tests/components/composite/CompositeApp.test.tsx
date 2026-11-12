@@ -1,7 +1,9 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ComponentType } from "react";
 
 import { CompositeApp } from "../../../src/composite/CompositeApp";
+import type { BingoStyleLoader } from "../../../src/bingo/style-loader";
 import { createDefaultState } from "../../../src/shared/contracts/state";
 import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
 import { OVERLAY_SOCKET_PROTOCOL } from "../../../src/shared/contracts/protocol";
@@ -128,6 +130,34 @@ afterEach(() => {
 });
 
 describe("CompositeApp", () => {
+  it("hält HUD und Challenges bei einem Bingo-Chunkfehler am Leben und lädt Bingo still erneut", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const recoveredBingo: ComponentType<{ loadStyle?: BingoStyleLoader; reloadPage?: () => void }> = () => <div>Wiederhergestelltes Bingo</div>;
+    const loadBingoSource = vi.fn<() => Promise<{ default: typeof recoveredBingo }>>()
+      .mockRejectedValueOnce(new Error("Chunk nicht verfügbar"))
+      .mockResolvedValue({ default: recoveredBingo });
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
+    render(<CompositeApp loadBingoSource={loadBingoSource} loadStyle={() => Promise.resolve()} />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    await deliver(FakeWebSocket.instances[0] as FakeWebSocket, {
+      type: "snapshot",
+      state: { ...state, compositeHudVisible: true, compositeBingoVisible: true, compositeChallengesVisible: false },
+    });
+
+    // Kein sichtbarer Fehler im Stream, nur ein stiller Neuversuch nach 30 Sekunden.
+    await waitFor(() => expect(setTimeoutSpy.mock.calls.some(([, delay]) => delay === 30_000)).toBe(true));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(document.querySelector(".hud-stage")).not.toBeNull();
+    const retry = setTimeoutSpy.mock.calls.find(([, delay]) => delay === 30_000)?.[0] as () => void;
+    act(() => retry());
+
+    expect(await screen.findByText("Wiederhergestelltes Bingo")).toBeInTheDocument();
+    expect(document.querySelector(".hud-stage")).not.toBeNull();
+    expect(loadBingoSource).toHaveBeenCalledTimes(2);
+    consoleError.mockRestore();
+  });
+
   it("rendert Bingo unabhängig vom Challenges-Schalter an der eigenen Raster-Position", async () => {
     render(<CompositeApp loadBingoStyle={() => Promise.resolve()} loadStyle={() => Promise.resolve()} />);
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));

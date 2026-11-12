@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -6,6 +6,7 @@ import { BingoAdminPanel, type BingoAdminApi } from "../../../src/modules/bingo/
 import type {
   BingoBoardState,
   BingoCardSaveRequest,
+  BingoMutationResponse,
   BingoSetResponse,
   BingoStyleId,
   BingoUndoResponse,
@@ -82,6 +83,85 @@ afterEach(() => {
 });
 
 describe("Bingo-Regie und Editor", () => {
+  it("blockiert Stilwechsel bei einem ungespeicherten Kartenentwurf und erklärt den Grund im Nachrichtenfeld", async () => {
+    const user = userEvent.setup();
+    const api = createApi();
+    renderPanel(api);
+
+    await screen.findByRole("grid", { name: "Testkarte" });
+    await user.clear(screen.getByRole("textbox", { name: "Kartentitel" }));
+    await user.type(screen.getByRole("textbox", { name: "Kartentitel" }), "Mein Entwurf");
+
+    expect(screen.getByRole("combobox", { name: "Bingo-Stil" })).toBeDisabled();
+    expect(document.querySelector(".bingo-admin-message-slot")).toHaveTextContent("Stil erst nach dem Speichern des Kartenentwurfs ändern.");
+    expect(screen.getByRole("textbox", { name: "Kartentitel" })).toHaveValue("Mein Entwurf");
+    expect(api.setBingoStyle).not.toHaveBeenCalled();
+  });
+
+  it("überschreibt einen neueren Socket-Stand nicht mit einem verspäteten älteren Konflikt-Snapshot", async () => {
+    const user = userEvent.setup();
+    let rejectMark: ((reason: unknown) => void) | undefined;
+    const markBingoCell = vi.fn(() => new Promise<BingoMutationResponse>((_resolve, reject) => { rejectMark = reject; }));
+    const api = createApi({ markBingoCell });
+    const props = {
+      api,
+      canUndo: true,
+      initialUndoTargets: [],
+      onBoardUpdate: vi.fn(),
+      onUndoTargetsChange: vi.fn(),
+      online: true,
+    };
+    const { rerender } = render(<BingoAdminPanel {...props} update={null} />);
+    await screen.findByRole("grid", { name: "Testkarte" });
+    await user.click(screen.getByRole("gridcell", { name: "Ereignis 0" }));
+
+    const newerBoard = { ...createBoard(), marks: ["cell-8"], markRevision: 6 };
+    rerender(<BingoAdminPanel {...props} update={update(newerBoard)} />);
+    expect(await screen.findByRole("gridcell", { name: "Ereignis 8, angekreuzt" })).toHaveAttribute("data-marked", "true");
+    const conflict = Object.assign(new Error("Bingo wurde parallel geändert."), {
+      code: "revision_conflict",
+      currentSnapshot: { ...createBoard(), marks: ["cell-0"], markRevision: 5 },
+    });
+    await act(async () => {
+      rejectMark?.(conflict);
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("gridcell", { name: "Ereignis 8, angekreuzt" })).toHaveAttribute("data-marked", "true");
+    expect(screen.getByRole("alert")).toHaveTextContent("Bingo wurde parallel geändert.");
+  });
+
+  it("ergänzt eine importierte Karte beim Vergrößern nur um bisher unbenutzte Feld-IDs", async () => {
+    const user = userEvent.setup();
+    const importedBoard = {
+      ...createBoard(),
+      card: {
+        ...createBoard().card,
+        cells: Array.from({ length: 9 }, (_, index) => ({
+          id: index === 0 ? "cell-9" : `cell-${String(index)}`,
+          text: `Importfeld ${String(index + 1)}`,
+        })),
+      },
+    };
+    const api = createApi({ importBingoCard: vi.fn(() => Promise.resolve(mutation(importedBoard))) });
+    renderPanel(api);
+    await screen.findByRole("grid", { name: "Testkarte" });
+    const fileText = JSON.stringify({ format: "questframe-bingo", version: 1, card: importedBoard.card });
+    const file = new File([fileText], "karte.json", { type: "application/json" });
+    Object.defineProperty(file, "text", { value: () => Promise.resolve(fileText) });
+    await user.upload(screen.getByLabelText("Bingo-Karte importieren"), file);
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Kartengröße" }), "4");
+    await user.click(screen.getByRole("button", { name: "Karte speichern" }));
+
+    await waitFor(() => expect(api.saveBingoCard).toHaveBeenCalledOnce());
+    const savedCells = vi.mocked(api.saveBingoCard).mock.calls[0]?.[0].cells;
+    expect(savedCells).toHaveLength(16);
+    expect(new Set(savedCells?.map(({ id }) => id)).size).toBe(16);
+    expect(savedCells?.[0]?.id).toBe("cell-9");
+    expect(api.importBingoCard).toHaveBeenCalledOnce();
+  });
+
   it("sendet beim Anklicken den Zielzustand und die aktuelle Markierungsrevision", async () => {
     const user = userEvent.setup();
     const api = createApi();

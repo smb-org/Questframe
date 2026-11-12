@@ -6,8 +6,12 @@ import type { BootstrapResponse, SaveResponse } from "../../../src/shared/contra
 import type { ChallengeBoardSnapshot } from "../../../src/modules/win-challenges/contracts/schemas";
 import { createDefaultState, getReleaseCapabilities, twitchUserIdSchema } from "../../../src/shared/contracts/state";
 import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
+import type { BingoUpdateMessage } from "../../../src/modules/bingo/contracts/schemas";
+import { loadBingoStyle } from "../../../src/bingo/style-loader";
 import { AdminWorkspace, type AdminApi } from "../../../src/admin/AdminWorkspace";
 import { PreviewPanel } from "../../../src/admin/ui/PreviewPanel";
+
+vi.mock("../../../src/bingo/style-loader", () => ({ loadBingoStyle: vi.fn(() => Promise.resolve()) }));
 
 const actor = { twitchUserId: twitchUserIdSchema.parse("123"), displayName: "Moderator" };
 
@@ -52,7 +56,7 @@ const mockCanvasRect = (canvas: Element, width: number, height: number): void =>
   vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: width, bottom: height, width, height, toJSON: () => ({}) });
 };
 
-afterEach(() => cleanup());
+afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 // Beide Tabpanels bleiben dauerhaft gemountet; HUD- und Challenge-Rail haben eigene
 // gleichnamige Placement-Felder (X/Y/Skalierung). Gezielt im sichtbaren Panel suchen.
@@ -60,6 +64,39 @@ const challengesPanel = () => within(document.querySelector("#admin-composition-
 const hudPanel = () => within(document.querySelector("#admin-composition-panel-hud") as HTMLElement);
 
 describe("Kompositions-Workspace", () => {
+  it("lädt den Bingo-Stil für die HUD-Vorschau unabhängig vom geöffneten Bingo-Editor", async () => {
+    let onBingoUpdate: ((update: BingoUpdateMessage) => void) | undefined;
+    let resolveStyle: (() => void) | undefined;
+    const styleLoad = new Promise<void>((resolve) => { resolveStyle = resolve; });
+    vi.mocked(loadBingoStyle).mockImplementation(() => styleLoad);
+    const api: AdminApi = {
+      save: vi.fn(),
+      setVisibility: vi.fn(),
+      subscribe: (callbacks) => {
+        onBingoUpdate = callbacks.onBingoUpdate;
+        return () => undefined;
+      },
+    };
+    const { container } = render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="hud" />);
+    const bingoUpdate: BingoUpdateMessage = {
+      type: "bingo_update",
+      board: {
+        card: { title: "Vorschau-Karte", size: 3, cells: Array.from({ length: 9 }, (_, index) => ({ id: `cell-${String(index)}`, text: `Feld ${String(index + 1)}` })) },
+        marks: [], cardRevision: 1, markRevision: 0, generation: 0, style: "marker", placement: { x: 8, y: 4, scale: 1 },
+      },
+    };
+    act(() => onBingoUpdate?.(bingoUpdate));
+
+    await waitFor(() => expect(loadBingoStyle).toHaveBeenCalledWith("marker"));
+    expect(container.querySelector(".admin-bingo-live-preview")).toBeNull();
+    await act(async () => {
+      resolveStyle?.();
+      await styleLoad;
+    });
+
+    expect(container.querySelector(".admin-bingo-live-preview")).toHaveAttribute("data-style", "marker");
+  });
+
   it("markiert den HUD-Wrapper auch ohne Interaktions-Prop als gedämpft", () => {
     const { container } = render(<PreviewPanel hudMuted mediaUrls={new Map<string, string>()} state={bootstrap().state} />);
 
