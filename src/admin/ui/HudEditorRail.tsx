@@ -460,12 +460,14 @@ export const useHudEditorState = ({
   api,
   onChallengeUpdate,
   onChallengeUndoTargets,
+  onBingoUndoTargets,
   onTimeOffset,
 }: {
   initialBootstrap: BootstrapResponse;
   api: AdminApi;
   onChallengeUpdate?: (update: ChallengeUpdate) => void;
   onChallengeUndoTargets?: (targets: UndoTarget[]) => void;
+  onBingoUndoTargets?: (targets: UndoTarget[]) => void;
   onTimeOffset?: (offsetMs: number) => void;
 }): HudEditorState => {
   const [committed, setCommitted] = useState(initialBootstrap.state);
@@ -540,13 +542,38 @@ export const useHudEditorState = ({
       },
       onOnlineChange: setOnline,
       onOverlayPresence: (connectedSockets) => setOverlayToken((current) => ({ ...current, connectedSockets })),
-      onAudit: (entry, moduleId, targets) => { addAuditEntry(entry); if (moduleId === "hud") applyUndoTargets(targets, entry.revision); },
-      onUndoTargets: (moduleId, targets) => { if (moduleId === "hud") setUndoTargets(targets.filter((target) => target.moduleId === "hud")); else onChallengeUndoTargets?.(targets); },
+      onAudit: (entry, moduleId, targets) => {
+        addAuditEntry(entry);
+        switch (moduleId) {
+          case "hud":
+            applyUndoTargets(targets, entry.revision);
+            break;
+          case "challenges":
+            onChallengeUndoTargets?.(targets);
+            break;
+          case "bingo":
+            onBingoUndoTargets?.(targets);
+            break;
+        }
+      },
+      onUndoTargets: (moduleId, targets) => {
+        switch (moduleId) {
+          case "hud":
+            setUndoTargets(targets.filter((target) => target.moduleId === "hud"));
+            break;
+          case "challenges":
+            onChallengeUndoTargets?.(targets);
+            break;
+          case "bingo":
+            onBingoUndoTargets?.(targets);
+            break;
+        }
+      },
     };
     if (onChallengeUpdate !== undefined) callbacks.onChallengeUpdate = onChallengeUpdate;
     if (onTimeOffset !== undefined) callbacks.onTimeOffset = onTimeOffset;
     return api.subscribe(callbacks);
-  }, [addAuditEntry, api, applyUndoTargets, onChallengeUndoTargets, onChallengeUpdate, onTimeOffset]);
+  }, [addAuditEntry, api, applyUndoTargets, onBingoUndoTargets, onChallengeUndoTargets, onChallengeUpdate, onTimeOffset]);
 
   const pendingLeaseHashes = useMemo(() => {
     const committedHashes = new Set(uploadedHashes(committed));

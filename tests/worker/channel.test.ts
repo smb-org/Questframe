@@ -114,6 +114,7 @@ describe("channel worker", () => {
     const legacy = JSON.parse(current.state_json) as Record<string, unknown>;
     delete legacy.compositeHudVisible;
     delete legacy.compositeChallengesVisible;
+    delete legacy.compositeBingoVisible;
     await runInDurableObject(stub, (_instance, state) => {
       state.storage.sql.exec("UPDATE channel_state SET state_json = ? WHERE singleton = 1", JSON.stringify(legacy));
     });
@@ -122,7 +123,7 @@ describe("channel worker", () => {
         headers: { cookie, "x-editor-tab": "test-tab-a" },
       });
       const body = bootstrapResponseSchema.parse(await response.json());
-      expect(body.state).toMatchObject({ compositeHudVisible: true, compositeChallengesVisible: true });
+      expect(body.state).toMatchObject({ compositeHudVisible: true, compositeChallengesVisible: true, compositeBingoVisible: false });
       csrfToken = body.csrfToken;
       bootstrapRevision = body.state.revision;
     } finally {
@@ -223,6 +224,7 @@ describe("channel worker", () => {
           ...draft,
           compositeHudVisible: false,
           compositeChallengesVisible: false,
+          compositeBingoVisible: true,
           player: { ...draft.player, hpPercent: 49, resource: { ...draft.player.resource, percent: 77 } },
         },
       }),
@@ -235,9 +237,11 @@ describe("channel worker", () => {
       player: { hpPercent: 49, resource: { percent: 77 } },
       compositeHudVisible: false,
       compositeChallengesVisible: false,
+      compositeBingoVisible: true,
     });
     expect(committed.auditEntry.summary).toContain("HUD im Sammel-Overlay: Aus");
     expect(committed.auditEntry.summary).toContain("Challenges im Sammel-Overlay: Aus");
+    expect(committed.auditEntry.summary).toContain("Bingo im Sammel-Overlay: An");
 
     const stale = await fetchWorker("http://localhost/api/state", {
       method: "PUT",
@@ -480,6 +484,7 @@ describe("channel worker", () => {
           ...draft,
           compositeHudVisible: false,
           compositeChallengesVisible: false,
+          compositeBingoVisible: true,
         },
       }),
     });
@@ -488,6 +493,7 @@ describe("channel worker", () => {
     expect(committed.state).toMatchObject({
       compositeHudVisible: false,
       compositeChallengesVisible: false,
+      compositeBingoVisible: true,
     });
 
     const history = await runInDurableObject(stub, (_instance, state) =>
@@ -500,6 +506,7 @@ describe("channel worker", () => {
     const legacy = JSON.parse(history.snapshot_json) as Record<string, unknown>;
     delete legacy.compositeHudVisible;
     delete legacy.compositeChallengesVisible;
+    delete legacy.compositeBingoVisible;
     await runInDurableObject(stub, (_instance, state) => {
       state.storage.sql.exec(
         "UPDATE state_history SET snapshot_json = ? WHERE revision = ?",
@@ -519,6 +526,7 @@ describe("channel worker", () => {
       expect(restored.state).toMatchObject({
         compositeHudVisible: false,
         compositeChallengesVisible: false,
+        compositeBingoVisible: true,
       });
       bootstrapRevision = restored.state.revision;
     } finally {

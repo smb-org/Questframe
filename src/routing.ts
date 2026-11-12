@@ -1,6 +1,6 @@
-export type Surface = "overlay" | "challenges" | "composite" | "live" | "admin";
+export type Surface = "overlay" | "challenges" | "bingo" | "composite" | "live" | "admin";
 
-export type RouteApp = "overlay" | "challenges" | "composite" | "live" | "login" | "admin";
+export type RouteApp = "overlay" | "challenges" | "bingo" | "composite" | "live" | "login" | "admin";
 
 export type AdminWorkspace = "hud" | "challenges";
 
@@ -21,6 +21,7 @@ const ROUTES = [
   { path: "/overlay/all", surface: "composite", app: "composite", workspace: "hud" },
   // Die Challenge-Quelle muss vor /overlay stehen, sonst würde ihr Pfad im HUD landen.
   { path: "/overlay/challenges", surface: "challenges", app: "challenges", workspace: "hud" },
+  { path: "/overlay/bingo", surface: "bingo", app: "bingo", workspace: "hud" },
   { path: "/overlay", surface: "overlay", app: "overlay", workspace: "hud" },
   { path: "/live/challenges", surface: "live", app: "live", workspace: "hud" },
   { path: "/login", surface: "admin", app: "login", workspace: "hud" },

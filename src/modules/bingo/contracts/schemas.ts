@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { undoTargetSchema } from "../../../shared/contracts/api";
 
 import {
   isChallengeSetName,
@@ -125,6 +126,47 @@ export const bingoCardSaveRequestSchema = bingoCardFieldsSchema.extend({
   validateCardCells(value, context);
 });
 
+export const bingoImportRequestSchema = z.strictObject({
+  file: z.string().max(16_384),
+  expectedCardRevision: nonNegativeIntegerSchema,
+});
+
+export const bingoStyleRequestSchema = z.strictObject({
+  style: bingoStyleIdSchema,
+});
+
+export const bingoSetSaveRequestSchema = z.strictObject({
+  name: z.string().min(1).max(MAX_BINGO_TITLE_LENGTH),
+});
+
+export const bingoSetLoadRequestSchema = z.strictObject({
+  expectedCardRevision: nonNegativeIntegerSchema,
+});
+
+export const bingoSetSummarySchema = z.strictObject({
+  id: z.string().min(1).max(64),
+  type: z.enum(["template", "user"]),
+  name: z.string().min(1).max(MAX_BINGO_TITLE_LENGTH),
+  sortOrder: z.number().int().min(0),
+  createdAt: z.iso.datetime({ offset: true }),
+  updatedAt: z.iso.datetime({ offset: true }),
+});
+
+export const bingoSetListResponseSchema = z.strictObject({
+  sets: z.array(bingoSetSummarySchema).max(64),
+});
+
+export const bingoSetResponseSchema = z.strictObject({
+  summary: bingoSetSummarySchema,
+  card: bingoCardSchema,
+});
+
+export const bingoSetDeleteResponseSchema = z.strictObject({
+  id: z.string().min(1).max(64),
+  deleted: z.literal(true),
+});
+
+
 export const bingoBoardStateSchema = z.strictObject({
   card: bingoCardSchema,
   marks: z.array(bingoCellIdSchema),
@@ -164,6 +206,12 @@ export const bingoUpdateMessageSchema = z.strictObject({
   }).optional(),
 });
 
+export const bingoUndoResponseSchema = z.strictObject({
+  board: bingoBoardStateSchema,
+  undoTargets: z.array(undoTargetSchema).max(20),
+  serverTime: z.iso.datetime({ offset: true }),
+});
+
 export type BingoCell = z.infer<typeof bingoCellSchema>;
 export type BingoCard = z.infer<typeof bingoCardSchema>;
 export type BingoLine = z.infer<typeof bingoLineSchema>;
@@ -171,4 +219,6 @@ export type BingoBoardState = z.infer<typeof bingoBoardStateSchema>;
 export type MarkCellPayload = z.infer<typeof markCellPayloadSchema>;
 export type ResetMarksPayload = z.infer<typeof resetMarksPayloadSchema>;
 export type BingoCardSaveRequest = z.infer<typeof bingoCardSaveRequestSchema>;
+export type BingoSetSummary = z.infer<typeof bingoSetSummarySchema>;
 export type BingoUpdateMessage = z.infer<typeof bingoUpdateMessageSchema>;
+export type BingoUndoResponse = z.infer<typeof bingoUndoResponseSchema>;

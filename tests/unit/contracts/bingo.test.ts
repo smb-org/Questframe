@@ -4,6 +4,11 @@ import {
   bingoBoardStateSchema,
   bingoCardSchema,
   bingoCardSaveRequestSchema,
+  bingoImportRequestSchema,
+  bingoSetLoadRequestSchema,
+  bingoSetSaveRequestSchema,
+  bingoSetSummarySchema,
+  bingoStyleRequestSchema,
   bingoUpdateMessageSchema,
   markCellPayloadSchema,
   resetMarksPayloadSchema,
@@ -107,6 +112,24 @@ describe("Bingo-Verträge", () => {
     expect(resetMarksPayloadSchema.safeParse({ expectedMarkRevision: 4, marks: [] }).success).toBe(false);
     expect(bingoCardSaveRequestSchema.safeParse({ ...card(), expectedCardRevision: 0 }).success).toBe(true);
     expect(bingoCardSaveRequestSchema.safeParse({ ...card(), expectedCardRevision: 0, marks: [] }).success).toBe(false);
+  });
+
+  it("validiert Bingo-Import, Stil- und Set-Routen strikt", () => {
+    expect(bingoImportRequestSchema.safeParse({ file: "{}", expectedCardRevision: 0 }).success).toBe(true);
+    expect(bingoImportRequestSchema.safeParse({ file: "{}", expectedCardRevision: -1 }).success).toBe(false);
+    expect(bingoStyleRequestSchema.safeParse({ style: "broadcast" }).success).toBe(true);
+    expect(bingoStyleRequestSchema.safeParse({ style: "future" }).success).toBe(false);
+    expect(bingoSetSaveRequestSchema.safeParse({ name: "Vorlage" }).success).toBe(true);
+    expect(bingoSetSaveRequestSchema.safeParse({ name: "" }).success).toBe(false);
+    expect(bingoSetLoadRequestSchema.safeParse({ expectedCardRevision: 0 }).success).toBe(true);
+    expect(bingoSetSummarySchema.safeParse({
+      id: "set-id",
+      type: "user",
+      name: "Vorlage",
+      sortOrder: 0,
+      createdAt: "2026-11-12T12:00:00.000Z",
+      updatedAt: "2026-11-12T12:00:00.000Z",
+    }).success).toBe(true);
   });
 
   it("validiert die bingo_update-Nachricht samt optionaler Zeremonie", () => {

@@ -139,16 +139,17 @@ export class BingoService {
         marks,
         markRevision: before.markRevision + 1,
       });
-      const ceremony = newlyCompleted(
+      const completed = newlyCompleted(
         before.marks,
         after.marks,
         before.card.cells.map(({ id }) => id),
         before.card.size,
       );
+      const ceremony = completed.lines.length > 0 || completed.fullCard ? completed : null;
       const summary = input.data.marked ? "Bingo-Feld markiert" : "Bingo-Feld abgewählt";
       const now = this.clock();
       const auditEntry = recordBoardMutation(transaction, before, after, this.actor, summary, now);
-      return { board: after, update: createUpdate(after, ceremony), ceremony, auditEntry };
+      return { board: after, update: createUpdate(after, ceremony ?? undefined), ceremony, auditEntry };
     });
   }
 
@@ -234,6 +235,42 @@ export class BingoService {
         after,
         this.actor,
         `Bingo-Set „${set.summary.name}“ geladen`,
+        now,
+      );
+      return { board: after, update: createUpdate(after), ceremony: null, auditEntry };
+    });
+  }
+
+  public importCard(card: {
+    title: string;
+    size: number;
+    cells: BingoBoardState["card"]["cells"];
+  }, expectedCardRevision: number): BingoCommandResult {
+    const parsed = bingoCardSaveRequestSchema.safeParse({ ...card, expectedCardRevision });
+    if (!parsed.success) return serializeFailure("Ungültige Bingo-Karte.");
+
+    return this.repository.transaction((transaction) => {
+      const before = transaction.readBoard();
+      requireBoardRevision(before, parsed.data.expectedCardRevision, "card");
+      const after = bingoBoardStateSchema.parse({
+        ...before,
+        card: {
+          title: parsed.data.title,
+          size: parsed.data.size,
+          cells: parsed.data.cells,
+        },
+        marks: [],
+        cardRevision: before.cardRevision + 1,
+        markRevision: before.markRevision + 1,
+        generation: before.generation + 1,
+      });
+      const now = this.clock();
+      const auditEntry = recordBoardMutation(
+        transaction,
+        before,
+        after,
+        this.actor,
+        "Bingo-Karte importiert",
         now,
       );
       return { board: after, update: createUpdate(after), ceremony: null, auditEntry };

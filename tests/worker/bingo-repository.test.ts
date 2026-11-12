@@ -72,8 +72,8 @@ describe("Bingo migration", () => {
       const firstSets = sql.exec<{ id: string; name: string; payload: string }>(
         "SELECT id, name, payload FROM bg_sets ORDER BY sort_order",
       ).toArray();
-      const firstBoard = sql.exec<{ title: string; marks_json: string; card_revision: number; mark_revision: number; generation: number }>(
-        "SELECT title, marks_json, card_revision, mark_revision, generation FROM bg_board WHERE singleton = 1",
+      const firstBoard = sql.exec<{ title: string; marks_json: string; card_revision: number; mark_revision: number; generation: number; placement_x: number; placement_y: number }>(
+        "SELECT title, marks_json, card_revision, mark_revision, generation, placement_x, placement_y FROM bg_board WHERE singleton = 1",
       ).toArray()[0];
 
       runMigrations(sql, "bingo-second-run");
@@ -81,8 +81,8 @@ describe("Bingo migration", () => {
         "SELECT id, name, payload FROM bg_sets ORDER BY sort_order",
       ).toArray();
       const secondCount = sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM bg_sets").toArray()[0]?.count;
-      const secondBoard = sql.exec<{ title: string; marks_json: string; card_revision: number; mark_revision: number; generation: number }>(
-        "SELECT title, marks_json, card_revision, mark_revision, generation FROM bg_board WHERE singleton = 1",
+      const secondBoard = sql.exec<{ title: string; marks_json: string; card_revision: number; mark_revision: number; generation: number; placement_x: number; placement_y: number }>(
+        "SELECT title, marks_json, card_revision, mark_revision, generation, placement_x, placement_y FROM bg_board WHERE singleton = 1",
       ).toArray()[0];
       sql.exec("DELETE FROM bg_sets WHERE id = ?", firstSets[0]?.id ?? "");
       runMigrations(sql, "bingo-after-delete");
@@ -112,7 +112,7 @@ describe("Bingo migration", () => {
         && "cells" in parsed && Array.isArray(parsed.cells) && parsed.cells.length === 16;
     });
     expect(templatePayloadsValid).toBe(true);
-    expect(result.firstBoard).toMatchObject({ title: "Sterben und Spielen", marks_json: '["g01"]', card_revision: 0, mark_revision: 0, generation: 0 });
+    expect(result.firstBoard).toMatchObject({ title: "Sterben und Spielen", marks_json: '["g01"]', card_revision: 0, mark_revision: 0, generation: 0, placement_x: 8, placement_y: 120 });
     expect(result.secondCount).toBe(4);
     expect(result.secondSets).toStrictEqual(result.firstSets);
     expect(result.secondBoard).toStrictEqual(result.firstBoard);
@@ -128,6 +128,8 @@ describe("Bingo repository and service", () => {
       const service = serviceFor(repository);
       let board = service.readBoard();
       let result = service.markCell("g01", true, board.markRevision);
+      expect(result.ceremony).toBeNull();
+      expect(result.update?.ceremony).toBeUndefined();
       board = result.board;
       result = service.markCell("g06", true, board.markRevision);
       board = result.board;
@@ -261,6 +263,28 @@ describe("Bingo repository and service", () => {
       expect(loaded.board.marks).toEqual([]);
       expect(loaded.board.generation).toBe(changed.board.generation + 1);
       expect(loaded.update?.ceremony).toBeUndefined();
+    });
+  });
+
+  it("imports a portable card as a replacement with cleared marks and a new generation", async () => {
+    await inRepository((repository) => {
+      const service = serviceFor(repository);
+      const before = service.readBoard();
+      const marked = service.markCell("g01", true, before.markRevision);
+      const card = {
+        title: "Importiert",
+        size: 3 as const,
+        cells: Array.from({ length: 9 }, (_, index) => ({ id: `import-${String(index)}`, text: `Feld ${String(index)}` })),
+      };
+      const imported = service.importCard(card, marked.board.cardRevision);
+
+      expect(imported.board.card).toEqual(card);
+      expect(imported.board.marks).toEqual([]);
+      expect(imported.board.generation).toBe(marked.board.generation + 1);
+      expect(imported.board.cardRevision).toBe(marked.board.cardRevision + 1);
+      expect(imported.board.markRevision).toBe(marked.board.markRevision + 1);
+      expect(imported.ceremony).toBeNull();
+      expect(imported.update?.ceremony).toBeUndefined();
     });
   });
 

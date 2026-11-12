@@ -12,6 +12,7 @@ import { readSchemaSnapshot, withHistoricalDatabase } from "./migrations-harness
 
 import CHANNEL_OBJECT_SOURCE from "../../src/channel/channel-object.ts?raw";
 import CHALLENGE_FACADE_SOURCE from "../../src/modules/win-challenges/adapters/http-facade.ts?raw";
+import BINGO_FACADE_SOURCE from "../../src/modules/bingo/adapters/http-facade.ts?raw";
 import HUD_FACADE_SOURCE from "../../src/modules/hud/http-facade.ts?raw";
 import WIRE_CONTRACT_SOURCE from "../../src/shared/contracts/win-challenges.ts?raw";
 import SCHEMAS_SOURCE from "../../src/modules/win-challenges/contracts/schemas.ts?raw";
@@ -43,9 +44,6 @@ const HOST_TABLES: readonly string[] = [
   "state_history",
   "audit_log",
 ];
-
-// Die Bingo-Persistenz landet in Schritt 3; der Registry-Eintrag folgt in Schritt 4.
-const BINGO_TABLES_AWAITING_REGISTRY: readonly string[] = ["bg_board", "bg_sets"];
 
 /**
  * DO-Routen, die die Host-Plattform behandelt: Authentifizierung, Bootstrap,
@@ -93,7 +91,7 @@ const labelsOf = (declarations: readonly BuildBudgetDeclaration[]): readonly str
   declarations.flatMap((declaration) => (declaration.label === undefined ? [] : [declaration.label]));
 
 const REAL_BUDGET_DECLARATION_LABELS: ReadonlySet<string> = new Set(
-  labelsOf(createBudgetDeclarations("temporal-entry", ["style-entry"], "qr-entry")),
+  labelsOf(createBudgetDeclarations("temporal-entry", ["style-entry"], "qr-entry", "bingo-entry")),
 );
 const REAL_BUDGET_KEYS: ReadonlySet<string> = new Set([
   ...REAL_BUDGET_DECLARATION_LABELS,
@@ -176,6 +174,7 @@ const CHANNEL_FETCH_SOURCE = CHANNEL_OBJECT_SOURCE.slice(fetchStart, fetchEnd);
 const REAL_DO_ROUTE_PATHS = [
   ...sourceValues(CHANNEL_FETCH_SOURCE, /url\.pathname\s*===\s*"([^"]+)"/gu),
   ...sourceValues(CHALLENGE_FACADE_SOURCE, /(?:url\.)?pathname\s*===\s*"([^"]+)"/gu),
+  ...sourceValues(BINGO_FACADE_SOURCE, /(?:url\.)?pathname\s*===\s*"([^"]+)"/gu),
   ...sourceValues(HUD_FACADE_SOURCE, /(?:url\.)?pathname\s*===\s*"([^"]+)"/gu),
 ];
 const REAL_SOCKET_PATHS = REAL_DO_ROUTE_PATHS.filter((path) => path.startsWith("/ws/"));
@@ -413,6 +412,17 @@ describe("Modul-Registry-Selbsttest", () => {
     expect(typeof challenges.history.restore).toBe("function");
   });
 
+  it("registriert Bingo mit Handler, Historie und den eigenen Tabellen", () => {
+    const bingo = MODULE_REGISTRY.find((module) => module.id === "bingo");
+    expect(bingo).toMatchObject({
+      routePrefixes: ["/bingo"],
+      tables: { kind: "prefix", prefix: "bg_" },
+      budgetKeys: ["Bingo-Quelle"],
+    });
+    expect(bingo?.handle).toEqual(expect.any(Function));
+    expect(bingo?.history).toBeDefined();
+  });
+
   it("hat keinen separaten HUD-Historienpfad in der Host-Historie", () => {
     expect(CHANNEL_OBJECT_SOURCE).not.toContain("if (moduleId === HUD_MODULE_ID)");
     expect(CHANNEL_OBJECT_SOURCE).not.toContain("../modules/hud/");
@@ -578,7 +588,7 @@ describe("Modul-Registry-Selbsttest", () => {
         `Tabelle "${tableName}" steht auf der Host-Liste und gehört gleichzeitig Modul "${String(moduleOwners[0])}".`,
       ).toBe(true);
       expect(
-        isHost || moduleOwners.length === 1 || BINGO_TABLES_AWAITING_REGISTRY.includes(tableName),
+        isHost || moduleOwners.length === 1,
         `Tabelle "${tableName}" gehört keinem Modul und steht nicht auf der Host-Liste (herrenlos).`,
       ).toBe(true);
     }

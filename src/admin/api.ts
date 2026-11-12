@@ -10,12 +10,14 @@ import {
   twitchLookupResponseSchema,
   uploadResponseSchema,
   visibilityResponseSchema,
+  type BingoUndoBaseRevisions,
   type ChallengeUndoBaseRevisions,
   type UndoModuleId,
   type BootstrapResponse,
   type SaveRequest,
   type SaveResponse,
 } from "../shared/contracts/api";
+import { bingoUndoResponseSchema, type BingoUndoResponse } from "../modules/bingo/contracts/schemas";
 import {
   boardSaveRequestSchema,
   boardSaveResponseSchema,
@@ -73,6 +75,7 @@ export class AdminApiError extends Error {
 type BrowserAdminUndo = {
   (moduleId: "hud", channelSeq: number, baseRevision: number): Promise<SaveResponse>;
   (moduleId: "challenges", channelSeq: number, baseRevision: ChallengeUndoBaseRevisions): Promise<ChallengeUndoResponse>;
+  (moduleId: "bingo", channelSeq: number, baseRevision: BingoUndoBaseRevisions): Promise<BingoUndoResponse>;
 };
 
 type BrowserAdminRequestJson = (path: string, method: string, value: unknown) => Promise<Response>;
@@ -80,21 +83,42 @@ type BrowserAdminRequestJson = (path: string, method: string, value: unknown) =>
 const createBrowserAdminUndo = (requestJson: BrowserAdminRequestJson): BrowserAdminUndo => {
   async function undo(moduleId: "hud", channelSeq: number, baseRevision: number): Promise<SaveResponse>;
   async function undo(moduleId: "challenges", channelSeq: number, baseRevision: ChallengeUndoBaseRevisions): Promise<ChallengeUndoResponse>;
-  async function undo(moduleId: UndoModuleId, channelSeq: number, baseRevision: number | ChallengeUndoBaseRevisions) {
+  async function undo(moduleId: "bingo", channelSeq: number, baseRevision: BingoUndoBaseRevisions): Promise<BingoUndoResponse>;
+  async function undo(
+    moduleId: UndoModuleId,
+    channelSeq: number,
+    baseRevision: number | ChallengeUndoBaseRevisions | BingoUndoBaseRevisions,
+  ) {
     if (moduleId === "hud") {
       if (typeof baseRevision !== "number") throw new Error("HUD-Undo benötigt eine HUD-Revision.");
       const response = await requestJson("/api/state/undo", "POST", { moduleId, channelSeq, baseRevision });
       return saveResponseSchema.parse(await response.json());
     }
-    if (typeof baseRevision === "number") throw new Error("Challenge-Undo benötigt drei Konfliktrevisionen.");
+    if (moduleId === "challenges") {
+      if (typeof baseRevision === "number" || "cardRevision" in baseRevision) {
+        throw new Error("Challenge-Undo benötigt drei Konfliktrevisionen.");
+      }
+      const response = await requestJson("/api/state/undo", "POST", {
+        moduleId,
+        channelSeq,
+        baseBoardRevision: baseRevision.boardRevision,
+        baseSettingsRevision: baseRevision.settingsRevision,
+        baseEventSeq: baseRevision.eventSeq,
+      });
+      return challengeUndoResponseSchema.parse(await response.json());
+    }
+    if (typeof baseRevision === "number" || "boardRevision" in baseRevision) {
+      throw new Error("Bingo-Undo benötigt die Bingo-Revisionen.");
+    }
     const response = await requestJson("/api/state/undo", "POST", {
       moduleId,
       channelSeq,
-      baseBoardRevision: baseRevision.boardRevision,
-      baseSettingsRevision: baseRevision.settingsRevision,
-      baseEventSeq: baseRevision.eventSeq,
+      baseCardRevision: baseRevision.cardRevision,
+      baseMarkRevision: baseRevision.markRevision,
+      baseGeneration: baseRevision.generation,
+      baseStyle: baseRevision.style,
     });
-    return challengeUndoResponseSchema.parse(await response.json());
+    return bingoUndoResponseSchema.parse(await response.json());
   }
   return undo;
 };

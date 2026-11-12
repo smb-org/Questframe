@@ -94,6 +94,9 @@ const summarizeChange = (before: ChannelState, after: ChannelState): string => {
   if (before.compositeChallengesVisible !== after.compositeChallengesVisible) {
     changes.push(`Challenges im Sammel-Overlay: ${after.compositeChallengesVisible ? "An" : "Aus"}`);
   }
+  if (before.compositeBingoVisible !== after.compositeBingoVisible) {
+    changes.push(`Bingo im Sammel-Overlay: ${after.compositeBingoVisible ? "An" : "Aus"}`);
+  }
   return changes.length > 0 ? changes.join(" · ") : "HUD-Einstellungen aktualisiert";
 };
 
@@ -187,6 +190,9 @@ const targetFromSnapshot = (rawTarget: Record<string, unknown>, current: Channel
       compositeChallengesVisible: Object.hasOwn(rawTarget, "compositeChallengesVisible")
         ? rawTarget.compositeChallengesVisible
         : current.compositeChallengesVisible,
+      compositeBingoVisible: Object.hasOwn(rawTarget, "compositeBingoVisible")
+        ? rawTarget.compositeBingoVisible
+        : current.compositeBingoVisible,
     }),
   );
 
@@ -197,6 +203,7 @@ const restoreSummary = (
   const carriedForward = [
     Object.hasOwn(rawTarget, "compositeHudVisible") ? null : "HUD im Sammel-Overlay",
     Object.hasOwn(rawTarget, "compositeChallengesVisible") ? null : "Challenges im Sammel-Overlay",
+    Object.hasOwn(rawTarget, "compositeBingoVisible") ? null : "Bingo im Sammel-Overlay",
   ].filter((label): label is string => label !== null);
   return carriedForward.length === 0
     ? `Revision ${String(revision)} wiederhergestellt`

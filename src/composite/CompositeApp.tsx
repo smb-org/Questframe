@@ -211,6 +211,10 @@ export const CompositeApp = ({
           }
           return;
         }
+        if (discriminated.kind === "bingo") {
+          // Die Bingo-Darstellung folgt in Schritt 5; die Nachricht bleibt hier vom Challenge-Parser getrennt.
+          return;
+        }
         if (discriminated.message === null || !("eventSeq" in discriminated.message)) {
           fail("challenges");
           return;

@@ -132,6 +132,7 @@ const stateContentShape = {
   group: z.array(groupMemberSchema).max(5),
   groupVisible: z.boolean().default(true),
   compositeChallengesVisible: z.boolean().default(true),
+  compositeBingoVisible: z.boolean().default(false),
   effects: z.array(activeEffectSchema).max(8),
   featuredEffectId: z.union([normalizedText(1, 64), z.null()]),
 } as const;
@@ -223,6 +224,7 @@ export const channelStateSaveDraftSchema = z
     groupVisible: z.boolean(),
     compositeHudVisible: z.boolean(),
     compositeChallengesVisible: z.boolean(),
+    compositeBingoVisible: z.boolean(),
   })
   .superRefine(addStateContentIssues);
 
@@ -282,6 +284,7 @@ export const createDefaultState = (
     group: [],
     groupVisible: true,
     compositeChallengesVisible: true,
+    compositeBingoVisible: false,
     effects: [],
     featuredEffectId: null,
     updatedAt,

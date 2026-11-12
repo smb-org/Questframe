@@ -9,6 +9,7 @@ import {
   MAX_COMPOSITE_SOCKETS,
   MAX_CHALLENGE_SOCKETS,
   MAX_DOCK_SOCKETS,
+  MAX_BINGO_SOCKETS,
   SOCKET_STALE_AFTER_MS,
   MAX_EDITOR_SOCKETS,
   MAX_OVERLAY_SOCKETS,
@@ -35,6 +36,8 @@ import {
   challengeService as createChallengeService,
 } from "../modules/win-challenges/adapters/http-facade";
 import { challengeUndoResponseSchema } from "../modules/win-challenges/contracts/schemas";
+import { bingoUpdateMessageSchema } from "../modules/bingo/contracts/schemas";
+import { applyBingoUndo, bingoRepository as createBingoRepository, mapBingoError } from "../modules/bingo/adapters/http-facade";
 import {
   ChallengeRepositoryError,
   RevisionConflictError,
@@ -94,7 +97,7 @@ type SocketAttachment =
     };
 
 type PresenceSocketDefinition = typeof SOCKETS.overlay | typeof SOCKETS.composite;
-type TokenSocketDefinition = typeof SOCKETS.challenge | typeof SOCKETS.dock;
+type TokenSocketDefinition = typeof SOCKETS.challenge | typeof SOCKETS.dock | typeof SOCKETS.bingo;
 
 const limits = {
   maxGuests: 5,
@@ -104,6 +107,7 @@ const limits = {
   maxCompositeSockets: MAX_COMPOSITE_SOCKETS,
   maxChallengeSockets: MAX_CHALLENGE_SOCKETS,
   maxDockSockets: MAX_DOCK_SOCKETS,
+  maxBingoSockets: MAX_BINGO_SOCKETS,
   maxMediaBytes: 8_388_608,
 } as const;
 const maxMediaBlobs = 32;
@@ -202,6 +206,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
       if (request.method === "GET" && url.pathname === "/ws/challenge") {
         return await this.connectChallenge(request);
       }
+      if (request.method === "GET" && url.pathname === "/ws/bingo") {
+        return await this.connectBingo(request);
+      }
       if (request.method === "GET" && url.pathname === "/ws/dock") {
         return await this.connectDock(request);
       }
@@ -229,6 +236,8 @@ export class ChannelObject extends DurableObject<AppEnv> {
           : {};
         return errorResponse(status[error.code], error.code, error.message, details);
       }
+      const bingoErrorResponse = mapBingoError(error);
+      if (bingoErrorResponse !== null) return bingoErrorResponse;
       console.error("channel_request_failed", {
         path: url.pathname,
         error: error instanceof Error ? error.name : "unknown",
@@ -619,6 +628,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       recentAudit: this.getAuditEntries(),
       undoTargets: this.getUndoTargets(HUD_MODULE_ID),
       challengeUndoTargets: this.getUndoTargets("challenges"),
+      bingoUndoTargets: this.getUndoTargets("bingo"),
       csrfToken,
       serverTime: nowIso(),
     });
@@ -678,6 +688,44 @@ export class ChannelObject extends DurableObject<AppEnv> {
         undoTargets: this.getUndoTargets(input.moduleId),
         serverTime: nowIso(),
       }));
+    }
+
+    if (input.moduleId === "bingo") {
+      const repository = createBingoRepository(this.createModuleContext("bingo", session));
+      const current = repository.readBoard();
+      if (
+        input.baseCardRevision !== current.cardRevision
+        || input.baseMarkRevision !== current.markRevision
+        || input.baseGeneration !== current.generation
+        || input.baseStyle !== current.style
+      ) {
+        throw new RequestError(409, "revision_conflict", "Das Bingo-Board wurde inzwischen geändert.", {
+          currentSnapshot: current,
+        });
+      }
+      const history = this.ctx.storage.sql
+        .exec<{ snapshot_json: string }>(
+          "SELECT snapshot_json FROM state_history WHERE module_id = ? AND channel_seq = ?",
+          input.moduleId,
+          input.channelSeq,
+        )
+        .toArray()[0];
+      if (history === undefined) {
+        throw new RequestError(404, "not_found", "Dieser Bingo-Zustand ist nicht mehr verfügbar.");
+      }
+      const result = applyBingoUndo({
+        repository,
+        actor: actorFromSession(session),
+        clock: nowIso,
+      }, history.snapshot_json);
+      if (result.update !== null) this.broadcast(module.socketTags, result.update);
+      if (result.auditEntry !== null) this.broadcastAudit("bingo", result.auditEntry, this.getUndoTargets("bingo"));
+      this.broadcastHistoryChanged("bingo");
+      return jsonResponse({
+        board: result.board,
+        undoTargets: this.getUndoTargets("bingo"),
+        serverTime: nowIso(),
+      });
     }
 
     if (module.state === undefined) throw new Error("HUD-State-Vertrag fehlt.");
@@ -755,6 +803,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
         this.revokeTokenSockets(SOCKETS.overlay.tag, input.expectedGeneration);
         this.revokeTokenSockets(SOCKETS.composite.tag, input.expectedGeneration);
         this.revokeTokenSockets(SOCKETS.challenge.tag, input.expectedGeneration);
+        this.revokeTokenSockets(SOCKETS.bingo.tag, input.expectedGeneration);
       }
       return jsonResponse(
         overlayTokenResponseSchema.parse({
@@ -808,6 +857,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       this.revokeTokenSockets(SOCKETS.overlay.tag, currentGeneration);
       this.revokeTokenSockets(SOCKETS.composite.tag, currentGeneration);
       this.revokeTokenSockets(SOCKETS.challenge.tag, currentGeneration);
+      this.revokeTokenSockets(SOCKETS.bingo.tag, currentGeneration);
     }
     return jsonResponse(
       overlayTokenResponseSchema.parse({
@@ -1116,6 +1166,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       type: "snapshot",
       state: normalizeStateForRead(this.getHudModuleState().getRequired(this.createModuleContext("hud"))),
     }));
+    server.send(JSON.stringify(this.readBingoUpdateMessage()));
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -1187,12 +1238,10 @@ export class ChannelObject extends DurableObject<AppEnv> {
       SOCKETS.composite,
       "Zu viele Composite-Verbindungen.",
     );
-    // Offener Rest aus P5: Der Begruessungs-Snapshot ist noch fest der
-    // Challenge-Snapshot. Fuer ein drittes Modul mit eigenem Token-Socket
-    // muesste ihn die Socket-Definition liefern, so wie `handle()` die Routen
-    // liefert. Solange nur Challenges und Dock ueber diesen Weg verbinden,
-    // ist das korrekt; mit P6 gehoert es an die Modulgrenze.
+    // Composite-Sockets empfangen nach dem HUD-Snapshot beide Modul-Updates,
+    // damit jede Quelle ihren eigenen Zustand ohne Zerlegung abrufen kann.
     server.send(JSON.stringify(createChallengeService(this.createModuleContext("challenges"), SOCKETS.dock.tag).readChallengeUpdate()));
+    server.send(JSON.stringify(this.readBingoUpdateMessage()));
     this.broadcastOverlayPresence();
     return new Response(null, {
       status: 101,
@@ -1206,6 +1255,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
     definition: TokenSocketDefinition,
     authorize: (request: Request) => Promise<{ generation: number }>,
     limitErrorMessage: string,
+    initialMessage?: () => unknown,
   ): Promise<Response> {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       throw new RequestError(400, "bad_request", "WebSocket-Upgrade erforderlich.");
@@ -1229,7 +1279,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
       tokenGeneration: row.generation,
       connectedAt: nowIso(),
     } satisfies SocketAttachment);
-    server.send(JSON.stringify(createChallengeService(this.createModuleContext("challenges"), SOCKETS.dock.tag).readChallengeUpdate()));
+    server.send(JSON.stringify(initialMessage?.() ?? createChallengeService(this.createModuleContext("challenges"), SOCKETS.dock.tag).readChallengeUpdate()));
     return new Response(null, {
       status: 101,
       webSocket: client,
@@ -1252,6 +1302,30 @@ export class ChannelObject extends DurableObject<AppEnv> {
       );
       return { generation: row.generation };
     }, "Zu viele Challenge-Verbindungen.");
+  }
+
+  private async connectBingo(request: Request): Promise<Response> {
+    return this.connectTokenSocket(request, SOCKETS.bingo, async (bingoRequest) => {
+      const token = bingoRequest.headers.get("x-overlay-token");
+      if (token === null) throw new RequestError(403, "token_invalid", "OBS-Token ungültig.");
+      const hash = await hmacHex(this.getOverlayTokenPepper(), token);
+      const row = this.getOverlayToken();
+      if (row === null || !timingSafeEqual(row.token_hash, hash)) {
+        throw new RequestError(403, "token_invalid", "OBS-Token ungültig.");
+      }
+      this.ctx.storage.sql.exec(
+        "UPDATE overlay_tokens SET last_used_at = ? WHERE singleton = 1",
+        nowIso(),
+      );
+      return { generation: row.generation };
+    }, "Zu viele Bingo-Verbindungen.", () => this.readBingoUpdateMessage());
+  }
+
+  private readBingoUpdateMessage(): ReturnType<typeof bingoUpdateMessageSchema.parse> {
+    return bingoUpdateMessageSchema.parse({
+      type: "bingo_update",
+      board: createBingoRepository(this.createModuleContext("bingo")).readBoard(),
+    });
   }
 
   private async connectDock(request: Request): Promise<Response> {
@@ -1673,9 +1747,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
 
   private broadcast(tags: readonly SocketTag[], payload: unknown): void {
     const targetTags = new Set(tags);
-    // Editor und Composite tragen beide Modul-Nachrichten; sie bleiben
-    // gemeinsame Host-Sockets und erhalten deshalb Challenge-Updates weiter.
-    if (tags.includes(SOCKETS.challenge.tag) || tags.includes(SOCKETS.dock.tag)) {
+    // Editor und Composite tragen Modul-Nachrichten; sie bleiben gemeinsame
+    // Host-Sockets und erhalten Updates von Challenges und Bingo.
+    if (tags.includes(SOCKETS.challenge.tag) || tags.includes(SOCKETS.dock.tag) || tags.includes(SOCKETS.bingo.tag)) {
       targetTags.add(SOCKETS.editor.tag);
       targetTags.add(SOCKETS.composite.tag);
     }

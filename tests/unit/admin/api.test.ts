@@ -42,6 +42,7 @@ const bootstrap = () => ({
   recentAudit: [],
   undoTargets: [],
   challengeUndoTargets: [],
+  bingoUndoTargets: [],
   csrfToken: "csrf-token-with-enough-entropy",
   serverTime: now,
 });
@@ -345,6 +346,48 @@ describe("BrowserAdminApi", () => {
       baseBoardRevision: 4,
       baseSettingsRevision: 5,
       baseEventSeq: 6,
+    });
+  });
+
+  it("routet Bingo-Undo mit seinen Board-Revisionen separat", async () => {
+    const board = {
+      card: {
+        title: "Undo-Karte",
+        size: 3,
+        cells: Array.from({ length: 9 }, (_, index) => ({ id: `undo-${String(index)}`, text: `Feld ${String(index)}` })),
+      },
+      marks: [],
+      cardRevision: 4,
+      markRevision: 6,
+      generation: 2,
+      style: "marker",
+      placement: { x: 8, y: 8, scale: 1 },
+    };
+    const response = { board, undoTargets: [], serverTime: now };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json(response));
+    vi.stubGlobal("fetch", fetcher);
+    const api = new BrowserAdminApi();
+    const undo = api.undo as unknown as (
+      moduleId: string,
+      channelSeq: number,
+      revisions: { cardRevision: number; markRevision: number; generation: number; style: "marker" },
+    ) => Promise<unknown>;
+
+    await expect(undo("bingo", 7, {
+      cardRevision: 4,
+      markRevision: 6,
+      generation: 2,
+      style: "marker",
+    })).resolves.toEqual(response);
+
+    const request = new Request("https://example.test", fetcher.mock.calls[0]?.[1]);
+    expect(await request.json()).toEqual({
+      moduleId: "bingo",
+      channelSeq: 7,
+      baseCardRevision: 4,
+      baseMarkRevision: 6,
+      baseGeneration: 2,
+      baseStyle: "marker",
     });
   });
 

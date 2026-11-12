@@ -99,6 +99,7 @@ const isGroupMember = (value: unknown): boolean => {
 };
 
 export const parseOverlayState = (input: unknown): ChannelState | null => {
+  const hasBingoVisibility = isRecord(input) && Object.hasOwn(input, "compositeBingoVisible");
   if (
     !isRecord(input) ||
     !exactKeys(input, [
@@ -114,6 +115,7 @@ export const parseOverlayState = (input: unknown): ChannelState | null => {
       "group",
       "groupVisible",
       "compositeChallengesVisible",
+      ...(hasBingoVisibility ? ["compositeBingoVisible"] : []),
       "effects",
       "featuredEffectId",
       "updatedAt",
@@ -126,6 +128,7 @@ export const parseOverlayState = (input: unknown): ChannelState | null => {
     typeof input.groupVisible !== "boolean" ||
     typeof input.compositeHudVisible !== "boolean" ||
     typeof input.compositeChallengesVisible !== "boolean" ||
+    (hasBingoVisibility && typeof input.compositeBingoVisible !== "boolean") ||
     ![
       "trail-wood",
       "field-journal",
@@ -204,9 +207,10 @@ export const parseOverlayState = (input: unknown): ChannelState | null => {
     !/^\d+$/.test(input.updatedBy.twitchUserId) ||
     !isText(input.updatedBy.displayName, 1, 32)
   ) return null;
-  return input.themeId === "classic-remix"
-    ? { ...input, themeId: "trail-wood" } as ChannelState
-    : input as ChannelState;
+  const normalized = hasBingoVisibility ? input : { ...input, compositeBingoVisible: false };
+  return normalized.themeId === "classic-remix"
+    ? { ...normalized, themeId: "trail-wood" } as ChannelState
+    : normalized as ChannelState;
 };
 
 export const parseOverlayMessage = (input: unknown): OverlayMessage | null => {

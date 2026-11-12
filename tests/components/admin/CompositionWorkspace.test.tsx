@@ -25,6 +25,7 @@ const bootstrap = (): BootstrapResponse => ({
   recentAudit: [],
   undoTargets: [],
   challengeUndoTargets: [],
+  bingoUndoTargets: [],
   csrfToken: "csrf-token-with-enough-entropy",
   serverTime: "2026-08-29T12:00:00.000Z",
 });
@@ -166,7 +167,13 @@ describe("Kompositions-Workspace", () => {
     if (heading === null) throw new Error("Vorschau-Kopfzeile fehlt.");
     const hudToggle = within(heading as HTMLElement).getByRole("switch", { name: "HUD im Sammel-Overlay anzeigen" });
     const challengesToggle = within(heading as HTMLElement).getByRole("switch", { name: "Challenges im Sammel-Overlay anzeigen" });
+    const bingoToggle = within(heading as HTMLElement).getByRole("switch", { name: "Bingo im Sammel-Overlay anzeigen" });
     expect(within(heading as HTMLElement).getByRole("group", { name: "Im Sammel-Overlay zeigen" })).toBeInTheDocument();
+
+    expect(bingoToggle).toHaveAttribute("aria-checked", "false");
+    await user.click(bingoToggle);
+    expect(bingoToggle).toHaveAttribute("aria-checked", "true");
+    expect(challengesToggle).toHaveAttribute("aria-checked", "true");
 
     await user.click(hudToggle);
     expect(hudToggle).toHaveAttribute("aria-checked", "false");
@@ -196,7 +203,7 @@ describe("Kompositions-Workspace", () => {
         revision: 2,
         action: "save",
         actor,
-        summary: "HUD im Sammel-Overlay: Aus · Challenges im Sammel-Overlay: Aus",
+        summary: "HUD im Sammel-Overlay: Aus · Challenges im Sammel-Overlay: Aus · Bingo im Sammel-Overlay: An",
         createdAt: "2026-08-29T12:01:00.000Z",
       },
       undoTargets: [{ channelSeq: 2, moduleId: "hud", createdAt: "2026-08-29T12:01:00.000Z", summary: "Sammel-Overlay geändert" }],
@@ -231,23 +238,26 @@ describe("Kompositions-Workspace", () => {
     await screen.findByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" });
     await user.click(screen.getByRole("switch", { name: "HUD im Sammel-Overlay anzeigen" }));
     await user.click(screen.getByRole("switch", { name: "Challenges im Sammel-Overlay anzeigen" }));
+    await user.click(screen.getByRole("switch", { name: "Bingo im Sammel-Overlay anzeigen" }));
     await user.click(screen.getByRole("button", { name: "Alle speichern" }));
 
     expect(save.mock.calls[0]?.[0].baseRevision).toBe(1);
     expect(save.mock.calls[0]?.[0].state).toMatchObject({
       compositeHudVisible: false,
       compositeChallengesVisible: false,
+      compositeBingoVisible: true,
     });
     await user.click(document.querySelector(".audit-rail .rail-heading") as HTMLElement);
-    expect(screen.getByText("HUD im Sammel-Overlay: Aus · Challenges im Sammel-Overlay: Aus")).toBeInTheDocument();
+    expect(screen.getByText("HUD im Sammel-Overlay: Aus · Challenges im Sammel-Overlay: Aus · Bingo im Sammel-Overlay: An")).toBeInTheDocument();
 
     await user.click(screen.getByText("Rückgängig").closest("summary") as HTMLElement);
     await user.click(screen.getByRole("button", { name: /Kanal 2/ }));
     expect(undo).toHaveBeenCalledWith("hud", 2, 2);
     expect(screen.getByRole("switch", { name: "HUD im Sammel-Overlay anzeigen" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("switch", { name: "Challenges im Sammel-Overlay anzeigen" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("switch", { name: "Bingo im Sammel-Overlay anzeigen" })).toHaveAttribute("aria-checked", "false");
     expect(screen.getByRole("region", { name: "Challenge-Log verschieben, Pfeiltasten" })).toBeInTheDocument();
-    expect(screen.getByText("HUD im Sammel-Overlay: Aus · Challenges im Sammel-Overlay: Aus")).toBeInTheDocument();
+    expect(screen.getByText("HUD im Sammel-Overlay: Aus · Challenges im Sammel-Overlay: Aus · Bingo im Sammel-Overlay: An")).toBeInTheDocument();
   });
 
   it("zeigt Bühne und beide angedockten Rails und rechnet Drag unabhängig vom Zoom", async () => {

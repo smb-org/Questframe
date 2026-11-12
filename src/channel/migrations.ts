@@ -413,8 +413,8 @@ CREATE TABLE IF NOT EXISTS bg_board (
   card_revision INTEGER NOT NULL CHECK (card_revision >= 0),
   mark_revision INTEGER NOT NULL CHECK (mark_revision >= 0),
   generation INTEGER NOT NULL CHECK (generation >= 0),
-  placement_x INTEGER NOT NULL DEFAULT 300 CHECK (placement_x BETWEEN 0 AND 384),
-  placement_y INTEGER NOT NULL DEFAULT 8 CHECK (placement_y BETWEEN 0 AND 216),
+  placement_x INTEGER NOT NULL DEFAULT 8 CHECK (placement_x BETWEEN 0 AND 384),
+  placement_y INTEGER NOT NULL DEFAULT 120 CHECK (placement_y BETWEEN 0 AND 216),
   placement_scale REAL NOT NULL DEFAULT 1 CHECK (placement_scale BETWEEN 0.75 AND 2),
   style TEXT NOT NULL DEFAULT 'marker' CHECK (style IN ('marker', 'broadcast')),
   created_at TEXT NOT NULL,
@@ -448,7 +448,7 @@ const migrateBingo1 = (sql: SqlStorage): void => {
     `INSERT INTO bg_board(
       singleton, title, size, cells_json, marks_json, card_revision, mark_revision,
       generation, placement_x, placement_y, placement_scale, style, created_at, updated_at
-    ) VALUES (1, ?, ?, ?, '[]', 0, 0, 0, 300, 8, 1, 'marker', ?, ?)
+    ) VALUES (1, ?, ?, ?, '[]', 0, 0, 0, 8, 120, 1, 'marker', ?, ?)
     ON CONFLICT(singleton) DO NOTHING`,
     firstCard.title,
     firstCard.size,

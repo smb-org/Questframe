@@ -216,6 +216,7 @@ const createHudDraft = (state, playerPortrait, petPortrait, broadcasterTwitchUse
     ],
     groupVisible: true,
     compositeChallengesVisible: true,
+    compositeBingoVisible: false,
     effects: [
       {
         id: "beispiel-gestaerkt",
