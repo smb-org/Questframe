@@ -39,6 +39,38 @@ Tempo, Nummerierung, erledigte Reihenfolge sowie `global_timer_mode` und
 `plain-list` mit Nummerierung und lässt `max_visible` als Anzeige-Kapazität bestehen, Migration 8
 ergänzt den globalen Timer-Modus mit dem Default `down`.
 
+## Bingo-Modul
+
+Bingo ist ein eigenes Feature-Slice unter `src/modules/bingo/` mit Contracts, Domain, Service,
+Repository, SQLite-Adapter und Admin-UI; die OBS-Darstellung liegt unter `src/bingo/`. Die
+Migration `bingo/1` legt `bg_board` und `bg_sets` an und befüllt die vier Vorlagensets.
+`bg_board` hält genau ein Board, `bg_sets` gespeicherte Karten und Vorlagen.
+
+Das Board hat drei unabhängige Zähler: `cardRevision` schützt Karteninhalt, Platzierung und
+Stil bei optimistischen Saves; `markRevision` schützt die Markierungen und läuft nie rückwärts;
+`generation` steigt bei einem Größenwechsel oder Kartentausch, bei dem Markierungen geleert
+werden. Kartendateien enthalten nur Titel, Größe und Felder. Der Export nutzt
+`format: "questframe-bingo"`, Version 1; Import und Export sind auf 32 KiB begrenzt. Stil,
+Platzierung und Laufzeit-Markierungen werden nicht mit der Datei geteilt.
+
+Die Admin-Oberfläche liegt im Workspace `/admin/bingo`; die HTTP-Fassade ist unter
+`/api/bingo` erreichbar und umfasst Board, Markierungen, Stil, Sets sowie Karten-Import und
+-Export. Die eigene OBS-Fläche `/overlay/bingo` verbindet sich über `/ws/bingo` mit dem
+Socket-Tag `bingo`. Das Socket authentifiziert sich mit dem Overlay-Token und erhält beim
+Verbinden einen vollständigen Board-Stand. `bingo_update` geht an die Bingo-, Editor- und
+Composite-Sockets; es erreicht nicht das HUD-Overlay oder die Challenge-Quelle.
+
+Eine Zeremonie wird ausschließlich aus dem optionalen `ceremony`-Feld eines expliziten
+`bingo_update` ausgelöst. Der Server setzt es, wenn eine Markierung neu eine Linie oder die
+volle Karte abschließt. Snapshot, Undo, Import und Zurücksetzen leiten keine Zeremonie aus
+einem Zustandsvergleich ab.
+
+`compositeBingoVisible` steuert mit Default `false`, ob `/overlay/all` Bingo zusätzlich
+anzeigt. Die Sichtbarkeit wird mit dem HUD-State gespeichert; der Composite lädt die Bingo-
+Quelle bei Bedarf separat. Die Stile `marker` und `broadcast` teilen sich dasselbe Board-DOM.
+`src/bingo/style-loader.ts` lädt den jeweiligen Style-Chunk dynamisch, analog zum Challenge-
+Style-Loader.
+
 ## Zwei Nebenläufigkeitsmodelle
 
 Hier bestehen absichtlich zwei Modelle nebeneinander, die nicht vereinheitlicht werden
@@ -58,14 +90,15 @@ stilles Überschreiben in der Konfiguration.
 
 ## Socket-Tags und Broadcasts
 
-Es gibt fünf Tags: `editor`, `overlay`, `composite`, `challenge` und `dock`. Die
+Es gibt sechs Tags: `editor`, `overlay`, `composite`, `challenge`, `dock` und `bingo`. Die
 Broadcast-Regeln sind fest verdrahtet:
 
 | Broadcast | erreicht | erreicht nicht |
 | --- | --- | --- |
-| `state_committed` und `snapshot` | `editor`, `overlay`, `composite` | `challenge`, `dock` |
-| `challenge_update` | `editor`, `challenge`, `dock`, `composite` | `overlay` |
-| `overlay_presence`, `history_changed`, `audit_appended` | `editor` | `overlay`, `composite`, `challenge`, `dock` |
+| `state_committed` und `snapshot` | `editor`, `overlay`, `composite` | `challenge`, `dock`, `bingo` |
+| `challenge_update` | `editor`, `challenge`, `dock`, `composite` | `overlay`, `bingo` |
+| `bingo_update` | `editor`, `bingo`, `composite` | `overlay`, `challenge`, `dock` |
+| `overlay_presence`, `history_changed`, `audit_appended` | `editor` | `overlay`, `composite`, `challenge`, `dock`, `bingo` |
 
 Der Dock-Token ist schreibberechtigt, aber seine Sicherheitsgrenze ist hart: Er gilt nur für
 `/api/challenges/commands` und `/ws/dock`. Board, Settings, HUD-State, Token-Rotation und
@@ -74,10 +107,10 @@ darf den globalen Timer nur starten und pausieren.
 
 Der Widerruf wird vor jedem Senden geprüft, nicht nur beim Schließen einer Verbindung. Ein
 Socket mit veralteter Token-Generation wird übersprungen und geschlossen. Eine Rotation
-sendet `token_revoked` und schließt die betroffenen Sockets aktiv. `overlay`, `composite` und
-`challenge` authentifizieren sich mit demselben Overlay-Token; ein Widerruf oder eine Rotation
-dieses Tokens schließt darum alle drei Tag-Gruppen gemeinsam, während der Dock-Token
-ausschließlich `dock`-Sockets betrifft.
+sendet `token_revoked` und schließt die betroffenen Sockets aktiv. `overlay`, `composite`,
+`challenge` und `bingo` authentifizieren sich mit demselben Overlay-Token; ein Widerruf oder
+eine Rotation dieses Tokens schließt darum alle vier Tag-Gruppen gemeinsam, während der
+Dock-Token ausschließlich `dock`-Sockets betrifft.
 
 Jede Client-Fläche sendet auf einem offenen Socket alle 20 Sekunden den Text `ping`; das
 Durable Object beantwortet ihn per Auto-Pong, ohne dafür aufzuwachen. Beim nächsten Upgrade
@@ -88,28 +121,29 @@ und sein Schließen würde eine sofortige Reconnect-Schleife erzeugen.
 
 ## Flächen und Routenauflösung
 
-Die Routentabelle in `src/routing.ts` löst fünf Flächen auf: `admin`, `overlay`,
-`composite`, `challenges` und `live`.
+Die Routentabelle in `src/routing.ts` löst sechs Flächen auf: `admin`, `overlay`,
+`composite`, `challenges`, `bingo` und `live`.
 
 | Fläche | Route | App bzw. Workspace |
 | --- | --- | --- |
-| `admin` | `/admin`, `/admin/composition`, `/admin/challenges` | `AdminApp`, HUD- bzw. Challenges-Tab |
+| `admin` | `/admin`, `/admin/composition`, `/admin/challenges`, `/admin/bingo` | `AdminApp`, HUD-, Challenges- bzw. Bingo-Tab |
 | `overlay` | `/overlay` | `OverlayApp` |
 | `composite` | `/overlay/all` | `CompositeApp` |
 | `challenges` | `/overlay/challenges` | `ChallengeSourceApp` |
+| `bingo` | `/overlay/bingo` | `BingoSourceApp` |
 | `live` | `/live/challenges` | `LiveApp` |
 
-`/admin` ist die zusammengelegte Kompositions-Ansicht mit Tabs für HUD und Challenges.
-`/admin/composition` und `/admin/challenges` bleiben gültige Einstiegs-URLs, wählen beim
-Laden nur den jeweiligen Tab vor und normalisieren die Adresse per `history.replaceState`
-auf `/admin`.
+`/admin` ist die zusammengelegte Kompositions-Ansicht mit Tabs für HUD, Challenges und Bingo.
+`/admin/composition`, `/admin/challenges` und `/admin/bingo` bleiben gültige Einstiegs-URLs,
+wählen beim Laden nur den jeweiligen Tab vor und normalisieren die Adresse per
+`history.replaceState` auf `/admin`.
 
-`/overlay/all` liefert HUD und Challenge-Log zusammen in einem vollflächigen
+`/overlay/all` liefert HUD, Challenge-Log und optional Bingo zusammen in einem vollflächigen
 1920 × 1080-Dokument. Es ist über den Overlay-Token authentifiziert (`x-overlay-token`
 bzw. dasselbe Token im Socket-Protokoll) und verbindet sich über `/ws/composite`.
 
 Der Kopier-Link im OBS-Chip der Admin-Topbar zeigt auf diese Sammelquelle, nicht auf
-`/overlay`. Die einzelnen HUD- und Challenge-Log-Quellen bleiben trotzdem gültig und
+`/overlay`. Die einzelnen HUD-, Challenge-Log- und Bingo-Quellen bleiben trotzdem gültig und
 sind über die OBS-Einrichtung weiterhin einzeln erreichbar.
 
 Die spezifischeren Pfade stehen vor den Präfixpfaden. `/login` und unbekannte Pfade fallen
@@ -122,7 +156,11 @@ Die Admin-Konsole hält `draft` und `committed` getrennt. Texteingaben, Slider, 
 
 Nur der globale Sichtbarkeitsschalter ist eine unmittelbare Mutation. Er bewahrt einen vorhandenen lokalen Draft und veröffentlicht eine neue Revision mit unverändertem HUD-Inhalt.
 
-`compositeHudVisible` und `compositeChallengesVisible` sind zwei weitere State-Felder (Default `true`) und laufen über denselben HUD-Speicherweg wie Pet, Gruppe, Themes und Effekte, inklusive Undo und Audit. Sie steuern nicht die Sichtbarkeit im HUD- bzw. Challenges-Overlay selbst, sondern die Mitgliedschaft von HUD und Challenge-Log in der Sammelquelle `/overlay/all`.
+`compositeHudVisible` und `compositeChallengesVisible` sind State-Felder (Default `true`);
+`compositeBingoVisible` ist ein weiteres Feld mit Default `false`. Alle drei laufen über
+denselben HUD-Speicherweg wie Pet, Gruppe, Themes und Effekte, inklusive Undo und Audit. Sie
+steuern nicht die Sichtbarkeit der jeweiligen Einzelquelle, sondern die Mitgliedschaft in
+`/overlay/all`.
 
 HUD-State, Challenge-Settings und Challenge-Board bleiben drei unabhängige Revisionen
 (siehe „Zwei Nebenläufigkeitsmodelle“), aber die Oberfläche hat dafür nur noch eine
@@ -169,7 +207,7 @@ Effektzeiten sind ISO-Instant-Zeitpunkte. Der Overlay-Browser berechnet die Rest
 - gewöhnlicher JSON-Body: 128 KiB;
 - Bootstrap: 256 KiB;
 - Portrait: 256 KiB kodiert, quadratisch und höchstens 512 × 512;
-- zehn Overlay-, zehn Editor-Sockets, acht Effekte und fünf Gäste pro Capsule;
+- je 15 Overlay-, Editor-, Composite-, Challenge-, Dock- und Bingo-Sockets sowie acht Effekte und fünf Gäste pro Capsule;
 - Audit und Revisionshistorie werden begrenzt aufbewahrt.
 
 Bundle-, Transfer- und Startupbudgets sind ausführbare CI-Gates in `scripts/` und keine bloße Dokumentation.
