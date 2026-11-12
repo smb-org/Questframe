@@ -20,6 +20,7 @@ describe("Routenauflösung", () => {
     ["/admin/composition", { surface: "admin", app: "admin", workspace: "hud" }],
     ["/admin/composition/", { surface: "admin", app: "admin", workspace: "hud" }],
     ["/admin/challenges", { surface: "admin", app: "admin", workspace: "challenges" }],
+    ["/admin/bingo", { surface: "admin", app: "admin", workspace: "bingo" }],
     ["/unbekannt", { surface: "admin", app: "admin", workspace: "hud" }],
   ])("ordnet %s korrekt zu", (path, expected) => {
     expect(resolveRoute(path)).toEqual(expected);

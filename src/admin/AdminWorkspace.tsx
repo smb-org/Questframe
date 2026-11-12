@@ -15,7 +15,7 @@ import {
   Settings2,
   Undo2,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   AuditEntry,
@@ -56,6 +56,16 @@ import {
   type SettingsSaveResponse,
 } from "../modules/win-challenges/contracts/schemas";
 import type { BingoUndoResponse } from "../modules/bingo/contracts/schemas";
+import type {
+  BingoBoardState,
+  BingoCardSaveRequest,
+  BingoMutationResponse,
+  BingoSetListResponse,
+  BingoSetResponse,
+  BingoUpdateMessage,
+  MarkCellPayload,
+} from "../modules/bingo/contracts/schemas";
+import type { BingoAdminApi } from "../modules/bingo/ui/BingoAdminPanel";
 import { GLOBAL_TIMER_UP_CAP_MS, MAX_VISIBLE_ROWS } from "../modules/win-challenges/contracts/predicates";
 import { ChallengeBoard, type ChallengeBoardApi, type ChallengeBoardSaveHandle } from "../modules/win-challenges/ui/ChallengeBoard";
 import { ChallengeLog } from "../modules/win-challenges/ui/ChallengeLog";
@@ -71,6 +81,8 @@ import { PreviewPanel } from "./ui/PreviewPanel";
 import { createChallengeObsSources } from "./ui/obsSetup";
 import { PIXELS_PER_HUD_UNIT, PIXELS_PER_RASTER_UNIT, stagePixelsToRaster } from "./ui/placement";
 import "./admin.css";
+
+const BingoAdminPanel = lazy(() => import("../modules/bingo/ui/BingoAdminPanel").then(({ BingoAdminPanel: panel }) => ({ default: panel })));
 
 export type TwitchUser = { id: string; login: string; displayName: string; profileImageUrl: string };
 
@@ -95,7 +107,18 @@ export type AdminApi = {
   deleteChallengeSet?: ((setId: string) => Promise<string>) | undefined;
   saveChallengeSettings?: ((request: SettingsSaveRequest) => Promise<SettingsSaveResponse>) | undefined;
   sendChallengeCommand?: ((command: Command) => Promise<CommandResponse>) | undefined;
-  subscribe?: ((callbacks: { onState: (state: ChannelState) => void; onOnlineChange: (online: boolean) => void; onOverlayPresence: (connectedSockets: number) => void; onAudit: (entry: AuditEntry, moduleId: UndoModuleId, undoTargets: UndoTarget[]) => void; onUndoTargets: (moduleId: UndoModuleId, undoTargets: UndoTarget[]) => void; onChallengeUpdate?: (update: ChallengeUpdate) => void; onTimeOffset?: (offsetMs: number) => void }) => () => void) | undefined;
+  getBingoBoard?: (() => Promise<BingoBoardState>) | undefined;
+  markBingoCell?: ((request: MarkCellPayload) => Promise<BingoMutationResponse>) | undefined;
+  resetBingoMarks?: ((expectedMarkRevision: number) => Promise<BingoMutationResponse>) | undefined;
+  saveBingoCard?: ((request: BingoCardSaveRequest) => Promise<BingoMutationResponse>) | undefined;
+  listBingoSets?: (() => Promise<BingoSetListResponse>) | undefined;
+  getBingoSet?: ((setId: string) => Promise<BingoSetResponse>) | undefined;
+  saveBingoSet?: ((name: string) => Promise<BingoSetResponse>) | undefined;
+  deleteBingoSet?: ((setId: string) => Promise<string>) | undefined;
+  loadBingoSet?: ((setId: string, expectedCardRevision: number) => Promise<BingoMutationResponse>) | undefined;
+  importBingoCard?: ((file: string, expectedCardRevision: number) => Promise<BingoMutationResponse>) | undefined;
+  exportBingoCard?: (() => Promise<string>) | undefined;
+  subscribe?: ((callbacks: { onState: (state: ChannelState) => void; onOnlineChange: (online: boolean) => void; onOverlayPresence: (connectedSockets: number) => void; onAudit: (entry: AuditEntry, moduleId: UndoModuleId, undoTargets: UndoTarget[]) => void; onUndoTargets: (moduleId: UndoModuleId, undoTargets: UndoTarget[]) => void; onChallengeUpdate?: (update: ChallengeUpdate) => void; onBingoUpdate?: (update: BingoUpdateMessage) => void; onTimeOffset?: (offsetMs: number) => void }) => () => void) | undefined;
   logout?: (() => Promise<void>) | undefined;
 };
 
@@ -549,8 +572,8 @@ const ChallengeUndoRail = ({ api, canUndo, online, challengeUpdate, initialTarge
 };
 
 const AdminTabs = ({ activeTab, onChange }: { activeTab: AdminWorkspaceId; onChange: (tab: AdminWorkspaceId) => void }) => {
-  const tabRefs = useRef<Record<AdminWorkspaceId, HTMLButtonElement | null>>({ hud: null, challenges: null });
-  const tabs: { id: AdminWorkspaceId; label: string }[] = [{ id: "hud", label: "HUD" }, { id: "challenges", label: "Challenges" }];
+  const tabRefs = useRef<Record<AdminWorkspaceId, HTMLButtonElement | null>>({ hud: null, challenges: null, bingo: null });
+  const tabs: { id: AdminWorkspaceId; label: string }[] = [{ id: "hud", label: "HUD" }, { id: "challenges", label: "Challenges" }, { id: "bingo", label: "Bingo" }];
   const moveTab = (current: AdminWorkspaceId, direction: -1 | 1) => {
     const index = tabs.findIndex((tab) => tab.id === current);
     const next = tabs[(index + direction + tabs.length) % tabs.length];
@@ -657,7 +680,10 @@ const GlobalSaveBar = ({ modules, online, onNavigate }: { modules: SaveAllModule
 const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBootstrap: BootstrapResponse; api: AdminApi; initialTab: AdminWorkspaceId }) => {
   const [challengeUpdate, setChallengeUpdate] = useState<ChallengeUpdate | null>(null);
   const [challengeUndoTargets, setChallengeUndoTargets] = useState(initialBootstrap.challengeUndoTargets);
-  const [, setBingoUndoTargets] = useState(initialBootstrap.bingoUndoTargets);
+  const [bingoUndoTargets, setBingoUndoTargets] = useState(initialBootstrap.bingoUndoTargets);
+  const [bingoUpdate, setBingoUpdate] = useState<BingoUpdateMessage | null>(null);
+  const [bingoPlacementDraft, setBingoPlacementDraft] = useState<ChallengePlacement | null>(null);
+  const [bingoPanelOpened, setBingoPanelOpened] = useState(initialTab === "bingo");
   const [challengeSettingsDraft, setChallengeSettingsDraft] = useState<ChallengeSettingsDraft | null>(null);
   const [challengePlacementDraft, setChallengePlacementDraft] = useState<ChallengePlacement | null>(null);
   const [previewZoom, setPreviewZoom] = useState(100);
@@ -670,7 +696,11 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
   const [settingsHandle, setSettingsHandle] = useState<ModuleSaveHandle | null>(null);
   const [boardHandle, setBoardHandle] = useState<ChallengeBoardSaveHandle | null>(null);
   const [clockOffsetMs, setClockOffsetMs] = useState(0);
-  const state = useHudEditorState({ initialBootstrap, api, onChallengeUpdate: setChallengeUpdate, onChallengeUndoTargets: setChallengeUndoTargets, onBingoUndoTargets: setBingoUndoTargets, onTimeOffset: setClockOffsetMs });
+  const state = useHudEditorState({ initialBootstrap, api, onChallengeUpdate: setChallengeUpdate, onBingoUpdate: setBingoUpdate, onChallengeUndoTargets: setChallengeUndoTargets, onBingoUndoTargets: setBingoUndoTargets, onTimeOffset: setClockOffsetMs });
+  const changeWorkspace = (tab: AdminWorkspaceId): void => {
+    setActiveTab(tab);
+    if (tab === "bingo") setBingoPanelOpened(true);
+  };
   useEffect(() => {
     if (api.getChallengeBoard === undefined) return;
     let disposed = false;
@@ -766,6 +796,29 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
       }),
     };
   }, [api]);
+  const bingoAdminApi = useMemo<BingoAdminApi | null>(() => {
+    if (
+      api.getBingoBoard === undefined || api.markBingoCell === undefined || api.resetBingoMarks === undefined
+      || api.saveBingoCard === undefined || api.listBingoSets === undefined || api.getBingoSet === undefined
+      || api.saveBingoSet === undefined || api.deleteBingoSet === undefined || api.loadBingoSet === undefined
+      || api.importBingoCard === undefined || api.exportBingoCard === undefined
+    ) return null;
+    const undoBingo = api.undo;
+    return {
+      getBingoBoard: api.getBingoBoard,
+      markBingoCell: api.markBingoCell,
+      resetBingoMarks: api.resetBingoMarks,
+      saveBingoCard: api.saveBingoCard,
+      listBingoSets: api.listBingoSets,
+      getBingoSet: api.getBingoSet,
+      saveBingoSet: api.saveBingoSet,
+      deleteBingoSet: api.deleteBingoSet,
+      loadBingoSet: api.loadBingoSet,
+      importBingoCard: api.importBingoCard,
+      exportBingoCard: api.exportBingoCard,
+      ...(undoBingo === undefined ? {} : { undo: (_moduleId, channelSeq, baseRevision) => undoBingo("bingo", channelSeq, baseRevision) }),
+    };
+  }, [api]);
   const challengeReady = displayedChallengeUpdate !== null && challengeCss.style === displayedChallengeUpdate.settings.styleId;
   // Nur die Admin-Vorschau markiert das Modul hier als gedämpft. Die echte
   // Sammel-Overlay-Ausgabe bleibt unverändert; /overlay und /overlay/challenges
@@ -782,7 +835,62 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
   if (settingsHandle !== null) saveAllModules.push({ key: "settings", label: "Einstellungen", tab: "challenges", dirty: settingsHandle.dirty, save: settingsHandle.save });
   if (boardHandle !== null) saveAllModules.push({ key: "board", label: "Board", tab: "challenges", dirty: boardHandle.dirty, save: boardHandle.save });
   return (
-    <div className="admin-app admin-app--composition"><AdminTopbar api={api} initialBootstrap={initialBootstrap} obsSetupTriggerRef={obsSetupTriggerRef} state={state} />{!state.online && <div className="offline-banner">Offline – Speichern pausiert; bestehende Werte bleiben sichtbar.</div>}<AuditRail initialBootstrap={initialBootstrap} state={state} /><ObsSetupDialog api={api} state={state} triggerRef={obsSetupTriggerRef} /><main className="composition-main"><GlobalSaveBar modules={saveAllModules} online={state.online} onNavigate={setActiveTab} /><PreviewPanel headingControls={<ModuleVisibilityControls state={state} />} hudInteraction={hudInteraction} hudMuted={!state.draft.compositeHudVisible} mediaUrls={state.previewMediaUrls} onZoomChange={setPreviewZoom} previewOverlay={!state.committed.overlayEnabled ? <div className="disabled-veil">Overlay deaktiviert</div> : undefined} state={compositionHud} themeLabel={THEME_LABELS[state.preview.themeId]} zoom={previewZoom}>{challengePreview}</PreviewPanel></main><aside className="composition-rails"><AdminTabs activeTab={activeTab} onChange={setActiveTab} />{/* Beide Tabpanels bleiben dauerhaft gemountet (ChallengeBoard-Refetch/State sonst pro Tab-Wechsel weg); nur das inaktive wird per hidden-Attribut versteckt. */}<div aria-labelledby="admin-tab-hud" className="composition-tabpanel" hidden={activeTab !== "hud"} id="admin-composition-panel-hud" role="tabpanel"><HudEditorRail api={api} initialBootstrap={initialBootstrap} state={state} /></div><div aria-labelledby="admin-tab-challenges" className="composition-tabpanel" hidden={activeTab !== "challenges"} id="admin-composition-panel-challenges" role="tabpanel"><div className="composition-challenge-rail"><ChallengeUndoRail api={api} canUndo={initialBootstrap.capabilities.undo} challengeUpdate={challengeUpdate} initialTargets={challengeUndoTargets} online={state.online} onChallengeUpdate={setChallengeUpdate} onTargetsChange={setChallengeUndoTargets} /><ChallengeSettingsPanel api={api} challengeUpdate={challengeUpdate} online={state.online} onDraftChange={setChallengeSettingsDraft} onHandleChange={setSettingsHandle} onPlacementDraftChange={setChallengePlacementDraft} placementDraft={challengePlacementDraft} />{compositionBoardApi === null ? <section className="challenge-board-shell" role="alert"><div className="challenge-board-empty"><AlertTriangle size={22} /><strong>Challenge-Board ist in dieser Sitzung nicht verfügbar.</strong></div></section> : <ChallengeBoard api={compositionBoardApi} challengeUpdate={displayedChallengeUpdate} clockOffsetMs={clockOffsetMs} online={state.online} onHandleChange={setBoardHandle} />}</div></div>{activeTab === "challenges" && <CompositionSaveDock state={state} />}</aside></div>
+    <div className="admin-app admin-app--composition">
+      <AdminTopbar api={api} initialBootstrap={initialBootstrap} obsSetupTriggerRef={obsSetupTriggerRef} state={state} />
+      {!state.online && <div className="offline-banner">Offline – Speichern pausiert; bestehende Werte bleiben sichtbar.</div>}
+      <AuditRail initialBootstrap={initialBootstrap} state={state} />
+      <ObsSetupDialog api={api} state={state} triggerRef={obsSetupTriggerRef} />
+      <main className="composition-main">
+        <GlobalSaveBar modules={saveAllModules} online={state.online} onNavigate={setActiveTab} />
+        <PreviewPanel
+          headingControls={<ModuleVisibilityControls state={state} />}
+          hudInteraction={hudInteraction}
+          hudMuted={!state.draft.compositeHudVisible}
+          mediaUrls={state.previewMediaUrls}
+          onZoomChange={setPreviewZoom}
+          previewOverlay={!state.committed.overlayEnabled ? <div className="disabled-veil">Overlay deaktiviert</div> : undefined}
+          state={compositionHud}
+          themeLabel={THEME_LABELS[state.preview.themeId]}
+          zoom={previewZoom}
+        >
+          {challengePreview}
+        </PreviewPanel>
+      </main>
+      <aside className="composition-rails">
+        <AdminTabs activeTab={activeTab} onChange={changeWorkspace} />
+        {/* Alle Tabpanels bleiben nach dem ersten Öffnen dauerhaft gemountet; das hält lokale Entwürfe bei Tabwechseln. */}
+        <div aria-labelledby="admin-tab-hud" className="composition-tabpanel" hidden={activeTab !== "hud"} id="admin-composition-panel-hud" role="tabpanel">
+          <HudEditorRail api={api} initialBootstrap={initialBootstrap} state={state} />
+        </div>
+        <div aria-labelledby="admin-tab-challenges" className="composition-tabpanel" hidden={activeTab !== "challenges"} id="admin-composition-panel-challenges" role="tabpanel">
+          <div className="composition-challenge-rail">
+            <ChallengeUndoRail api={api} canUndo={initialBootstrap.capabilities.undo} challengeUpdate={challengeUpdate} initialTargets={challengeUndoTargets} online={state.online} onChallengeUpdate={setChallengeUpdate} onTargetsChange={setChallengeUndoTargets} />
+            <ChallengeSettingsPanel api={api} challengeUpdate={challengeUpdate} online={state.online} onDraftChange={setChallengeSettingsDraft} onHandleChange={setSettingsHandle} onPlacementDraftChange={setChallengePlacementDraft} placementDraft={challengePlacementDraft} />
+            {compositionBoardApi === null
+              ? <section className="challenge-board-shell" role="alert"><div className="challenge-board-empty"><AlertTriangle size={22} /><strong>Challenge-Board ist in dieser Sitzung nicht verfügbar.</strong></div></section>
+              : <ChallengeBoard api={compositionBoardApi} challengeUpdate={displayedChallengeUpdate} clockOffsetMs={clockOffsetMs} online={state.online} onHandleChange={setBoardHandle} />}
+          </div>
+        </div>
+        <div aria-labelledby="admin-tab-bingo" className="composition-tabpanel" hidden={activeTab !== "bingo"} id="admin-composition-panel-bingo" role="tabpanel">
+          {bingoPanelOpened && (bingoAdminApi === null
+            ? <section className="bingo-admin-unavailable" role="alert">Bingo-Editor ist in dieser Sitzung nicht verfügbar.</section>
+            : <Suspense fallback={<div aria-busy="true" className="bingo-admin-loading">Bingo-Editor wird geladen …</div>}>
+              <BingoAdminPanel
+                api={bingoAdminApi}
+                canUndo={initialBootstrap.capabilities.undo}
+                initialUndoTargets={bingoUndoTargets}
+                onBoardUpdate={setBingoUpdate}
+                onPlacementDraftChange={setBingoPlacementDraft}
+                onUndoTargetsChange={setBingoUndoTargets}
+                online={state.online}
+                placementDraft={bingoPlacementDraft}
+                update={bingoUpdate}
+              />
+            </Suspense>)}
+        </div>
+        {activeTab === "challenges" && <CompositionSaveDock state={state} />}
+      </aside>
+    </div>
   );
 };
 

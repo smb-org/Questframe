@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { undoTargetSchema } from "../../../shared/contracts/api";
+import { auditEntrySchema, undoTargetSchema } from "../../../shared/contracts/api";
 
 import {
   isChallengeSetName,
@@ -7,6 +7,9 @@ import {
   normalizeChallengeText,
 } from "../../win-challenges/contracts/predicates";
 import { challengePlacementSchema } from "../../win-challenges/contracts/schemas";
+import { MAX_BINGO_CELL_ID_LENGTH } from "./constants";
+
+export { MAX_BINGO_CELL_ID_LENGTH } from "./constants";
 
 export type BingoStyleId = "marker" | "broadcast";
 
@@ -14,7 +17,6 @@ export const bingoSizeSchema = z.union([z.literal(3), z.literal(4), z.literal(5)
 export type BingoSize = z.infer<typeof bingoSizeSchema>;
 
 export const DEFAULT_BINGO_STYLE_ID: BingoStyleId = "marker";
-export const MAX_BINGO_CELL_ID_LENGTH = 80;
 export const MAX_BINGO_TITLE_LENGTH = MAX_CHALLENGE_SET_NAME_GRAPHEMES;
 export const MAX_BINGO_CELL_TEXT_LENGTH = 40;
 
@@ -121,13 +123,14 @@ export const resetMarksPayloadSchema = z.strictObject({
 });
 
 export const bingoCardSaveRequestSchema = bingoCardFieldsSchema.extend({
+  placement: challengePlacementSchema,
   expectedCardRevision: nonNegativeIntegerSchema,
 }).superRefine((value, context) => {
   validateCardCells(value, context);
 });
 
 export const bingoImportRequestSchema = z.strictObject({
-  file: z.string().max(16_384),
+  file: z.string().max(32_768),
   expectedCardRevision: nonNegativeIntegerSchema,
 });
 
@@ -212,8 +215,22 @@ export const bingoUndoResponseSchema = z.strictObject({
   serverTime: z.iso.datetime({ offset: true }),
 });
 
+export const bingoMutationResponseSchema = z.strictObject({
+  board: bingoBoardStateSchema,
+  update: z.union([bingoUpdateMessageSchema, z.null()]),
+  ceremony: z.union([
+    z.strictObject({ lines: z.array(bingoLineSchema), fullCard: z.boolean() }),
+    z.null(),
+  ]),
+  auditEntry: z.union([auditEntrySchema, z.null()]),
+  undoTargets: z.array(undoTargetSchema).max(20),
+  serverTime: z.iso.datetime({ offset: true }),
+});
+
 export type BingoCell = z.infer<typeof bingoCellSchema>;
 export type BingoCard = z.infer<typeof bingoCardSchema>;
+export type BingoSetListResponse = z.infer<typeof bingoSetListResponseSchema>;
+export type BingoSetResponse = z.infer<typeof bingoSetResponseSchema>;
 export type BingoLine = z.infer<typeof bingoLineSchema>;
 export type BingoBoardState = z.infer<typeof bingoBoardStateSchema>;
 export type MarkCellPayload = z.infer<typeof markCellPayloadSchema>;
@@ -222,3 +239,4 @@ export type BingoCardSaveRequest = z.infer<typeof bingoCardSaveRequestSchema>;
 export type BingoSetSummary = z.infer<typeof bingoSetSummarySchema>;
 export type BingoUpdateMessage = z.infer<typeof bingoUpdateMessageSchema>;
 export type BingoUndoResponse = z.infer<typeof bingoUndoResponseSchema>;
+export type BingoMutationResponse = z.infer<typeof bingoMutationResponseSchema>;

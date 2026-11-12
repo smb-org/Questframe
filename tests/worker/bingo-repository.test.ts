@@ -32,10 +32,11 @@ const inRepository = <T>(callback: (repository: SqlStorageBingoRepository, sql: 
 const serviceFor = (repository: SqlStorageBingoRepository) =>
   createBingoService({ repository, actor, clock: () => now });
 
-const cardWith = (base: BingoCard, cells: BingoCard["cells"], size = base.size): BingoCard => ({
+const cardWith = (base: BingoCard, cells: BingoCard["cells"], size = base.size) => ({
   title: "Neue Karte",
   size,
   cells,
+  placement: { x: 300, y: 8, scale: 1 },
 });
 
 const readCounts = (sql: SqlStorage): { history: number; audit: number } => ({
@@ -112,7 +113,7 @@ describe("Bingo migration", () => {
         && "cells" in parsed && Array.isArray(parsed.cells) && parsed.cells.length === 16;
     });
     expect(templatePayloadsValid).toBe(true);
-    expect(result.firstBoard).toMatchObject({ title: "Sterben und Spielen", marks_json: '["g01"]', card_revision: 0, mark_revision: 0, generation: 0, placement_x: 8, placement_y: 120 });
+    expect(result.firstBoard).toMatchObject({ title: "Sterben und Spielen", marks_json: '["g01"]', card_revision: 0, mark_revision: 0, generation: 0, placement_x: 8, placement_y: 80 });
     expect(result.secondCount).toBe(4);
     expect(result.secondSets).toStrictEqual(result.firstSets);
     expect(result.secondBoard).toStrictEqual(result.firstBoard);
@@ -235,12 +236,67 @@ describe("Bingo repository and service", () => {
     });
   });
 
+  it("persists placement-only card saves without clearing marks or changing generation", async () => {
+    await inRepository((repository) => {
+      const service = serviceFor(repository);
+      const initial = service.readBoard();
+      const firstCell = initial.card.cells[0];
+      if (firstCell === undefined) throw new Error("Die Standardkarte enthält kein erstes Feld.");
+      const marked = service.markCell(firstCell.id, true, initial.markRevision).board;
+      const placement = { x: 84, y: 64, scale: 1.25 };
+
+      const saved = service.saveCard({
+        ...marked.card,
+        placement,
+        expectedCardRevision: marked.cardRevision,
+      });
+
+      expect(saved.board.placement).toEqual(placement);
+      expect(saved.board.marks).toEqual(marked.marks);
+      expect(saved.board.generation).toBe(marked.generation);
+    });
+  });
+
+  it("advances the card revision when Undo restores placement without changing generation", async () => {
+    await inRepository((repository, sql) => {
+      const service = serviceFor(repository);
+      const initial = service.readBoard();
+      const firstPlacement = { x: 32, y: 24, scale: 1 };
+      const firstSave = service.saveCard({
+        ...initial.card,
+        placement: firstPlacement,
+        expectedCardRevision: initial.cardRevision,
+      });
+      const secondPlacement = { x: 96, y: 72, scale: 1.25 };
+      const secondSave = service.saveCard({
+        ...firstSave.board.card,
+        placement: secondPlacement,
+        expectedCardRevision: firstSave.board.cardRevision,
+      });
+      const target = sql.exec<{ snapshot_json: string }>(
+        "SELECT snapshot_json FROM state_history WHERE module_id = 'bingo' ORDER BY channel_seq DESC LIMIT 1",
+      ).toArray()[0];
+      if (target === undefined) throw new Error("Platzierungs-Historie fehlt.");
+
+      const undone = applyBingoUndo({ repository, actor, clock: () => now }, target.snapshot_json);
+
+      expect(undone.board.placement).toEqual(firstPlacement);
+      expect(undone.board.cardRevision).toBe(secondSave.board.cardRevision + 1);
+      expect(undone.board.generation).toBe(secondSave.board.generation);
+      expect(() => service.saveCard({
+        ...secondSave.board.card,
+        placement: secondPlacement,
+        expectedCardRevision: secondSave.board.cardRevision,
+      })).toThrow(expect.objectContaining({ code: "revision_conflict" }));
+    });
+  });
+
   it("rejects an old card draft after a newer save", async () => {
     await inRepository((repository) => {
       const service = serviceFor(repository);
       const board = service.readBoard();
-      service.saveCard({ ...board.card, title: "Neu", expectedCardRevision: board.cardRevision });
-      expect(() => service.saveCard({ ...board.card, title: "Alter Entwurf", expectedCardRevision: board.cardRevision })).toThrow(
+      service.saveCard({ ...board.card, placement: board.placement, title: "Neu", expectedCardRevision: board.cardRevision });
+      expect(() => service.saveCard({ ...board.card, placement: board.placement, title: "Alter Entwurf", expectedCardRevision: board.cardRevision })).toThrow(
         expect.objectContaining({ code: "revision_conflict" }),
       );
     });
@@ -254,6 +310,7 @@ describe("Bingo repository and service", () => {
       const marked = service.markCell("g01", true, initial.markRevision);
       const changed = service.saveCard({
         ...marked.board.card,
+        placement: marked.board.placement,
         title: "Andere Karte",
         expectedCardRevision: marked.board.cardRevision,
       });

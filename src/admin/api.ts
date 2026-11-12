@@ -17,7 +17,23 @@ import {
   type SaveRequest,
   type SaveResponse,
 } from "../shared/contracts/api";
-import { bingoUndoResponseSchema, type BingoUndoResponse } from "../modules/bingo/contracts/schemas";
+import {
+  bingoBoardStateSchema,
+  bingoCardSaveRequestSchema,
+  bingoImportRequestSchema,
+  bingoMutationResponseSchema,
+  bingoSetDeleteResponseSchema,
+  bingoSetListResponseSchema,
+  bingoSetLoadRequestSchema,
+  bingoSetResponseSchema,
+  bingoSetSaveRequestSchema,
+  bingoUndoResponseSchema,
+  bingoUpdateMessageSchema,
+  markCellPayloadSchema,
+  type BingoCardSaveRequest,
+  type BingoMutationResponse,
+  type BingoUndoResponse,
+} from "../modules/bingo/contracts/schemas";
 import {
   boardSaveRequestSchema,
   boardSaveResponseSchema,
@@ -175,6 +191,66 @@ export class BrowserAdminApi implements AdminApi {
     return challengeBoardSnapshotSchema.parse(await response.json());
   };
 
+  getBingoBoard = async () => {
+    const response = await this.request("/api/bingo", { method: "GET" }, false);
+    return bingoBoardStateSchema.parse(await response.json());
+  };
+
+  markBingoCell = async (input: Parameters<NonNullable<AdminApi["markBingoCell"]>>[0]): Promise<BingoMutationResponse> => {
+    const request = markCellPayloadSchema.parse(input);
+    const response = await this.requestJson("/api/bingo/mark", "POST", request);
+    return bingoMutationResponseSchema.parse(await response.json());
+  };
+
+  resetBingoMarks = async (expectedMarkRevision: number): Promise<BingoMutationResponse> => {
+    const response = await this.requestJson("/api/bingo/reset", "POST", { expectedMarkRevision });
+    return bingoMutationResponseSchema.parse(await response.json());
+  };
+
+  saveBingoCard = async (input: BingoCardSaveRequest): Promise<BingoMutationResponse> => {
+    const request = bingoCardSaveRequestSchema.parse(input);
+    const response = await this.requestJson("/api/bingo/board", "PUT", request);
+    return bingoMutationResponseSchema.parse(await response.json());
+  };
+
+  listBingoSets = async () => {
+    const response = await this.request("/api/bingo/sets", { method: "GET" }, false);
+    return bingoSetListResponseSchema.parse(await response.json());
+  };
+
+  getBingoSet = async (setId: string) => {
+    const response = await this.request(`/api/bingo/sets/${encodeURIComponent(setId)}`, { method: "GET" }, false);
+    return bingoSetResponseSchema.parse(await response.json());
+  };
+
+  saveBingoSet = async (name: string) => {
+    const request = bingoSetSaveRequestSchema.parse({ name });
+    const response = await this.requestJson("/api/bingo/sets", "POST", request);
+    return bingoSetResponseSchema.parse(await response.json());
+  };
+
+  deleteBingoSet = async (setId: string) => {
+    const response = await this.request(`/api/bingo/sets/${encodeURIComponent(setId)}`, { method: "DELETE" }, true);
+    return bingoSetDeleteResponseSchema.parse(await response.json()).id;
+  };
+
+  loadBingoSet = async (setId: string, expectedCardRevision: number) => {
+    const request = bingoSetLoadRequestSchema.parse({ expectedCardRevision });
+    const response = await this.requestJson(`/api/bingo/sets/${encodeURIComponent(setId)}/load`, "POST", request);
+    return bingoMutationResponseSchema.parse(await response.json());
+  };
+
+  importBingoCard = async (file: string, expectedCardRevision: number) => {
+    const request = bingoImportRequestSchema.parse({ file, expectedCardRevision });
+    const response = await this.requestJson("/api/bingo/import", "POST", request);
+    return bingoMutationResponseSchema.parse(await response.json());
+  };
+
+  exportBingoCard = async () => {
+    const response = await this.request("/api/bingo/export", { method: "GET" }, false);
+    return response.text();
+  };
+
   saveChallengeBoard = async (input: BoardSaveRequest): Promise<BoardSaveResponse> => {
     const request = boardSaveRequestSchema.parse(input);
     const response = await this.requestJson("/api/challenges/board", "PUT", request);
@@ -280,6 +356,7 @@ export class BrowserAdminApi implements AdminApi {
     onAudit: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onAudit"];
     onUndoTargets: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onUndoTargets"];
     onChallengeUpdate?: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onChallengeUpdate"];
+    onBingoUpdate?: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onBingoUpdate"];
     onTimeOffset?: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onTimeOffset"];
   }): () => void => {
     let disposed = false;
@@ -319,6 +396,11 @@ export class BrowserAdminApi implements AdminApi {
         const challengeUpdate = parseChallengeUpdate(input);
         if (challengeUpdate !== null) {
           callbacks.onChallengeUpdate?.(challengeUpdate);
+          return;
+        }
+        const bingoUpdate = bingoUpdateMessageSchema.safeParse(input);
+        if (bingoUpdate.success) {
+          callbacks.onBingoUpdate?.(bingoUpdate.data);
           return;
         }
         const message = serverMessageSchema.safeParse(input);

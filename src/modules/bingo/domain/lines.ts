@@ -61,3 +61,34 @@ export const newlyCompleted = (
 
   return { lines, fullCard: afterHasFullCard && !beforeHadFullCard };
 };
+
+/** Leitet alle vollständigen Linien aus den aktuellen Kreuzen ab. */
+export const completedLines = (
+  marks: Marks,
+  cells: readonly string[],
+  size: BingoSize,
+): BingoLine[] => newlyCompleted([], marks, cells, size).lines;
+
+/** Liefert alle Zellen, die in der aktuellen Markierung zu einer fertigen Linie gehören. */
+export const completedLineCellIds = (
+  marks: Marks,
+  cells: readonly string[],
+  size: BingoSize,
+): string[] => {
+  const lines = completedLines(marks, cells, size);
+  const result = new Set<string>();
+  for (const line of lines) {
+    for (let offset = 0; offset < size; offset += 1) {
+      const position = line.kind === "row"
+        ? line.index * size + offset
+        : line.kind === "col"
+          ? offset * size + line.index
+          : line.index === 0
+            ? offset * size + offset
+            : offset * size + (size - offset - 1);
+      const id = cells[position];
+      if (id !== undefined) result.add(id);
+    }
+  }
+  return [...result];
+};

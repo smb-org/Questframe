@@ -43,6 +43,7 @@ import type {
   ThemeId,
 } from "../../shared/contracts/state";
 import type { ChallengeUpdate } from "../../shared/contracts/win-challenges";
+import type { BingoUpdateMessage } from "../../modules/bingo/contracts/schemas";
 import { EFFECT_CATALOG, type EffectDefinition } from "../../shared/domain/effects";
 import { HudRenderer } from "../../overlay/HudRenderer";
 import { expiryToLocalInput, resolveLocalExpiry } from "../time";
@@ -459,6 +460,7 @@ export const useHudEditorState = ({
   initialBootstrap,
   api,
   onChallengeUpdate,
+  onBingoUpdate,
   onChallengeUndoTargets,
   onBingoUndoTargets,
   onTimeOffset,
@@ -466,6 +468,7 @@ export const useHudEditorState = ({
   initialBootstrap: BootstrapResponse;
   api: AdminApi;
   onChallengeUpdate?: (update: ChallengeUpdate) => void;
+  onBingoUpdate?: (update: BingoUpdateMessage) => void;
   onChallengeUndoTargets?: (targets: UndoTarget[]) => void;
   onBingoUndoTargets?: (targets: UndoTarget[]) => void;
   onTimeOffset?: (offsetMs: number) => void;
@@ -571,9 +574,10 @@ export const useHudEditorState = ({
       },
     };
     if (onChallengeUpdate !== undefined) callbacks.onChallengeUpdate = onChallengeUpdate;
+    if (onBingoUpdate !== undefined) callbacks.onBingoUpdate = onBingoUpdate;
     if (onTimeOffset !== undefined) callbacks.onTimeOffset = onTimeOffset;
     return api.subscribe(callbacks);
-  }, [addAuditEntry, api, applyUndoTargets, onBingoUndoTargets, onChallengeUndoTargets, onChallengeUpdate, onTimeOffset]);
+  }, [addAuditEntry, api, applyUndoTargets, onBingoUndoTargets, onBingoUpdate, onChallengeUndoTargets, onChallengeUpdate, onTimeOffset]);
 
   const pendingLeaseHashes = useMemo(() => {
     const committedHashes = new Set(uploadedHashes(committed));
