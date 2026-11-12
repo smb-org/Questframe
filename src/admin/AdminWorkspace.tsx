@@ -56,6 +56,7 @@ import {
   type SettingsSaveResponse,
 } from "../modules/win-challenges/contracts/schemas";
 import type { BingoUndoResponse } from "../modules/bingo/contracts/schemas";
+import { loadBingoStyle } from "../bingo/style-loader";
 import type {
   BingoBoardState,
   BingoCardSaveRequest,
@@ -685,6 +686,7 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
   const [challengeUndoTargets, setChallengeUndoTargets] = useState(initialBootstrap.challengeUndoTargets);
   const [bingoUndoTargets, setBingoUndoTargets] = useState(initialBootstrap.bingoUndoTargets);
   const [bingoUpdate, setBingoUpdate] = useState<BingoUpdateMessage | null>(null);
+  const [bingoCss, setBingoCss] = useState<{ style: BingoStyleId | null }>({ style: null });
   const [bingoPlacementDraft, setBingoPlacementDraft] = useState<ChallengePlacement | null>(null);
   const [bingoPanelOpened, setBingoPanelOpened] = useState(initialTab === "bingo");
   const [challengeSettingsDraft, setChallengeSettingsDraft] = useState<ChallengeSettingsDraft | null>(null);
@@ -718,6 +720,15 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
     void loadCompositionChallengeStyle(styleId).then(() => { if (!disposed) setChallengeCss({ style: styleId }); }).catch(() => undefined);
     return () => { disposed = true; };
   }, [displayedChallengeUpdate]);
+  useEffect(() => {
+    const styleId = bingoUpdate?.board.style ?? null;
+    let disposed = false;
+    if (styleId === null) return () => { disposed = true; };
+    void loadBingoStyle(styleId).then(() => {
+      if (!disposed) setBingoCss({ style: styleId });
+    }).catch(() => undefined);
+    return () => { disposed = true; };
+  }, [bingoUpdate?.board.style]);
   const getPointerStagePoint = (event: React.PointerEvent<HTMLElement>) => {
     const canvas = event.currentTarget.closest(".preview-canvas");
     if (canvas === null) return null;
@@ -828,7 +839,7 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
   // Sammel-Overlay-Ausgabe bleibt unverändert; /overlay und /overlay/challenges
   // funktionieren als Einzel-URLs unabhängig vom Sammel-Overlay.
   const challengePreview = displayedChallengeUpdate === null || !challengeReady ? null : <ChallengeLogPreview ariaLabel="Challenge-Log verschieben, Pfeiltasten" className={`composition-draggable-module composition-draggable-module--challenge ${!state.draft.compositeChallengesVisible ? "is-module-muted" : ""} ${dragging === "challenges" ? "is-dragging" : ""}`} onKeyDown={(event) => movePlacementWithKeyboard("challenges", event)} onLostPointerCapture={(event) => stopDrag("challenges", event)} onPointerCancel={(event) => stopDrag("challenges", event)} onPointerDown={(event) => startDrag("challenges", event)} onPointerMove={(event) => moveDrag("challenges", event)} onPointerUp={(event) => stopDrag("challenges", event)} placement={effectiveChallengePlacement ?? displayedChallengeUpdate.settings.placement} rootTag="section" update={displayedChallengeUpdate} />;
-  const bingoPreview = bingoUpdate === null ? null : <BingoCeremonyStage
+  const bingoPreview = bingoUpdate === null || bingoCss.style !== bingoUpdate.board.style ? null : <BingoCeremonyStage
     ariaLabel="Bingo-Karte in der Live-Vorschau"
     board={bingoUpdate.board}
     className={`admin-bingo-live-preview ${!state.draft.compositeBingoVisible ? "is-module-muted" : ""}`}
