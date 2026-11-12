@@ -136,6 +136,7 @@ export const bingoImportRequestSchema = z.strictObject({
 
 export const bingoStyleRequestSchema = z.strictObject({
   style: bingoStyleIdSchema,
+  expectedCardRevision: nonNegativeIntegerSchema,
 });
 
 export const bingoSetSaveRequestSchema = z.strictObject({

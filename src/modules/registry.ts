@@ -285,7 +285,12 @@ const bingoModuleDefinition = {
   tables: { kind: "prefix", prefix: "bg_" },
   wireScopes: [],
   migrationNamespace: "bingo",
-  budgetKeys: ["Bingo-Quelle", "Bingo-Admin", "Bingo-Style-Chunk (variantMax)"],
+  budgetKeys: [
+    "Bingo-Quelle",
+    "Bingo-Admin",
+    "Bingo-Style-Chunk (Marker)",
+    "Bingo-Style-Chunk (Broadcast)",
+  ],
 } as const satisfies OverlayModuleDefinition;
 
 const bingoModule = {

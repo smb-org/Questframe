@@ -4,6 +4,7 @@ type StyleImport = () => Promise<{ styleId: BingoStyleId }>;
 
 const STYLE_IMPORTS: Partial<Record<BingoStyleId, StyleImport>> = {
   marker: () => import("../modules/bingo/styles/marker"),
+  broadcast: () => import("../modules/bingo/styles/broadcast"),
 };
 
 export type BingoStyleLoader = (styleId: BingoStyleId) => Promise<void>;

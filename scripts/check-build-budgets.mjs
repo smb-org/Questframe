@@ -59,8 +59,13 @@ const bingoDynamicImports = collectDynamicImports(bingoSourceKey);
 const bingoStyleKeys = [...bingoDynamicImports].filter((key) => (
   manifest[key]?.src?.startsWith("src/modules/bingo/styles/") && manifest[key]?.isDynamicEntry === true
 ));
-if (bingoStyleKeys.length !== 1) {
-  throw new Error(`Expected one dynamic Bingo-Style-Chunk, found ${String(bingoStyleKeys.length)}.`);
+if (bingoStyleKeys.length !== 2) {
+  throw new Error(`Expected two dynamic Bingo-Style-Chunks, found ${String(bingoStyleKeys.length)}.`);
+}
+const bingoMarkerStyleKey = bingoStyleKeys.find((key) => manifest[key]?.src === "src/modules/bingo/styles/marker.ts");
+const bingoBroadcastStyleKey = bingoStyleKeys.find((key) => manifest[key]?.src === "src/modules/bingo/styles/broadcast.ts");
+if (bingoMarkerStyleKey === undefined || bingoBroadcastStyleKey === undefined) {
+  throw new Error("Expected dynamic Marker and Broadcast Bingo-Style-Chunks.");
 }
 const adminEntry = manifest[adminKey];
 const qrCodeKeyCandidates = adminEntry?.dynamicImports?.filter((key) => key.endsWith(qrCodeKeySuffix)) ?? [];
@@ -82,7 +87,7 @@ const sharedBingoLoaderKeys = [
   "src/bingo/style-loader.ts",
 ].filter((key) => manifest[key] !== undefined);
 const budgetDeclarations = [
-  ...createBudgetDeclarations(temporalKey, challengeStyleKeys, qrCodeKey, bingoSourceKey, bingoAdminEntryKey, bingoStyleKeys),
+  ...createBudgetDeclarations(temporalKey, challengeStyleKeys, qrCodeKey, bingoSourceKey, bingoAdminEntryKey, [bingoMarkerStyleKey, bingoBroadcastStyleKey]),
   ...sharedChallengeLoaderKeys.map((key) => ({
     type: "exempt",
     key,
@@ -91,7 +96,7 @@ const budgetDeclarations = [
   ...sharedBingoLoaderKeys.map((key) => ({
     type: "exempt",
     key,
-    reason: "Der Bingo-Loader ist ein kleiner Bruecken-Chunk; der Marker-Style wird separat als variantMax gemessen.",
+    reason: "Der Bingo-Loader ist ein kleiner Bruecken-Chunk; Marker und Broadcast werden separat gemessen.",
   })),
 ];
 

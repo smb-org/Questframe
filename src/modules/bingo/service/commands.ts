@@ -2,7 +2,7 @@ import { auditEntrySchema, type AuditEntry } from "../../../shared/contracts/api
 import {
   bingoBoardStateSchema,
   bingoCardSaveRequestSchema,
-  bingoStyleIdSchema,
+  bingoStyleRequestSchema,
   markCellPayloadSchema,
   resetMarksPayloadSchema,
   type BingoBoardState,
@@ -304,16 +304,21 @@ export class BingoService {
     });
   }
 
-  public setStyle(style: string): BingoCommandResult {
-    const parsedStyle = bingoStyleIdSchema.safeParse(style);
+  public setStyle(style: string, expectedCardRevision: number): BingoCommandResult {
+    const parsedStyle = bingoStyleRequestSchema.safeParse({ style, expectedCardRevision });
     if (!parsedStyle.success) return serializeFailure("Ungültiger Bingo-Stil.");
 
     return this.repository.transaction((transaction) => {
       const before = transaction.readBoard();
-      if (before.style === parsedStyle.data) {
+      requireBoardRevision(before, parsedStyle.data.expectedCardRevision, "card");
+      if (before.style === parsedStyle.data.style) {
         return { board: before, update: null, ceremony: null, auditEntry: null };
       }
-      const after = bingoBoardStateSchema.parse({ ...before, style: parsedStyle.data });
+      const after = bingoBoardStateSchema.parse({
+        ...before,
+        style: parsedStyle.data.style,
+        cardRevision: before.cardRevision + 1,
+      });
       const now = this.clock();
       const auditEntry = recordBoardMutation(
         transaction,

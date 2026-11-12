@@ -133,7 +133,7 @@ export const createBingoHttpHandler = (socketTags: readonly SocketTag[]): Module
     if (request.method === "PUT" && url.pathname === "/bingo/style") {
       const session = await requireEditorMutation(request, ctx);
       const input = bingoStyleRequestSchema.parse(await readJson(request, 2_048));
-      return mutationResponse(ctx, socketTags, bingoService(ctx, session).setStyle(input.style));
+      return mutationResponse(ctx, socketTags, bingoService(ctx, session).setStyle(input.style, input.expectedCardRevision));
     }
     if (request.method === "GET" && url.pathname === "/bingo/export") {
       requireEditorSession(request, ctx);

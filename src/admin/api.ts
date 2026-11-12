@@ -27,11 +27,13 @@ import {
   bingoSetLoadRequestSchema,
   bingoSetResponseSchema,
   bingoSetSaveRequestSchema,
+  bingoStyleRequestSchema,
   bingoUndoResponseSchema,
   bingoUpdateMessageSchema,
   markCellPayloadSchema,
   type BingoCardSaveRequest,
   type BingoMutationResponse,
+  type BingoStyleId,
   type BingoUndoResponse,
 } from "../modules/bingo/contracts/schemas";
 import {
@@ -210,6 +212,12 @@ export class BrowserAdminApi implements AdminApi {
   saveBingoCard = async (input: BingoCardSaveRequest): Promise<BingoMutationResponse> => {
     const request = bingoCardSaveRequestSchema.parse(input);
     const response = await this.requestJson("/api/bingo/board", "PUT", request);
+    return bingoMutationResponseSchema.parse(await response.json());
+  };
+
+  setBingoStyle = async (style: BingoStyleId, expectedCardRevision: number): Promise<BingoMutationResponse> => {
+    const request = bingoStyleRequestSchema.parse({ style, expectedCardRevision });
+    const response = await this.requestJson("/api/bingo/style", "PUT", request);
     return bingoMutationResponseSchema.parse(await response.json());
   };
 

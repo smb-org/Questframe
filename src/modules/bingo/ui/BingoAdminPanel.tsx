@@ -11,6 +11,7 @@ import {
   type BingoMutationResponse,
   type BingoSetResponse,
   type BingoSetSummary,
+  type BingoStyleId,
   type BingoUndoResponse,
   type BingoUpdateMessage,
   type MarkCellPayload,
@@ -29,6 +30,7 @@ export type BingoAdminApi = {
   markBingoCell: (request: MarkCellPayload) => Promise<BingoMutationResponse>;
   resetBingoMarks: (expectedMarkRevision: number) => Promise<BingoMutationResponse>;
   saveBingoCard: (request: BingoCardSaveRequest) => Promise<BingoMutationResponse>;
+  setBingoStyle: (style: BingoStyleId, expectedCardRevision: number) => Promise<BingoMutationResponse>;
   listBingoSets: () => Promise<{ sets: BingoSetSummary[] }>;
   getBingoSet: (setId: string) => Promise<BingoSetResponse>;
   saveBingoSet: (name: string) => Promise<BingoSetResponse>;
@@ -125,6 +127,7 @@ export const BingoAdminPanel = ({
   const boardRef = useRef<BingoBoardState | null>(null);
   const draftRef = useRef<BingoCardDraft | null>(null);
   const draftBaseCardRevisionRef = useRef<number | null>(null);
+  const boardStyle = board?.style;
   const effectivePlacement = placementDraft ?? draft?.placement ?? board?.placement ?? null;
   const dirty = useMemo(() => draft !== null && board !== null && !sameDraft(draft, draft, board), [board, draft]);
   const undoTargets = initialUndoTargets
@@ -134,7 +137,9 @@ export const BingoAdminPanel = ({
 
   useEffect(() => { boardRef.current = board; }, [board]);
   useEffect(() => { draftRef.current = draft; }, [draft]);
-  useEffect(() => { void loadBingoStyle("marker").catch(() => undefined); }, []);
+  useEffect(() => {
+    if (boardStyle !== undefined) void loadBingoStyle(boardStyle).catch(() => undefined);
+  }, [boardStyle]);
 
   const applyBoard = useCallback((nextBoard: BingoBoardState, nextUpdate = updateFromBoard(nextBoard), syncDraft = false): void => {
     const current = boardRef.current;
@@ -243,6 +248,22 @@ export const BingoAdminPanel = ({
       applyMutation(await api.markBingoCell({ cellId, marked, expectedMarkRevision: current.markRevision }));
     } catch (caught) {
       showError(caught, "Bingo-Feld konnte nicht geändert werden.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const changeStyle = async (style: BingoStyleId): Promise<void> => {
+    const current = boardRef.current;
+    if (current === null || current.style === style || busy || !online || conflicted) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      applyMutation(await api.setBingoStyle(style, current.cardRevision));
+      setMessage("Bingo-Stil geändert.");
+    } catch (caught) {
+      showError(caught, "Bingo-Stil konnte nicht geändert werden.");
     } finally {
       setBusy(false);
     }
@@ -456,7 +477,7 @@ export const BingoAdminPanel = ({
         <div className="bingo-admin-card-fields">
           <label><span>Kartentitel</span><input disabled={draft === null || busy || !online} maxLength={24} onChange={(event) => { if (draft !== null) changeDraft({ ...draft, title: event.currentTarget.value }); }} type="text" value={draft?.title ?? ""} /></label>
           <label><span>Kartengröße</span><select disabled={draft === null || busy || !online} onChange={(event) => { if (draft !== null) { const size = Number(event.currentTarget.value) as BingoCardDraft["size"]; changeDraft({ ...draft, size, cells: cellsForSize(draft.cells, size) }); } }} value={draft?.size ?? 3}>{[3, 4, 5].map((size) => <option key={size} value={size}>{size} × {size}</option>)}</select></label>
-          <label><span>Stil</span><select aria-label="Bingo-Stil" disabled value="marker"><option value="marker">Marker</option></select></label>
+          <label><span>Stil</span><select aria-label="Bingo-Stil" disabled={board === null || busy || !online || conflicted} onChange={(event) => void changeStyle(event.currentTarget.value as BingoStyleId)} value={board?.style ?? "marker"}><option value="marker">Marker</option><option value="broadcast">Broadcast</option></select></label>
         </div>
 
         <div className="bingo-admin-set-tools">

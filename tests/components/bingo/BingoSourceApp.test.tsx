@@ -120,4 +120,32 @@ describe("BingoSourceApp", () => {
     expect(document.querySelector(".bingo-source-ceremony")).not.toHaveAttribute("data-ceremony-type");
     expect(screen.queryByText("BINGO!")).not.toBeInTheDocument();
   });
+
+  it("leitet den Broadcast-Zähler aus den angekreuzten Feldern ab", async () => {
+    const current = update();
+    current.board.style = "broadcast";
+    render(<BingoSourceApp loadStyle={() => Promise.resolve()} />);
+
+    await deliver(FakeWebSocket.instances[0], current);
+
+    expect(await screen.findByText("3/9")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Bingo-Fortschritt" })).toHaveAttribute("aria-valuenow", "3");
+  });
+
+  it("zeigt Broadcast-Zeremonien bei reduzierter Bewegung ohne Animation", async () => {
+    vi.stubGlobal("matchMedia", () => ({
+      matches: true,
+      media: "(prefers-reduced-motion: reduce)",
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    const current = update({ lines: [{ kind: "diag", index: 0 }], fullCard: false });
+    current.board.style = "broadcast";
+    render(<BingoSourceApp loadStyle={() => Promise.resolve()} />);
+
+    await deliver(FakeWebSocket.instances[0], current);
+
+    expect(await screen.findByText("BINGO!")).toBeInTheDocument();
+    expect(document.querySelector(".bingo-source-ceremony")).toHaveAttribute("data-ceremony-motion", "static");
+  });
 });

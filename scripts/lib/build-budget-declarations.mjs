@@ -96,8 +96,14 @@ export const createBudgetDeclarations = (temporalKey, challengeStyleKeys, qrCode
   },
   {
     type: "variantMax",
-    label: "Bingo-Style-Chunk (variantMax)",
-    keys: bingoStyleKeys,
+    label: "Bingo-Style-Chunk (Marker)",
+    keys: bingoStyleKeys.slice(0, 1),
+    budget: 64 * 1024,
+  },
+  {
+    type: "variantMax",
+    label: "Bingo-Style-Chunk (Broadcast)",
+    keys: bingoStyleKeys.slice(1, 2),
     budget: 64 * 1024,
   },
   {

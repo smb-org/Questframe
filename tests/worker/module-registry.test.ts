@@ -91,7 +91,7 @@ const labelsOf = (declarations: readonly BuildBudgetDeclaration[]): readonly str
   declarations.flatMap((declaration) => (declaration.label === undefined ? [] : [declaration.label]));
 
 const REAL_BUDGET_DECLARATION_LABELS: ReadonlySet<string> = new Set(
-  labelsOf(createBudgetDeclarations("temporal-entry", ["style-entry"], "qr-entry", "bingo-entry", "bingo-admin-entry", ["bingo-style-entry"])),
+  labelsOf(createBudgetDeclarations("temporal-entry", ["style-entry"], "qr-entry", "bingo-entry", "bingo-admin-entry", ["bingo-marker-entry", "bingo-broadcast-entry"])),
 );
 const REAL_BUDGET_KEYS: ReadonlySet<string> = new Set([
   ...REAL_BUDGET_DECLARATION_LABELS,
@@ -417,7 +417,7 @@ describe("Modul-Registry-Selbsttest", () => {
     expect(bingo).toMatchObject({
       routePrefixes: ["/bingo"],
       tables: { kind: "prefix", prefix: "bg_" },
-      budgetKeys: ["Bingo-Quelle", "Bingo-Admin", "Bingo-Style-Chunk (variantMax)"],
+      budgetKeys: ["Bingo-Quelle", "Bingo-Admin", "Bingo-Style-Chunk (Marker)", "Bingo-Style-Chunk (Broadcast)"],
     });
     expect(bingo?.handle).toEqual(expect.any(Function));
     expect(bingo?.history).toBeDefined();

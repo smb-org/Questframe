@@ -52,10 +52,16 @@ export const BingoBoard = ({
   const lines = completedLines(board.marks, board.card.cells.map(({ id }) => id), board.card.size);
   const ceremonyLineKeys = new Set(ceremonyLines.map(({ kind, index }) => `${kind}-${String(index)}`));
   const full = board.marks.length === board.card.cells.length;
+  const markedCount = board.marks.length;
+  const totalCount = board.card.cells.length;
+  const badgeLine = lines[0];
+  const badgeX = badgeLine?.kind === "col" ? ((badgeLine.index + 0.5) / board.card.size) * 100 : 50;
   const style = {
     "--bingo-size": String(board.card.size),
     "--bingo-board-width": `${String(width)}px`,
     "--bingo-cell-extent": `${String(width / board.card.size)}px`,
+    "--bingo-progress": `${String(totalCount === 0 ? 0 : (markedCount / totalCount) * 100)}%`,
+    "--bingo-badge-x": `${String(badgeX)}%`,
   } as CSSProperties;
 
   return (
@@ -66,7 +72,19 @@ export const BingoBoard = ({
       data-full={full ? "true" : undefined}
       style={style}
     >
-      <h2 className="bingo-source__title">{board.card.title}</h2>
+      <header className="bingo-source__header">
+        <h2 className="bingo-source__title">{board.card.title}</h2>
+        <span className="bingo-source__counter">{String(markedCount)}/{String(totalCount)}</span>
+        <div
+          aria-label="Bingo-Fortschritt"
+          aria-valuemax={totalCount}
+          aria-valuemin={0}
+          aria-valuenow={markedCount}
+          className="bingo-source__progress"
+          role="progressbar"
+        ><span className="bingo-source__progress-fill" /></div>
+      </header>
+      {lines.length > 0 && <span aria-hidden="true" className="bingo-source__bingo-badge">BINGO</span>}
       <div aria-label={board.card.title} className="bingo-source__grid" role="grid">
         {board.card.cells.map((cell, index) => {
           const isMarked = marked.has(cell.id);

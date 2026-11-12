@@ -72,9 +72,12 @@
   background: var(--surface);
 }
 
-.bingo-admin-live-card .bingo-source__title { font-size: 24px; }
-.bingo-admin-live-card .bingo-source__cell { padding: 4px; }
-.bingo-admin-live-card .bingo-source__text { font-size: clamp(8px, var(--bingo-cell-font-size), 17px); }
+.bingo-admin-live-card .bingo-source[data-style="marker"] .bingo-source__title { font-size: 24px; }
+.bingo-admin-live-card .bingo-source[data-style="broadcast"] .bingo-source__title { font-size: 19px; }
+.bingo-admin-live-card .bingo-source[data-style="marker"] .bingo-source__cell,
+.bingo-admin-live-card .bingo-source[data-style="broadcast"] .bingo-source__cell { padding: 4px; }
+.bingo-admin-live-card .bingo-source[data-style="marker"] .bingo-source__text,
+.bingo-admin-live-card .bingo-source[data-style="broadcast"] .bingo-source__text { font-size: clamp(8px, var(--bingo-cell-font-size), 17px); }
 .bingo-admin-live-card .bingo-source__bingo-callout { display: none; }
 
 .bingo-admin-undo { box-sizing: border-box; height: 200px; margin: 4px 0 0; padding: 9px 0 0; overflow: auto; border-top: 1px solid var(--line); }

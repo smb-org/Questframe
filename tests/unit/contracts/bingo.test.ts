@@ -125,8 +125,9 @@ describe("Bingo-Verträge", () => {
   it("validiert Bingo-Import, Stil- und Set-Routen strikt", () => {
     expect(bingoImportRequestSchema.safeParse({ file: "{}", expectedCardRevision: 0 }).success).toBe(true);
     expect(bingoImportRequestSchema.safeParse({ file: "{}", expectedCardRevision: -1 }).success).toBe(false);
-    expect(bingoStyleRequestSchema.safeParse({ style: "broadcast" }).success).toBe(true);
-    expect(bingoStyleRequestSchema.safeParse({ style: "future" }).success).toBe(false);
+    expect(bingoStyleRequestSchema.safeParse({ style: "broadcast", expectedCardRevision: 0 }).success).toBe(true);
+    expect(bingoStyleRequestSchema.safeParse({ style: "broadcast" }).success).toBe(false);
+    expect(bingoStyleRequestSchema.safeParse({ style: "future", expectedCardRevision: 0 }).success).toBe(false);
     expect(bingoSetSaveRequestSchema.safeParse({ name: "Vorlage" }).success).toBe(true);
     expect(bingoSetSaveRequestSchema.safeParse({ name: "" }).success).toBe(false);
     expect(bingoSetLoadRequestSchema.safeParse({ expectedCardRevision: 0 }).success).toBe(true);

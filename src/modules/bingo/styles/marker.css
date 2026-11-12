@@ -1,4 +1,4 @@
-.bingo-source-ceremony {
+.bingo-source-ceremony[data-style="marker"] {
   position: absolute;
   top: var(--bingo-y, 0px);
   left: var(--bingo-x, 0px);
@@ -10,16 +10,17 @@
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 0 8px rgba(0, 0, 0, 0.9);
 }
 
-.bingo-source {
+.bingo-source[data-style="marker"] {
   --bingo-ink: #f7f5ef;
   --bingo-red: #f1353e;
   --bingo-line: rgba(238, 241, 239, 0.52);
+  position: relative;
   box-sizing: border-box;
   width: var(--bingo-board-width, min(520px, calc(100vw - 24px)));
   color: var(--bingo-ink);
 }
 
-.bingo-source__title {
+.bingo-source[data-style="marker"] .bingo-source__title {
   margin: 0 0 8px;
   color: #fffdf8;
   font-family: "Comic Sans MS", "Segoe Print", cursive;
@@ -31,7 +32,13 @@
   overflow-wrap: anywhere;
 }
 
-.bingo-source__grid {
+.bingo-source[data-style="marker"] .bingo-source__counter,
+.bingo-source[data-style="marker"] .bingo-source__progress,
+.bingo-source[data-style="marker"] .bingo-source__bingo-badge {
+  display: none;
+}
+
+.bingo-source[data-style="marker"] .bingo-source__grid {
   position: relative;
   display: grid;
   grid-template-columns: repeat(var(--bingo-size), minmax(0, 1fr));
@@ -42,7 +49,7 @@
   isolation: isolate;
 }
 
-.bingo-source__cell {
+.bingo-source[data-style="marker"] .bingo-source__cell {
   position: relative;
   display: grid;
   min-width: 0;
@@ -59,12 +66,12 @@
   cursor: pointer;
 }
 
-.bingo-source__cell:disabled {
+.bingo-source[data-style="marker"] .bingo-source__cell:disabled {
   cursor: default;
   opacity: 1;
 }
 
-.bingo-source__text {
+.bingo-source[data-style="marker"] .bingo-source__text {
   position: relative;
   z-index: 1;
   display: block;
@@ -78,7 +85,7 @@
   hyphens: auto;
 }
 
-.bingo-source__mark {
+.bingo-source[data-style="marker"] .bingo-source__mark {
   position: absolute;
   z-index: 2;
   inset: 9%;
@@ -90,7 +97,7 @@
   pointer-events: none;
 }
 
-.bingo-source__mark path {
+.bingo-source[data-style="marker"] .bingo-source__mark path {
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
@@ -98,7 +105,7 @@
   vector-effect: non-scaling-stroke;
 }
 
-.bingo-source__line-art {
+.bingo-source[data-style="marker"] .bingo-source__line-art {
   position: absolute;
   z-index: 3;
   inset: -2%;
@@ -109,7 +116,7 @@
   pointer-events: none;
 }
 
-.bingo-source__line-outline {
+.bingo-source[data-style="marker"] .bingo-source__line-outline {
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
@@ -119,9 +126,9 @@
   opacity: 0.93;
 }
 
-.bingo-source__bingo-callout {
+.bingo-source-ceremony[data-style="marker"] .bingo-source__bingo-callout {
   position: absolute;
-  right: -148px;
+  left: calc(100% + 12px);
   bottom: 12%;
   color: var(--bingo-red);
   font-family: "Comic Sans MS", "Segoe Print", cursive;
@@ -133,18 +140,18 @@
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.95), 0 0 8px rgba(0, 0, 0, 0.9);
 }
 
-.bingo-source-ceremony[data-ceremony-type="line"][data-ceremony-motion="animated"] .bingo-source__line-outline[data-ceremony-line="true"] {
+.bingo-source-ceremony[data-style="marker"][data-ceremony-type="line"][data-ceremony-motion="animated"] .bingo-source__line-outline[data-ceremony-line="true"] {
   animation: bingo-marker-circle 720ms ease-out both;
   stroke-dasharray: 300;
   stroke-dashoffset: 300;
 }
 
-.bingo-source-ceremony[data-ceremony-type="full-card"][data-ceremony-motion="animated"] .bingo-source__line-outline,
-.bingo-source-ceremony[data-ceremony-type="full-card"][data-ceremony-motion="animated"] .bingo-source__mark {
+.bingo-source-ceremony[data-style="marker"][data-ceremony-type="full-card"][data-ceremony-motion="animated"] .bingo-source__line-outline,
+.bingo-source-ceremony[data-style="marker"][data-ceremony-type="full-card"][data-ceremony-motion="animated"] .bingo-source__mark {
   animation: bingo-marker-full 920ms cubic-bezier(0.18, 0.72, 0.16, 1.16) both;
 }
 
-.bingo-source-ceremony[data-ceremony-type="full-card"] .bingo-source__bingo-callout {
+.bingo-source-ceremony[data-style="marker"][data-ceremony-type="full-card"] .bingo-source__bingo-callout {
   font-size: 66px;
 }
 
@@ -159,9 +166,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bingo-source-ceremony[data-ceremony-motion="static"] .bingo-source__line-outline,
-  .bingo-source-ceremony[data-ceremony-motion="static"] .bingo-source__mark,
-  .bingo-source-ceremony[data-ceremony-motion="static"] .bingo-source__bingo-callout {
+  .bingo-source-ceremony[data-style="marker"][data-ceremony-motion="static"] .bingo-source__line-outline,
+  .bingo-source-ceremony[data-style="marker"][data-ceremony-motion="static"] .bingo-source__mark,
+  .bingo-source-ceremony[data-style="marker"][data-ceremony-motion="static"] .bingo-source__bingo-callout {
     animation: none !important;
   }
 }

@@ -73,8 +73,9 @@ test("eine Bingo-Diagonale bleibt nach dem Reload sichtbar, ohne eine Zeremonie 
   const source = await context.newPage();
   await source.goto(`/overlay/bingo#token=${token}`);
   await expect(source.getByRole("grid", { name: "E2E Diagonale" })).toBeVisible();
+  const editorGrid = page.getByRole("region", { name: "Kartenkachel" });
   for (const fieldNumber of [1, 5, 9]) {
-    await page.getByRole("gridcell", { name: `E2E Feld ${String(fieldNumber)}` }).click();
+    await editorGrid.getByRole("gridcell", { name: `E2E Feld ${String(fieldNumber)}` }).click();
   }
 
   await expect(source.locator('.bingo-source__cell[data-line-complete="true"]')).toHaveCount(3);

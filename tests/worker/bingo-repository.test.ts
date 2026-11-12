@@ -377,10 +377,12 @@ describe("Bingo repository and service", () => {
     await inRepository((repository) => {
       const service = serviceFor(repository);
       const marked = service.markCell("g01", true, 0);
-      const styled = service.setStyle("broadcast");
+      const styled = service.setStyle("broadcast", marked.board.cardRevision);
       expect(styled.board.style).toBe("broadcast");
       expect(styled.board.marks).toEqual(marked.board.marks);
+      expect(styled.board.cardRevision).toBe(marked.board.cardRevision + 1);
       expect(styled.update?.ceremony).toBeUndefined();
+      expect(() => service.setStyle("marker", marked.board.cardRevision)).toThrow("Die Bingo-Karte wurde inzwischen geändert.");
     });
   });
 });
