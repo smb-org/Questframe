@@ -13,6 +13,7 @@ type CeremonyEntry = {
 
 const CEREMONY_REGISTRY: Partial<Record<BingoStyleId, CeremonyEntry>> = {
   marker: { lineDurationMs: 1_000, fullCardDurationMs: 1_600 },
+  broadcast: { lineDurationMs: 1_250, fullCardDurationMs: 2_200 },
 };
 
 /** Zeremonien kommen nur aus dem expliziten Update-Payload, nie aus einem Zustandsvergleich. */

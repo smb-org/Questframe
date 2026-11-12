@@ -7,6 +7,7 @@ import type {
   BingoBoardState,
   BingoCardSaveRequest,
   BingoSetResponse,
+  BingoStyleId,
   BingoUndoResponse,
   BingoUpdateMessage,
   MarkCellPayload,
@@ -54,6 +55,10 @@ const createApi = (overrides: Partial<BingoAdminApi> = {}) => ({
   loadBingoSet: vi.fn((setId: string, revision: number) => { void setId; void revision; return Promise.resolve(mutation(createBoard())); }),
   importBingoCard: vi.fn((file: string, revision: number) => { void file; void revision; return Promise.resolve(mutation(createBoard())); }),
   exportBingoCard: vi.fn(() => Promise.resolve(JSON.stringify({ format: "questframe-bingo", version: 1, card: createBoard().card }))),
+  setBingoStyle: vi.fn((style: BingoStyleId, expectedCardRevision: number) => {
+    void expectedCardRevision;
+    return Promise.resolve(mutation({ ...createBoard(), style, cardRevision: 8 }));
+  }),
   undo: vi.fn((moduleId: "bingo", channelSeq: number, baseRevision: BingoUndoBaseRevisions) => { void moduleId; void channelSeq; void baseRevision; return Promise.resolve({ board: createBoard(), undoTargets: [], serverTime: "2026-11-12T12:00:00.000Z" } satisfies BingoUndoResponse); }),
   ...overrides,
 });
@@ -213,5 +218,36 @@ describe("Bingo-Regie und Editor", () => {
 
     expect(confirm).toHaveBeenCalled();
     expect(api.resetBingoMarks).toHaveBeenCalledWith(4);
+  });
+
+  it("setzt den Stil mit der aktuellen Kartenrevision und aktualisiert die Regie-Vorschau", async () => {
+    const user = userEvent.setup();
+    const api = createApi();
+    renderPanel(api);
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Bingo-Stil" }), "broadcast");
+
+    expect(api.setBingoStyle).toHaveBeenCalledWith("broadcast", 7);
+    await waitFor(() => expect(document.querySelector('.bingo-admin-live-card .bingo-source[data-style="broadcast"]')).not.toBeNull());
+    expect(document.querySelector('.bingo-admin-live-card .bingo-source[data-style="broadcast"]')).not.toBeNull();
+  });
+
+  it("zeigt einen Stilkonflikt im reservierten Nachrichtenfeld", async () => {
+    const user = userEvent.setup();
+    const currentSnapshot = { ...createBoard(), style: "broadcast" as const, cardRevision: 8 };
+    const conflict = Object.assign(new Error("Die Bingo-Karte wurde inzwischen geändert."), {
+      code: "revision_conflict",
+      currentSnapshot,
+    });
+    const api = createApi();
+    api.setBingoStyle = vi.fn(() => Promise.reject(conflict));
+    renderPanel(api);
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Bingo-Stil" }), "broadcast");
+
+    const alert = await screen.findByRole("alert");
+    expect(api.setBingoStyle).toHaveBeenCalledWith("broadcast", 7);
+    expect(alert).toHaveTextContent("Die Bingo-Karte wurde inzwischen geändert.");
+    expect(alert.closest(".bingo-admin-message-slot")).toBeInTheDocument();
   });
 });

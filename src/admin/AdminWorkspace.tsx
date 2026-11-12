@@ -62,10 +62,12 @@ import type {
   BingoMutationResponse,
   BingoSetListResponse,
   BingoSetResponse,
+  BingoStyleId,
   BingoUpdateMessage,
   MarkCellPayload,
 } from "../modules/bingo/contracts/schemas";
 import type { BingoAdminApi } from "../modules/bingo/ui/BingoAdminPanel";
+import { BingoCeremonyStage } from "../bingo/BingoCeremonyStage";
 import { GLOBAL_TIMER_UP_CAP_MS, MAX_VISIBLE_ROWS } from "../modules/win-challenges/contracts/predicates";
 import { ChallengeBoard, type ChallengeBoardApi, type ChallengeBoardSaveHandle } from "../modules/win-challenges/ui/ChallengeBoard";
 import { ChallengeLog } from "../modules/win-challenges/ui/ChallengeLog";
@@ -111,6 +113,7 @@ export type AdminApi = {
   markBingoCell?: ((request: MarkCellPayload) => Promise<BingoMutationResponse>) | undefined;
   resetBingoMarks?: ((expectedMarkRevision: number) => Promise<BingoMutationResponse>) | undefined;
   saveBingoCard?: ((request: BingoCardSaveRequest) => Promise<BingoMutationResponse>) | undefined;
+  setBingoStyle?: ((style: BingoStyleId, expectedCardRevision: number) => Promise<BingoMutationResponse>) | undefined;
   listBingoSets?: (() => Promise<BingoSetListResponse>) | undefined;
   getBingoSet?: ((setId: string) => Promise<BingoSetResponse>) | undefined;
   saveBingoSet?: ((name: string) => Promise<BingoSetResponse>) | undefined;
@@ -799,7 +802,7 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
   const bingoAdminApi = useMemo<BingoAdminApi | null>(() => {
     if (
       api.getBingoBoard === undefined || api.markBingoCell === undefined || api.resetBingoMarks === undefined
-      || api.saveBingoCard === undefined || api.listBingoSets === undefined || api.getBingoSet === undefined
+      || api.saveBingoCard === undefined || api.setBingoStyle === undefined || api.listBingoSets === undefined || api.getBingoSet === undefined
       || api.saveBingoSet === undefined || api.deleteBingoSet === undefined || api.loadBingoSet === undefined
       || api.importBingoCard === undefined || api.exportBingoCard === undefined
     ) return null;
@@ -809,6 +812,7 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
       markBingoCell: api.markBingoCell,
       resetBingoMarks: api.resetBingoMarks,
       saveBingoCard: api.saveBingoCard,
+      setBingoStyle: api.setBingoStyle,
       listBingoSets: api.listBingoSets,
       getBingoSet: api.getBingoSet,
       saveBingoSet: api.saveBingoSet,
@@ -824,6 +828,13 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
   // Sammel-Overlay-Ausgabe bleibt unverändert; /overlay und /overlay/challenges
   // funktionieren als Einzel-URLs unabhängig vom Sammel-Overlay.
   const challengePreview = displayedChallengeUpdate === null || !challengeReady ? null : <ChallengeLogPreview ariaLabel="Challenge-Log verschieben, Pfeiltasten" className={`composition-draggable-module composition-draggable-module--challenge ${!state.draft.compositeChallengesVisible ? "is-module-muted" : ""} ${dragging === "challenges" ? "is-dragging" : ""}`} onKeyDown={(event) => movePlacementWithKeyboard("challenges", event)} onLostPointerCapture={(event) => stopDrag("challenges", event)} onPointerCancel={(event) => stopDrag("challenges", event)} onPointerDown={(event) => startDrag("challenges", event)} onPointerMove={(event) => moveDrag("challenges", event)} onPointerUp={(event) => stopDrag("challenges", event)} placement={effectiveChallengePlacement ?? displayedChallengeUpdate.settings.placement} rootTag="section" update={displayedChallengeUpdate} />;
+  const bingoPreview = bingoUpdate === null ? null : <BingoCeremonyStage
+    ariaLabel="Bingo-Karte in der Live-Vorschau"
+    board={bingoUpdate.board}
+    className={`admin-bingo-live-preview ${!state.draft.compositeBingoVisible ? "is-module-muted" : ""}`}
+    placement={bingoPlacementDraft ?? bingoUpdate.board.placement}
+    presentation={{ activeCeremony: null, reducedMotion: false }}
+  />;
   // Die Interaktion bleibt auch bei ausgeschaltetem Sammel-Overlay-Schalter in
   // der Admin-Vorschau aktiv. Die Einzel-URLs /overlay und /overlay/challenges
   // bleiben unabhängig vom Sammel-Overlay.
@@ -853,7 +864,7 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
           themeLabel={THEME_LABELS[state.preview.themeId]}
           zoom={previewZoom}
         >
-          {challengePreview}
+          {challengePreview}{bingoPreview}
         </PreviewPanel>
       </main>
       <aside className="composition-rails">

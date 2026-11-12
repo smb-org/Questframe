@@ -35,6 +35,7 @@ export const BingoCeremonyStage = ({
       aria-label={ariaLabel}
       className={`bingo-source-ceremony ${className ?? ""}`.trim()}
       data-ceremony-motion={presentation.activeCeremony === null ? undefined : presentation.reducedMotion ? "static" : "animated"}
+      data-style={board.style}
       data-ceremony-type={presentation.activeCeremony?.type}
       style={style}
     >

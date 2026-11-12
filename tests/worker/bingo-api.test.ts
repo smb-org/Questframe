@@ -128,11 +128,22 @@ describe("Bingo-API", () => {
     const style = await fetchWorker("/api/bingo/style", {
       method: "PUT",
       headers: authenticatedHeaders(),
-      body: JSON.stringify({ style: "broadcast" }),
+      body: JSON.stringify({ style: "broadcast", expectedCardRevision: 1 }),
     });
     expect(style.status).toBe(200);
     const first = await readBingo();
     expect(first.style).toBe("broadcast");
+    expect(first.cardRevision).toBe(2);
+
+    const staleStyle = await fetchWorker("/api/bingo/style", {
+      method: "PUT",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({ style: "marker", expectedCardRevision: 1 }),
+    });
+    expect(staleStyle.status).toBe(409);
+    await expect(staleStyle.json()).resolves.toMatchObject({
+      error: { code: "revision_conflict", currentSnapshot: { style: "broadcast", cardRevision: 2 } },
+    });
 
     const savedSet = await fetchWorker("/api/bingo/sets", {
       method: "POST",
