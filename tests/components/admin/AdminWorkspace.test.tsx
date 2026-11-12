@@ -2025,6 +2025,8 @@ describe("Admin workspace publication boundary", () => {
   });
 
   it("validates effect selection, names, descriptions and ambiguous absolute times", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-29T12:00:00.000Z"));
     const user = userEvent.setup();
     const initial = bootstrap();
     render(<AdminWorkspace initialBootstrap={initial} api={{
