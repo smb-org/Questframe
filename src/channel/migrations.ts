@@ -448,7 +448,7 @@ const migrateBingo1 = (sql: SqlStorage): void => {
     `INSERT INTO bg_board(
       singleton, title, size, cells_json, marks_json, card_revision, mark_revision,
       generation, placement_x, placement_y, placement_scale, style, created_at, updated_at
-    ) VALUES (1, ?, ?, ?, '[]', 0, 0, 0, 8, 120, 1, 'marker', ?, ?)
+    ) VALUES (1, ?, ?, ?, '[]', 0, 0, 0, 8, 80, 1, 'marker', ?, ?)
     ON CONFLICT(singleton) DO NOTHING`,
     firstCard.title,
     firstCard.size,

@@ -13,7 +13,7 @@ import {
   markCellPayloadSchema,
   resetMarksPayloadSchema,
 } from "../contracts/schemas";
-import { decodeBingoCard, encodeBingoCard } from "../domain/card-codec";
+import { decodeBingoCard, encodeBingoCard, MAX_BINGO_FILE_BYTES } from "../domain/card-codec";
 import { applyBingoUndo, createBingoService, type BingoCommandResult } from "../service/commands";
 import {
   BingoNotFoundError,
@@ -148,7 +148,7 @@ export const createBingoHttpHandler = (socketTags: readonly SocketTag[]): Module
     }
     if (request.method === "POST" && url.pathname === "/bingo/import") {
       const session = await requireEditorMutation(request, ctx);
-      const input = bingoImportRequestSchema.parse(await readJson(request, 20_000));
+      const input = bingoImportRequestSchema.parse(await readJson(request, 2 * MAX_BINGO_FILE_BYTES + 1_024));
       const decoded = decodeBingoCard(input.file);
       if (!decoded.ok) throw new RequestError(422, "validation_failed", decoded.error.message);
       const result = bingoService(ctx, session).importCard(decoded.value, input.expectedCardRevision);

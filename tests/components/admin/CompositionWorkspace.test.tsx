@@ -130,29 +130,35 @@ describe("Kompositions-Workspace", () => {
     render(<AdminWorkspace api={createCompositionApi(challengeSnapshot())} initialBootstrap={bootstrap()} />);
     const hudTab = screen.getByRole("tab", { name: "HUD" });
     const challengesTab = screen.getByRole("tab", { name: "Challenges" });
+    const bingoTab = screen.getByRole("tab", { name: "Bingo" });
 
     hudTab.focus();
     await user.keyboard("{End}");
-    expect(challengesTab).toHaveAttribute("aria-selected", "true");
+    expect(bingoTab).toHaveAttribute("aria-selected", "true");
     expect(hudTab).toHaveAttribute("aria-selected", "false");
-    expect(challengesTab).toHaveFocus();
+    expect(bingoTab).toHaveFocus();
 
     await user.keyboard("{Home}");
     expect(hudTab).toHaveAttribute("aria-selected", "true");
-    expect(challengesTab).toHaveAttribute("aria-selected", "false");
+    expect(bingoTab).toHaveAttribute("aria-selected", "false");
     expect(hudTab).toHaveFocus();
 
-    // Umlauf: ArrowRight vom letzten Tab springt zurück zum ersten, statt am Ende
-    // stehen zu bleiben (bei zwei Tabs ist das schon der zweite Tastendruck).
+    // Der dritte Tab führt mit ArrowRight wieder zurück zum ersten.
     await user.keyboard("{ArrowRight}");
     await waitFor(() => expect(challengesTab).toHaveFocus());
     expect(challengesTab).toHaveAttribute("aria-selected", "true");
     expect(hudTab).toHaveAttribute("aria-selected", "false");
 
     await user.keyboard("{ArrowRight}");
+    await waitFor(() => expect(bingoTab).toHaveFocus());
+    expect(bingoTab).toHaveAttribute("aria-selected", "true");
+    expect(challengesTab).toHaveAttribute("aria-selected", "false");
+
+    await user.keyboard("{ArrowRight}");
     await waitFor(() => expect(hudTab).toHaveFocus());
     expect(hudTab).toHaveAttribute("aria-selected", "true");
     expect(challengesTab).toHaveAttribute("aria-selected", "false");
+    expect(bingoTab).toHaveAttribute("aria-selected", "false");
   });
 
   it("bietet die Modul-Schalter an und markiert ausgeschaltete Module in der Vorschau", async () => {

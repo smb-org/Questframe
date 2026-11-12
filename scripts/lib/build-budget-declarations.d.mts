@@ -7,4 +7,6 @@ export declare const createBudgetDeclarations: (
   challengeStyleKeys: readonly string[],
   qrCodeKey: string,
   bingoEntryKey: string,
+  bingoAdminEntryKey: string,
+  bingoStyleKeys: readonly string[],
 ) => readonly BuildBudgetDeclaration[];

@@ -1,0 +1,167 @@
+.bingo-source-ceremony {
+  position: absolute;
+  top: var(--bingo-y, 0px);
+  left: var(--bingo-x, 0px);
+  width: max-content;
+  transform: scale(var(--bingo-scale, 1));
+  transform-origin: top left;
+  color: #f7f5ef;
+  font-family: "Atkinson Hyperlegible Next", system-ui, sans-serif;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 0 8px rgba(0, 0, 0, 0.9);
+}
+
+.bingo-source {
+  --bingo-ink: #f7f5ef;
+  --bingo-red: #f1353e;
+  --bingo-line: rgba(238, 241, 239, 0.52);
+  box-sizing: border-box;
+  width: var(--bingo-board-width, min(520px, calc(100vw - 24px)));
+  color: var(--bingo-ink);
+}
+
+.bingo-source__title {
+  margin: 0 0 8px;
+  color: #fffdf8;
+  font-family: "Comic Sans MS", "Segoe Print", cursive;
+  font-size: clamp(22px, 5vw, 48px);
+  font-weight: 700;
+  line-height: 1.08;
+  text-align: center;
+  text-shadow: 0 2px 4px #050607, 0 0 10px rgba(0, 0, 0, 0.9);
+  overflow-wrap: anywhere;
+}
+
+.bingo-source__grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--bingo-size), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--bingo-size), minmax(0, 1fr));
+  aspect-ratio: 1;
+  width: 100%;
+  overflow: visible;
+  isolation: isolate;
+}
+
+.bingo-source__cell {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  place-items: center;
+  padding: clamp(4px, calc(var(--bingo-cell-extent, 80px) * 0.07), 11px);
+  overflow: hidden;
+  border: 1px solid var(--bingo-line);
+  border-radius: 0;
+  background: rgba(10, 12, 15, 0.62);
+  color: inherit;
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+
+.bingo-source__cell:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.bingo-source__text {
+  position: relative;
+  z-index: 1;
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: var(--bingo-cell-font-size, 18px);
+  font-weight: 800;
+  line-height: 1.08;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+  hyphens: auto;
+}
+
+.bingo-source__mark {
+  position: absolute;
+  z-index: 2;
+  inset: 9%;
+  width: 82%;
+  height: 82%;
+  overflow: visible;
+  color: var(--bingo-red);
+  opacity: 0.82;
+  pointer-events: none;
+}
+
+.bingo-source__mark path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 7;
+  vector-effect: non-scaling-stroke;
+}
+
+.bingo-source__line-art {
+  position: absolute;
+  z-index: 3;
+  inset: -2%;
+  width: 104%;
+  height: 104%;
+  overflow: visible;
+  color: var(--bingo-red);
+  pointer-events: none;
+}
+
+.bingo-source__line-outline {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.3;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.93;
+}
+
+.bingo-source__bingo-callout {
+  position: absolute;
+  right: -148px;
+  bottom: 12%;
+  color: var(--bingo-red);
+  font-family: "Comic Sans MS", "Segoe Print", cursive;
+  font-size: 48px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  transform: rotate(-8deg);
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.95), 0 0 8px rgba(0, 0, 0, 0.9);
+}
+
+.bingo-source-ceremony[data-ceremony-type="line"][data-ceremony-motion="animated"] .bingo-source__line-outline[data-ceremony-line="true"] {
+  animation: bingo-marker-circle 720ms ease-out both;
+  stroke-dasharray: 300;
+  stroke-dashoffset: 300;
+}
+
+.bingo-source-ceremony[data-ceremony-type="full-card"][data-ceremony-motion="animated"] .bingo-source__line-outline,
+.bingo-source-ceremony[data-ceremony-type="full-card"][data-ceremony-motion="animated"] .bingo-source__mark {
+  animation: bingo-marker-full 920ms cubic-bezier(0.18, 0.72, 0.16, 1.16) both;
+}
+
+.bingo-source-ceremony[data-ceremony-type="full-card"] .bingo-source__bingo-callout {
+  font-size: 66px;
+}
+
+@keyframes bingo-marker-circle {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes bingo-marker-full {
+  0% { opacity: 0.2; transform: scale(0.85) rotate(-4deg); }
+  65% { opacity: 1; transform: scale(1.05) rotate(2deg); }
+  100% { opacity: 0.95; transform: scale(1) rotate(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bingo-source-ceremony[data-ceremony-motion="static"] .bingo-source__line-outline,
+  .bingo-source-ceremony[data-ceremony-motion="static"] .bingo-source__mark,
+  .bingo-source-ceremony[data-ceremony-motion="static"] .bingo-source__bingo-callout {
+    animation: none !important;
+  }
+}

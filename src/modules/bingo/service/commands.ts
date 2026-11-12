@@ -176,6 +176,7 @@ export class BingoService {
     title: string;
     size: number;
     cells: BingoBoardState["card"]["cells"];
+    placement: BingoBoardState["placement"];
     expectedCardRevision: number;
   }): BingoCommandResult {
     const parsed = bingoCardSaveRequestSchema.safeParse(input);
@@ -196,6 +197,7 @@ export class BingoService {
           size: parsed.data.size,
           cells: parsed.data.cells,
         },
+        placement: parsed.data.placement,
         marks,
         cardRevision: before.cardRevision + 1,
         markRevision: before.markRevision + 1,
@@ -246,7 +248,11 @@ export class BingoService {
     size: number;
     cells: BingoBoardState["card"]["cells"];
   }, expectedCardRevision: number): BingoCommandResult {
-    const parsed = bingoCardSaveRequestSchema.safeParse({ ...card, expectedCardRevision });
+    const parsed = bingoCardSaveRequestSchema.safeParse({
+      ...card,
+      placement: this.repository.readBoard().placement,
+      expectedCardRevision,
+    });
     if (!parsed.success) return serializeFailure("Ungültige Bingo-Karte.");
 
     return this.repository.transaction((transaction) => {
@@ -342,13 +348,14 @@ export const applyBingoUndo = (
     const before = transaction.readBoard();
     const targetBoard = parsedTarget.data;
     const cardChanged = JSON.stringify(before.card) !== JSON.stringify(targetBoard.card);
+    const placementChanged = JSON.stringify(before.placement) !== JSON.stringify(targetBoard.placement);
     const after = bingoBoardStateSchema.parse({
       ...before,
       card: targetBoard.card,
       marks: targetBoard.marks,
       style: targetBoard.style,
       placement: targetBoard.placement,
-      cardRevision: before.cardRevision + (cardChanged ? 1 : 0),
+      cardRevision: before.cardRevision + (cardChanged || placementChanged ? 1 : 0),
       markRevision: before.markRevision + 1,
       generation: before.generation + (cardChanged ? 1 : 0),
     });

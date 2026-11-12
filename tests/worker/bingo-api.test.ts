@@ -4,6 +4,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { runMigrations } from "../../src/channel/migrations";
 import type { BingoBoardState } from "../../src/modules/bingo/contracts/schemas";
+import { MAX_BINGO_FILE_BYTES } from "../../src/modules/bingo/domain/card-codec";
 import { bootstrapResponseSchema } from "../../src/shared/contracts/api";
 
 const origin = "http://localhost:5173";
@@ -45,7 +46,7 @@ const saveCard = (body: ReturnType<typeof card>, expectedCardRevision: number) =
   fetchWorker("/api/bingo/board", {
     method: "PUT",
     headers: authenticatedHeaders(),
-    body: JSON.stringify({ ...body, expectedCardRevision }),
+    body: JSON.stringify({ ...body, placement: { x: 8, y: 8, scale: 1 }, expectedCardRevision }),
   });
 
 describe("Bingo-API", () => {
@@ -182,5 +183,37 @@ describe("Bingo-API", () => {
 
     const challengesAfter = await (await fetchWorker("/api/challenges", { headers: authenticatedHeaders() })).json();
     expect(challengesAfter).toEqual(challengesBefore);
+  });
+
+  it("imports a file under the file cap when its JSON envelope needs escaping", async () => {
+    const escapedCard = {
+      format: "questframe-bingo",
+      version: 1,
+      card: {
+        title: "Anführungszeichen",
+        size: 3,
+        cells: Array.from({ length: 9 }, (_, index) => ({
+          id: `quote-${String(index)}`,
+          text: '"'.repeat(40),
+        })),
+      },
+    };
+    const serializedFile = JSON.stringify(escapedCard, null, 2);
+    const serializedFileBytes = new TextEncoder().encode(serializedFile).byteLength;
+    const padding = "\n".repeat(MAX_BINGO_FILE_BYTES - 1 - serializedFileBytes);
+    const file = `${padding}${serializedFile}`;
+    const envelope = JSON.stringify({ file, expectedCardRevision: 0 });
+    expect(new TextEncoder().encode(file).byteLength).toBe(MAX_BINGO_FILE_BYTES - 1);
+    expect(new TextEncoder().encode(envelope).byteLength).toBeGreaterThan(20_000);
+    expect(new TextEncoder().encode(envelope).byteLength).toBeLessThanOrEqual(2 * MAX_BINGO_FILE_BYTES + 1_024);
+
+    const response = await fetchWorker("/api/bingo/import", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: envelope,
+    });
+
+    expect(response.status).toBe(200);
+    expect((await readBingo()).card.title).toBe("Anführungszeichen");
   });
 });

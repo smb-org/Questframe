@@ -31,6 +31,24 @@ describe("Bingo-Dateicodec", () => {
     expect(decodeBingoCard(exported)).toEqual({ ok: true, value: card(size) });
   });
 
+  it("exportiert und importiert die größte schema-gültige Karte unterhalb des Dateicaps", () => {
+    const combiningGrapheme = "界\u1ab0\u1ab1\u1ab2";
+    const largestCard: BingoCard = {
+      title: "M".repeat(24),
+      size: 5,
+      cells: Array.from({ length: 25 }, (_, index) => ({
+        id: `${String(index).padStart(2, "0")}${"界".repeat(38)}`,
+        text: combiningGrapheme.repeat(40),
+      })),
+    };
+
+    const exported = encodeBingoCard(largestCard);
+    const exportedBytes = new TextEncoder().encode(exported).byteLength;
+
+    expect(exportedBytes).toBeLessThanOrEqual(MAX_BINGO_FILE_BYTES);
+    expect(decodeBingoCard(exported)).toEqual({ ok: true, value: largestCard });
+  });
+
   it("exportiert keine Zustandsdaten oder zusätzlichen Schlüssel", () => {
     const withRuntimeFields = {
       ...card(3),

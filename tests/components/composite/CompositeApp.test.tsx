@@ -128,6 +128,60 @@ afterEach(() => {
 });
 
 describe("CompositeApp", () => {
+  it("rendert Bingo unabhängig vom Challenges-Schalter an der eigenen Raster-Position", async () => {
+    render(<CompositeApp loadBingoStyle={() => Promise.resolve()} loadStyle={() => Promise.resolve()} />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0] as FakeWebSocket;
+
+    await deliver(socket, {
+      type: "snapshot",
+      state: { ...state, compositeBingoVisible: true, compositeChallengesVisible: false },
+    });
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2));
+    const bingoSocket = FakeWebSocket.instances.find(({ url }) => url.includes("/ws/bingo"));
+    expect(bingoSocket).toBeDefined();
+    await deliver(bingoSocket as FakeWebSocket, {
+      type: "bingo_update",
+      board: {
+        card: {
+          title: "Bingo im Composite",
+          size: 3,
+          cells: Array.from({ length: 9 }, (_, index) => ({ id: `b${String(index)}`, text: `Feld ${String(index)}` })),
+        },
+        marks: ["b0", "b4", "b8"],
+        cardRevision: 1,
+        markRevision: 3,
+        generation: 0,
+        style: "marker",
+        placement: { x: 30, y: 8, scale: 1.25 },
+      },
+    });
+
+    expect(await screen.findByRole("grid", { name: "Bingo im Composite" })).toBeInTheDocument();
+    expect(document.querySelector(".bingo-source-ceremony")).toHaveStyle({ "--bingo-x": "150px", "--bingo-y": "40px" });
+    expect(document.querySelector(".challenge-source-ceremony")).not.toBeInTheDocument();
+    expect(socket.url).toContain("/ws/composite");
+  });
+
+  it("startet bei einer kaputten Bingo-Nachricht nur die Bingo-Quelle neu", async () => {
+    const reloadPage = vi.fn();
+    render(<CompositeApp loadBingoStyle={() => Promise.resolve()} loadStyle={() => Promise.resolve()} reloadPage={reloadPage} />);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    await deliver(FakeWebSocket.instances[0] as FakeWebSocket, {
+      type: "snapshot",
+      state: { ...state, compositeBingoVisible: true, compositeChallengesVisible: false },
+    });
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2));
+    const bingoSocket = FakeWebSocket.instances.find(({ url }) => url.includes("/ws/bingo"));
+    expect(bingoSocket).toBeDefined();
+
+    await deliver(bingoSocket as FakeWebSocket, { type: "bingo_update", board: {} });
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(3));
+
+    expect(reloadPage).not.toHaveBeenCalled();
+    expect(FakeWebSocket.instances.filter(({ url }) => url.includes("/ws/composite"))).toHaveLength(1);
+  });
+
   it("rendert Challenge-Updates nach einem kaputten HUD-Snapshot beim Kaltstart", async () => {
     render(<CompositeApp loadStyle={() => Promise.resolve()} />);
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));

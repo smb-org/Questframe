@@ -1,0 +1,137 @@
+.bingo-admin-panel {
+  width: 100%;
+  min-height: calc(100vh - 116px);
+  padding: 14px 16px 26px;
+  overflow: auto;
+  color: var(--text);
+}
+
+.bingo-admin-heading,
+.bingo-admin-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.bingo-admin-heading { min-height: 42px; }
+.bingo-admin-heading h1,
+.bingo-admin-section-heading h2 {
+  margin: 3px 0 0;
+  font-family: Georgia, serif;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.bingo-admin-section-heading { margin: 12px 0 10px; }
+.bingo-admin-section-heading h2 { font-size: 17px; }
+.bingo-admin-section-heading .button { min-height: 40px; }
+
+.bingo-admin-connection { display: inline-flex; align-items: center; gap: 6px; color: var(--green); font-size: 11px; white-space: nowrap; }
+.bingo-admin-connection i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.bingo-admin-connection.is-offline { color: var(--red); }
+
+.bingo-admin-message-slot {
+  box-sizing: border-box;
+  display: flex;
+  height: 44px;
+  min-height: 44px;
+  align-items: center;
+  margin: 8px 0 10px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow: auto;
+}
+
+.bingo-admin-message-slot.has-error { border-color: var(--red); color: var(--red); }
+.bingo-admin-message-slot.has-message { border-color: var(--green); color: var(--green); }
+
+.bingo-admin-live-card,
+.bingo-admin-editor {
+  padding: 0 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.bingo-admin-board-slot {
+  display: flex;
+  min-height: 400px;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: visible;
+}
+
+.bingo-admin-card-placeholder {
+  width: min(350px, 100%);
+  height: 400px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.bingo-admin-live-card .bingo-source__title { font-size: 24px; }
+.bingo-admin-live-card .bingo-source__cell { padding: 4px; }
+.bingo-admin-live-card .bingo-source__text { font-size: clamp(8px, var(--bingo-cell-font-size), 17px); }
+.bingo-admin-live-card .bingo-source__bingo-callout { display: none; }
+
+.bingo-admin-undo { box-sizing: border-box; height: 200px; margin: 4px 0 0; padding: 9px 0 0; overflow: auto; border-top: 1px solid var(--line); }
+.bingo-admin-undo summary { display: flex; min-height: 32px; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; cursor: pointer; }
+.bingo-admin-undo button { width: 100%; display: flex; flex-direction: column; gap: 2px; margin-top: 5px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--text); text-align: left; font-size: 11px; cursor: pointer; }
+.bingo-admin-undo button span { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+
+.bingo-admin-card-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(80px, 110px) minmax(90px, 110px);
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.bingo-admin-panel label { display: grid; min-width: 0; gap: 5px; color: var(--muted); font-size: 10px; }
+.bingo-admin-panel label > span { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bingo-admin-panel input,
+.bingo-admin-panel select { width: 100%; min-width: 0; min-height: 38px; padding: 0 9px; border: 1px solid var(--line); border-radius: 5px; background: var(--admin-bg); color: var(--text); font-size: 12px; }
+.bingo-admin-panel input:disabled,
+.bingo-admin-panel select:disabled { opacity: 0.62; }
+
+.bingo-admin-set-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: end;
+  margin: 10px 0;
+}
+
+.bingo-admin-set-select { grid-column: 1 / -1; }
+.bingo-admin-set-tools .button { min-width: 0; min-height: 38px; padding: 0 8px; font-size: 11px; }
+.bingo-admin-set-tools .button svg { flex: 0 0 auto; }
+
+.bingo-admin-placement {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0 12px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.bingo-admin-placement label { font-variant-numeric: tabular-nums; }
+.bingo-admin-editor-grid { display: grid; gap: 7px; }
+.bingo-admin-cell-field > span { color: var(--text); font-size: 11px; font-weight: 650; }
+.bingo-admin-cell-field small { color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 500; }
+.bingo-admin-cell-field small.is-over-limit { color: var(--red); }
+.bingo-admin-cell-field input { min-height: 38px; }
+
+@media (max-width: 767px) {
+  .bingo-admin-panel { min-height: 0; padding: 12px; overflow: visible; }
+  .bingo-admin-section-heading { align-items: flex-start; flex-direction: column; }
+  .bingo-admin-section-heading .button { width: 100%; }
+  .bingo-admin-card-fields { grid-template-columns: 1fr 1fr; }
+  .bingo-admin-card-fields label:first-child { grid-column: 1 / -1; }
+  .bingo-admin-set-tools { grid-template-columns: 1fr; }
+  .bingo-admin-set-select { grid-column: auto; }
+}

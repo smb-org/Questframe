@@ -147,7 +147,7 @@ describe("Bingo-Sockets", () => {
       const saved = await fetchWorker("/api/bingo/board", {
         method: "PUT",
         headers: authenticatedHeaders(),
-        body: JSON.stringify({ ...card, expectedCardRevision: 0 }),
+        body: JSON.stringify({ ...card, placement: { x: 8, y: 8, scale: 1 }, expectedCardRevision: 0 }),
       });
       expect(saved.status).toBe(200);
       await Promise.all([requireBingoUpdate(bingo), requireBingoUpdate(editor), requireBingoUpdate(composite)]);

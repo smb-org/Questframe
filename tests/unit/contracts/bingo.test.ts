@@ -81,8 +81,11 @@ describe("Bingo-Verträge", () => {
     expect(bingoCardSchema.safeParse(emptyId).success).toBe(false);
 
     const longId = card();
-    longId.cells = longId.cells.map((cell, index) => index === 0 ? { ...cell, id: "x".repeat(81) } : cell);
+    longId.cells = longId.cells.map((cell, index) => index === 0 ? { ...cell, id: "x".repeat(41) } : cell);
     expect(bingoCardSchema.safeParse(longId).success).toBe(false);
+    const maximumId = card();
+    maximumId.cells = maximumId.cells.map((cell, index) => index === 0 ? { ...cell, id: "x".repeat(40) } : cell);
+    expect(bingoCardSchema.safeParse(maximumId).success).toBe(true);
   });
 
   it("gibt beim Board den Marker-Stil vor und prüft Kreuze, IDs und Revisionen", () => {
@@ -110,7 +113,12 @@ describe("Bingo-Verträge", () => {
     expect(markCellPayloadSchema.safeParse({ cellId: "cell-1", marked: true, expectedMarkRevision: -1 }).success).toBe(false);
     expect(resetMarksPayloadSchema.safeParse({ expectedMarkRevision: 4 }).success).toBe(true);
     expect(resetMarksPayloadSchema.safeParse({ expectedMarkRevision: 4, marks: [] }).success).toBe(false);
-    expect(bingoCardSaveRequestSchema.safeParse({ ...card(), expectedCardRevision: 0 }).success).toBe(true);
+    expect(bingoCardSaveRequestSchema.safeParse({
+      ...card(),
+      placement: { x: 300, y: 8, scale: 1 },
+      expectedCardRevision: 0,
+    }).success).toBe(true);
+    expect(bingoCardSaveRequestSchema.safeParse({ ...card(), expectedCardRevision: 0 }).success).toBe(false);
     expect(bingoCardSaveRequestSchema.safeParse({ ...card(), expectedCardRevision: 0, marks: [] }).success).toBe(false);
   });
 

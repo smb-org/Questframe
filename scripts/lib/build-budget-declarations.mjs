@@ -1,4 +1,4 @@
-export const createBudgetDeclarations = (temporalKey, challengeStyleKeys, qrCodeKey, bingoEntryKey) => [
+export const createBudgetDeclarations = (temporalKey, challengeStyleKeys, qrCodeKey, bingoEntryKey, bingoAdminEntryKey, bingoStyleKeys) => [
   {
     type: "surface",
     key: "src/overlay/OverlayApp.tsx",
@@ -70,6 +70,13 @@ export const createBudgetDeclarations = (temporalKey, challengeStyleKeys, qrCode
   },
   {
     type: "surface",
+    key: bingoAdminEntryKey,
+    label: "Bingo-Admin",
+    javascriptLabel: "Bingo-Admin Lazy JavaScript",
+    javascriptBudget: 160 * 1024,
+  },
+  {
+    type: "surface",
     key: "src/live/LiveApp.tsx",
     label: "Live-Seite",
     staticRoots: ["index.html"],
@@ -85,6 +92,12 @@ export const createBudgetDeclarations = (temporalKey, challengeStyleKeys, qrCode
     type: "variantMax",
     label: "Challenge-Style-Chunk (variantMax)",
     keys: challengeStyleKeys,
+    budget: 64 * 1024,
+  },
+  {
+    type: "variantMax",
+    label: "Bingo-Style-Chunk (variantMax)",
+    keys: bingoStyleKeys,
     budget: 64 * 1024,
   },
   {

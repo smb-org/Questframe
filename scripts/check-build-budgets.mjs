@@ -13,6 +13,7 @@ const adminKey = "src/admin/AdminApp.tsx";
 const challengeSourceKey = "src/challenges/ChallengeSourceApp.tsx";
 const compositeKey = "src/composite/CompositeApp.tsx";
 const bingoSourceKey = "src/bingo/BingoSourceApp.tsx";
+const bingoAdminKey = "src/modules/bingo/ui/BingoAdminPanel.tsx";
 // pnpm verschachtelt den aufgeloesten Pfad unter node_modules/.pnpm/..., deshalb
 // matchen wir weiterhin per Suffix statt gegen ein package-manager-spezifisches Layout.
 const temporalKeySuffix = "@js-temporal/polyfill/dist/index.esm.js";
@@ -54,21 +55,43 @@ const challengeStyleKeys = [...challengeSourceDynamicImports].filter((key) => (
 if (challengeStyleKeys.length !== 3) {
   throw new Error(`Expected three dynamic Challenge-Style-Chunks, found ${String(challengeStyleKeys.length)}.`);
 }
+const bingoDynamicImports = collectDynamicImports(bingoSourceKey);
+const bingoStyleKeys = [...bingoDynamicImports].filter((key) => (
+  manifest[key]?.src?.startsWith("src/modules/bingo/styles/") && manifest[key]?.isDynamicEntry === true
+));
+if (bingoStyleKeys.length !== 1) {
+  throw new Error(`Expected one dynamic Bingo-Style-Chunk, found ${String(bingoStyleKeys.length)}.`);
+}
 const adminEntry = manifest[adminKey];
 const qrCodeKeyCandidates = adminEntry?.dynamicImports?.filter((key) => key.endsWith(qrCodeKeySuffix)) ?? [];
 if (qrCodeKeyCandidates.length !== 1) {
   throw new Error(`Expected exactly one dynamic QR-Code entry ending in ${qrCodeKeySuffix}, found ${String(qrCodeKeyCandidates.length)}.`);
 }
 const [qrCodeKey] = qrCodeKeyCandidates;
+const bingoAdminKeys = [...collectDynamicImports(adminKey)].filter((key) => (
+  manifest[key]?.src === bingoAdminKey && manifest[key]?.isDynamicEntry === true
+));
+if (bingoAdminKeys.length !== 1) {
+  throw new Error(`Expected one lazy Bingo-Admin-Chunk, found ${String(bingoAdminKeys.length)}.`);
+}
+const [bingoAdminEntryKey] = bingoAdminKeys;
 const sharedChallengeLoaderKeys = [
   "src/challenges/style-loader.ts",
 ].filter((key) => manifest[key] !== undefined);
+const sharedBingoLoaderKeys = [
+  "src/bingo/style-loader.ts",
+].filter((key) => manifest[key] !== undefined);
 const budgetDeclarations = [
-  ...createBudgetDeclarations(temporalKey, challengeStyleKeys, qrCodeKey, bingoSourceKey),
+  ...createBudgetDeclarations(temporalKey, challengeStyleKeys, qrCodeKey, bingoSourceKey, bingoAdminEntryKey, bingoStyleKeys),
   ...sharedChallengeLoaderKeys.map((key) => ({
     type: "exempt",
     key,
     reason: "Der Loader ist ein kleiner geteilter Bruecken-Chunk; seine konkreten Style-Varianten werden separat als variantMax gemessen.",
+  })),
+  ...sharedBingoLoaderKeys.map((key) => ({
+    type: "exempt",
+    key,
+    reason: "Der Bingo-Loader ist ein kleiner Bruecken-Chunk; der Marker-Style wird separat als variantMax gemessen.",
   })),
 ];
 
@@ -84,6 +107,9 @@ if (compositeClosure.has(adminKey) || compositeClosure.has(temporalKey)) {
 }
 if (adminClosure.has(temporalKey) || adminClosure.has(qrCodeKey)) {
   throw new Error("Temporal und QR-Code müssen lazy und außerhalb der Admin-Initial-Closure bleiben.");
+}
+if (adminClosure.has(bingoAdminEntryKey)) {
+  throw new Error("Der Bingo-Editor muss außerhalb der Admin-Initial-Closure bleiben.");
 }
 
 const distributionEntries = await readdir(path.join(projectRoot, "dist"), { withFileTypes: true });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ChannelState } from "../shared/contracts/state";
 import type { ChallengeUpdate } from "../shared/contracts/win-challenges";
@@ -16,6 +16,7 @@ import { loadChallengeStyle } from "../challenges/style-loader";
 import type { ChallengeStyleLoader } from "../challenges/style-loader";
 import { tokenFromLocation } from "../challenges/wire";
 import { useChallengePresentation } from "../challenges/useChallengePresentation";
+import type { BingoStyleLoader } from "../bingo/style-loader";
 import {
   fingerprintOverlayToken,
   loadOverlaySnapshot,
@@ -26,6 +27,8 @@ import { HudRenderer } from "../overlay/HudRenderer";
 import { useOverlayMediaUrls } from "../overlay/useOverlayMediaUrls";
 import { discriminateCompositeMessage } from "./wire";
 import "./composite.css";
+
+const BingoSource = lazy(() => import("../bingo/BingoSourceApp").then(({ BingoSourceApp }) => ({ default: BingoSourceApp })));
 
 const COMPOSITE_WATCHDOG_MARKER = "irl-stream-hud:composite-watchdog-reload-at";
 const COMPOSITE_WATCHDOG_DELAY_MS = 1_000;
@@ -48,15 +51,18 @@ const clearWatchdogTimer = (timerRef: { current: number | null }): void => {
 
 export type CompositeAppProps = {
   loadStyle?: ChallengeStyleLoader;
+  loadBingoStyle?: BingoStyleLoader;
   reloadPage?: () => void;
 };
 
 export const CompositeApp = ({
   loadStyle = loadChallengeStyle,
+  loadBingoStyle: loadBingoStyleProp,
   reloadPage = reloadWindow,
 }: CompositeAppProps = {}) => {
   const [hudState, setHudState] = useState<ChannelState | null>(null);
   const [challengeUpdate, setChallengeUpdate] = useState<ChallengeUpdate | null>(null);
+  const [bingoSourceGeneration, setBingoSourceGeneration] = useState(0);
   const hudParseFailedRef = useRef(false);
   const challengeParseFailedRef = useRef(false);
   // Letzte bekannte Mitgliedschaft der Challenges. State, nicht Ref: der Wert
@@ -68,6 +74,9 @@ export const CompositeApp = ({
   const hudSustainedTimerRef = useRef<number | null>(null);
   const challengeSustainedTimerRef = useRef<number | null>(null);
   const token = useMemo(() => tokenFromLocation(), []);
+  const restartBingoSource = useCallback((): void => {
+    setBingoSourceGeneration((generation) => generation + 1);
+  }, []);
   const capsuleScope = window.location.host;
   const mediaUrls = useOverlayMediaUrls(hudState, token);
   const presentation = useChallengePresentation({
@@ -211,10 +220,6 @@ export const CompositeApp = ({
           }
           return;
         }
-        if (discriminated.kind === "bingo") {
-          // Die Bingo-Darstellung folgt in Schritt 5; die Nachricht bleibt hier vom Challenge-Parser getrennt.
-          return;
-        }
         if (discriminated.message === null || !("eventSeq" in discriminated.message)) {
           fail("challenges");
           return;
@@ -272,7 +277,11 @@ export const CompositeApp = ({
     && presentation.ready ? (
       <ChallengeCeremonyStage presentation={presentation} update={challengeUpdate} />
     ) : null;
+  const bingoVisible = hudState?.compositeBingoVisible ?? false;
+  const bingo = bingoVisible
+    ? <Suspense fallback={null}><BingoSource key={bingoSourceGeneration} {...(loadBingoStyleProp === undefined ? {} : { loadStyle: loadBingoStyleProp })} reloadPage={restartBingoSource} /></Suspense>
+    : null;
 
-  if (hud === null && challenges === null) return null;
-  return <div aria-label="Zusammengesetzte Overlay-Quelle" className="composite-source" data-testid="composite-source">{hud}{challenges}</div>;
+  if (hud === null && challenges === null && bingo === null) return null;
+  return <div aria-label="Zusammengesetzte Overlay-Quelle" className="composite-source" data-testid="composite-source">{hud}{challenges}{bingo}</div>;
 };

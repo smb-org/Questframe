@@ -5,7 +5,7 @@ import {
   type BingoCard,
 } from "../contracts/schemas";
 
-export const MAX_BINGO_FILE_BYTES = 16 * 1024;
+export const MAX_BINGO_FILE_BYTES = 32 * 1024;
 
 export type BingoFileDecodeErrorCode = "too-large" | "invalid-json" | "invalid-schema" | "unsupported-version";
 
@@ -32,7 +32,7 @@ const bingoTemplatesFileSchema = z.strictObject({
 
 const parseJson = (text: string): BingoDecodeResult<unknown> => {
   if (new TextEncoder().encode(text).byteLength > MAX_BINGO_FILE_BYTES) {
-    return { ok: false, error: { code: "too-large", message: "Datei ist zu groß (maximal 16 KiB)." } };
+    return { ok: false, error: { code: "too-large", message: "Datei ist zu groß (maximal 32 KiB)." } };
   }
 
   try {

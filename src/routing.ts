@@ -2,7 +2,7 @@ export type Surface = "overlay" | "challenges" | "bingo" | "composite" | "live" 
 
 export type RouteApp = "overlay" | "challenges" | "bingo" | "composite" | "live" | "login" | "admin";
 
-export type AdminWorkspace = "hud" | "challenges";
+export type AdminWorkspace = "hud" | "challenges" | "bingo";
 
 export type RouteResolution = {
   surface: Surface;
@@ -15,6 +15,7 @@ type RouteRule = RouteResolution & {
 };
 
 const ROUTES = [
+  { path: "/admin/bingo", surface: "admin", app: "admin", workspace: "bingo" },
   { path: "/admin/challenges", surface: "admin", app: "admin", workspace: "challenges" },
   { path: "/admin/composition", surface: "admin", app: "admin", workspace: "hud" },
   { path: "/admin", surface: "admin", app: "admin", workspace: "hud" },
