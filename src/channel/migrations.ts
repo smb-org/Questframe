@@ -1,4 +1,8 @@
 import { allocateControlKey } from "../modules/win-challenges/domain/control-keys";
+import { normalizeChallengeSetName } from "../modules/win-challenges/contracts/predicates";
+import { bingoCardSchema } from "../modules/bingo/contracts/schemas";
+import { decodeBingoTemplates } from "../modules/bingo/domain/card-codec";
+import bingoTemplates from "../modules/bingo/domain/templates.json";
 
 /**
  * Versionsnummern zählen PRO NAMESPACE und sind nur zusammen mit dem
@@ -16,7 +20,7 @@ type Migration = {
   | { run: (sql: SqlStorage) => void; statements?: never }
 );
 
-export type MigrationNamespace = "host" | "hud" | "challenges";
+export type MigrationNamespace = "host" | "hud" | "challenges" | "bingo";
 
 const splitSqlStatements = (sql: string): readonly string[] => {
   const statements: string[] = [];
@@ -399,6 +403,80 @@ CREATE INDEX IF NOT EXISTS wc_sets_updated_idx ON wc_sets(updated_at DESC);
 
 const MIGRATION_20_THEME_MODE = "UPDATE wc_meta SET theme_mode = 'own';";
 
+const MIGRATION_1_BINGO_CREATE = `
+CREATE TABLE IF NOT EXISTS bg_board (
+  singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+  title TEXT NOT NULL,
+  size INTEGER NOT NULL CHECK (size IN (3, 4, 5)),
+  cells_json TEXT NOT NULL,
+  marks_json TEXT NOT NULL,
+  card_revision INTEGER NOT NULL CHECK (card_revision >= 0),
+  mark_revision INTEGER NOT NULL CHECK (mark_revision >= 0),
+  generation INTEGER NOT NULL CHECK (generation >= 0),
+  placement_x INTEGER NOT NULL DEFAULT 300 CHECK (placement_x BETWEEN 0 AND 384),
+  placement_y INTEGER NOT NULL DEFAULT 8 CHECK (placement_y BETWEEN 0 AND 216),
+  placement_scale REAL NOT NULL DEFAULT 1 CHECK (placement_scale BETWEEN 0.75 AND 2),
+  style TEXT NOT NULL DEFAULT 'marker' CHECK (style IN ('marker', 'broadcast')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS bg_sets (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL CHECK (type IN ('template', 'user')),
+  name TEXT NOT NULL,
+  normalized_name TEXT NOT NULL,
+  sort_order INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  payload TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS bg_sets_user_name_idx
+  ON bg_sets(normalized_name) WHERE type = 'user';
+CREATE INDEX IF NOT EXISTS bg_sets_order_idx ON bg_sets(sort_order, updated_at DESC);
+`;
+
+const migrateBingo1 = (sql: SqlStorage): void => {
+  for (const statement of splitSqlStatements(MIGRATION_1_BINGO_CREATE)) sql.exec(statement);
+  const decoded = decodeBingoTemplates(JSON.stringify(bingoTemplates));
+  if (!decoded.ok) throw new Error(`Bingo-Vorlagen sind ungültig: ${decoded.error.message}`);
+  const cards = decoded.value.map((card) => bingoCardSchema.parse(card));
+  const firstCard = cards[0];
+  if (firstCard === undefined) throw new Error("Bingo-Vorlagen enthalten keine Startkarte.");
+
+  const createdAt = new Date().toISOString();
+  sql.exec(
+    `INSERT INTO bg_board(
+      singleton, title, size, cells_json, marks_json, card_revision, mark_revision,
+      generation, placement_x, placement_y, placement_scale, style, created_at, updated_at
+    ) VALUES (1, ?, ?, ?, '[]', 0, 0, 0, 300, 8, 1, 'marker', ?, ?)
+    ON CONFLICT(singleton) DO NOTHING`,
+    firstCard.title,
+    firstCard.size,
+    JSON.stringify(firstCard.cells),
+    createdAt,
+    createdAt,
+  );
+
+  for (const [index, card] of cards.entries()) {
+    const suffix = card.title
+      .normalize("NFC")
+      .toLocaleLowerCase("de-DE")
+      .replaceAll(/[^a-z0-9]+/g, "-")
+      .replaceAll(/^-|-$/g, "");
+    sql.exec(
+      `INSERT INTO bg_sets(id, type, name, normalized_name, sort_order, created_at, updated_at, payload)
+       VALUES (?, 'template', ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
+      `template-${suffix}`,
+      card.title,
+      normalizeChallengeSetName(card.title),
+      index,
+      createdAt,
+      createdAt,
+      JSON.stringify(card),
+    );
+  }
+};
+
 const hasStateHistoryModuleColumns = (sql: SqlStorage): boolean => {
   const columns = sql
     .exec<{ name: string }>("PRAGMA table_info(state_history)")
@@ -652,6 +730,7 @@ const MIGRATIONS: readonly Migration[] = [
   { namespace: "challenges", version: 18, guard: (sql) => hasChallengeMetaColumn(sql, "key_visible"), statements: [MIGRATION_18_KEY_VISIBLE] },
   { namespace: "challenges", version: 19, guard: hasChallengeSetsTable, statements: splitSqlStatements(MIGRATION_19_SETS) },
   { namespace: "challenges", version: 20, statements: [MIGRATION_20_THEME_MODE] },
+  { namespace: "bingo", version: 1, run: migrateBingo1 },
 ];
 
 const migrationLedgerColumns = (sql: SqlStorage): readonly string[] =>

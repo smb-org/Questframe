@@ -196,9 +196,8 @@ Datei; kein Hosting fremder Inhalte (Begründung siehe TODOS.md, Teil-Code).
 2. **Domain + Contracts:** Kartenschema, `newlyCompleted`, Datei-Codec
    `bingo/1`; reine Unit-Tests.
 3. **Speicher + Service:** Migration `bingo/1`, Repository, `markCell`,
-   `resetMarks`, Karten-Save mit Erhalt der Kreuze, Undo. Ist `bg_sets` leer,
-   werden die vier Vorlagen aus `docs/designs/bingo-vorlagen.json` als Sets
-   angelegt.
+   `resetMarks`, Karten-Save mit Erhalt der Kreuze, Undo. Die vier Vorlagen
+   werden einmalig von der Migration als Sets angelegt.
 4. **Host-Verdrahtung:** Registry, Socket, Routen, Composite-Feld samt Parser,
    Undo-Routing, Build-Budget; Worker-Tests für Snapshot und Broadcasts.
 5. **Overlay „Marker“ + Zeremonie**, dann Admin-Kachel und Editor mit
