@@ -693,6 +693,24 @@ const readLegacyChallengeSentinels = (sql: SqlStorage): LegacyChallengeSentinel[
   .toArray();
 
 describe("Migrations-Harness", () => {
+  it("führt Version 1 in einem Nicht-Host-Namespace nur einmal aus", async () => {
+    const executions = await withHistoricalDatabase(0, (sql) => {
+      runMigrations(sql, "migration-harness-bootstrap");
+
+      let migrationRuns = 0;
+      const moduleMigrations = [
+        { namespace: "hud", version: 1, run: () => { migrationRuns += 1; } },
+      ] as const;
+
+      runMigrations(sql, "migration-harness-module-v1-first", moduleMigrations);
+      runMigrations(sql, "migration-harness-module-v1-second", moduleMigrations);
+
+      return migrationRuns;
+    });
+
+    expect(executions).toBe(1);
+  });
+
   it("haelt den vollstaendig synchronen Migrationspfad fest", () => {
     const forbiddenConstructs = [
       ["await", /\bawait\b/],
