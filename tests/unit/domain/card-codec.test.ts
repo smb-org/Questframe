@@ -95,7 +95,7 @@ describe("Bingo-Dateicodec", () => {
   });
 
   it("dekodiert die vier freigegebenen Vorlagen aus der echten Vorlagendatei", () => {
-    const text = readFileSync(resolve(process.cwd(), "docs/designs/bingo-vorlagen.json"), "utf8");
+    const text = readFileSync(resolve(process.cwd(), "src/modules/bingo/domain/templates.json"), "utf8");
     const result = decodeBingoTemplates(text);
 
     expect(result.ok).toBe(true);

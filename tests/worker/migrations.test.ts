@@ -17,19 +17,17 @@ import {
 
 const FIXTURE_TIMESTAMP = "2026-08-30T12:00:00.000Z";
 const HISTORICAL_VERSIONS = Array.from({ length: 16 }, (_, index) => index + 1) as HistoricalSchemaVersion[];
-// Vollständiger Ledger sortiert nach (namespace, version): "challenges" kommt
-// lexikographisch vor "host", darum zuerst die Challenge-Versionen 3..20,
-// danach die Host-Versionen 1..3.
+// Vollständiger Ledger sortiert nach (namespace, version): "bingo" kommt vor
+// "challenges" und "host".
 /**
  * Der vollständige Ledger nach `ORDER BY namespace, version`. Die Liste trägt
  * nur Versionsnummern, deshalb steht hier ausgeschrieben, was sie bedeutet:
- * erst `challenges` 3 bis 20, dann `host` 1 bis 3 — "challenges" sortiert
- * lexikographisch vor "host". Die 3 kommt zweimal vor, weil Versionsnummern
- * pro Namespace zählen: `challenges`/3 legt die wc_-Tabellen an, `host`/3 baut
- * `state_history` um. Wer hier eine vermeintliche Dublette wegkürzt, macht den
- * Test blind für eine fehlende Host-Migration.
+ * `bingo`/1, `challenges` 3 bis 20 und `host` 1 bis 3. Die 1 kommt mehrfach
+ * vor, weil neue Migrationen pro Namespace zählen; `host`/1 bleibt dabei der
+ * einmalige Bootstrap.
  */
 const CURRENT_VERSIONS = [
+  1,
   ...Array.from({ length: 18 }, (_, index) => index + 3),
   1,
   2,
@@ -728,7 +726,7 @@ describe("Migrations-Harness", () => {
     ).toEqual([]);
   });
 
-  it("führt eine frische Datenbank durch die Versionen 1 bis 20", async () => {
+  it("führt eine frische Datenbank durch alle aktuellen Namespaces", async () => {
     const result = await withHistoricalDatabase(0, (sql) => {
       runMigrations(sql, "migration-harness-fresh");
       return {
@@ -758,6 +756,8 @@ describe("Migrations-Harness", () => {
     expect(result.schema.filter(({ type }) => type === "table").map(({ name }) => name)).toEqual([
       "_sql_schema_migrations",
       "audit_log",
+      "bg_board",
+      "bg_sets",
       "channel_state",
       "csrf_tokens",
       "editor_sessions",
@@ -840,6 +840,7 @@ describe("Migrations-Harness", () => {
     });
 
     expect(result.firstLedger).toEqual([
+      { namespace: "bingo", version: 1 },
       ...Array.from({ length: 18 }, (_, index) => ({ namespace: "challenges", version: index + 3 })),
       { namespace: "host", version: 1 },
       { namespace: "host", version: 2 },
@@ -848,6 +849,8 @@ describe("Migrations-Harness", () => {
     expect(result.tables).toEqual([
       "_sql_schema_migrations",
       "audit_log",
+      "bg_board",
+      "bg_sets",
       "channel_state",
       "csrf_tokens",
       "editor_sessions",
@@ -947,7 +950,7 @@ describe("Migrations-Harness", () => {
       } };
     });
 
-    expect(result.before.versions).toEqual([...Array.from({ length: 16 }, (_, index) => index + 3), 1, 2, 3]);
+    expect(result.before.versions).toEqual([1, ...Array.from({ length: 16 }, (_, index) => index + 3), 1, 2, 3]);
     expect(result.first.versions).toEqual(CURRENT_VERSIONS);
     expect(result.first.sets).toEqual([{ name: "wc_sets" }]);
     expect(result.first.columns).toEqual([
@@ -992,7 +995,7 @@ describe("Migrations-Harness", () => {
       } };
     }, prepareVersion19Database);
 
-    expect(result.before.versions).toEqual([...Array.from({ length: 17 }, (_, index) => index + 3), 1, 2, 3]);
+    expect(result.before.versions).toEqual([1, ...Array.from({ length: 17 }, (_, index) => index + 3), 1, 2, 3]);
     expect(result.before.themeMode).toEqual([{ theme_mode: "inherit" }]);
     expect(result.first.versions).toEqual(CURRENT_VERSIONS);
     expect(result.first.themeMode).toEqual([{ theme_mode: "own" }]);
