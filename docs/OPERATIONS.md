@@ -10,7 +10,7 @@
 6. Release-Report aus [RELEASE_REPORT.md](RELEASE_REPORT.md) kopieren und Commit, Wrangler-Ausgabe, Chromium-Version und visuelle Artefakte eintragen.
 
 Nach einem Deploy kann eine bereits geöffnete OBS-Browserquelle vorübergehend
-unparsbare Nachrichten empfangen, solange OBS noch das alte Bundle hält. Die drei
+unparsbare Nachrichten empfangen, solange OBS noch das alte Bundle hält. Die
 Quellen heilen sich dabei bewusst unterschiedlich; `src/shared/reconnect.ts` trägt
 nur die gemeinsamen Marker- und Backoff-Bausteine, die eigentliche
 Watchdog-Ablaufsteuerung bleibt in jeder App:
@@ -29,7 +29,11 @@ Watchdog-Ablaufsteuerung bleibt in jeder App:
   Verzögerung und einer 5-Minuten-Sperre. Der Marker wird erst gelöscht, wenn
   beide Module wieder sauber sind; ein neu geöffneter Socket setzt beide
   Fehler-Flags aber sofort zurück, ohne dass zuvor ein sauberer Zustand angekommen
-  sein muss.
+  sein muss. Bingo behandelt Parse-Fehler in seiner Teilquelle separat: sie wird
+  sofort geleert und höchstens einmal in fünf Minuten neu geladen.
+- `/overlay/bingo` (`src/bingo/BingoSourceApp.tsx`): Leert Anzeige und Zeremonie
+  bei einem Parse-Fehler und versucht sofort einen Reload, höchstens einmal in
+  fünf Minuten. In `/overlay/all` wird dabei nur die Bingo-Teilquelle neu gestartet.
 
 Falls eine Quelle danach weiter eingefroren wirkt, die OBS-Browserquelle einmal
 manuell aktualisieren.
@@ -58,6 +62,9 @@ Der Broadcaster und ein aktueller Moderator bedienen gemeinsam den Staging-Kandi
 - Einmal die Netzwerkverbindung trennen, lokalen Snapshot und Countdown beobachten, dann Reconnect und vollständigen Snapshot prüfen.
 - Zwei Admin-Tabs öffnen, einen Konflikt erzeugen und beide Konfliktaktionen nachvollziehen.
 - OBS-Token rotieren: alte verbundene Anzeige muss leer werden; neue URL muss funktionieren.
+- Bingo prüfen: Migration `bingo/1` legt Board und vier Vorlagensets an; Karten-Import/Export,
+  beide Stile, eine Linien-Zeremonie, Zurücksetzen und die Quellen `/overlay/bingo` sowie
+  `/overlay/all` prüfen.
 - Challenge-Settings für Style, Kopfzeile, Fläche, `max_visible`, Timerdauer, Nummerierung, Überlauf und erledigte Reihenfolge prüfen; Migration 7 ergänzt die Überlauffelder, überführt `plain-numbered` und erhält `max_visible` als Kapazität.
 - Pet, fünf Gäste, acht Effekte und jede der sechs Themes auf Überlauf prüfen, sobald V1b aktiviert wird.
 - Auf `<50 %` gelb sowie `<20 %` rot und dezent pulsierend prüfen; exakt 50 bleibt grün, exakt 20 gelb.
@@ -130,14 +137,14 @@ Für die drei funktionsbezogenen Rate-Limiter gelten diese Schlüssel:
 
 | Limiter | Schlüssel | Einsatz |
 | --- | --- | --- |
-| `OVERLAY_CAPSULE_LIMITER` | `CAPSULE_ID` | alle Overlay- und Challenge-Socket-Upgrades |
-| `OVERLAY_TOKEN_LIMITER` | erste 32 Zeichen des SHA-256-Hashes des Overlay-Tokens | `/ws/overlay` und `/ws/challenge` |
+| `OVERLAY_CAPSULE_LIMITER` | `CAPSULE_ID` | alle Overlay-, Composite-, Challenge- und Bingo-Socket-Upgrades |
+| `OVERLAY_TOKEN_LIMITER` | erste 32 Zeichen des SHA-256-Hashes des Overlay-Tokens | `/ws/overlay`, `/ws/composite`, `/ws/challenge` und `/ws/bingo` |
 | `DOCK_TOKEN_LIMITER` | erste 32 Zeichen des SHA-256-Hashes des Dock-Tokens | Dock-Kommando-Route und `/ws/dock` |
 
 Zusätzlich schützt `DOCK_IP_LIMITER` die Dock-Einstiege pro `cf-connecting-ip` (unbekannte
 Quellen teilen sich den Fallback-Schlüssel). Die getrennten Socket-Caps im Durable Object
 trennen die Edge-Limiter nicht: Ein Reconnect-Sturm der Challenge-Quelle teilt sich den
-Overlay-Token und kann deshalb über `OVERLAY_TOKEN_LIMITER` auch HUD-Verbindungen drosseln.
+Overlay-Token und kann deshalb über `OVERLAY_TOKEN_LIMITER` auch HUD- und Bingo-Verbindungen drosseln.
 Bei der Diagnose neben den Socket-Caps die Overlay-Rate-Limit-Antworten prüfen.
 
 Die Anwendung pollt weder Zustand noch Timer.

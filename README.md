@@ -2,7 +2,7 @@
 
 Ein WoW-inspiriertes, transparentes OBS-HUD für IRL-Streams. Twitch-Moderator:innen und der Broadcaster bearbeiten einen lokalen Entwurf in einer Web-Konsole; erst **Änderungen speichern** veröffentlicht einen vollständigen, atomaren Stand. Das Overlay erhält neue Revisionen über eine hibernierende Durable-Object-WebSocket-Verbindung und zählt absolute Effektzeiten im Browser herunter.
 
-Questframe besteht aus zwei Modulen, die einzeln oder gemeinsam als OBS-Quelle laufen: dem **HUD** mit Unitframe, Pet, Gästen und Effekten, und den **Win-Challenges**, einer abhakbaren Aufgabenliste mit Timern.
+Questframe besteht aus drei Modulen, die einzeln oder gemeinsam als OBS-Quelle laufen: dem **HUD** mit Unitframe, Pet, Gästen und Effekten, den **Win-Challenges** als abhakbarer Aufgabenliste mit Timern und **Bingo** als Community-Karte mit teilbaren Karten-Dateien.
 
 ## Wie es aussieht
 
@@ -27,6 +27,7 @@ Die Bilder zeigen erfundene Beispieldaten auf einem gestellten dunklen Hintergru
 - 20 Buffs und 20 Debuffs, zeitlos oder mit absolutem Ablauf, davon höchstens eine sichtbare Beschreibung;
 - optionales Pet und bis zu fünf kompakte Gäste, einschließlich Twitch-Portraits;
 - Win-Challenges mit Einzel- und Gesamttimer, Fortschrittszählern und drei Listenstilen;
+- Bingo-Boards mit vier Vorlagensets, gespeicherten Sets und Import/Export als teilbare `questframe-bingo`-Datei;
 - sofortiger globaler Overlay-Schalter, auch in der mobilen Notfallansicht;
 - Audit-Log, Undo, konfliktgeschütztes Speichern und widerrufbare OBS-Tokens.
 
@@ -66,6 +67,10 @@ Das Challenge-Board wird unter `/admin` gepflegt und läuft als eigene Fläche u
 Drei Listenstile stehen zur Wahl: **Liste** (schlicht, in den Screenshots oben), **Aufzählung** und **Quest-Log**. Erledigte Einträge lassen sich ans Ende sortieren oder an Ort und Stelle belassen. Passt die Liste nicht in die Box, entscheidet der Überlaufmodus zwischen Abschneiden, Blättern und Scrollen.
 
 Die Fläche hat eigene Socket-Plätze und einen eigenen Token, ist also unabhängig vom HUD widerrufbar. Wer nur eine einzige Browserquelle einrichten will, nimmt stattdessen die Sammelquelle `/overlay/all`.
+
+## Bingo
+
+Das Bingo-Board wird im Tab **Bingo** unter `/admin` gepflegt und läuft als eigene OBS-Fläche unter `/overlay/bingo`. Streamer:innen und Moderator:innen kreuzen Felder live an; vier Vorlagensets und gespeicherte Sets helfen beim Start. Karten lassen sich als JSON-Datei im Format `questframe-bingo` exportieren und importieren (maximal 32 KiB). In `/overlay/all` kann Bingo zusätzlich eingeblendet werden.
 
 Für StreamElements statt OBS liegt ein fertiges Custom Widget samt Anleitung unter [docs/streamelements/](docs/streamelements/README.md).
 
