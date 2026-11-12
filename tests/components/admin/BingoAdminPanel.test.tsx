@@ -288,6 +288,57 @@ describe("Bingo-Regie und Editor", () => {
     expect(click).toHaveBeenCalledOnce();
   });
 
+  // Ergänzt von Codex.
+  // Value: protects=Regie lädt Vorlagen, speichert eigene Sets und löscht sie; fails_when=UI-Auswahl oder Buttons falsche API-Aufrufe auslösen; why_new=API-Routen sind getestet, der Regie-Ablauf fehlt; seam=none; no_claim=API im Komponententest gemockt
+  it("lädt eine Vorlage, speichert ein eigenes Set und löscht es wieder", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const timestamp = "2026-11-12T12:00:00.000Z";
+    const api = createApi({
+      listBingoSets: vi.fn(() => Promise.resolve({ sets: [{
+        id: "template-1",
+        type: "template",
+        name: "Vorlage",
+        sortOrder: 0,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }] })),
+      loadBingoSet: vi.fn(() => Promise.resolve(mutation({
+        ...createBoard(),
+        card: { ...createBoard().card, title: "Geladene Vorlage" },
+        cardRevision: 8,
+        markRevision: 5,
+      }))),
+      saveBingoSet: vi.fn(() => Promise.resolve({
+        summary: {
+          id: "user-1",
+          type: "user",
+          name: "Mein Set",
+          sortOrder: 1,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        card: createBoard().card,
+      })),
+    });
+    renderPanel(api);
+
+    await screen.findByRole("grid", { name: "Testkarte" });
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Vorlage oder gespeichertes Set" }), "template-1");
+    expect(api.loadBingoSet).toHaveBeenCalledWith("template-1", 7);
+    expect(await screen.findByRole("grid", { name: "Geladene Vorlage" })).toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox", { name: "Als Set speichern" }), "Mein Set");
+    await user.click(screen.getByRole("button", { name: "Set speichern" }));
+    await waitFor(() => expect(api.saveBingoSet).toHaveBeenCalledWith("Mein Set"));
+    expect(await screen.findByRole("option", { name: "Gespeichert · Mein Set" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Set löschen" }));
+    expect(confirm).toHaveBeenCalledWith('Set „Mein Set“ löschen?');
+    await waitFor(() => expect(api.deleteBingoSet).toHaveBeenCalledWith("user-1"));
+    expect(screen.queryByRole("option", { name: "Gespeichert · Mein Set" })).not.toBeInTheDocument();
+  });
+
   it("setzt Kreuze erst nach Bestätigung zurück", async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);

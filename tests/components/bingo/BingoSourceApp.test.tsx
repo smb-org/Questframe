@@ -121,6 +121,20 @@ describe("BingoSourceApp", () => {
     expect(screen.queryByText("BINGO!")).not.toBeInTheDocument();
   });
 
+  // Ergänzt von Codex.
+  // Value: protects=widerrufener Token entfernt das Board und verhindert Reconnect; fails_when=die Quelle nach token_revoked sichtbar bleibt oder erneut verbindet; why_new=Socket-Tests decken den Client-Widerrufpfad nicht ab; seam=none; no_claim=WebSocket-Server-Widerruf wird simuliert
+  it("entfernt das Board nach Token-Widerruf und verbindet sich nicht erneut", async () => {
+    render(<BingoSourceApp loadStyle={() => Promise.resolve()} />);
+    const socket = FakeWebSocket.instances[0];
+    await deliver(socket, update());
+    expect(await screen.findByRole("grid", { name: "Diagonale" })).toBeInTheDocument();
+
+    await deliver(socket, { type: "token_revoked" });
+    expect(screen.queryByRole("grid", { name: "Diagonale" })).not.toBeInTheDocument();
+    act(() => { socket?.emit("close"); });
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
   it("leitet den Broadcast-Zähler aus den angekreuzten Feldern ab", async () => {
     const current = update();
     current.board.style = "broadcast";

@@ -356,6 +356,43 @@ describe("Bingo repository and service", () => {
     });
   });
 
+  // Ergänzt von Codex.
+  // Value: protects=Set-Namen sind getrimmt eindeutig und höchstens 20 eigene Sets erlaubt; fails_when=Duplikat- oder Mengenprüfung fehlt; why_new=Bingo-Repo-Tests decken beide DB-Invarianten noch nicht ab; seam=none; no_claim=SQLite-Durable-Object im Worker-Test
+  it("normalisiert Set-Namen und begrenzt eigene Sets auf zwanzig", async () => {
+    await inRepository((repository) => {
+      const service = serviceFor(repository);
+      const first = service.saveSet("  Lieblingskarte  ");
+
+      expect(first.summary.name).toBe("Lieblingskarte");
+      expect(() => service.saveSet("Lieblingskarte")).toThrow(expect.objectContaining({ code: "validation_failed" }));
+      for (let index = 1; index < 20; index += 1) service.saveSet(`Set ${String(index)}`);
+
+      expect(service.listSets().filter(({ type }) => type === "user")).toHaveLength(20);
+      expect(() => service.saveSet("Noch ein Set")).toThrow(expect.objectContaining({ code: "validation_failed" }));
+    });
+  });
+
+  // Ergänzt von Codex.
+  // Value: protects=gleicher Stil erzeugt trotz passender Revision keine Historie oder Nachricht; fails_when=der No-op Revision oder Seiteneffekte schreibt; why_new=Stiltests decken nur Änderung und Konflikt ab; seam=none; no_claim=SQLite-Durable-Object im Worker-Test
+  it("behandelt denselben Stil als No-op, prüft aber zuerst die Kartenrevision", async () => {
+    await inRepository((repository, sql) => {
+      const service = serviceFor(repository);
+      const before = service.readBoard();
+      const countsBefore = readCounts(sql);
+
+      expect(() => service.setStyle(before.style, before.cardRevision + 1)).toThrow(
+        expect.objectContaining({ code: "revision_conflict" }),
+      );
+      const unchanged = service.setStyle(before.style, before.cardRevision);
+
+      expect(unchanged.board).toEqual(before);
+      expect(unchanged.update).toBeNull();
+      expect(unchanged.ceremony).toBeNull();
+      expect(unchanged.auditEntry).toBeNull();
+      expect(readCounts(sql)).toStrictEqual(countsBefore);
+    });
+  });
+
   it("does not include ceremony when a history snapshot is undone", async () => {
     await inRepository((repository, sql) => {
       const service = serviceFor(repository);
