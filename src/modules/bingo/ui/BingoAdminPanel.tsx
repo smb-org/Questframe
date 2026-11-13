@@ -182,6 +182,7 @@ export const BingoAdminPanel = ({
   const [renamingSetId, setRenamingSetId] = useState<string | null>(null);
   const [renameName, setRenameName] = useState("");
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [conflicted, setConflicted] = useState(false);
   const [settingsConflicted, setSettingsConflicted] = useState(false);
@@ -196,6 +197,10 @@ export const BingoAdminPanel = ({
   const draftBaseSettingsRevisionRef = useRef<number | null>(null);
   const saveCardRef = useRef<() => Promise<BingoAdminSaveOutcome>>(() => Promise.resolve({ ok: false, conflict: false, message: "Nicht speicherbar." }));
   const saveSettingsRef = useRef<() => Promise<BingoAdminSaveOutcome>>(() => Promise.resolve({ ok: false, conflict: false, message: "Nicht speicherbar." }));
+  const setBusySync = (next: boolean): void => {
+    busyRef.current = next;
+    setBusy(next);
+  };
   const boardStyle = board?.style;
   const effectivePlacement = placementDraft ?? draft?.placement ?? board?.placement ?? null;
   const dirty = useMemo(() => draft !== null && board !== null && (
@@ -233,7 +238,7 @@ export const BingoAdminPanel = ({
     if (boardStyle !== undefined) void loadBingoStyle(boardStyle).catch(() => undefined);
   }, [boardStyle]);
 
-  const applyBoard = useCallback((nextBoard: BingoBoardState, nextUpdate = updateFromBoard(nextBoard), syncDraft = false): void => {
+  const applyBoard = useCallback((nextBoard: BingoBoardState, nextUpdate = updateFromBoard(nextBoard), syncDraft = false, submittedDraft?: BingoCardDraft): void => {
     const current = boardRef.current;
     const reconciledBoard = mergeBoardRevisions(current, nextBoard);
     const responseCardIsCurrent = current === null || nextBoard.cardRevision >= current.cardRevision;
@@ -260,8 +265,17 @@ export const BingoAdminPanel = ({
     if ((syncDraft && responseCardIsCurrent) || editorWasClean || draftMatchesBoard) {
       const externalPlacement = placementDraftRef.current;
       const draggedPlacement = syncDraft ? null : localPlacementDraft(externalPlacement, current, reconciledBoard);
+      const postSubmitEdits = syncDraft && submittedDraft !== undefined && currentDraft !== null
+        ? {
+          ...(currentDraft.title === submittedDraft.title ? {} : { title: currentDraft.title }),
+          ...(currentDraft.size === submittedDraft.size ? {} : { size: currentDraft.size }),
+          ...(JSON.stringify(currentDraft.cells) === JSON.stringify(submittedDraft.cells) ? {} : { cells: currentDraft.cells }),
+          ...(samePlacement(currentDraft.placement, submittedDraft.placement) ? {} : { placement: currentDraft.placement }),
+        }
+        : {};
       const nextDraft = {
         ...draftFromBoard(reconciledBoard),
+        ...postSubmitEdits,
         ...(draggedPlacement === null ? {} : { placement: draggedPlacement }),
       };
       draftRef.current = nextDraft;
@@ -298,8 +312,8 @@ export const BingoAdminPanel = ({
     setError(typeof errorValue.message === "string" ? errorValue.message : fallback);
   }, []);
 
-  const applyMutation = useCallback((result: BingoMutationResponse, syncDraft = false): void => {
-    applyBoard(result.board, result.update ?? updateFromBoard(result.board), syncDraft);
+  const applyMutation = useCallback((result: BingoMutationResponse, syncDraft = false, submittedDraft?: BingoCardDraft): void => {
+    applyBoard(result.board, result.update ?? updateFromBoard(result.board), syncDraft, submittedDraft);
     onUndoTargetsChange(result.undoTargets);
   }, [applyBoard, onUndoTargetsChange]);
 
@@ -394,7 +408,7 @@ export const BingoAdminPanel = ({
   const markCell = async (cellId: string, marked: boolean): Promise<void> => {
     const current = boardRef.current;
     if (current === null || busy || !online) return;
-    setBusy(true);
+    setBusySync(true);
     setError("");
     setMessage("");
     try {
@@ -402,14 +416,14 @@ export const BingoAdminPanel = ({
     } catch (caught) {
       showError(caught, "Bingo-Feld konnte nicht geändert werden.");
     } finally {
-      setBusy(false);
+      setBusySync(false);
     }
   };
 
   const changeStyle = async (style: BingoStyleId): Promise<void> => {
     const current = boardRef.current;
     if (current === null || current.style === style || busy || !online || conflicted || dirty) return;
-    setBusy(true);
+    setBusySync(true);
     setError("");
     setMessage("");
     try {
@@ -418,14 +432,14 @@ export const BingoAdminPanel = ({
     } catch (caught) {
       showError(caught, "Bingo-Stil konnte nicht geändert werden.");
     } finally {
-      setBusy(false);
+      setBusySync(false);
     }
   };
 
   const resetMarks = async (): Promise<void> => {
     const current = boardRef.current;
     if (current === null || busy || !online || !window.confirm("Alle Bingo-Kreuze zurücksetzen?")) return;
-    setBusy(true);
+    setBusySync(true);
     setError("");
     setMessage("");
     try {
@@ -434,22 +448,23 @@ export const BingoAdminPanel = ({
     } catch (caught) {
       showError(caught, "Die Bingo-Kreuze konnten nicht zurückgesetzt werden.");
     } finally {
-      setBusy(false);
+      setBusySync(false);
     }
   };
 
   const saveCard = async (): Promise<BingoAdminSaveOutcome> => {
     const current = boardRef.current;
     const editing = draftRef.current;
-    if (current === null || editing === null || busy || !online || conflicted) {
+    if (current === null || editing === null || busyRef.current || !online || conflicted) {
       return { ok: false, conflict: false, message: "Nicht speicherbar." };
     }
-    setBusy(true);
+    setBusySync(true);
     setError("");
     setMessage("");
     try {
-      const result = await api.saveBingoCard({ ...editing, placement: effectivePlacement ?? editing.placement, expectedCardRevision: draftBaseCardRevisionRef.current ?? current.cardRevision });
-      applyMutation(result, true);
+      const submittedDraft = { ...editing, placement: effectivePlacement ?? editing.placement };
+      const result = await api.saveBingoCard({ ...submittedDraft, expectedCardRevision: draftBaseCardRevisionRef.current ?? current.cardRevision });
+      applyMutation(result, true, submittedDraft);
       setMessage(`Karte gespeichert · Revision ${String(result.board.cardRevision)}.`);
       return { ok: true, conflict: false };
     } catch (caught) {
@@ -458,18 +473,18 @@ export const BingoAdminPanel = ({
       showError(caught, "Die Bingo-Karte konnte nicht gespeichert werden.");
       return { ok: false, conflict: errorValue.code === "revision_conflict", message: messageText };
     } finally {
-      setBusy(false);
+      setBusySync(false);
     }
   };
 
   const saveSettings = async (): Promise<BingoAdminSaveOutcome> => {
     const current = boardRef.current;
     const editing = settingsDraftRef.current;
-    if (current === null || editing === null || busy || !online || settingsConflicted) {
+    if (current === null || editing === null || busyRef.current || !online || settingsConflicted) {
       return { ok: false, conflict: false, message: "Nicht speicherbar." };
     }
     if (JSON.stringify(editing) === JSON.stringify(current.settings)) return { ok: true, conflict: false };
-    setBusy(true);
+    setBusySync(true);
     setError("");
     setMessage("");
     try {
@@ -478,9 +493,6 @@ export const BingoAdminPanel = ({
         settings: editing,
       });
       applyMutation(result);
-      settingsDraftRef.current = result.board.settings;
-      setSettingsDraft(result.board.settings);
-      draftBaseSettingsRevisionRef.current = result.board.settingsRevision;
       setMessage(`Darstellung gespeichert · Revision ${String(result.board.settingsRevision)}.`);
       return { ok: true, conflict: false };
     } catch (caught) {
@@ -489,7 +501,7 @@ export const BingoAdminPanel = ({
       showError(caught, "Die Bingo-Darstellung konnte nicht gespeichert werden.");
       return { ok: false, conflict: errorValue.code === "revision_conflict", message: messageText };
     } finally {
-      setBusy(false);
+      setBusySync(false);
     }
   };
 
@@ -506,7 +518,7 @@ export const BingoAdminPanel = ({
     const current = boardRef.current;
     if (current === null || setId === "" || busy || !online) return;
     if (dirty && !window.confirm("Den ungespeicherten Entwurf durch dieses Set ersetzen?")) return;
-    setBusy(true);
+    setBusySync(true);
     setError("");
     setMessage("");
     try {
@@ -517,7 +529,7 @@ export const BingoAdminPanel = ({
     } catch (caught) {
       showError(caught, "Bingo-Set konnte nicht geladen werden.");
     } finally {
-      setBusy(false);
+      setBusySync(false);
     }
   };
 
@@ -533,7 +545,7 @@ export const BingoAdminPanel = ({
       return;
     }
     const startingSetList = serverSetsRef.current;
-    setBusy(true);
+    setBusySync(true);
     setError("");
     setMessage("");
     try {
@@ -553,7 +565,7 @@ export const BingoAdminPanel = ({
     } catch (caught) {
       showError(caught, "Bingo-Set konnte nicht gespeichert werden.");
     } finally {
-      setBusy(false);
+      setBusySync(false);
     }
   };
 
@@ -583,7 +595,7 @@ export const BingoAdminPanel = ({
       return;
     }
     const startingSetList = serverSetsRef.current;
-    setBusy(true);
+    setBusySync(true);
     setError("");
     setMessage("");
     try {
@@ -603,7 +615,7 @@ export const BingoAdminPanel = ({
     } catch (caught) {
       showError(caught, "Bingo-Set konnte nicht umbenannt werden.");
     } finally {
-      setBusy(false);
+      setBusySync(false);
     }
   };
 
@@ -611,7 +623,7 @@ export const BingoAdminPanel = ({
     const selected = serverSets.find((set) => set.id === selectedSet);
     if (selected?.type !== "user" || busy || !online || renamingSet || !window.confirm(`Set „${selected.name}“ löschen?`)) return;
     const startingSetList = serverSetsRef.current;
-    setBusy(true);
+    setBusySync(true);
     setError("");
     setMessage("");
     try {
@@ -624,14 +636,14 @@ export const BingoAdminPanel = ({
     } catch (caught) {
       showError(caught, "Bingo-Set konnte nicht gelöscht werden.");
     } finally {
-      setBusy(false);
+      setBusySync(false);
     }
   };
 
   const importFile = async (file: File | undefined): Promise<void> => {
     const current = boardRef.current;
     if (file === undefined || current === null || busy || !online) return;
-    setBusy(true);
+    setBusySync(true);
     setError("");
     setMessage("");
     try {
@@ -643,7 +655,7 @@ export const BingoAdminPanel = ({
     } catch (caught) {
       showError(caught, "Bingo-Karte konnte nicht importiert werden.");
     } finally {
-      setBusy(false);
+      setBusySync(false);
       if (fileInputRef.current !== null) fileInputRef.current.value = "";
     }
   };
@@ -651,7 +663,7 @@ export const BingoAdminPanel = ({
   const exportCard = async (): Promise<void> => {
     const current = boardRef.current;
     if (current === null || busy) return;
-    setBusy(true);
+    setBusySync(true);
     setError("");
     setMessage("");
     try {
@@ -660,7 +672,7 @@ export const BingoAdminPanel = ({
     } catch (caught) {
       showError(caught, "Bingo-Karte konnte nicht exportiert werden.");
     } finally {
-      setBusy(false);
+      setBusySync(false);
     }
   };
 
@@ -668,7 +680,7 @@ export const BingoAdminPanel = ({
     const current = boardRef.current;
     if (api.undo === undefined || current === null || busy || !online) return;
     if (!window.confirm(`Bingo-Zustand aus Kanalsequenz ${String(target.channelSeq)} wiederherstellen?`)) return;
-    setBusy(true);
+    setBusySync(true);
     setError("");
     setMessage("");
     try {
@@ -686,7 +698,7 @@ export const BingoAdminPanel = ({
     } catch (caught) {
       showError(caught, "Bingo-Undo fehlgeschlagen.");
     } finally {
-      setBusy(false);
+      setBusySync(false);
     }
   };
 
