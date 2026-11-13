@@ -55,10 +55,12 @@ Platzierung und Laufzeit-Markierungen werden nicht mit der Datei geteilt.
 
 Die Admin-Oberfläche liegt im Workspace `/admin/bingo`; die HTTP-Fassade ist unter
 `/api/bingo` erreichbar und umfasst Board, Markierungen, Stil, Sets sowie Karten-Import und
--Export. Die eigene OBS-Fläche `/overlay/bingo` verbindet sich über `/ws/bingo` mit dem
-Socket-Tag `bingo`. Das Socket authentifiziert sich mit dem Overlay-Token und erhält beim
-Verbinden einen vollständigen Board-Stand. `bingo_update` geht an die Bingo-, Editor- und
-Composite-Sockets; es erreicht nicht das HUD-Overlay oder die Challenge-Quelle.
+-Export. Der Dock besitzt getrennte Routen `/api/bingo/dock` (Lesen), `/api/bingo/dock/mark`
+und `/api/bingo/dock/reset`; alle Karten-, Stil-, Set-, Import-, Export- und Undo-Routen
+bleiben Session-only. Die eigene OBS-Fläche `/overlay/bingo` verbindet sich über `/ws/bingo`
+mit dem Socket-Tag `bingo`. Das Socket authentifiziert sich mit dem Overlay-Token und erhält
+beim Verbinden einen vollständigen Board-Stand. `bingo_update` geht an die Bingo-, Editor-,
+Composite- und Dock-Sockets; es erreicht nicht das HUD-Overlay oder die Challenge-Quelle.
 
 Eine Zeremonie wird ausschließlich aus dem optionalen `ceremony`-Feld eines expliziten
 `bingo_update` ausgelöst. Der Server setzt es, wenn eine Markierung neu eine Linie oder die
@@ -97,13 +99,17 @@ Broadcast-Regeln sind fest verdrahtet:
 | --- | --- | --- |
 | `state_committed` und `snapshot` | `editor`, `overlay`, `composite` | `challenge`, `dock`, `bingo` |
 | `challenge_update` | `editor`, `challenge`, `dock`, `composite` | `overlay`, `bingo` |
-| `bingo_update` | `editor`, `bingo`, `composite` | `overlay`, `challenge`, `dock` |
+| `bingo_update` | `editor`, `bingo`, `composite`, `dock` | `overlay`, `challenge` |
 | `overlay_presence`, `history_changed`, `audit_appended` | `editor` | `overlay`, `composite`, `challenge`, `dock`, `bingo` |
 
-Der Dock-Token ist schreibberechtigt, aber seine Sicherheitsgrenze ist hart: Er gilt nur für
-`/api/challenges/commands` und `/ws/dock`. Board, Settings, HUD-State, Token-Rotation und
-alle anderen Routen bleiben Session-only. Auch `resetGlobalTimer` ist Session-only; der Dock
-darf den globalen Timer nur starten und pausieren.
+Der Dock-Token ist schreibberechtigt, aber seine Sicherheitsgrenze ist hart: Er gilt für
+`/api/challenges/commands`, `/api/bingo/dock` samt Markieren und Zurücksetzen sowie
+`/ws/dock`. Bei Bingo darf er nur das Board lesen, ein Feld markieren/abwählen und alle
+Kreuze zurücksetzen. Karten speichern, Stil ändern, Sets verwalten, Import/Export und Undo
+bleiben Session-only. Board, Settings, HUD-State und Token-Rotation bleiben ebenfalls
+Session-only. Auch `resetGlobalTimer` ist Session-only; der Dock darf den globalen Timer nur
+starten und pausieren. Beim Dock-Socket-Connect kommen Challenge- und Bingo-Snapshots ohne
+Zeremonie; danach werden Bingo-Updates live zugestellt.
 
 Der Widerruf wird vor jedem Senden geprüft, nicht nur beim Schließen einer Verbindung. Ein
 Socket mit veralteter Token-Generation wird übersprungen und geschlossen. Eine Rotation
@@ -178,7 +184,8 @@ weiterhin im jeweiligen Modul, weil nur dort der Serverstand gegen den eigenen E
 gestellt werden kann.
 
 Positionen haben keinen Sonderweg: Die HUD-Position liegt im HUD-Draft, die Position des
-Challenge-Logs im Settings-Draft, beide werden vom jeweiligen Modul mitgespeichert.
+Challenge-Logs im Settings-Draft und die Bingo-Position im Kartenentwurf; alle werden vom
+jeweiligen Modul mitgespeichert.
 
 Die OBS-Einrichtung öffnet als natives `<dialog>` statt inline in der Vorschau; dessen
 `showModal()` übernimmt Fokusfalle und Top-Layer-Darstellung, sodass die Bühne dahinter

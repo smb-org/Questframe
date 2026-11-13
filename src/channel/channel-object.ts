@@ -1279,7 +1279,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
       tokenGeneration: row.generation,
       connectedAt: nowIso(),
     } satisfies SocketAttachment);
-    server.send(JSON.stringify(initialMessage?.() ?? createChallengeService(this.createModuleContext("challenges"), SOCKETS.dock.tag).readChallengeUpdate()));
+    const initial = initialMessage?.() ?? createChallengeService(this.createModuleContext("challenges"), SOCKETS.dock.tag).readChallengeUpdate();
+    const initialMessages = Array.isArray(initial) ? initial : [initial];
+    for (const message of initialMessages) server.send(JSON.stringify(message));
     return new Response(null, {
       status: 101,
       webSocket: client,
@@ -1332,7 +1334,10 @@ export class ChannelObject extends DurableObject<AppEnv> {
     return this.connectTokenSocket(request, SOCKETS.dock, async (dockRequest) => {
       const row = await this.requireDockToken(dockRequest);
       return { generation: row.generation };
-    }, "Zu viele Dock-Verbindungen.");
+    }, "Zu viele Dock-Verbindungen.", () => [
+      createChallengeService(this.createModuleContext("challenges"), SOCKETS.dock.tag).readChallengeUpdate(),
+      this.readBingoUpdateMessage(),
+    ]);
   }
 
   override webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): void {
@@ -1752,6 +1757,9 @@ export class ChannelObject extends DurableObject<AppEnv> {
     if (tags.includes(SOCKETS.challenge.tag) || tags.includes(SOCKETS.dock.tag) || tags.includes(SOCKETS.bingo.tag)) {
       targetTags.add(SOCKETS.editor.tag);
       targetTags.add(SOCKETS.composite.tag);
+    }
+    if (typeof payload === "object" && payload !== null && "type" in payload && payload.type === "bingo_update") {
+      targetTags.add(SOCKETS.dock.tag);
     }
     this.sendToSockets(
       [...targetTags].flatMap((tag) => this.ctx.getWebSockets(tag)),

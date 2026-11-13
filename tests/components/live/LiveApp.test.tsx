@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LiveApp } from "../../../src/live/LiveApp";
 import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
 import { DOCK_SOCKET_PROTOCOL } from "../../../src/shared/contracts/protocol";
+import type { BingoBoardState } from "../../../src/modules/bingo/contracts/schemas";
 
 const token = "D".repeat(43);
 const now = "2026-08-31T12:00:00.000Z";
@@ -84,6 +85,41 @@ const message = (currentCount = 3): ChallengeUpdate => ({
   challenges: [challenge(currentCount)],
   event: null,
 });
+
+const bingoBoard = (overrides: Partial<BingoBoardState> = {}): BingoBoardState => ({
+  card: {
+    title: "Stream-Bingo",
+    size: 3,
+    cells: Array.from({ length: 9 }, (_, index) => ({ id: `cell-${String(index)}`, text: `Feld ${String(index + 1)}` })),
+  },
+  marks: [],
+  cardRevision: 2,
+  markRevision: 7,
+  generation: 1,
+  style: "marker",
+  placement: { x: 8, y: 80, scale: 1 },
+  ...overrides,
+});
+
+const emitBingoUpdate = (board = bingoBoard()): void => {
+  const socket = FakeWebSocket.instances[0];
+  act(() => socket?.emit("message", JSON.stringify({ type: "bingo_update", board })));
+};
+
+const connectDockSocket = (): void => {
+  const socket = FakeWebSocket.instances[0];
+  act(() => socket?.emit("open"));
+};
+
+const expectDockRequest = (path: string, body: string): void => {
+  const request = vi.mocked(fetch).mock.calls.find(([input]) => input === path);
+  if (request === undefined) throw new Error(`Dock-Anfrage ${path} fehlt.`);
+  const init = request[1];
+  const headers = new Headers(init?.headers);
+  expect(init?.method).toBe("POST");
+  expect(headers.get("authorization")).toBe(`Bearer ${token}`);
+  expect(init?.body).toBe(body);
+};
 
 const emitUpdate = (value = message()): void => {
   const socket = FakeWebSocket.instances[0];
@@ -182,6 +218,96 @@ describe("Live-Bedienseite", () => {
     const socket = FakeWebSocket.instances[0];
     expect(socket?.url).toMatch(/\/ws\/dock$/);
     expect(socket?.protocols).toEqual([DOCK_SOCKET_PROTOCOL, token]);
+  });
+
+  it("markiert ein Bingo-Feld mit der angezeigten Markierungsrevision", async () => {
+    const user = userEvent.setup();
+    render(<LiveApp />);
+    connectDockSocket();
+    emitUpdate();
+    emitBingoUpdate();
+
+    await user.click(await screen.findByRole("gridcell", { name: "Feld 1" }));
+
+    expectDockRequest("/api/bingo/dock/mark", JSON.stringify({ cellId: "cell-0", marked: true, expectedMarkRevision: 7 }));
+  });
+
+  it("zeigt einen Bingo-Konflikt im festen Meldungsfeld", async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({
+      error: {
+        code: "revision_conflict",
+        message: "Das Bingo-Board wurde inzwischen geändert.",
+        currentSnapshot: bingoBoard({ markRevision: 8, marks: ["cell-0"] }),
+      },
+    }), { status: 409, headers: { "content-type": "application/json" } }));
+    render(<LiveApp />);
+    connectDockSocket();
+    emitUpdate();
+    emitBingoUpdate();
+
+    const messageSlot = document.querySelector(".live-page__bingo-message-slot");
+    const bingoSlot = document.querySelector(".live-page__bingo-slot");
+    const bingoGrid = document.querySelector(".live-page__bingo-board");
+    expect(messageSlot).toBeInTheDocument();
+    expect(bingoSlot).toHaveClass("live-page__bingo-slot");
+    expect(bingoGrid).toHaveClass("live-page__bingo-board");
+    await user.click(await screen.findByRole("gridcell", { name: "Feld 1" }));
+
+    expect(messageSlot).toHaveTextContent("Das Bingo-Board wurde inzwischen geändert.");
+    expect(messageSlot).toHaveClass("live-page__bingo-message-slot");
+    expect(screen.getByRole("gridcell", { name: "Feld 1, angekreuzt" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Offene Challenge")).toBeInTheDocument();
+  });
+
+  it("behält neuere Socket-Markierungen bei, wenn eine ältere Dock-Antwort später eintrifft", async () => {
+    const user = userEvent.setup();
+    let resolveMutation: ((response: Response) => void) | undefined;
+    vi.mocked(fetch).mockReturnValueOnce(new Promise((resolve) => { resolveMutation = resolve; }));
+    render(<LiveApp />);
+    connectDockSocket();
+    emitUpdate();
+    emitBingoUpdate();
+
+    await user.click(await screen.findByRole("gridcell", { name: "Feld 1" }));
+    emitBingoUpdate(bingoBoard({ markRevision: 9, marks: ["cell-0", "cell-1"] }));
+
+    act(() => {
+      resolveMutation?.(new Response(JSON.stringify({ board: bingoBoard({ markRevision: 8, marks: ["cell-0"] }) }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }));
+    });
+
+    await waitFor(() => expect(screen.getByRole("gridcell", { name: "Feld 2, angekreuzt" })).toHaveAttribute("aria-pressed", "true"));
+  });
+
+  it("deaktiviert Bingo-Steuerung offline", async () => {
+    render(<LiveApp />);
+    connectDockSocket();
+    emitUpdate();
+    emitBingoUpdate();
+    const socket = FakeWebSocket.instances[0];
+
+    act(() => socket?.emit("close"));
+
+    expect(await screen.findByRole("gridcell", { name: "Feld 1" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Kreuze zurücksetzen" })).toBeDisabled();
+  });
+
+  it("fragt vor dem Zurücksetzen der Bingo-Kreuze und sendet die Markierungsrevision", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm");
+    confirm.mockReturnValue(true);
+    render(<LiveApp />);
+    connectDockSocket();
+    emitUpdate();
+    emitBingoUpdate(bingoBoard({ marks: ["cell-0"], markRevision: 11 }));
+
+    await user.click(await screen.findByRole("button", { name: "Kreuze zurücksetzen" }));
+
+    expect(confirm).toHaveBeenCalledWith("Alle Bingo-Kreuze zurücksetzen?");
+    expectDockRequest("/api/bingo/dock/reset", JSON.stringify({ expectedMarkRevision: 11 }));
   });
 
   it("zeigt versteckte Challenges mit Badge und zählt sie separat", () => {

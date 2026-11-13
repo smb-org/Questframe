@@ -22,6 +22,7 @@ import {
 } from "../repository/bingo-repository";
 
 const fallbackActor: ModuleActor = { twitchUserId: "0", displayName: "Questframe" };
+const dockActor: ModuleActor = { twitchUserId: "0", displayName: "Dock" };
 
 export const bingoRepository = (ctx: ModuleContext) => createSqlStorageBingoRepository({
   sql: ctx.sql,
@@ -99,6 +100,20 @@ export const createBingoHttpHandler = (socketTags: readonly SocketTag[]): Module
     const url = new URL(request.url);
     const repository = bingoRepository(ctx);
 
+    if (request.method === "GET" && url.pathname === "/bingo/dock") {
+      await ctx.requireDockToken(request);
+      return jsonResponse(bingoService(ctx, dockActor).readBoard());
+    }
+    if (request.method === "POST" && url.pathname === "/bingo/dock/mark") {
+      await ctx.requireDockToken(request);
+      const parsed = markCellPayloadSchema.parse(await readJson(request, 4_096));
+      return mutationResponse(ctx, socketTags, bingoService(ctx, dockActor).markCell(parsed.cellId, parsed.marked, parsed.expectedMarkRevision));
+    }
+    if (request.method === "POST" && url.pathname === "/bingo/dock/reset") {
+      await ctx.requireDockToken(request);
+      const input = resetMarksPayloadSchema.parse(await readJson(request, 2_048));
+      return mutationResponse(ctx, socketTags, bingoService(ctx, dockActor).resetMarks(input.expectedMarkRevision));
+    }
     if (request.method === "GET" && url.pathname === "/bingo") {
       requireEditorSession(request, ctx);
       return jsonResponse(bingoService(ctx).readBoard());

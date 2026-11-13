@@ -3,8 +3,8 @@ import { runInDurableObject } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { runMigrations } from "../../src/channel/migrations";
-import { bootstrapResponseSchema, overlayTokenResponseSchema } from "../../src/shared/contracts/api";
-import { OVERLAY_SOCKET_PROTOCOL } from "../../src/shared/contracts/protocol";
+import { bootstrapResponseSchema, dockTokenResponseSchema, overlayTokenResponseSchema } from "../../src/shared/contracts/api";
+import { DOCK_SOCKET_PROTOCOL, OVERLAY_SOCKET_PROTOCOL } from "../../src/shared/contracts/protocol";
 
 const origin = "http://localhost:5173";
 const tabId = "bingo-socket-test";
@@ -44,6 +44,20 @@ const createOverlayToken = async (): Promise<string> => {
   return overlayTokenResponseSchema.parse(await response.json()).token;
 };
 
+const createDockToken = async (): Promise<string> => {
+  const bootstrap = bootstrapResponseSchema.parse(await (await fetchWorker("/api/editor/bootstrap", {
+    headers: { cookie, "x-editor-tab": tabId },
+  })).json());
+  const hasToken = bootstrap.capsule.dockToken?.exists === true;
+  const response = await fetchWorker(`/api/challenges/dock-token${hasToken ? "/rotate" : ""}`, {
+    method: "POST",
+    headers: authenticatedHeaders(),
+    body: JSON.stringify({ requestId: crypto.randomUUID(), expectedGeneration: bootstrap.capsule.dockToken?.generation ?? 0 }),
+  });
+  expect(response.status).toBe(200);
+  return dockTokenResponseSchema.parse(await response.json()).token;
+};
+
 const listen = (socket: WebSocket): void => {
   const inbox = { messages: [] as Record<string, unknown>[] };
   inboxes.set(socket, inbox);
@@ -57,13 +71,13 @@ const listen = (socket: WebSocket): void => {
   });
 };
 
-const openSocket = async (path: string, token?: string): Promise<WebSocket> => {
+const openSocket = async (path: string, token?: string, protocol = OVERLAY_SOCKET_PROTOCOL): Promise<WebSocket> => {
   const headers = new Headers({ upgrade: "websocket" });
   if (token === undefined) {
     headers.set("cookie", cookie);
     headers.set("x-editor-tab", tabId);
   } else {
-    headers.set("sec-websocket-protocol", `${OVERLAY_SOCKET_PROTOCOL}, ${token}`);
+    headers.set("sec-websocket-protocol", `${protocol}, ${token}`);
   }
   const response = await fetchWorker(path, { headers });
   expect(response.status, path).toBe(101);
@@ -210,6 +224,53 @@ describe("Bingo-Sockets", () => {
       bingo.close();
       editor.close();
       composite.close();
+    }
+  });
+
+  it("sendet Bingo-Updates an den Dock und liefert beim Reconnect einen zeremoniefreien Stand", async () => {
+    const dockToken = await createDockToken();
+    const dock = await openSocket("/ws/dock", dockToken, DOCK_SOCKET_PROTOCOL);
+    try {
+      const challengeSnapshot = await waitForMessage(dock, (value) => typeof value.eventSeq === "number");
+      expect(challengeSnapshot).not.toBeNull();
+      const initial = await requireBingoUpdate(dock);
+      expect(initial.ceremony).toBeUndefined();
+
+      const card = {
+        title: "Dock-Bingo",
+        size: 3,
+        cells: Array.from({ length: 9 }, (_, index) => ({ id: `dock-${String(index)}`, text: `Feld ${String(index)}` })),
+      };
+      const saved = await fetchWorker("/api/bingo/board", {
+        method: "PUT",
+        headers: authenticatedHeaders(),
+        body: JSON.stringify({ ...card, placement: { x: 8, y: 8, scale: 1 }, expectedCardRevision: 0 }),
+      });
+      expect(saved.status).toBe(200);
+      await requireBingoUpdate(dock);
+
+      const marked = await fetchWorker("/api/bingo/mark", {
+        method: "POST",
+        headers: authenticatedHeaders(),
+        body: JSON.stringify({ cellId: "dock-0", marked: true, expectedMarkRevision: 1 }),
+      });
+      expect(marked.status).toBe(200);
+      const liveUpdate = await requireBingoUpdate(dock);
+      expect(liveUpdate).toMatchObject({ board: { marks: ["dock-0"] } });
+      expect(liveUpdate.ceremony).toBeUndefined();
+    } finally {
+      dock.close();
+    }
+
+    const reconnected = await openSocket("/ws/dock", dockToken, DOCK_SOCKET_PROTOCOL);
+    try {
+      const challengeSnapshot = await waitForMessage(reconnected, (value) => typeof value.eventSeq === "number");
+      expect(challengeSnapshot).not.toBeNull();
+      const snapshot = await requireBingoUpdate(reconnected);
+      expect(snapshot).toMatchObject({ type: "bingo_update", board: { marks: ["dock-0"] } });
+      expect(snapshot.ceremony).toBeUndefined();
+    } finally {
+      reconnected.close();
     }
   });
 });
