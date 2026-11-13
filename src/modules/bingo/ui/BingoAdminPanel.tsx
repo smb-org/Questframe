@@ -41,6 +41,21 @@ export type BingoAdminApi = {
   undo?: (moduleId: "bingo", channelSeq: number, baseRevision: BingoUndoBaseRevisions) => Promise<BingoUndoResponse>;
 };
 
+export type BingoAdminSaveOutcome = { ok: boolean; conflict: boolean; message?: string };
+export type BingoAdminSaveHandle = { dirty: boolean; save: () => Promise<BingoAdminSaveOutcome> };
+export type BingoAdminPanelProps = {
+  api: BingoAdminApi;
+  online: boolean;
+  canUndo: boolean;
+  initialUndoTargets: UndoTarget[];
+  update: BingoUpdateMessage | null;
+  onBoardUpdate: (update: BingoUpdateMessage) => void;
+  onUndoTargetsChange: (targets: UndoTarget[]) => void;
+  placementDraft?: ChallengePlacement | null;
+  onPlacementDraftChange?: (placement: ChallengePlacement) => void;
+  onSaveHandleChange?: (handle: BingoAdminSaveHandle) => void;
+};
+
 const segmenter = new Intl.Segmenter("de", { granularity: "grapheme" });
 
 const graphemeCount = (value: string): number => [...segmenter.segment(value)].length;
@@ -115,17 +130,8 @@ export const BingoAdminPanel = ({
   onUndoTargetsChange,
   placementDraft,
   onPlacementDraftChange,
-}: {
-  api: BingoAdminApi;
-  online: boolean;
-  canUndo: boolean;
-  initialUndoTargets: UndoTarget[];
-  update: BingoUpdateMessage | null;
-  onBoardUpdate: (update: BingoUpdateMessage) => void;
-  onUndoTargetsChange: (targets: UndoTarget[]) => void;
-  placementDraft?: ChallengePlacement | null;
-  onPlacementDraftChange?: (placement: ChallengePlacement) => void;
-}) => {
+  onSaveHandleChange,
+}: BingoAdminPanelProps) => {
   const [board, setBoard] = useState<BingoBoardState | null>(null);
   const [draft, setDraft] = useState<BingoCardDraft | null>(null);
   const [serverSets, setServerSets] = useState<BingoSetSummary[]>([]);
@@ -140,6 +146,7 @@ export const BingoAdminPanel = ({
   const boardRef = useRef<BingoBoardState | null>(null);
   const draftRef = useRef<BingoCardDraft | null>(null);
   const draftBaseCardRevisionRef = useRef<number | null>(null);
+  const saveCardRef = useRef<() => Promise<BingoAdminSaveOutcome>>(() => Promise.resolve({ ok: false, conflict: false, message: "Nicht speicherbar." }));
   const boardStyle = board?.style;
   const effectivePlacement = placementDraft ?? draft?.placement ?? board?.placement ?? null;
   const dirty = useMemo(() => draft !== null && board !== null && !sameDraft(draft, draft, board), [board, draft]);
@@ -302,10 +309,12 @@ export const BingoAdminPanel = ({
     }
   };
 
-  const saveCard = async (): Promise<void> => {
+  const saveCard = async (): Promise<BingoAdminSaveOutcome> => {
     const current = boardRef.current;
     const editing = draftRef.current;
-    if (current === null || editing === null || busy || !online || conflicted) return;
+    if (current === null || editing === null || busy || !online || conflicted) {
+      return { ok: false, conflict: false, message: "Nicht speicherbar." };
+    }
     setBusy(true);
     setError("");
     setMessage("");
@@ -313,12 +322,21 @@ export const BingoAdminPanel = ({
       const result = await api.saveBingoCard({ ...editing, placement: effectivePlacement ?? editing.placement, expectedCardRevision: draftBaseCardRevisionRef.current ?? current.cardRevision });
       applyMutation(result, true);
       setMessage(`Karte gespeichert · Revision ${String(result.board.cardRevision)}.`);
+      return { ok: true, conflict: false };
     } catch (caught) {
+      const errorValue = typeof caught === "object" && caught !== null ? caught as { message?: unknown; code?: unknown } : {};
+      const messageText = typeof errorValue.message === "string" ? errorValue.message : "Die Bingo-Karte konnte nicht gespeichert werden.";
       showError(caught, "Die Bingo-Karte konnte nicht gespeichert werden.");
+      return { ok: false, conflict: errorValue.code === "revision_conflict", message: messageText };
     } finally {
       setBusy(false);
     }
   };
+
+  useEffect(() => { saveCardRef.current = saveCard; });
+  useEffect(() => {
+    onSaveHandleChange?.({ dirty, save: () => saveCardRef.current() });
+  }, [dirty, onSaveHandleChange]);
 
   const loadSet = async (setId: string): Promise<void> => {
     const current = boardRef.current;

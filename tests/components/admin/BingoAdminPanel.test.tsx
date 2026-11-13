@@ -297,7 +297,7 @@ describe("Bingo-Regie und Editor", () => {
     const api = createApi({
       listBingoSets: vi.fn(() => Promise.resolve({ sets: [{
         id: "template-1",
-        type: "template",
+        type: "template" as const,
         name: "Vorlage",
         sortOrder: 0,
         createdAt: timestamp,
@@ -312,7 +312,7 @@ describe("Bingo-Regie und Editor", () => {
       saveBingoSet: vi.fn(() => Promise.resolve({
         summary: {
           id: "user-1",
-          type: "user",
+          type: "user" as const,
           name: "Mein Set",
           sortOrder: 1,
           createdAt: timestamp,

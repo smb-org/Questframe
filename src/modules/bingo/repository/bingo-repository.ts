@@ -358,6 +358,9 @@ export class SqlStorageBingoRepository implements BingoRepository {
   private deleteSetInternal(setId: string): void {
     const existing = this.getSetInternal(setId);
     if (existing === null) throw new BingoNotFoundError();
+    if (existing.summary.type === "template") {
+      throw new BingoValidationError("Bingo-Vorlagen können nicht gelöscht werden.");
+    }
     this.sql.exec("DELETE FROM bg_sets WHERE id = ?", setId);
   }
 

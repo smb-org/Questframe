@@ -137,6 +137,77 @@ describe("Bingo-API", () => {
     expect(challengesAfter).toEqual(challengesBefore);
   });
 
+  it("weist nach Undo einen Stilwechsel mit der Revision davor zurück", async () => {
+    const styled = await fetchWorker("/api/bingo/style", {
+      method: "PUT",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({ style: "broadcast", expectedCardRevision: 0 }),
+    });
+    expect(styled.status).toBe(200);
+    const afterStyle = await readBingo();
+    const bootstrapResponse = await fetchWorker("/api/editor/bootstrap", {
+      headers: { cookie, "x-editor-tab": tabId },
+    });
+    const bootstrap = bootstrapResponseSchema.parse(await bootstrapResponse.json());
+    const target = bootstrap.bingoUndoTargets[0];
+    if (target === undefined) throw new Error("Bingo-Undo-Ziel fehlt.");
+
+    const undo = await fetchWorker("/api/state/undo", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({
+        moduleId: "bingo",
+        channelSeq: target.channelSeq,
+        baseCardRevision: afterStyle.cardRevision,
+        baseMarkRevision: afterStyle.markRevision,
+        baseGeneration: afterStyle.generation,
+        baseStyle: afterStyle.style,
+      }),
+    });
+    expect(undo.status).toBe(200);
+    expect((await readBingo()).style).toBe("marker");
+
+    const staleStyle = await fetchWorker("/api/bingo/style", {
+      method: "PUT",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({ style: "broadcast", expectedCardRevision: afterStyle.cardRevision }),
+    });
+
+    expect(staleStyle.status).toBe(409);
+    await expect(staleStyle.json()).resolves.toMatchObject({
+      error: { code: "revision_conflict", currentSnapshot: { style: "marker", cardRevision: afterStyle.cardRevision + 1 } },
+    });
+  });
+
+  it("lehnt das Löschen einer Vorlage ab und löscht eigene Sets weiterhin", async () => {
+    const list = await fetchWorker("/api/bingo/sets", { headers: authenticatedHeaders() });
+    const sets = await list.json<{ sets: { id: string; type: "template" | "user" }[] }>();
+    const template = sets.sets.find(({ type }) => type === "template");
+    if (template === undefined) throw new Error("Bingo-Vorlage fehlt.");
+
+    const templateDelete = await fetchWorker(`/api/bingo/sets/${template.id}`, {
+      method: "DELETE",
+      headers: authenticatedHeaders(),
+    });
+    expect(templateDelete.status).toBe(422);
+    await expect(templateDelete.json()).resolves.toMatchObject({
+      error: { code: "validation_failed", message: "Bingo-Vorlagen können nicht gelöscht werden." },
+    });
+
+    const saved = await fetchWorker("/api/bingo/sets", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({ name: "Eigenes Set" }),
+    });
+    const savedBody = await saved.json<{ summary: { id: string; type: string } }>();
+    expect(savedBody.summary.type).toBe("user");
+    const userDelete = await fetchWorker(`/api/bingo/sets/${savedBody.summary.id}`, {
+      method: "DELETE",
+      headers: authenticatedHeaders(),
+    });
+    expect(userDelete.status).toBe(200);
+  });
+
   it("saves, styles, lists, loads, exports and imports cards independently of challenges", async () => {
     const challengesBefore = await (await fetchWorker("/api/challenges", { headers: authenticatedHeaders() })).json();
     expect((await saveCard(card(), 0)).status).toBe(200);

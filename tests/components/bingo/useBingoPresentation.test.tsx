@@ -55,4 +55,30 @@ describe("Bingo-Stil-Laden", () => {
     expect(loadStyle).toHaveBeenCalledTimes(2);
     expect(screen.getByTestId("ready")).toHaveTextContent("true");
   });
+
+  it("versucht nach mehreren Chunk-Fehlern mit wachsendem, begrenztem Intervall weiter", async () => {
+    vi.useFakeTimers();
+    const loadStyle = vi.fn<BingoStyleLoader>()
+      .mockRejectedValueOnce(new Error("Verbindung unterbrochen"))
+      .mockRejectedValueOnce(new Error("Verbindung unterbrochen"))
+      .mockRejectedValueOnce(new Error("Verbindung unterbrochen"))
+      .mockResolvedValue(undefined);
+    render(<PresentationStatus loadStyle={loadStyle} />);
+
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(loadStyle).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("ready")).toHaveTextContent("false");
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(loadStyle).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("ready")).toHaveTextContent("false");
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(loadStyle).toHaveBeenCalledTimes(3);
+    expect(screen.getByTestId("ready")).toHaveTextContent("false");
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(loadStyle).toHaveBeenCalledTimes(4);
+    expect(screen.getByTestId("ready")).toHaveTextContent("true");
+  });
 });

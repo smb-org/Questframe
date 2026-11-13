@@ -6,9 +6,9 @@ import type { BootstrapResponse, SaveResponse } from "../../../src/shared/contra
 import type { ChallengeBoardSnapshot } from "../../../src/modules/win-challenges/contracts/schemas";
 import { createDefaultState, getReleaseCapabilities, twitchUserIdSchema } from "../../../src/shared/contracts/state";
 import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
-import type { BingoUpdateMessage } from "../../../src/modules/bingo/contracts/schemas";
+import type { BingoBoardState, BingoMutationResponse, BingoUpdateMessage } from "../../../src/modules/bingo/contracts/schemas";
 import { loadBingoStyle } from "../../../src/bingo/style-loader";
-import { AdminWorkspace, type AdminApi } from "../../../src/admin/AdminWorkspace";
+import { AdminWorkspace, type AdminApi, type BingoAdminPanelLoader } from "../../../src/admin/AdminWorkspace";
 import { PreviewPanel } from "../../../src/admin/ui/PreviewPanel";
 
 vi.mock("../../../src/bingo/style-loader", () => ({ loadBingoStyle: vi.fn(() => Promise.resolve()) }));
@@ -42,6 +42,51 @@ const challengeSnapshot = (): ChallengeBoardSnapshot => ({
   challenges: [{ id: "challenge-1", title: "Wasser trinken", kind: "counter", unit: null, controlKey: "K7RP", targetCount: null, timerTotalMs: null, sortOrder: 0, step: 1, bestCount: 0, hidden: false, currentCount: 0, state: "pending", timerEndsAt: null, timerRemainMs: null, completedAt: null, createdAt: "2026-08-29T12:00:00.000Z", updatedAt: "2026-08-29T12:00:00.000Z" }],
 });
 
+const bingoBoard = (): BingoBoardState => ({
+  card: { title: "Testkarte", size: 3, cells: Array.from({ length: 9 }, (_, index) => ({ id: `bingo-${String(index)}`, text: `Ereignis ${String(index + 1)}` })) },
+  marks: [],
+  cardRevision: 7,
+  markRevision: 4,
+  generation: 2,
+  style: "marker",
+  placement: { x: 12, y: 8, scale: 1 },
+});
+
+const bingoMutation = (board: BingoBoardState): BingoMutationResponse => ({
+  board,
+  update: { type: "bingo_update", board },
+  ceremony: null,
+  auditEntry: null,
+  undoTargets: [],
+  serverTime: "2026-08-29T12:01:00.000Z",
+});
+
+const createBingoAdminApi = (overrides: Partial<AdminApi> = {}): AdminApi => {
+  const initial = bingoBoard();
+  return {
+    save: vi.fn(),
+    setVisibility: vi.fn(),
+    getBingoBoard: vi.fn(() => Promise.resolve(initial)),
+    markBingoCell: vi.fn(() => Promise.resolve(bingoMutation(initial))),
+    resetBingoMarks: vi.fn(() => Promise.resolve(bingoMutation(initial))),
+    saveBingoCard: vi.fn<NonNullable<AdminApi["saveBingoCard"]>>((request) => Promise.resolve(bingoMutation({
+      ...initial,
+      card: { title: request.title, size: request.size, cells: request.cells },
+      placement: request.placement,
+      cardRevision: initial.cardRevision + 1,
+    }))),
+    setBingoStyle: vi.fn(() => Promise.resolve(bingoMutation({ ...initial, cardRevision: initial.cardRevision + 1 }))),
+    listBingoSets: vi.fn(() => Promise.resolve({ sets: [] })),
+    getBingoSet: vi.fn(() => Promise.resolve({ summary: { id: "set-1", type: "user" as const, name: "Set", sortOrder: 0, createdAt: "2026-08-29T12:00:00.000Z", updatedAt: "2026-08-29T12:00:00.000Z" }, card: initial.card })),
+    saveBingoSet: vi.fn(() => Promise.resolve({ summary: { id: "set-1", type: "user" as const, name: "Set", sortOrder: 0, createdAt: "2026-08-29T12:00:00.000Z", updatedAt: "2026-08-29T12:00:00.000Z" }, card: initial.card })),
+    deleteBingoSet: vi.fn((setId: string) => Promise.resolve(setId)),
+    loadBingoSet: vi.fn(() => Promise.resolve(bingoMutation(initial))),
+    importBingoCard: vi.fn(() => Promise.resolve(bingoMutation(initial))),
+    exportBingoCard: vi.fn(() => Promise.resolve("{}")),
+    ...overrides,
+  };
+};
+
 const createCompositionApi = (snapshot: ChallengeBoardSnapshot): AdminApi => ({
   save: vi.fn(),
   setVisibility: vi.fn(),
@@ -64,6 +109,74 @@ const challengesPanel = () => within(document.querySelector("#admin-composition-
 const hudPanel = () => within(document.querySelector("#admin-composition-panel-hud") as HTMLElement);
 
 describe("Kompositions-Workspace", () => {
+  it("fängt einen fehlgeschlagenen Bingo-Import lokal ab und lädt den Bereich erneut", async () => {
+    const user = userEvent.setup();
+    const reportError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const loadBingoPanel = vi.fn<BingoAdminPanelLoader>()
+      .mockRejectedValueOnce(new Error("Bingo-Chunk konnte nicht geladen werden."))
+      .mockImplementation(() => import("../../../src/modules/bingo/ui/BingoAdminPanel").then(({ BingoAdminPanel }) => ({ default: BingoAdminPanel })));
+    const { container } = render(<AdminWorkspace api={createBingoAdminApi()} initialBootstrap={bootstrap()} loadBingoPanel={loadBingoPanel} workspace="bingo" />);
+
+    expect(await screen.findByText("Bingo-Editor konnte nicht geladen werden.")).toBeInTheDocument();
+    expect(hudPanel().getByRole("slider", { name: "Gesundheit", hidden: true })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Erneut laden" }));
+
+    expect(await screen.findByRole("heading", { name: "Bingo" })).toBeInTheDocument();
+    expect(container.querySelector(".bingo-admin-load-error")).toBeNull();
+    reportError.mockRestore();
+  });
+
+  it("speichert HUD und Bingo gemeinsam über Alle speichern", async () => {
+    const user = userEvent.setup();
+    const initial = bootstrap();
+    const save = vi.fn<AdminApi["save"]>((request) => Promise.resolve({
+      state: { ...initial.state, ...request.state, revision: 2, updatedAt: "2026-08-29T12:01:00.000Z", updatedBy: actor },
+      auditEntry: { id: "audit-hud", revision: 2, action: "save", actor, summary: "HUD gespeichert", createdAt: "2026-08-29T12:01:00.000Z" },
+      undoTargets: [],
+      serverTime: "2026-08-29T12:01:00.000Z",
+    }));
+    const api = createBingoAdminApi({ save });
+    render(<AdminWorkspace api={api} initialBootstrap={initial} workspace="bingo" />);
+
+    await screen.findByRole("grid", { name: "Testkarte" });
+    await user.clear(screen.getByRole("textbox", { name: "Kartentitel" }));
+    await user.type(screen.getByRole("textbox", { name: "Kartentitel" }), "Neue Bingo-Karte");
+    const hudName = screen.getByDisplayValue("Streamer");
+    await user.clear(hudName);
+    await user.type(hudName, "Neuer Name");
+
+    const saveAll = await screen.findByRole("button", { name: "Alle speichern" });
+    await user.click(saveAll);
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(api.saveBingoCard).toHaveBeenCalledTimes(1));
+    expect(api.saveBingoCard).toHaveBeenCalledWith(expect.objectContaining({ title: "Neue Bingo-Karte", expectedCardRevision: 7 }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Alle speichern" })).not.toBeInTheDocument());
+  });
+
+  it("lässt die globale Leiste bei einem Bingo-Revisionskonflikt stehen und zeigt ihn im festen Nachrichtenfeld", async () => {
+    const user = userEvent.setup();
+    const initialBoard = bingoBoard();
+    const conflictError = Object.assign(new Error("Die Bingo-Karte wurde inzwischen geändert."), {
+      code: "revision_conflict",
+      currentSnapshot: { ...initialBoard, cardRevision: 8 },
+    });
+    const saveBingoCard = vi.fn<NonNullable<AdminApi["saveBingoCard"]>>(() => Promise.reject(conflictError));
+    const api = createBingoAdminApi({ saveBingoCard });
+    render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="bingo" />);
+
+    await screen.findByRole("grid", { name: "Testkarte" });
+    await user.clear(screen.getByRole("textbox", { name: "Kartentitel" }));
+    await user.type(screen.getByRole("textbox", { name: "Kartentitel" }), "Ungespeicherter Entwurf");
+    await user.click(await screen.findByRole("button", { name: "Alle speichern" }));
+
+    const messageSlot = document.querySelector(".bingo-admin-message-slot");
+    await waitFor(() => expect(messageSlot).toHaveTextContent("Die Bingo-Karte wurde inzwischen geändert."));
+    expect(messageSlot).toHaveAttribute("aria-live", "polite");
+    expect(await screen.findByRole("button", { name: "Alle speichern" })).toBeInTheDocument();
+    expect(saveBingoCard).toHaveBeenCalledWith(expect.objectContaining({ expectedCardRevision: 7 }));
+  });
+
   it("lädt den Bingo-Stil für die HUD-Vorschau unabhängig vom geöffneten Bingo-Editor", async () => {
     let onBingoUpdate: ((update: BingoUpdateMessage) => void) | undefined;
     let resolveStyle: (() => void) | undefined;

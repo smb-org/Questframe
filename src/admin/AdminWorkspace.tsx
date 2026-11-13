@@ -15,7 +15,7 @@ import {
   Settings2,
   Undo2,
 } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 
 import type {
   AuditEntry,
@@ -67,7 +67,7 @@ import type {
   BingoUpdateMessage,
   MarkCellPayload,
 } from "../modules/bingo/contracts/schemas";
-import type { BingoAdminApi } from "../modules/bingo/ui/BingoAdminPanel";
+import type { BingoAdminApi, BingoAdminPanelProps, BingoAdminSaveHandle } from "../modules/bingo/ui/BingoAdminPanel";
 import { BingoCeremonyStage } from "../bingo/BingoCeremonyStage";
 import { GLOBAL_TIMER_UP_CAP_MS, MAX_VISIBLE_ROWS } from "../modules/win-challenges/contracts/predicates";
 import { ChallengeBoard, type ChallengeBoardApi, type ChallengeBoardSaveHandle } from "../modules/win-challenges/ui/ChallengeBoard";
@@ -85,7 +85,52 @@ import { createChallengeObsSources } from "./ui/obsSetup";
 import { PIXELS_PER_HUD_UNIT, PIXELS_PER_RASTER_UNIT, stagePixelsToRaster } from "./ui/placement";
 import "./admin.css";
 
-const BingoAdminPanel = lazy(() => import("../modules/bingo/ui/BingoAdminPanel").then(({ BingoAdminPanel: panel }) => ({ default: panel })));
+export type BingoAdminPanelLoader = () => Promise<{ default: ComponentType<BingoAdminPanelProps> }>;
+
+const loadBingoAdminPanel: BingoAdminPanelLoader = () =>
+  import("../modules/bingo/ui/BingoAdminPanel").then(({ BingoAdminPanel: panel }) => ({ default: panel }));
+
+type BingoPanelBoundaryProps = { children: ReactNode; onRetry: () => void };
+
+class BingoPanelErrorBoundary extends Component<BingoPanelBoundaryProps, { failed: boolean }> {
+  public constructor(props: BingoPanelBoundaryProps) {
+    super(props);
+    this.state = { failed: false };
+  }
+
+  public static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  public override render() {
+    if (this.state.failed) {
+      return (
+        <section className="bingo-admin-load-error" role="alert">
+          <p>Bingo-Editor konnte nicht geladen werden.</p>
+          <button className="button button--quiet" onClick={this.props.onRetry} type="button">Erneut laden</button>
+        </section>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const RetryableBingoAdminPanel = ({ loader, ...props }: BingoAdminPanelProps & { loader?: BingoAdminPanelLoader | undefined }) => {
+  const loadPanel = loader ?? loadBingoAdminPanel;
+  const [Panel, setPanel] = useState(() => lazy(loadPanel));
+  const [retryVersion, setRetryVersion] = useState(0);
+  const retry = (): void => {
+    setPanel(() => lazy(loadPanel));
+    setRetryVersion((version) => version + 1);
+  };
+  return (
+    <BingoPanelErrorBoundary key={retryVersion} onRetry={retry}>
+      <Suspense fallback={<div aria-busy="true" className="bingo-admin-loading">Bingo-Editor wird geladen …</div>}>
+        <Panel {...props} />
+      </Suspense>
+    </BingoPanelErrorBoundary>
+  );
+};
 
 export type TwitchUser = { id: string; login: string; displayName: string; profileImageUrl: string };
 
@@ -681,7 +726,7 @@ const GlobalSaveBar = ({ modules, online, onNavigate }: { modules: SaveAllModule
   );
 };
 
-const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBootstrap: BootstrapResponse; api: AdminApi; initialTab: AdminWorkspaceId }) => {
+const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPanel }: { initialBootstrap: BootstrapResponse; api: AdminApi; initialTab: AdminWorkspaceId; loadBingoPanel?: BingoAdminPanelLoader | undefined }) => {
   const [challengeUpdate, setChallengeUpdate] = useState<ChallengeUpdate | null>(null);
   const [challengeUndoTargets, setChallengeUndoTargets] = useState(initialBootstrap.challengeUndoTargets);
   const [bingoUndoTargets, setBingoUndoTargets] = useState(initialBootstrap.bingoUndoTargets);
@@ -700,6 +745,7 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
   const obsSetupTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [settingsHandle, setSettingsHandle] = useState<ModuleSaveHandle | null>(null);
   const [boardHandle, setBoardHandle] = useState<ChallengeBoardSaveHandle | null>(null);
+  const [bingoHandle, setBingoHandle] = useState<BingoAdminSaveHandle | null>(null);
   const [clockOffsetMs, setClockOffsetMs] = useState(0);
   const state = useHudEditorState({ initialBootstrap, api, onChallengeUpdate: setChallengeUpdate, onBingoUpdate: setBingoUpdate, onChallengeUndoTargets: setChallengeUndoTargets, onBingoUndoTargets: setBingoUndoTargets, onTimeOffset: setClockOffsetMs });
   const changeWorkspace = (tab: AdminWorkspaceId): void => {
@@ -856,6 +902,7 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
   const saveAllModules: SaveAllModule[] = [{ key: "hud", label: "HUD", tab: "hud", dirty: state.dirty, save: state.save }];
   if (settingsHandle !== null) saveAllModules.push({ key: "settings", label: "Einstellungen", tab: "challenges", dirty: settingsHandle.dirty, save: settingsHandle.save });
   if (boardHandle !== null) saveAllModules.push({ key: "board", label: "Board", tab: "challenges", dirty: boardHandle.dirty, save: boardHandle.save });
+  if (bingoHandle !== null) saveAllModules.push({ key: "bingo", label: "Bingo", tab: "bingo", dirty: bingoHandle.dirty, save: bingoHandle.save });
   return (
     <div className="admin-app admin-app--composition">
       <AdminTopbar api={api} initialBootstrap={initialBootstrap} obsSetupTriggerRef={obsSetupTriggerRef} state={state} />
@@ -896,19 +943,19 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
         <div aria-labelledby="admin-tab-bingo" className="composition-tabpanel" hidden={activeTab !== "bingo"} id="admin-composition-panel-bingo" role="tabpanel">
           {bingoPanelOpened && (bingoAdminApi === null
             ? <section className="bingo-admin-unavailable" role="alert">Bingo-Editor ist in dieser Sitzung nicht verfügbar.</section>
-            : <Suspense fallback={<div aria-busy="true" className="bingo-admin-loading">Bingo-Editor wird geladen …</div>}>
-              <BingoAdminPanel
+            : <RetryableBingoAdminPanel
                 api={bingoAdminApi}
                 canUndo={initialBootstrap.capabilities.undo}
                 initialUndoTargets={bingoUndoTargets}
+                loader={loadBingoPanel}
                 onBoardUpdate={setBingoUpdate}
                 onPlacementDraftChange={setBingoPlacementDraft}
+                onSaveHandleChange={setBingoHandle}
                 onUndoTargetsChange={setBingoUndoTargets}
                 online={state.online}
                 placementDraft={bingoPlacementDraft}
                 update={bingoUpdate}
-              />
-            </Suspense>)}
+              />)}
         </div>
         {activeTab === "challenges" && <CompositionSaveDock state={state} />}
       </aside>
@@ -916,4 +963,4 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab }: { initialBo
   );
 };
 
-export const AdminWorkspace = ({ initialBootstrap, api, workspace = "hud" }: { initialBootstrap: BootstrapResponse; api: AdminApi; workspace?: AdminWorkspaceId }) => <CompositionWorkspace api={api} initialBootstrap={initialBootstrap} initialTab={workspace} />;
+export const AdminWorkspace = ({ initialBootstrap, api, workspace = "hud", loadBingoPanel }: { initialBootstrap: BootstrapResponse; api: AdminApi; workspace?: AdminWorkspaceId; loadBingoPanel?: BingoAdminPanelLoader | undefined }) => <CompositionWorkspace api={api} initialBootstrap={initialBootstrap} initialTab={workspace} loadBingoPanel={loadBingoPanel} />;
