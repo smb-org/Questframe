@@ -64,6 +64,18 @@ const draftFromBoard = (board: BingoBoardState): BingoCardDraft => ({
   placement: board.placement,
 });
 
+const samePlacement = (left: ChallengePlacement, right: ChallengePlacement): boolean =>
+  left.x === right.x && left.y === right.y && left.scale === right.scale;
+
+const localPlacementDraft = (
+  externalPlacement: ChallengePlacement | null,
+  current: BingoBoardState | null,
+  incoming: BingoBoardState,
+): ChallengePlacement | null => externalPlacement !== null
+  && !samePlacement(externalPlacement, current?.placement ?? incoming.placement)
+  ? externalPlacement
+  : null;
+
 const sameDraft = (left: BingoCardDraft | null, right: BingoCardDraft, board: BingoBoardState | null): boolean =>
   board !== null
   && left !== null
@@ -156,11 +168,19 @@ export const BingoAdminPanel = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const boardRef = useRef<BingoBoardState | null>(null);
   const draftRef = useRef<BingoCardDraft | null>(null);
+  const placementDraftRef = useRef<ChallengePlacement | null>(placementDraft ?? null);
   const draftBaseCardRevisionRef = useRef<number | null>(null);
   const saveCardRef = useRef<() => Promise<BingoAdminSaveOutcome>>(() => Promise.resolve({ ok: false, conflict: false, message: "Nicht speicherbar." }));
   const boardStyle = board?.style;
   const effectivePlacement = placementDraft ?? draft?.placement ?? board?.placement ?? null;
-  const dirty = useMemo(() => draft !== null && board !== null && !sameDraft(draft, draft, board), [board, draft]);
+  const dirty = useMemo(() => draft !== null && board !== null && (
+    !sameDraft(draft, draft, board)
+    || (effectivePlacement !== null && (
+      effectivePlacement.x !== board.placement.x
+      || effectivePlacement.y !== board.placement.y
+      || effectivePlacement.scale !== board.placement.scale
+    ))
+  ), [board, draft, effectivePlacement]);
   const undoTargets = initialUndoTargets
     .filter((target) => target.moduleId === "bingo")
     .sort((left, right) => right.channelSeq - left.channelSeq)
@@ -168,6 +188,17 @@ export const BingoAdminPanel = ({
 
   useEffect(() => { boardRef.current = board; }, [board]);
   useEffect(() => { draftRef.current = draft; }, [draft]);
+  useEffect(() => {
+    const externalPlacement = placementDraft ?? null;
+    placementDraftRef.current = externalPlacement;
+    if (externalPlacement === null) return;
+    const current = draftRef.current;
+    if (current !== null && !samePlacement(current.placement, externalPlacement)) {
+      const next = { ...current, placement: externalPlacement };
+      draftRef.current = next;
+      setDraft(next);
+    }
+  }, [placementDraft]);
   useEffect(() => {
     if (boardStyle !== undefined) void loadBingoStyle(boardStyle).catch(() => undefined);
   }, [boardStyle]);
@@ -182,7 +213,12 @@ export const BingoAdminPanel = ({
     boardRef.current = reconciledBoard;
     setBoard(reconciledBoard);
     if ((syncDraft && responseCardIsCurrent) || editorWasClean || draftMatchesBoard) {
-      const nextDraft = draftFromBoard(reconciledBoard);
+      const externalPlacement = placementDraftRef.current;
+      const draggedPlacement = syncDraft ? null : localPlacementDraft(externalPlacement, current, reconciledBoard);
+      const nextDraft = {
+        ...draftFromBoard(reconciledBoard),
+        ...(draggedPlacement === null ? {} : { placement: draggedPlacement }),
+      };
       draftRef.current = nextDraft;
       setDraft(nextDraft);
       draftBaseCardRevisionRef.current = reconciledBoard.cardRevision;
@@ -244,7 +280,12 @@ export const BingoAdminPanel = ({
     boardRef.current = update.board;
     setBoard(update.board);
     if (!wasDirty || draftMatchesUpdate) {
-      const nextDraft = draftFromBoard(update.board);
+      const externalPlacement = placementDraftRef.current;
+      const draggedPlacement = localPlacementDraft(externalPlacement, current, update.board);
+      const nextDraft = {
+        ...draftFromBoard(update.board),
+        ...(draggedPlacement === null ? {} : { placement: draggedPlacement }),
+      };
       draftRef.current = nextDraft;
       setDraft(nextDraft);
       draftBaseCardRevisionRef.current = update.board.cardRevision;
@@ -260,9 +301,16 @@ export const BingoAdminPanel = ({
   }, [onPlacementDraftChange, update]);
 
   const changeDraft = (next: BingoCardDraft): void => {
-    draftRef.current = next;
-    setDraft(next);
-    onPlacementDraftChange?.(next.placement);
+    const current = draftRef.current;
+    const externalPlacement = placementDraftRef.current;
+    const preserveDraggedPlacement = current !== null && externalPlacement !== null
+      && samePlacement(next.placement, current.placement)
+      && !samePlacement(current.placement, externalPlacement);
+    const placement = preserveDraggedPlacement ? externalPlacement : next.placement;
+    const withPlacement = { ...next, placement };
+    draftRef.current = withPlacement;
+    setDraft(withPlacement);
+    onPlacementDraftChange?.(placement);
     if (!conflicted) setError("");
     setMessage("");
   };
@@ -531,9 +579,9 @@ export const BingoAdminPanel = ({
         </div>
 
         <div className="bingo-admin-placement" aria-label="Bingo-Platzierung">
-          <label><span>Platzierung X</span><input disabled={draft === null || busy || !online} max={384} min={0} onChange={(event) => { if (draft !== null) changeDraft({ ...draft, placement: { ...placement, x: Number(event.currentTarget.value) } }); }} type="number" value={draft?.placement.x ?? placement.x} /></label>
-          <label><span>Platzierung Y</span><input disabled={draft === null || busy || !online} max={216} min={0} onChange={(event) => { if (draft !== null) changeDraft({ ...draft, placement: { ...placement, y: Number(event.currentTarget.value) } }); }} type="number" value={draft?.placement.y ?? placement.y} /></label>
-          <label><span>Skalierung</span><select disabled={draft === null || busy || !online} onChange={(event) => { if (draft !== null) changeDraft({ ...draft, placement: { ...placement, scale: Number(event.currentTarget.value) } }); }} value={draft?.placement.scale ?? placement.scale}>{[0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2].map((scale) => <option key={scale} value={scale}>{Math.round(scale * 100)}%</option>)}</select></label>
+          <label><span>Platzierung X</span><input disabled={draft === null || busy || !online} max={384} min={0} onChange={(event) => { if (draft !== null) changeDraft({ ...draft, placement: { ...placement, x: Number(event.currentTarget.value) } }); }} type="number" value={effectivePlacement?.x ?? draft?.placement.x ?? placement.x} /></label>
+          <label><span>Platzierung Y</span><input disabled={draft === null || busy || !online} max={216} min={0} onChange={(event) => { if (draft !== null) changeDraft({ ...draft, placement: { ...placement, y: Number(event.currentTarget.value) } }); }} type="number" value={effectivePlacement?.y ?? draft?.placement.y ?? placement.y} /></label>
+          <label><span>Skalierung</span><select disabled={draft === null || busy || !online} onChange={(event) => { if (draft !== null) changeDraft({ ...draft, placement: { ...placement, scale: Number(event.currentTarget.value) } }); }} value={effectivePlacement?.scale ?? draft?.placement.scale ?? placement.scale}>{[0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2].map((scale) => <option key={scale} value={scale}>{Math.round(scale * 100)}%</option>)}</select></label>
         </div>
 
         <div className="bingo-admin-editor-grid">

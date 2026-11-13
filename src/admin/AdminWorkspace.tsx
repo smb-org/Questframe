@@ -738,9 +738,9 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
   const [challengeSettingsDraft, setChallengeSettingsDraft] = useState<ChallengeSettingsDraft | null>(null);
   const [challengePlacementDraft, setChallengePlacementDraft] = useState<ChallengePlacement | null>(null);
   const [previewZoom, setPreviewZoom] = useState(100);
-  const [dragging, setDragging] = useState<"hud" | "challenges" | null>(null);
+  const [dragging, setDragging] = useState<"hud" | "challenges" | "bingo" | null>(null);
   const [activeTab, setActiveTab] = useState<AdminWorkspaceId>(initialTab);
-  const draggingRef = useRef<{ kind: "hud" | "challenges"; pointerId: number } | null>(null);
+  const draggingRef = useRef<{ kind: "hud" | "challenges" | "bingo"; pointerId: number } | null>(null);
   const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
   const [challengeCss, setChallengeCss] = useState<{ style: string | null }>({ style: null });
   const obsSetupTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -757,6 +757,14 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
     if (api.getChallengeBoard === undefined) return;
     let disposed = false;
     void api.getChallengeBoard().then((snapshot) => { if (!disposed) setChallengeUpdate((current) => current ?? { eventSeq: snapshot.eventSeq, boardRevision: snapshot.boardRevision, settingsRevision: snapshot.settingsRevision, settings: snapshot.settings, challenges: snapshot.challenges, event: null }); }).catch(() => undefined);
+    return () => { disposed = true; };
+  }, [api]);
+  useEffect(() => {
+    if (api.getBingoBoard === undefined) return;
+    let disposed = false;
+    void api.getBingoBoard().then((board) => {
+      if (!disposed) setBingoUpdate((current) => current ?? { type: "bingo_update", board });
+    }).catch(() => undefined);
     return () => { disposed = true; };
   }, [api]);
   const displayedChallengeUpdate = useMemo(() => challengeUpdate === null ? null : { ...challengeUpdate, settings: challengeSettingsWithDraft(challengeUpdate.settings, challengeSettingsDraft) }, [challengeSettingsDraft, challengeUpdate]);
@@ -785,11 +793,13 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
       y: ((event.clientY - rect.top) / rect.height) * 1080,
     };
   };
-  const getPlacementForDrag = (kind: "hud" | "challenges") => kind === "hud"
-    ? state.draft.placement
-    : challengePlacementDraft ?? displayedChallengeUpdate?.settings.placement ?? { x: 0, y: 0, scale: 1 };
-  const pixelsPerUnitFor = (kind: "hud" | "challenges") => kind === "hud" ? PIXELS_PER_HUD_UNIT : PIXELS_PER_RASTER_UNIT;
-  const updatePlacementFromPointer = (kind: "hud" | "challenges", event: React.PointerEvent<HTMLElement>) => {
+  const getPlacementForDrag = (kind: "hud" | "challenges" | "bingo") => {
+    if (kind === "hud") return state.draft.placement;
+    if (kind === "challenges") return challengePlacementDraft ?? displayedChallengeUpdate?.settings.placement ?? { x: 0, y: 0, scale: 1 };
+    return bingoPlacementDraft ?? bingoUpdate?.board.placement ?? { x: 8, y: 80, scale: 1 };
+  };
+  const pixelsPerUnitFor = (kind: "hud" | "challenges" | "bingo") => kind === "hud" ? PIXELS_PER_HUD_UNIT : PIXELS_PER_RASTER_UNIT;
+  const updatePlacementFromPointer = (kind: "hud" | "challenges" | "bingo", event: React.PointerEvent<HTMLElement>) => {
     const pointer = getPointerStagePoint(event);
     if (pointer === null) return;
     const offset = dragOffsetRef.current;
@@ -799,10 +809,12 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
       y: pointer.y - (offset?.y ?? 0) * pixelsPerUnit,
     }, pixelsPerUnit);
     if (kind === "hud") state.setDraft((current) => ({ ...current, placement: { ...current.placement, ...next } }));
-    else setChallengePlacementDraft((current) => ({ ...(current ?? displayedChallengeUpdate?.settings.placement ?? { x: 0, y: 0, scale: 1 }), ...next }));
+    else if (kind === "challenges") setChallengePlacementDraft((current) => ({ ...(current ?? displayedChallengeUpdate?.settings.placement ?? { x: 0, y: 0, scale: 1 }), ...next }));
+    else setBingoPlacementDraft((current) => ({ ...(current ?? bingoUpdate?.board.placement ?? { x: 8, y: 80, scale: 1 }), ...next }));
   };
-  const startDrag = (kind: "hud" | "challenges", event: React.PointerEvent<HTMLElement>) => {
+  const startDrag = (kind: "hud" | "challenges" | "bingo", event: React.PointerEvent<HTMLElement>) => {
     if (event.button !== 0 || !state.online) return;
+    if (kind === "bingo") setBingoPanelOpened(true);
     const pointer = getPointerStagePoint(event);
     if (pointer === null) return;
     const placement = getPlacementForDrag(kind);
@@ -813,9 +825,9 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
     };
     draggingRef.current = { kind, pointerId: event.pointerId }; setDragging(kind); callPointerCapture(event.currentTarget, "setPointerCapture", event.pointerId);
   };
-  const moveDrag = (kind: "hud" | "challenges", event: React.PointerEvent<HTMLElement>) => { const drag = draggingRef.current; if (drag?.kind === kind && drag.pointerId === event.pointerId) updatePlacementFromPointer(kind, event); };
-  const stopDrag = (kind: "hud" | "challenges", event: React.PointerEvent<HTMLElement>) => { const drag = draggingRef.current; if (drag?.kind !== kind || drag.pointerId !== event.pointerId) return; draggingRef.current = null; dragOffsetRef.current = null; setDragging(null); callPointerCapture(event.currentTarget, "releasePointerCapture", event.pointerId); };
-  const movePlacementWithKeyboard = (kind: "hud" | "challenges", event: React.KeyboardEvent<HTMLElement>) => {
+  const moveDrag = (kind: "hud" | "challenges" | "bingo", event: React.PointerEvent<HTMLElement>) => { const drag = draggingRef.current; if (drag?.kind === kind && drag.pointerId === event.pointerId) updatePlacementFromPointer(kind, event); };
+  const stopDrag = (kind: "hud" | "challenges" | "bingo", event: React.PointerEvent<HTMLElement>) => { const drag = draggingRef.current; if (drag?.kind !== kind || drag.pointerId !== event.pointerId) return; draggingRef.current = null; dragOffsetRef.current = null; setDragging(null); callPointerCapture(event.currentTarget, "releasePointerCapture", event.pointerId); };
+  const movePlacementWithKeyboard = (kind: "hud" | "challenges" | "bingo", event: React.KeyboardEvent<HTMLElement>) => {
     if (!state.online) return;
     const step = event.shiftKey ? 10 : 1;
     let delta: { x: number; y: number } | null = null;
@@ -829,7 +841,11 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
     const placement = getPlacementForDrag(kind);
     const next = stagePixelsToRaster({ x: (placement.x + delta.x) * pixelsPerUnit, y: (placement.y + delta.y) * pixelsPerUnit }, pixelsPerUnit);
     if (kind === "hud") state.setDraft((current) => ({ ...current, placement: { ...current.placement, ...next } }));
-    else setChallengePlacementDraft({ ...placement, ...next });
+    else if (kind === "challenges") setChallengePlacementDraft({ ...placement, ...next });
+    else {
+      setBingoPanelOpened(true);
+      setBingoPlacementDraft({ ...placement, ...next });
+    }
   };
   const effectiveChallengePlacement = challengePlacementDraft ?? displayedChallengeUpdate?.settings.placement ?? null;
   const compositionHud = state.preview;
@@ -887,11 +903,20 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
   // funktionieren als Einzel-URLs unabhängig vom Sammel-Overlay.
   const challengePreview = displayedChallengeUpdate === null || !challengeReady ? null : <ChallengeLogPreview ariaLabel="Challenge-Log verschieben, Pfeiltasten" className={`composition-draggable-module composition-draggable-module--challenge ${!state.draft.compositeChallengesVisible ? "is-module-muted" : ""} ${dragging === "challenges" ? "is-dragging" : ""}`} onKeyDown={(event) => movePlacementWithKeyboard("challenges", event)} onLostPointerCapture={(event) => stopDrag("challenges", event)} onPointerCancel={(event) => stopDrag("challenges", event)} onPointerDown={(event) => startDrag("challenges", event)} onPointerMove={(event) => moveDrag("challenges", event)} onPointerUp={(event) => stopDrag("challenges", event)} placement={effectiveChallengePlacement ?? displayedChallengeUpdate.settings.placement} rootTag="section" update={displayedChallengeUpdate} />;
   const bingoPreview = bingoUpdate === null || bingoCss.style !== bingoUpdate.board.style ? null : <BingoCeremonyStage
-    ariaLabel="Bingo-Karte in der Live-Vorschau"
+    ariaLabel="Bingo-Karte verschieben, Pfeiltasten"
     board={bingoUpdate.board}
-    className={`admin-bingo-live-preview ${!state.draft.compositeBingoVisible ? "is-module-muted" : ""}`}
+    className={`composition-draggable-module composition-draggable-module--bingo admin-bingo-live-preview ${!state.draft.compositeBingoVisible ? "is-module-muted" : ""} ${dragging === "bingo" ? "is-dragging" : ""}`}
     placement={bingoPlacementDraft ?? bingoUpdate.board.placement}
     presentation={{ activeCeremony: null, reducedMotion: false }}
+    rootProps={{
+      onKeyDown: (event) => movePlacementWithKeyboard("bingo", event),
+      onLostPointerCapture: (event) => stopDrag("bingo", event),
+      onPointerCancel: (event) => stopDrag("bingo", event),
+      onPointerDown: (event) => startDrag("bingo", event),
+      onPointerMove: (event) => moveDrag("bingo", event),
+      onPointerUp: (event) => stopDrag("bingo", event),
+      tabIndex: 0,
+    }}
   />;
   // Die Interaktion bleibt auch bei ausgeschaltetem Sammel-Overlay-Schalter in
   // der Admin-Vorschau aktiv. Die Einzel-URLs /overlay und /overlay/challenges
