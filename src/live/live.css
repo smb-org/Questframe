@@ -136,6 +136,207 @@ html[data-surface="live"] #root {
   grid-column: 1 / -1;
 }
 
+.live-page__bingo-slot {
+  box-sizing: border-box;
+  height: 568px;
+  margin-bottom: 16px;
+  padding: 10px;
+  border: 1px solid var(--live-line);
+  background: var(--live-surface);
+}
+
+.live-page__bingo-placeholder {
+  margin: 0;
+  color: var(--live-muted);
+  font-size: 12px;
+}
+
+.live-page__bingo-actions {
+  display: flex;
+  height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.live-page__bingo-label {
+  color: var(--live-accent);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.live-page__bingo-actions .live-control {
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--live-line);
+  background: var(--live-surface-raised);
+  color: var(--live-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.live-page__bingo-actions .live-control:disabled,
+.live-page__bingo-board .bingo-source__cell:disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
+.live-page__bingo-board {
+  display: flex;
+  height: 454px;
+  justify-content: center;
+}
+
+.live-page__bingo-board .bingo-source {
+  box-sizing: border-box;
+  width: min(100%, 420px);
+  color: var(--live-text);
+}
+
+.live-page__bingo-board .bingo-source__header {
+  display: grid;
+  height: 34px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.live-page__bingo-board .bingo-source__title {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--live-text);
+  font-family: Georgia, serif;
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-page__bingo-board .bingo-source__counter {
+  color: var(--live-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.live-page__bingo-board .bingo-source__progress {
+  display: block;
+  height: 3px;
+  grid-column: 1 / -1;
+  overflow: hidden;
+  background: var(--live-line);
+}
+
+.live-page__bingo-board .bingo-source__progress-fill {
+  display: block;
+  width: var(--bingo-progress, 0%);
+  height: 100%;
+  background: var(--live-accent);
+}
+
+.live-page__bingo-board .bingo-source__grid {
+  position: relative;
+  display: grid;
+  width: min(100%, 420px);
+  aspect-ratio: 1;
+  grid-template-columns: repeat(var(--bingo-size), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--bingo-size), minmax(0, 1fr));
+  isolation: isolate;
+}
+
+.live-page__bingo-board .bingo-source__cell {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  place-items: center;
+  padding: 4px;
+  overflow: hidden;
+  border: 1px solid var(--live-line);
+  border-radius: 3px;
+  background: var(--live-surface-raised);
+  color: var(--live-text);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+
+.live-page__bingo-board .bingo-source__cell[data-line-complete="true"] {
+  border-color: var(--live-accent);
+}
+
+.live-page__bingo-board .bingo-source__text {
+  position: relative;
+  z-index: 1;
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  font-size: clamp(9px, var(--bingo-cell-font-size), 15px);
+  line-height: 1.08;
+  overflow-wrap: anywhere;
+}
+
+.live-page__bingo-board .bingo-source__mark,
+.live-page__bingo-board .bingo-source__line-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.live-page__bingo-board .bingo-source__mark {
+  z-index: 2;
+}
+
+.live-page__bingo-board .bingo-source__mark path {
+  fill: none;
+  stroke: var(--live-error);
+  stroke-linecap: round;
+  stroke-width: 7px;
+}
+
+.live-page__bingo-board .bingo-source__line-art {
+  z-index: 3;
+  overflow: visible;
+}
+
+.live-page__bingo-board .bingo-source__line-outline {
+  fill: none;
+  stroke: var(--live-accent);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.4px;
+}
+
+.live-page__bingo-board .bingo-source__bingo-badge {
+  display: none;
+}
+
+.live-page__bingo-message-slot {
+  box-sizing: border-box;
+  display: flex;
+  height: 38px;
+  align-items: center;
+  margin-top: 4px;
+  padding: 0 8px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  color: var(--live-muted);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.live-page__bingo-message-slot.has-error {
+  border-color: var(--live-error);
+  color: var(--live-error);
+}
+
 .live-page__challenge-list {
   display: grid;
   gap: 8px;

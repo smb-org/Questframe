@@ -5,7 +5,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { runMigrations } from "../../src/channel/migrations";
 import type { BingoBoardState } from "../../src/modules/bingo/contracts/schemas";
 import { MAX_BINGO_FILE_BYTES } from "../../src/modules/bingo/domain/card-codec";
-import { bootstrapResponseSchema } from "../../src/shared/contracts/api";
+import { bootstrapResponseSchema, dockTokenResponseSchema } from "../../src/shared/contracts/api";
 
 const origin = "http://localhost:5173";
 const tabId = "bingo-api-test";
@@ -31,9 +31,26 @@ const card = (title = "Testkarte", prefix = "test"): Pick<BingoBoardState["card"
   cells: Array.from({ length: 9 }, (_, index) => ({ id: `${prefix}-${String(index)}`, text: `Feld ${String(index)}` })),
 });
 
-const refreshCsrf = async (): Promise<void> => {
+const refreshCsrf = async () => {
   const response = await fetchWorker("/api/editor/bootstrap", { headers: { cookie, "x-editor-tab": tabId } });
-  csrfToken = bootstrapResponseSchema.parse(await response.json()).csrfToken;
+  const bootstrap = bootstrapResponseSchema.parse(await response.json());
+  csrfToken = bootstrap.csrfToken;
+  return bootstrap;
+};
+
+const rotateDockToken = async (): Promise<string> => {
+  const bootstrap = await refreshCsrf();
+  const hasToken = bootstrap.capsule.dockToken?.exists === true;
+  const response = await fetchWorker(`/api/challenges/dock-token${hasToken ? "/rotate" : ""}`, {
+    method: "POST",
+    headers: authenticatedHeaders(),
+    body: JSON.stringify({
+      requestId: crypto.randomUUID(),
+      expectedGeneration: bootstrap.capsule.dockToken?.generation ?? 0,
+    }),
+  });
+  expect(response.status).toBe(200);
+  return dockTokenResponseSchema.parse(await response.json()).token;
 };
 
 const readBingo = async (): Promise<BingoBoardState> => {
@@ -87,20 +104,87 @@ describe("Bingo-API", () => {
     expect(board.marks).toEqual([]);
   });
 
-  // Ergänzt von Codex.
-  // Value: protects=Dock-Anfragen bleiben von Bingo-Lesen und -Ändern ausgeschlossen; fails_when=der Dock-Header-Prüfer in einem Zugriffspfad entfällt; why_new=API-Tests prüfen bisher nur Editor-Sessions; seam=none; no_claim=keine echte Dock-Session (Header direkt simuliert)
-  it("lehnt den Dock bei Lese- und Schreibzugriff auf Bingo ab", async () => {
-    const before = await readBingo();
-    const read = await fetchWorker("/api/bingo", { headers: { "x-dock-token": "dock-token" } });
-    const mark = await fetchWorker("/api/bingo/mark", {
-      method: "POST",
-      headers: { "x-dock-token": "dock-token", "content-type": "application/json" },
-      body: JSON.stringify({ cellId: before.card.cells[0]?.id, marked: true, expectedMarkRevision: before.markRevision }),
-    });
+  it("erlaubt dem Dock nur Board-Lesen, Markieren und Zurücksetzen und weist andere Routen ab", async () => {
+    const token = await rotateDockToken();
+    const dockHeaders = { authorization: `Bearer ${token}`, origin, "content-type": "application/json" };
+    const initial = await fetchWorker("/api/bingo/dock", { headers: dockHeaders });
+    expect(initial.status).toBe(200);
+    const initialBoard = await initial.json<BingoBoardState>();
+    const firstCell = initialBoard.card.cells[0];
+    if (firstCell === undefined) throw new Error("Bingo-Feld fehlt.");
 
-    expect(read.status).toBe(403);
-    expect(mark.status).toBe(403);
-    expect(await readBingo()).toEqual(before);
+    const marked = await fetchWorker("/api/bingo/dock/mark", {
+      method: "POST",
+      headers: dockHeaders,
+      body: JSON.stringify({ cellId: firstCell.id, marked: true, expectedMarkRevision: initialBoard.markRevision }),
+    });
+    expect(marked.status).toBe(200);
+    const markedResult = await marked.json<{
+      board: BingoBoardState;
+      auditEntry: { actor: { displayName: string } } | null;
+    }>();
+    expect(markedResult.board.marks).toEqual([firstCell.id]);
+    expect(markedResult.auditEntry?.actor.displayName).toBe("Dock");
+
+    const unmarked = await fetchWorker("/api/bingo/dock/mark", {
+      method: "POST",
+      headers: dockHeaders,
+      body: JSON.stringify({ cellId: firstCell.id, marked: false, expectedMarkRevision: markedResult.board.markRevision }),
+    });
+    expect(unmarked.status).toBe(200);
+    const unmarkedBoard = await unmarked.json<{ board: BingoBoardState }>();
+    expect(unmarkedBoard.board.marks).toEqual([]);
+
+    await fetchWorker("/api/bingo/dock/mark", {
+      method: "POST",
+      headers: dockHeaders,
+      body: JSON.stringify({ cellId: firstCell.id, marked: true, expectedMarkRevision: unmarkedBoard.board.markRevision }),
+    });
+    const reset = await fetchWorker("/api/bingo/dock/reset", {
+      method: "POST",
+      headers: dockHeaders,
+      body: JSON.stringify({ expectedMarkRevision: unmarkedBoard.board.markRevision + 1 }),
+    });
+    expect(reset.status).toBe(200);
+    expect((await reset.json<{ board: BingoBoardState }>()).board.marks).toEqual([]);
+
+    const forbiddenRoutes: Array<[string, string, string?]> = [
+      ["GET", "/api/bingo"],
+      ["GET", "/api/bingo/sets"],
+      ["POST", "/api/bingo/sets", JSON.stringify({ name: "Dock-Set" })],
+      ["GET", "/api/bingo/sets/template-crashout"],
+      ["DELETE", "/api/bingo/sets/owned-set"],
+      ["POST", "/api/bingo/sets/owned-set/load", JSON.stringify({ expectedCardRevision: 0 })],
+      ["POST", "/api/bingo/mark", JSON.stringify({ cellId: firstCell.id, marked: true, expectedMarkRevision: 0 })],
+      ["POST", "/api/bingo/reset", JSON.stringify({ expectedMarkRevision: 0 })],
+      ["PUT", "/api/bingo/board", JSON.stringify({})],
+      ["PUT", "/api/bingo/style", JSON.stringify({})],
+      ["GET", "/api/bingo/export"],
+      ["POST", "/api/bingo/import", JSON.stringify({})],
+      ["POST", "/api/state/undo", JSON.stringify({ moduleId: "bingo" })],
+    ];
+    for (const [method, path, body] of forbiddenRoutes) {
+      const response = await fetchWorker(path, {
+        method,
+        headers: dockHeaders,
+        ...(body === undefined ? {} : { body }),
+      });
+      expect(response.status, `${method} ${path}`).toBe(403);
+    }
+
+    const wrongToken = await fetchWorker("/api/bingo/dock", {
+      headers: { authorization: `Bearer ${"x".repeat(43)}`, origin },
+    });
+    expect(wrongToken.status).toBe(403);
+
+    const revokedToken = token;
+    await rotateDockToken();
+    const revokedRequest = await fetchWorker("/api/bingo/dock/mark", {
+      method: "POST",
+      headers: { ...dockHeaders, authorization: `Bearer ${revokedToken}` },
+      body: JSON.stringify({ cellId: firstCell.id, marked: true, expectedMarkRevision: 3 }),
+    });
+    expect(revokedRequest.status).toBe(403);
   });
 
   it("marks and resets with revision conflicts in the challenge error shape", async () => {

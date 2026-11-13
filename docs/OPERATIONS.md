@@ -139,12 +139,13 @@ Für die drei funktionsbezogenen Rate-Limiter gelten diese Schlüssel:
 | --- | --- | --- |
 | `OVERLAY_CAPSULE_LIMITER` | `CAPSULE_ID` | alle Overlay-, Composite-, Challenge- und Bingo-Socket-Upgrades |
 | `OVERLAY_TOKEN_LIMITER` | erste 32 Zeichen des SHA-256-Hashes des Overlay-Tokens | `/ws/overlay`, `/ws/composite`, `/ws/challenge` und `/ws/bingo` |
-| `DOCK_TOKEN_LIMITER` | erste 32 Zeichen des SHA-256-Hashes des Dock-Tokens | Dock-Kommando-Route und `/ws/dock` |
+| `DOCK_TOKEN_LIMITER` | erste 32 Zeichen des SHA-256-Hashes des Dock-Tokens | Challenge-Kommando-Route, Bingo-Dock-Lesen/Markieren/Zurücksetzen und `/ws/dock` |
 
 Zusätzlich schützt `DOCK_IP_LIMITER` die Dock-Einstiege pro `cf-connecting-ip` (unbekannte
-Quellen teilen sich den Fallback-Schlüssel). Die getrennten Socket-Caps im Durable Object
-trennen die Edge-Limiter nicht: Ein Reconnect-Sturm der Challenge-Quelle teilt sich den
-Overlay-Token und kann deshalb über `OVERLAY_TOKEN_LIMITER` auch HUD- und Bingo-Verbindungen drosseln.
-Bei der Diagnose neben den Socket-Caps die Overlay-Rate-Limit-Antworten prüfen.
+Quellen teilen sich den Fallback-Schlüssel), einschließlich der Bingo-Dock-Routen. Die
+getrennten Socket-Caps im Durable Object trennen die Edge-Limiter nicht: Ein Reconnect-Sturm
+der Challenge-Quelle teilt sich den Overlay-Token und kann deshalb über `OVERLAY_TOKEN_LIMITER`
+auch HUD- und Bingo-Verbindungen drosseln. Bei der Diagnose neben den Socket-Caps die
+Overlay-Rate-Limit-Antworten prüfen.
 
 Die Anwendung pollt weder Zustand noch Timer.

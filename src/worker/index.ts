@@ -620,7 +620,10 @@ const worker = {
       return handleTwitchLookup(request, env);
     }
 
-    const bingoRoutes: Record<string, { pathname: string; protection: "read" | "editor" }> = {
+    const bingoRoutes: Record<string, { pathname: string; protection: "read" | "editor" | "command" }> = {
+      "GET /api/bingo/dock": { pathname: "/bingo/dock", protection: "command" },
+      "POST /api/bingo/dock/mark": { pathname: "/bingo/dock/mark", protection: "command" },
+      "POST /api/bingo/dock/reset": { pathname: "/bingo/dock/reset", protection: "command" },
       "GET /api/bingo": { pathname: "/bingo", protection: "read" },
       "GET /api/bingo/sets": { pathname: "/bingo/sets", protection: "read" },
       "POST /api/bingo/sets": { pathname: "/bingo/sets", protection: "editor" },
@@ -641,12 +644,31 @@ const worker = {
             ? { pathname: `/bingo/sets/${url.pathname.slice("/api/bingo/sets/".length)}`, protection: "editor" as const }
             : undefined);
     if (bingoRoute !== undefined) {
-      const originError = bingoRoute.protection === "read"
+      const originError = request.method === "GET"
         ? requireSameOriginRead(request, env)
         : requireSameOriginMutation(request, env);
       if (originError !== null) return originError;
-      if (request.headers.get("authorization") !== null || request.headers.get("x-dock-token") !== null) {
+      if (request.headers.get("x-dock-token") !== null && bingoRoute.protection !== "command") {
         return errorResponse(403, "forbidden", "Bingo-Routen sind ausschließlich für Editoren verfügbar.");
+      }
+      const authorization = request.headers.get("authorization");
+      if (authorization !== null && bingoRoute.protection !== "command") {
+        return errorResponse(403, "forbidden", "Der Dock darf diese Bingo-Route nicht verwenden.");
+      }
+      if (bingoRoute.protection === "command" && authorization !== null) {
+        const bearer = authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : null;
+        if (bearer === null || !/^[A-Za-z0-9_-]{43}$/.test(bearer)) {
+          return errorResponse(403, "token_invalid", "Dock-Token ungültig.");
+        }
+        const ipLimitError = await enforceDockIpLimit(request, env);
+        if (ipLimitError !== null) return ipLimitError;
+        const tokenLimit = await env.DOCK_TOKEN_LIMITER.limit({
+          key: (await sha256Hex(bearer)).slice(0, 32),
+        });
+        if (!tokenLimit.success) {
+          return errorResponse(429, "rate_limited", "Zu viele Dock-Anfragen.");
+        }
+        return proxyToChannel(request, env, bingoRoute.pathname, { "x-dock-token": bearer });
       }
       return proxyToChannel(request, env, bingoRoute.pathname);
     }
