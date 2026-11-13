@@ -75,6 +75,19 @@ const createApi = (overrides: Partial<BingoAdminApi> = {}) => ({
   ...overrides,
 });
 
+const createDeferredMarkApi = (overrides: Partial<BingoAdminApi> = {}) => {
+  const resolvers: Array<(result: BingoMutationResponse) => void> = [];
+  const rejecters: Array<(reason: unknown) => void> = [];
+  const api = createApi({
+    markBingoCell: vi.fn(() => new Promise<BingoMutationResponse>((resolve, reject) => {
+      resolvers.push(resolve);
+      rejecters.push(reject);
+    })),
+    ...overrides,
+  });
+  return { api, resolvers, rejecters };
+};
+
 const renderPanel = (api = createApi()) => render(
   <BingoAdminPanel
     api={api}
@@ -278,10 +291,7 @@ describe("Bingo-Regie und Editor", () => {
 
   it("sendet drei schnelle Markierungen nacheinander mit den jeweils neuesten Revisionen", async () => {
     const user = userEvent.setup();
-    const resolvers: Array<(result: BingoMutationResponse) => void> = [];
-    const api = createApi({
-      markBingoCell: vi.fn(() => new Promise<BingoMutationResponse>((resolve) => { resolvers.push(resolve); })),
-    });
+    const { api, resolvers } = createDeferredMarkApi();
     renderPanel(api);
 
     await user.click(await screen.findByRole("gridcell", { name: "Ereignis 0" }));
@@ -311,17 +321,7 @@ describe("Bingo-Regie und Editor", () => {
 
   it("wiederholt eine wartende Markierung nach einem Revisionskonflikt mit der frischen Revision", async () => {
     const user = userEvent.setup();
-    const resolvers: Array<(result: BingoMutationResponse) => void> = [];
-    const rejectSecond: Array<(reason: unknown) => void> = [];
-    const api = createApi({
-      markBingoCell: vi.fn((request: MarkCellPayload) => {
-        void request;
-        return new Promise<BingoMutationResponse>((resolve, reject) => {
-          resolvers.push(resolve);
-          rejectSecond.push(reject);
-        });
-      }),
-    });
+    const { api, resolvers, rejecters } = createDeferredMarkApi();
     renderPanel(api);
 
     await user.click(await screen.findByRole("gridcell", { name: "Ereignis 0" }));
@@ -333,7 +333,7 @@ describe("Bingo-Regie und Editor", () => {
 
     const conflictBoard = { ...createBoard(), marks: ["cell-0", "cell-8"], markRevision: 6 };
     act(() => {
-      rejectSecond[1]?.(Object.assign(new Error("Bingo wurde parallel geändert."), {
+      rejecters[1]?.(Object.assign(new Error("Bingo wurde parallel geändert."), {
         code: "revision_conflict",
         currentSnapshot: conflictBoard,
       }));
@@ -349,14 +349,7 @@ describe("Bingo-Regie und Editor", () => {
 
   it("verwirft einen Markierungskonflikt lautlos, wenn das Feld inzwischen den Zielzustand hat", async () => {
     const user = userEvent.setup();
-    const resolvers: Array<(result: BingoMutationResponse) => void> = [];
-    const rejecters: Array<(reason: unknown) => void> = [];
-    const api = createApi({
-      markBingoCell: vi.fn(() => new Promise<BingoMutationResponse>((resolve, reject) => {
-        resolvers.push(resolve);
-        rejecters.push(reject);
-      })),
-    });
+    const { api, resolvers, rejecters } = createDeferredMarkApi();
     renderPanel(api);
 
     await user.click(await screen.findByRole("gridcell", { name: "Ereignis 0" }));
@@ -381,9 +374,7 @@ describe("Bingo-Regie und Editor", () => {
   it("verwirft wartende Markierungen beim Zurücksetzen der Kreuze", async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-    let resolveFirst: ((result: BingoMutationResponse) => void) | undefined;
-    const api = createApi({
-      markBingoCell: vi.fn(() => new Promise<BingoMutationResponse>((resolve) => { resolveFirst = resolve; })),
+    const { api, resolvers } = createDeferredMarkApi({
       resetBingoMarks: vi.fn((revision: number) => Promise.resolve(mutation({ ...createBoard(), markRevision: revision + 1 }))),
     });
     renderPanel(api);
@@ -394,7 +385,7 @@ describe("Bingo-Regie und Editor", () => {
 
     expect(confirm).toHaveBeenCalledWith("Alle Bingo-Kreuze zurücksetzen?");
     act(() => {
-      resolveFirst?.(mutation({ ...createBoard(), marks: ["cell-0"], markRevision: 5 }));
+      resolvers[0]?.(mutation({ ...createBoard(), marks: ["cell-0"], markRevision: 5 }));
     });
     await waitFor(() => expect(api.resetBingoMarks).toHaveBeenCalledWith(5));
 
