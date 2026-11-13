@@ -83,6 +83,94 @@ afterEach(() => {
 });
 
 describe("Bingo-Regie und Editor", () => {
+  it("behält einen Titelentwurf, wenn nach einem Socket-Snapshot der initiale GET mit neueren Kreuzen eintrifft", async () => {
+    const user = userEvent.setup();
+    let resolveInitial: ((board: BingoBoardState) => void) | undefined;
+    const api = createApi({
+      getBingoBoard: vi.fn(() => new Promise<BingoBoardState>((resolve) => { resolveInitial = resolve; })),
+    });
+    const props = {
+      api,
+      canUndo: true,
+      initialUndoTargets: [],
+      onBoardUpdate: vi.fn(),
+      onUndoTargetsChange: vi.fn(),
+      online: true,
+    };
+    const { rerender } = render(<BingoAdminPanel {...props} update={null} />);
+    const snapshot = { ...createBoard(), marks: ["cell-0"], markRevision: 5 };
+    rerender(<BingoAdminPanel {...props} update={update(snapshot)} />);
+
+    await screen.findByRole("grid", { name: "Testkarte" });
+    await user.clear(screen.getByRole("textbox", { name: "Kartentitel" }));
+    await user.type(screen.getByRole("textbox", { name: "Kartentitel" }), "Mein Entwurf");
+
+    await act(async () => {
+      resolveInitial?.({ ...snapshot, marks: ["cell-1"], markRevision: 6 });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("textbox", { name: "Kartentitel" })).toHaveValue("Mein Entwurf");
+    expect(screen.getByRole("gridcell", { name: "Ereignis 1, angekreuzt" })).toHaveAttribute("data-marked", "true");
+  });
+
+  it("übernimmt eine geladene Karte trotz zwischenzeitlich neuerer Socket-Kreuze und behält diese Kreuze", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    let resolveLoad: ((result: BingoMutationResponse) => void) | undefined;
+    const timestamp = "2026-11-12T12:00:00.000Z";
+    const api = createApi({
+      listBingoSets: vi.fn(() => Promise.resolve({ sets: [{
+        id: "template-1",
+        type: "template" as const,
+        name: "Vorlage",
+        sortOrder: 0,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }] })),
+      loadBingoSet: vi.fn(() => new Promise<BingoMutationResponse>((resolve) => { resolveLoad = resolve; })),
+    });
+    const props = {
+      api,
+      canUndo: true,
+      initialUndoTargets: [],
+      onBoardUpdate: vi.fn(),
+      onUndoTargetsChange: vi.fn(),
+      online: true,
+    };
+    const { rerender } = render(<BingoAdminPanel {...props} update={null} />);
+    await screen.findByRole("grid", { name: "Testkarte" });
+    await user.clear(screen.getByRole("textbox", { name: "Kartentitel" }));
+    await user.type(screen.getByRole("textbox", { name: "Kartentitel" }), "Mein Entwurf");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Vorlage oder gespeichertes Set" }), "template-1");
+    expect(confirm).toHaveBeenCalledWith("Den ungespeicherten Entwurf durch dieses Set ersetzen?");
+    await waitFor(() => expect(api.loadBingoSet).toHaveBeenCalledWith("template-1", 7));
+
+    const socketBoard = {
+      ...createBoard(),
+      card: { ...createBoard().card, title: "Andere Serverkarte" },
+      marks: ["cell-8"],
+      cardRevision: 8,
+      markRevision: 5,
+    };
+    rerender(<BingoAdminPanel {...props} update={update(socketBoard)} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("parallel geändert");
+
+    await act(async () => {
+      resolveLoad?.(mutation({
+        ...createBoard(),
+        card: { ...createBoard().card, title: "Geladene Vorlage" },
+        cardRevision: 8,
+        markRevision: 4,
+      }));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("textbox", { name: "Kartentitel" })).toHaveValue("Geladene Vorlage");
+    expect(screen.getByRole("button", { name: "Karte speichern" })).toBeEnabled();
+    expect(screen.getByRole("gridcell", { name: "Ereignis 8, angekreuzt" })).toHaveAttribute("data-marked", "true");
+  });
+
   it("blockiert Stilwechsel bei einem ungespeicherten Kartenentwurf und erklärt den Grund im Nachrichtenfeld", async () => {
     const user = userEvent.setup();
     const api = createApi();
