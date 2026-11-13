@@ -104,10 +104,10 @@ const enableCompositeBingo = async (page: Page): Promise<void> => {
       player: state.player,
       pet: state.pet,
       petVisible: state.petVisible,
-      compositeHudVisible: state.compositeHudVisible,
+      compositeHudVisible: true,
       group: state.group,
       groupVisible: state.groupVisible,
-      compositeChallengesVisible: state.compositeChallengesVisible,
+      compositeChallengesVisible: true,
       compositeBingoVisible: true,
       effects: state.effects,
       featuredEffectId: state.featuredEffectId,
@@ -115,7 +115,26 @@ const enableCompositeBingo = async (page: Page): Promise<void> => {
   });
 };
 
-const saveGeometryBoard = async (page: Page, size: number, style: BingoStyle): Promise<BingoBoard> => {
+const ensureCompositeChallenge = async (page: Page): Promise<void> => {
+  const current = await apiJson<{ boardRevision: number; challenges: { hidden: boolean }[] }>(page, "/api/challenges", "GET");
+  if (current.challenges.some(({ hidden }) => !hidden)) return;
+  await apiJson(page, "/api/challenges/board", "PUT", {
+    baseBoardRevision: current.boardRevision,
+    challenges: [{
+      clientId: "bingo-size-e2e-challenge",
+      title: "Challenge Log",
+      kind: "counter",
+      unit: null,
+      targetCount: null,
+      timerTotalMs: null,
+      sortOrder: 0,
+      step: 1,
+      hidden: false,
+    }],
+  });
+};
+
+const saveGeometryBoard = async (page: Page, size: number, style: BingoStyle, scale = 1, cells?: string[]): Promise<BingoBoard> => {
   const current = await apiJson<BingoBoard>(page, "/api/bingo", "GET");
   const resetSettings = await apiJson<BingoMutation>(page, "/api/bingo/settings", "PUT", {
     baseSettingsRevision: current.settingsRevision,
@@ -127,8 +146,8 @@ const saveGeometryBoard = async (page: Page, size: number, style: BingoStyle): P
   const saved = await apiJson<BingoMutation>(page, "/api/bingo/board", "PUT", {
     title: `Geometrie ${String(size)}×${String(size)}`,
     size,
-    cells: Array.from({ length: size * size }, (_, index) => ({ id: `geo-${String(index)}`, text: `Feld ${String(index + 1)}` })),
-    placement: { x: 8, y: 80, scale: 1 },
+    cells: Array.from({ length: size * size }, (_, index) => ({ id: `geo-${String(index)}`, text: cells?.[index] ?? `Feld ${String(index + 1)}` })),
+    placement: { x: 8, y: 80, scale },
     expectedCardRevision: resetSettings.board.cardRevision,
   });
   const reset = await apiJson<BingoMutation>(page, "/api/bingo/reset", "POST", {
@@ -198,6 +217,7 @@ test("hält Bingo-Titel, Karte und Abschlussbadge bei allen Größen und Stilen 
   await expect(page.getByRole("heading", { name: "Karte bearbeiten" })).toBeVisible();
   const token = await ensureOverlayToken(page);
   await enableCompositeBingo(page);
+  await ensureCompositeChallenge(page);
 
   const composite = await context.newPage();
   await composite.setViewportSize(STAGE);
@@ -206,62 +226,107 @@ test("hält Bingo-Titel, Karte und Abschlussbadge bei allen Größen und Stilen 
   await expect(composite.locator(".bingo-source-ceremony")).toBeAttached();
   await expect(composite.locator(".bingo-source")).toBeVisible();
 
-  const markerHudOverlapBySize = new Map<number, number>();
+  const markerHudOverlapBySize = new Map<string, number>();
   for (const style of ["marker", "broadcast"] as const) {
     for (const size of [3, 4, 5]) {
-      let board = await saveGeometryBoard(page, size, style);
-      if (size === 5) board = await saveLargestTextSettings(page, board);
-      const completed = await completeFirstRow(page, size, board);
-      expect(completed.update?.ceremony?.lines.length).toBeGreaterThan(0);
+      for (const scale of [1, 2]) {
+        let board = await saveGeometryBoard(page, size, style, scale);
+        if (size === 5 || scale === 2) board = await saveLargestTextSettings(page, board);
+        const completed = await completeFirstRow(page, size, board);
+        expect(completed.update?.ceremony?.lines.length).toBeGreaterThan(0);
 
-      const visibleBoard = composite.locator(`.bingo-source[data-style="${style}"]`);
-      await expect(visibleBoard).toBeVisible();
-      await expect(visibleBoard.locator('.bingo-source__cell[data-line-complete="true"]')).toHaveCount(size);
-      await expect(composite.locator(".bingo-source-ceremony")).toHaveAttribute("data-ceremony-type", "line");
-      await assertInsideStage(composite, ".bingo-source");
-      await assertInsideStage(composite, ".bingo-source__header");
-      await assertInsideStage(composite, ".bingo-source__title");
-      if (size === 5) {
-        expect(await visibleBoard.locator(".bingo-source__text").evaluateAll((texts) => texts.every((text) => {
-          const textRect = text.getBoundingClientRect();
-          const cellRect = text.parentElement?.getBoundingClientRect();
-          return cellRect !== undefined
-            && textRect.left >= cellRect.left
-            && textRect.top >= cellRect.top
-            && textRect.right <= cellRect.right
-            && textRect.bottom <= cellRect.bottom;
-        }))).toBe(true);
-        expect(await composite.locator(".bingo-source-ceremony").evaluate((stage) => getComputedStyle(stage).getPropertyValue("--bingo-scale").trim())).toBe("1");
-      }
+        const visibleBoard = composite.locator(`.bingo-source[data-style="${style}"]`);
+        await expect(visibleBoard).toBeVisible();
+        await expect(visibleBoard.locator('.bingo-source__cell[data-line-complete="true"]')).toHaveCount(size);
+        await expect(composite.locator(".bingo-source-ceremony")).toHaveAttribute("data-ceremony-type", "line");
+        await assertInsideStage(composite, ".bingo-source");
+        await assertInsideStage(composite, ".bingo-source__header");
+        await assertInsideStage(composite, ".bingo-source__title");
+        if (scale === 1) {
+          const boardBox = await visibleBoard.boundingBox();
+          expect(boardBox).not.toBeNull();
+          expect(Math.abs((boardBox?.width ?? 0) - 260)).toBeLessThanOrEqual(2);
+        }
+        const boardBox = await visibleBoard.boundingBox();
+        expect(boardBox).not.toBeNull();
+        expect(Math.abs((boardBox?.width ?? 0) - 260 * scale)).toBeLessThanOrEqual(2);
+        if (size === 5) {
+          expect(await visibleBoard.locator(".bingo-source__text").evaluateAll((texts) => texts.every((text) => {
+            const textRect = text.getBoundingClientRect();
+            const cellRect = text.parentElement?.getBoundingClientRect();
+            return cellRect !== undefined
+              && textRect.left >= cellRect.left
+              && textRect.top >= cellRect.top
+              && textRect.right <= cellRect.right
+              && textRect.bottom <= cellRect.bottom;
+          }))).toBe(true);
+          expect(await composite.locator(".bingo-source-ceremony").evaluate((stage) => getComputedStyle(stage).getPropertyValue("--bingo-scale").trim())).toBe(String(scale));
+        }
 
-      if (style === "broadcast") {
-        await expect(visibleBoard.locator(".bingo-source__bingo-badge")).toBeVisible();
-        await assertInsideStage(composite, ".bingo-source__bingo-badge");
-      } else {
-        await expect(composite.locator(".bingo-source__bingo-callout")).toBeVisible();
-        await assertInsideStage(composite, ".bingo-source__bingo-callout");
-      }
+        if (style === "broadcast") {
+          await expect(visibleBoard.locator(".bingo-source__bingo-badge")).toBeVisible();
+          await assertInsideStage(composite, ".bingo-source__bingo-badge");
+        } else {
+          await expect(composite.locator(".bingo-source__bingo-callout")).toBeVisible();
+          await assertInsideStage(composite, ".bingo-source__bingo-callout");
+        }
 
-      const panelBox = await visibleBoard.boundingBox();
-      const accentSelector = style === "marker" ? ".bingo-source__bingo-callout" : ".bingo-source__bingo-badge";
-      const accentBox = await composite.locator(accentSelector).boundingBox();
-      const hudBox = await composite.locator(".hud-stage").boundingBox();
-      expect(panelBox).not.toBeNull();
-      expect(accentBox).not.toBeNull();
-      expect(hudBox).not.toBeNull();
-      const visualBounds = unionBounds(
-        panelBox as NonNullable<typeof panelBox>,
-        accentBox as NonNullable<typeof accentBox>,
-      );
-      const overlap = intersectionArea(visualBounds, hudBox as NonNullable<typeof hudBox>);
-      if (style === "marker") markerHudOverlapBySize.set(size, overlap);
-      if (style === "broadcast") expect(overlap).toBeLessThanOrEqual(markerHudOverlapBySize.get(size) ?? 0);
+        const panelBox = await visibleBoard.boundingBox();
+        const accentSelector = style === "marker" ? ".bingo-source__bingo-callout" : ".bingo-source__bingo-badge";
+        const accentBox = await composite.locator(accentSelector).boundingBox();
+        const hudBox = await composite.locator(".hud-stage").boundingBox();
+        expect(panelBox).not.toBeNull();
+        expect(accentBox).not.toBeNull();
+        expect(hudBox).not.toBeNull();
+        const visualBounds = unionBounds(
+          panelBox as NonNullable<typeof panelBox>,
+          accentBox as NonNullable<typeof accentBox>,
+        );
+        const overlap = intersectionArea(visualBounds, hudBox as NonNullable<typeof hudBox>);
+        const overlapKey = `${String(size)}-${String(scale)}`;
+        if (style === "marker") markerHudOverlapBySize.set(overlapKey, overlap);
+        if (style === "broadcast") expect(overlap).toBeLessThanOrEqual(markerHudOverlapBySize.get(overlapKey) ?? 0);
 
-      if (size === 5) {
-        await composite.screenshot({ omitBackground: true, path: testInfo.outputPath(`bingo-${style}-1920x1080.png`) });
+        if (size === 5) {
+          await composite.screenshot({ omitBackground: true, path: testInfo.outputPath(`bingo-${style}-${String(scale)}x-1920x1080.png`) });
+        }
       }
     }
   }
+
+  const longTextCells = Array.from({ length: 25 }, (_, index) => `Langes Bingo-Feld ${String(index + 1)} mit vielen Wörtern.`);
+  for (const style of ["marker", "broadcast"] as const) {
+    const board = await saveGeometryBoard(page, 5, style, 0.75, longTextCells);
+    await saveLargestTextSettings(page, board);
+    const visibleBoard = composite.locator(`.bingo-source[data-style="${style}"]`);
+    await expect(visibleBoard).toBeVisible();
+    const boardBox = await visibleBoard.boundingBox();
+    expect(boardBox).not.toBeNull();
+    expect(Math.abs((boardBox?.width ?? 0) - 195)).toBeLessThanOrEqual(2);
+    const textLayoutErrors = await visibleBoard.locator(".bingo-source__text").evaluateAll((texts) => texts.flatMap((text, index) => {
+      const textRect = text.getBoundingClientRect();
+      const cellRect = text.parentElement?.getBoundingClientRect();
+      const renderedFontSize = Number.parseFloat(getComputedStyle(text).fontSize) * 0.75;
+      if (cellRect !== undefined
+        && renderedFontSize >= 8
+        && textRect.left >= cellRect.left
+        && textRect.top >= cellRect.top
+        && textRect.right <= cellRect.right
+        && textRect.bottom <= cellRect.bottom) return [];
+      return [{ index, renderedFontSize, textHeight: textRect.height, cellHeight: cellRect?.height ?? null }];
+    }));
+    expect(textLayoutErrors).toEqual([]);
+  }
+
+  const captureBoard = async (scale: number, path: string): Promise<void> => {
+    await saveGeometryBoard(page, 4, "marker", scale);
+    await expect(composite.locator('.bingo-source[data-style="marker"]')).toBeVisible();
+    await expect(composite.locator(".hud-stage")).toBeVisible();
+    await expect(composite.locator(".challenge-source")).toBeVisible();
+    await composite.screenshot({ omitBackground: true, path: testInfo.outputPath(path) });
+  };
+  await captureBoard(1, "size-1.png");
+  await captureBoard(0.75, "size-075.png");
 
   await composite.close();
   await page.close();

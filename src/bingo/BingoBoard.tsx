@@ -5,16 +5,23 @@ import type { BingoBoardState, BingoLine, BingoStyleId } from "../modules/bingo/
 
 const segmenter = new Intl.Segmenter("de", { granularity: "grapheme" });
 
-const cellFontSize = (text: string, size: BingoBoardState["card"]["size"], width: number, scale: number): string => {
+const cellTextLayout = (text: string, size: BingoBoardState["card"]["size"], width: number, scale: number, sizeFactor: number, renderScale: number): { fontSize: string; maxLines: string } => {
   const graphemes = [...segmenter.segment(text)].length;
   const cellExtent = width / size;
   const innerExtent = cellExtent * 0.86;
-  for (let fontSize = 28 * scale; fontSize >= 8; fontSize -= scale) {
+  const fontStep = scale * sizeFactor;
+  const minimumFontSize = 8 / renderScale;
+  for (let fontSize = 28 * fontStep; fontSize >= minimumFontSize; fontSize -= fontStep) {
     const graphemesPerLine = Math.max(1, Math.floor(innerExtent / fontSize));
     const lineCount = Math.ceil(graphemes / graphemesPerLine);
-    if (lineCount * fontSize * 1.08 <= innerExtent) return `${String(fontSize)}px`;
+    if (lineCount * fontSize * 1.08 <= innerExtent) {
+      return { fontSize: `${String(fontSize)}px`, maxLines: String(lineCount) };
+    }
   }
-  return "8px";
+  return {
+    fontSize: `${String(minimumFontSize)}px`,
+    maxLines: String(Math.max(1, Math.floor(innerExtent / (minimumFontSize * 1.08)))),
+  };
 };
 
 const outlinePath = (line: BingoLine, size: number): string => {
@@ -37,13 +44,17 @@ const outlinePath = (line: BingoLine, size: number): string => {
 export const BingoBoard = ({
   board,
   styleId = board.style,
-  width = 520,
+  width = 260,
+  textSizeFactor = 0.5,
+  renderScale = 1,
   onToggleCell,
   ceremonyLines = [],
 }: {
   board: BingoBoardState;
   styleId?: BingoStyleId;
   width?: number;
+  textSizeFactor?: number;
+  renderScale?: number;
   onToggleCell?: (cellId: string, marked: boolean) => void;
   ceremonyLines?: readonly BingoLine[];
 }) => {
@@ -96,7 +107,11 @@ export const BingoBoard = ({
         {board.card.cells.map((cell, index) => {
           const isMarked = marked.has(cell.id);
           const lineComplete = completedCells.has(cell.id);
-          const cellStyle = { "--bingo-cell-font-size": cellFontSize(cell.text, board.card.size, width, board.settings.textScale) } as CSSProperties;
+          const textLayout = cellTextLayout(cell.text, board.card.size, width, board.settings.textScale, textSizeFactor, renderScale);
+          const cellStyle = {
+            "--bingo-cell-font-size": textLayout.fontSize,
+            "--bingo-cell-max-lines": textLayout.maxLines,
+          } as CSSProperties;
           return (
             <button
               aria-label={`${cell.text}${isMarked ? ", angekreuzt" : ""}`}

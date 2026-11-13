@@ -7,7 +7,7 @@
   transform-origin: top left;
   color: #f7f5ef;
   font-family: "Atkinson Hyperlegible Next", system-ui, sans-serif;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  text-shadow: 0 0.5px 1.5px rgba(0, 0, 0, 0.7);
 }
 
 .bingo-source[data-style="broadcast"] {
@@ -15,13 +15,13 @@
   --bingo-red: #8c2028;
   box-sizing: border-box;
   position: relative;
-  width: var(--bingo-board-width, min(520px, calc(100vw - 24px)));
-  padding: 42px 12px 12px;
+  width: var(--bingo-board-width, min(260px, calc(100vw - 24px)));
+  padding: 21px 6px 6px;
   overflow: visible;
-  border: 1px solid rgba(238, 241, 239, 0.36);
-  border-radius: 12px;
+  border: 0.5px solid rgba(238, 241, 239, 0.36);
+  border-radius: 6px;
   background: linear-gradient(145deg, rgb(23 28 34 / calc(0.93 * var(--bingo-background-opacity, 1))), rgb(13 17 21 / calc(0.88 * var(--bingo-background-opacity, 1))));
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.36), inset 0 1px rgba(255, 255, 255, 0.07);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.36), inset 0 0.5px rgba(255, 255, 255, 0.07);
   color: #f7f5ef;
 }
 
@@ -29,8 +29,8 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 7px 10px;
-  margin-bottom: 9px;
+  gap: 3.5px 5px;
+  margin-bottom: 4.5px;
 }
 
 .bingo-source[data-style="broadcast"] .bingo-source__title {
@@ -38,7 +38,7 @@
   margin: 0;
   color: #f7f5ef;
   font-family: inherit;
-  font-size: clamp(18px, 4vw, 27px);
+  font-size: clamp(9px, 2vw, 13.5px);
   font-weight: 750;
   line-height: 1.08;
   text-align: left;
@@ -48,7 +48,7 @@
 
 .bingo-source[data-style="broadcast"] .bingo-source__counter {
   color: #f7f5ef;
-  font-size: clamp(15px, 3vw, 21px);
+  font-size: clamp(7.5px, 1.5vw, 10.5px);
   font-variant-numeric: tabular-nums;
   font-weight: 750;
   line-height: 1;
@@ -58,9 +58,9 @@
 .bingo-source[data-style="broadcast"] .bingo-source__progress {
   grid-column: 1 / -1;
   display: block;
-  height: 6px;
+  height: 3px;
   overflow: hidden;
-  border: 1px solid rgba(238, 241, 239, 0.24);
+  border: 0.5px solid rgba(238, 241, 239, 0.24);
   border-radius: 999px;
   background: rgb(8 11 14 / calc(0.72 * var(--bingo-background-opacity, 1)));
 }
@@ -78,16 +78,16 @@
 .bingo-source[data-style="broadcast"] .bingo-source__bingo-badge {
   position: absolute;
   z-index: 4;
-  top: 5px;
+  top: 2.5px;
   left: var(--bingo-badge-x, 50%);
-  padding: 4px 11px;
+  padding: 2px 5.5px;
   transform: translateX(-50%);
-  border: 1px solid #e2bd6c;
-  border-radius: 6px;
+  border: 0.5px solid #e2bd6c;
+  border-radius: 3px;
   background: linear-gradient(180deg, #c69c4b, #9c722e);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), inset 0 1px rgba(255, 255, 255, 0.25);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4), inset 0 0.5px rgba(255, 255, 255, 0.25);
   color: #211a0f;
-  font-size: 13px;
+  font-size: 6.5px;
   font-weight: 850;
   letter-spacing: 0.1em;
   line-height: 1.1;
@@ -111,10 +111,10 @@
   min-width: 0;
   min-height: 0;
   place-items: center;
-  padding: clamp(4px, calc(var(--bingo-cell-extent, 80px) * 0.06), 10px);
+  padding: clamp(2px, calc(var(--bingo-cell-extent, 40px) * 0.06), 5px);
   overflow: hidden;
-  border: 1px solid rgba(238, 241, 239, 0.28);
-  border-radius: 6px;
+  border: 0.5px solid rgba(238, 241, 239, 0.28);
+  border-radius: 3px;
   background: linear-gradient(145deg, rgb(47 55 63 / calc(0.95 * var(--bingo-background-opacity, 1))), rgb(29 36 43 / calc(0.96 * var(--bingo-background-opacity, 1))));
   color: inherit;
   font: inherit;
@@ -146,10 +146,13 @@
 .bingo-source[data-style="broadcast"] .bingo-source__text {
   position: relative;
   z-index: 3;
-  display: block;
+  display: -webkit-box;
   max-width: 100%;
   overflow: hidden;
-  font-size: var(--bingo-cell-font-size, 18px);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--bingo-cell-max-lines, 5);
+  line-clamp: var(--bingo-cell-max-lines, 5);
+  font-size: var(--bingo-cell-font-size, 9px);
   font-weight: 750;
   line-height: 1.08;
   text-wrap: balance;
@@ -173,8 +176,7 @@
   fill: none;
   stroke: currentColor;
   stroke-linecap: square;
-  stroke-width: 8;
-  vector-effect: non-scaling-stroke;
+  stroke-width: 4;
 }
 
 .bingo-source[data-style="broadcast"] .bingo-source__line-art {
@@ -184,17 +186,17 @@
 .bingo-source-ceremony[data-style="broadcast"] .bingo-source__bingo-callout {
   position: absolute;
   z-index: 5;
-  top: -50px;
+  top: -25px;
   left: 50%;
   display: none;
-  padding: 6px 18px;
+  padding: 3px 9px;
   transform: translateX(-50%);
-  border: 1px solid #e2bd6c;
-  border-radius: 9px;
+  border: 0.5px solid #e2bd6c;
+  border-radius: 4.5px;
   background: linear-gradient(180deg, #d3ac5e, #9e742e);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.46), inset 0 1px rgba(255, 255, 255, 0.32);
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.46), inset 0 0.5px rgba(255, 255, 255, 0.32);
   color: #211a0f;
-  font-size: 20px;
+  font-size: 10px;
   font-weight: 900;
   letter-spacing: 0.12em;
   line-height: 1;
@@ -203,9 +205,9 @@
 
 .bingo-source-ceremony[data-style="broadcast"][data-ceremony-type="full-card"] .bingo-source__bingo-callout {
   display: block;
-  top: -58px;
-  padding: 8px 24px;
-  font-size: 30px;
+  top: -29px;
+  padding: 4px 12px;
+  font-size: 15px;
 }
 
 .bingo-source[data-bingo-font="atkinson"] { font-family: "Atkinson Hyperlegible Next", system-ui, sans-serif; }

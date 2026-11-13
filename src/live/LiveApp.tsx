@@ -441,7 +441,7 @@ const LiveBingoTile = ({
             <button className="live-control" disabled={disabled} onClick={onReset} type="button">Kreuze zurücksetzen</button>
           </div>
           <div className="live-page__bingo-board">
-            <BingoBoard board={board} width={boardWidth} {...(disabled ? {} : { onToggleCell })} />
+            <BingoBoard board={board} textSizeFactor={1} width={boardWidth} {...(disabled ? {} : { onToggleCell })} />
           </div>
         </>
       )}
