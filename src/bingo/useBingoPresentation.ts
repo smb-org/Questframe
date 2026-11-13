@@ -5,7 +5,7 @@ import { bingoCeremonyFor, type BingoCeremony } from "./ceremonies";
 import { loadBingoStyle, type BingoStyleLoader } from "./style-loader";
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
-const STYLE_RETRY_DELAY_MS = 1_000;
+const STYLE_RETRY_DELAYS_MS = [1_000, 5_000, 30_000] as const;
 
 const readPrefersReducedMotion = (): boolean =>
   typeof window !== "undefined" && typeof window.matchMedia === "function"
@@ -63,11 +63,13 @@ export const useBingoPresentation = ({
     }).catch(() => {
       if (styleRequestRef.current === request) {
         setStyleLoadState({ key: styleId, state: "failed" });
-        if (styleRetryRef.current.styleId === styleId && styleRetryRef.current.retries < 1) {
+        if (styleRetryRef.current.styleId === styleId) {
+          const retryIndex = Math.min(styleRetryRef.current.retries, STYLE_RETRY_DELAYS_MS.length - 1);
+          const retryDelay = STYLE_RETRY_DELAYS_MS[retryIndex] ?? STYLE_RETRY_DELAYS_MS[STYLE_RETRY_DELAYS_MS.length - 1];
           styleRetryRef.current.retries += 1;
           retryTimer = window.setTimeout(() => {
             if (styleRequestRef.current === request) setStyleRetryVersion((version) => version + 1);
-          }, STYLE_RETRY_DELAY_MS);
+          }, retryDelay);
         }
       }
     });

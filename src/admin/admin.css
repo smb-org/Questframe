@@ -187,7 +187,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .composition-challenge-rail .challenge-conflict-actions { display: grid; }
 .composition-challenge-rail .challenge-conflict-actions .button { width: 100%; }
 .composition-challenge-rail .challenge-board-toolbar, .composition-challenge-rail .challenge-board-list, .composition-challenge-rail .challenge-board-save-bar, .composition-challenge-rail .challenge-board-conflict, .composition-challenge-rail .challenge-merge-notices, .composition-challenge-rail > .challenge-board-shell > .challenge-board-empty-copy, .composition-challenge-rail > .challenge-board-shell > .challenge-board-error, .composition-challenge-rail > .challenge-board-shell > .challenge-board-success { margin-right: 16px; margin-left: 16px; }
-.bingo-admin-loading, .bingo-admin-unavailable { box-sizing: border-box; min-height: calc(100vh - 116px); padding: 24px 18px; color: var(--muted); }
+.bingo-admin-loading, .bingo-admin-unavailable, .bingo-admin-load-error { box-sizing: border-box; min-height: calc(100vh - 116px); padding: 24px 18px; color: var(--muted); }
+.bingo-admin-load-error { display: grid; align-content: center; justify-items: center; gap: 12px; text-align: center; }
+.bingo-admin-load-error p { margin: 0; }
 .composition-draggable-module { cursor: grab !important; outline: 1px dashed rgba(240, 206, 131, 0.48); outline-offset: 5px; pointer-events: auto !important; }
 .composition-draggable-module:hover { outline-color: var(--accent-bright); }
 .composition-draggable-module.is-dragging { cursor: grabbing !important; outline: 2px solid var(--accent-bright); filter: drop-shadow(0 0 10px rgba(240, 206, 131, 0.45)); }

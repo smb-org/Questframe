@@ -353,6 +353,7 @@ export const applyBingoUndo = (
     const before = transaction.readBoard();
     const targetBoard = parsedTarget.data;
     const cardChanged = JSON.stringify(before.card) !== JSON.stringify(targetBoard.card);
+    const styleChanged = before.style !== targetBoard.style;
     const placementChanged = JSON.stringify(before.placement) !== JSON.stringify(targetBoard.placement);
     const after = bingoBoardStateSchema.parse({
       ...before,
@@ -360,7 +361,7 @@ export const applyBingoUndo = (
       marks: targetBoard.marks,
       style: targetBoard.style,
       placement: targetBoard.placement,
-      cardRevision: before.cardRevision + (cardChanged || placementChanged ? 1 : 0),
+      cardRevision: before.cardRevision + (cardChanged || styleChanged || placementChanged ? 1 : 0),
       markRevision: before.markRevision + 1,
       generation: before.generation + (cardChanged ? 1 : 0),
     });
