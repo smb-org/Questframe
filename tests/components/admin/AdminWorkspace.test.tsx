@@ -11,6 +11,8 @@ import {
 import type { ChallengeBoardSnapshot, Command } from "../../../src/modules/win-challenges/contracts/schemas";
 import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
 import { AdminWorkspace, type AdminApi } from "../../../src/admin/AdminWorkspace";
+import { BingoAdminPanel } from "../../../src/modules/bingo/ui/BingoAdminPanel";
+import type { BingoBoardState, BingoCardSaveRequest, BingoMutationResponse, BingoUpdateMessage } from "../../../src/modules/bingo/contracts/schemas";
 
 vi.mock("qrcode", () => ({
   toDataURL: vi.fn(() => Promise.resolve("data:image/png;base64,challenge-qr")),
@@ -54,6 +56,100 @@ const auditToggle = (): HTMLButtonElement => {
   const button = document.querySelector(".audit-rail .rail-heading");
   if (!(button instanceof HTMLButtonElement)) throw new Error("Audit-Schalter fehlt.");
   return button;
+};
+
+const bingoBoard = (placement: BingoBoardState["placement"] = { x: 8, y: 80, scale: 1 }): BingoBoardState => ({
+  card: {
+    title: "Stream-Bingo",
+    size: 3,
+    cells: Array.from({ length: 9 }, (_, index) => ({ id: `cell-${String(index)}`, text: `Feld ${String(index + 1)}` })),
+  },
+  marks: [],
+  cardRevision: 0,
+  markRevision: 0,
+  generation: 0,
+  style: "marker",
+  placement,
+});
+
+const bingoMutation = (board: BingoBoardState): BingoMutationResponse => ({
+  board,
+  update: { type: "bingo_update", board },
+  ceremony: null,
+  auditEntry: null,
+  undoTargets: [],
+  serverTime: "2026-08-29T12:00:00.000Z",
+});
+
+const createBingoAdminApi = (initialBoard: BingoBoardState) => {
+  let publishBingoUpdate: ((update: BingoUpdateMessage) => void) | undefined;
+  const saveBingoCard = vi.fn((request: BingoCardSaveRequest) => Promise.resolve(bingoMutation({
+    ...initialBoard,
+    card: { title: request.title, size: request.size, cells: request.cells },
+    cardRevision: initialBoard.cardRevision + 1,
+    placement: request.placement,
+  })));
+  const api: AdminApi = {
+    save: vi.fn(),
+    setVisibility: vi.fn(),
+    getBingoBoard: vi.fn(() => Promise.resolve(initialBoard)),
+    markBingoCell: vi.fn(() => Promise.resolve(bingoMutation(initialBoard))),
+    resetBingoMarks: vi.fn(() => Promise.resolve(bingoMutation(initialBoard))),
+    saveBingoCard,
+    setBingoStyle: vi.fn(() => Promise.resolve(bingoMutation(initialBoard))),
+    listBingoSets: vi.fn(() => Promise.resolve({ sets: [] })),
+    getBingoSet: vi.fn(),
+    saveBingoSet: vi.fn(),
+    deleteBingoSet: vi.fn(),
+    loadBingoSet: vi.fn(),
+    importBingoCard: vi.fn(),
+    exportBingoCard: vi.fn(),
+    subscribe: vi.fn((callbacks: Parameters<NonNullable<AdminApi["subscribe"]>>[0]) => {
+      publishBingoUpdate = callbacks.onBingoUpdate;
+      callbacks.onOnlineChange(true);
+      return () => { publishBingoUpdate = undefined; };
+    }),
+  };
+  return {
+    api,
+    publish: (update: BingoUpdateMessage) => publishBingoUpdate?.(update),
+    saveBingoCard,
+  };
+};
+
+const renderBingoComposition = async (board = bingoBoard(), workspace: "hud" | "bingo" = "bingo") => {
+  const harness = createBingoAdminApi(board);
+  render(
+    <AdminWorkspace
+      api={harness.api}
+      initialBootstrap={bootstrap()}
+      loadBingoPanel={() => Promise.resolve({ default: BingoAdminPanel })}
+      workspace={workspace}
+    />,
+  );
+  if (workspace === "hud") {
+    await waitFor(() => expect(document.querySelector(".admin-bingo-live-preview")).toBeInTheDocument());
+  } else {
+    await screen.findByRole("button", { name: "Karte speichern" });
+  }
+  await waitFor(() => expect(document.querySelector(".admin-bingo-live-preview")).toBeInTheDocument());
+  return harness;
+};
+
+const setPreviewCanvasBounds = (): void => {
+  const canvas = document.querySelector(".preview-canvas");
+  if (!(canvas instanceof HTMLElement)) throw new Error("Vorschaufläche fehlt.");
+  vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue({
+    x: 0,
+    y: 0,
+    left: 0,
+    top: 0,
+    right: 1920,
+    bottom: 1080,
+    width: 1920,
+    height: 1080,
+    toJSON: () => ({}),
+  });
 };
 
 afterEach(() => {
@@ -2173,5 +2269,151 @@ describe("Admin workspace publication boundary", () => {
 
     expect(renewMediaLeases).toHaveBeenCalledTimes(1);
     expect(renewMediaLeases).toHaveBeenCalledWith([contentHash]);
+  });
+
+  it("verschiebt die Bingo-Karte per Ziehen, hält X/Y aktuell und markiert den Entwurf als dirty", async () => {
+    const harness = await renderBingoComposition();
+    setPreviewCanvasBounds();
+    const preview = document.querySelector(".admin-bingo-live-preview");
+    if (!(preview instanceof HTMLElement)) throw new Error("Bingo-Vorschau fehlt.");
+
+    expect(preview).toHaveAttribute("tabindex", "0");
+    expect(preview).toHaveAccessibleName("Bingo-Karte verschieben, Pfeiltasten");
+    fireEvent.pointerDown(preview, { button: 0, pointerId: 7, clientX: 40, clientY: 400 });
+    fireEvent.pointerMove(preview, { pointerId: 7, clientX: 55, clientY: 415 });
+    fireEvent.pointerUp(preview, { pointerId: 7, clientX: 55, clientY: 415 });
+
+    const panel = within(document.querySelector("#admin-composition-panel-bingo") as HTMLElement);
+    expect(panel.getByLabelText("Platzierung X")).toHaveValue(11);
+    expect(panel.getByLabelText("Platzierung Y")).toHaveValue(83);
+    expect(screen.getByRole("button", { name: "Alle speichern" })).toBeInTheDocument();
+    expect(document.querySelector(".global-save-bar")).toHaveTextContent("Bingo");
+    expect(harness.saveBingoCard).not.toHaveBeenCalled();
+
+    harness.publish({
+      type: "bingo_update",
+      board: { ...bingoBoard(), markRevision: 1, marks: ["cell-0"] },
+    });
+    await waitFor(() => expect(panel.getByLabelText("Platzierung X")).toHaveValue(11));
+    expect(panel.getByLabelText("Platzierung Y")).toHaveValue(83);
+  });
+
+  it("verschiebt Bingo mit Pfeiltasten um einen Rasterpunkt und mit Umschalt um zehn", async () => {
+    await renderBingoComposition();
+    const preview = document.querySelector(".admin-bingo-live-preview");
+    if (!(preview instanceof HTMLElement)) throw new Error("Bingo-Vorschau fehlt.");
+
+    fireEvent.keyDown(preview, { key: "ArrowRight" });
+    fireEvent.keyDown(preview, { key: "ArrowDown", shiftKey: true });
+
+    const panel = within(document.querySelector("#admin-composition-panel-bingo") as HTMLElement);
+    expect(panel.getByLabelText("Platzierung X")).toHaveValue(9);
+    expect(panel.getByLabelText("Platzierung Y")).toHaveValue(90);
+  });
+
+  it("behält die gezogene Bingo-Platzierung beim Editieren im Kartendraft", async () => {
+    const user = userEvent.setup();
+    const harness = await renderBingoComposition();
+    setPreviewCanvasBounds();
+    const preview = document.querySelector(".admin-bingo-live-preview");
+    if (!(preview instanceof HTMLElement)) throw new Error("Bingo-Vorschau fehlt.");
+    fireEvent.pointerDown(preview, { button: 0, pointerId: 13, clientX: 40, clientY: 400 });
+    fireEvent.pointerMove(preview, { pointerId: 13, clientX: 55, clientY: 415 });
+    fireEvent.pointerUp(preview, { pointerId: 13, clientX: 55, clientY: 415 });
+
+    const panel = within(document.querySelector("#admin-composition-panel-bingo") as HTMLElement);
+    fireEvent.change(panel.getByLabelText("Kartentitel"), { target: { value: "Neuer Titel" } });
+    expect(panel.getByLabelText("Platzierung X")).toHaveValue(11);
+    expect(panel.getByLabelText("Platzierung Y")).toHaveValue(83);
+
+    await user.click(panel.getByRole("button", { name: "Karte speichern" }));
+    await waitFor(() => expect(harness.saveBingoCard).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Neuer Titel",
+      placement: { x: 11, y: 83, scale: 1 },
+    })));
+  });
+
+  it("übernimmt eine entfernte Platzierung, wenn der Kartendraft sauber ist", async () => {
+    const harness = await renderBingoComposition();
+    const panel = within(document.querySelector("#admin-composition-panel-bingo") as HTMLElement);
+    const updatedBoard = {
+      ...bingoBoard({ x: 14, y: 91, scale: 1 }),
+      cardRevision: 1,
+    };
+
+    act(() => harness.publish({ type: "bingo_update", board: updatedBoard }));
+
+    await waitFor(() => expect(panel.getByLabelText("Platzierung X")).toHaveValue(14));
+    expect(panel.getByLabelText("Platzierung Y")).toHaveValue(91);
+    expect(screen.queryByRole("button", { name: "Alle speichern" })).not.toBeInTheDocument();
+  });
+
+  it("speichert die gezogene Bingo-Platzierung über Alle speichern", async () => {
+    const user = userEvent.setup();
+    const harness = await renderBingoComposition();
+    setPreviewCanvasBounds();
+    const preview = document.querySelector(".admin-bingo-live-preview");
+    if (!(preview instanceof HTMLElement)) throw new Error("Bingo-Vorschau fehlt.");
+    fireEvent.pointerDown(preview, { button: 0, pointerId: 9, clientX: 40, clientY: 400 });
+    fireEvent.pointerMove(preview, { pointerId: 9, clientX: 55, clientY: 415 });
+    fireEvent.pointerUp(preview, { pointerId: 9, clientX: 55, clientY: 415 });
+
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
+
+    await waitFor(() => expect(harness.saveBingoCard).toHaveBeenCalledWith(expect.objectContaining({
+      placement: { x: 11, y: 83, scale: 1 },
+      expectedCardRevision: 0,
+    })));
+  });
+
+  it("speichert eine im HUD-Tab gezogene Bingo-Karte über die globale Speicherleiste", async () => {
+    const user = userEvent.setup();
+    const harness = await renderBingoComposition(bingoBoard(), "hud");
+    setPreviewCanvasBounds();
+    const preview = document.querySelector(".admin-bingo-live-preview");
+    if (!(preview instanceof HTMLElement)) throw new Error("Bingo-Vorschau fehlt.");
+    fireEvent.pointerDown(preview, { button: 0, pointerId: 17, clientX: 40, clientY: 400 });
+    fireEvent.pointerMove(preview, { pointerId: 17, clientX: 55, clientY: 415 });
+    fireEvent.pointerUp(preview, { pointerId: 17, clientX: 55, clientY: 415 });
+
+    await user.click(await screen.findByRole("button", { name: "Alle speichern" }));
+
+    await waitFor(() => expect(harness.saveBingoCard).toHaveBeenCalledWith(expect.objectContaining({
+      placement: { x: 11, y: 83, scale: 1 },
+      expectedCardRevision: 0,
+    })));
+  });
+
+  it("behält die Platzierung, wenn die erste Vorschau vor dem Editor-Chunk gezogen wird", async () => {
+    const user = userEvent.setup();
+    const board = bingoBoard();
+    const harness = createBingoAdminApi(board);
+    let resolvePanel: ((value: { default: typeof BingoAdminPanel }) => void) | undefined;
+    const loadBingoPanel = vi.fn(() => new Promise<{ default: typeof BingoAdminPanel }>((resolve) => { resolvePanel = resolve; }));
+    render(<AdminWorkspace
+      api={harness.api}
+      initialBootstrap={bootstrap()}
+      loadBingoPanel={loadBingoPanel}
+      workspace="hud"
+    />);
+    await waitFor(() => expect(document.querySelector(".admin-bingo-live-preview")).toBeInTheDocument());
+    setPreviewCanvasBounds();
+    const preview = document.querySelector(".admin-bingo-live-preview");
+    if (!(preview instanceof HTMLElement)) throw new Error("Bingo-Vorschau fehlt.");
+    fireEvent.pointerDown(preview, { button: 0, pointerId: 21, clientX: 40, clientY: 400 });
+    fireEvent.pointerMove(preview, { pointerId: 21, clientX: 55, clientY: 415 });
+    fireEvent.pointerUp(preview, { pointerId: 21, clientX: 55, clientY: 415 });
+    fireEvent.click(screen.getByRole("tab", { name: "Bingo" }));
+    await waitFor(() => expect(loadBingoPanel).toHaveBeenCalledOnce());
+
+    act(() => resolvePanel?.({ default: BingoAdminPanel }));
+    await waitFor(() => expect(document.querySelector("#admin-composition-panel-bingo")?.textContent).toContain("Karte bearbeiten"));
+    const panel = within(document.querySelector("#admin-composition-panel-bingo") as HTMLElement);
+    await waitFor(() => expect(panel.getByLabelText("Platzierung X")).toHaveValue(11));
+    expect(panel.getByLabelText("Platzierung Y")).toHaveValue(83);
+    await user.click(await screen.findByRole("button", { name: "Alle speichern" }));
+    await waitFor(() => expect(harness.saveBingoCard).toHaveBeenCalledWith(expect.objectContaining({
+      placement: { x: 11, y: 83, scale: 1 },
+    })));
   });
 });

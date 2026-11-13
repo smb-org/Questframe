@@ -83,6 +83,10 @@ const createBingoAdminApi = (overrides: Partial<AdminApi> = {}): AdminApi => {
     loadBingoSet: vi.fn(() => Promise.resolve(bingoMutation(initial))),
     importBingoCard: vi.fn(() => Promise.resolve(bingoMutation(initial))),
     exportBingoCard: vi.fn(() => Promise.resolve("{}")),
+    subscribe: (callbacks) => {
+      callbacks.onOnlineChange(true);
+      return () => undefined;
+    },
     ...overrides,
   };
 };
@@ -138,7 +142,8 @@ describe("Kompositions-Workspace", () => {
     const api = createBingoAdminApi({ save });
     render(<AdminWorkspace api={api} initialBootstrap={initial} workspace="bingo" />);
 
-    await screen.findByRole("grid", { name: "Testkarte" });
+    await screen.findByRole("button", { name: "Karte speichern" });
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Kartentitel" })).toBeEnabled());
     await user.clear(screen.getByRole("textbox", { name: "Kartentitel" }));
     await user.type(screen.getByRole("textbox", { name: "Kartentitel" }), "Neue Bingo-Karte");
     const hudName = screen.getByDisplayValue("Streamer");
@@ -165,7 +170,8 @@ describe("Kompositions-Workspace", () => {
     const api = createBingoAdminApi({ saveBingoCard });
     render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="bingo" />);
 
-    await screen.findByRole("grid", { name: "Testkarte" });
+    await screen.findByRole("button", { name: "Karte speichern" });
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Kartentitel" })).toBeEnabled());
     await user.clear(screen.getByRole("textbox", { name: "Kartentitel" }));
     await user.type(screen.getByRole("textbox", { name: "Kartentitel" }), "Ungespeicherter Entwurf");
     await user.click(await screen.findByRole("button", { name: "Alle speichern" }));
