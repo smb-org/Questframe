@@ -743,7 +743,7 @@ export const BingoAdminPanel = ({
         <div className="bingo-admin-board-slot">
           {board === null
             ? <div aria-hidden="true" className="bingo-admin-card-placeholder" />
-            : <BingoBoard board={settingsDraft === null ? board : { ...board, settings: settingsDraft }} onToggleCell={(cellId, marked) => void markCell(cellId, marked)} width={350} />}
+            : <BingoBoard board={settingsDraft === null ? board : { ...board, settings: settingsDraft }} onToggleCell={(cellId, marked) => void markCell(cellId, marked)} textSizeFactor={1} width={350} />}
         </div>
         {canUndo && (
           <details className="bingo-admin-undo" open>

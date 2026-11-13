@@ -42,7 +42,7 @@ export const BingoCeremonyStage = ({
       data-ceremony-type={presentation.activeCeremony?.type}
       style={style}
     >
-      <BingoBoard board={board} ceremonyLines={presentation.activeCeremony?.lines ?? []} />
+      <BingoBoard board={board} ceremonyLines={presentation.activeCeremony?.lines ?? []} renderScale={activePlacement.scale} />
       {presentation.activeCeremony !== null && board.settings.showBingo && (
         <div aria-live="polite" className="bingo-source__bingo-callout">BINGO!</div>
       )}
