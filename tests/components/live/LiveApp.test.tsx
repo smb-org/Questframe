@@ -133,6 +133,20 @@ const dockRequestBodies = (path: string): unknown[] => vi.mocked(fetch).mock.cal
     return typeof body === "string" ? JSON.parse(body) as unknown : body;
   });
 
+const deferDockMarkRequests = (): Array<(response: Response) => void> => {
+  const resolvers: Array<(response: Response) => void> = [];
+  vi.mocked(fetch).mockImplementation((input) => {
+    if (input === "/api/bingo/dock/mark") return new Promise((resolve) => { resolvers.push(resolve); });
+    return Promise.resolve(new Response(null, { status: 200 }));
+  });
+  return resolvers;
+};
+
+const jsonResponse = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), {
+  status,
+  headers: { "content-type": "application/json" },
+});
+
 const emitUpdate = (value = message()): void => {
   const socket = FakeWebSocket.instances[0];
   act(() => socket?.emit("message", JSON.stringify(value)));
@@ -246,11 +260,7 @@ describe("Live-Bedienseite", () => {
 
   it("sendet drei schnelle Bingo-Markierungen nacheinander mit den jeweils neuesten Revisionen", async () => {
     const user = userEvent.setup();
-    const resolvers: Array<(response: Response) => void> = [];
-    vi.mocked(fetch).mockImplementation((input) => {
-      if (input === "/api/bingo/dock/mark") return new Promise((resolve) => { resolvers.push(resolve); });
-      return Promise.resolve(new Response(null, { status: 200 }));
-    });
+    const resolvers = deferDockMarkRequests();
     render(<LiveApp />);
     connectDockSocket();
     emitUpdate();
@@ -261,10 +271,7 @@ describe("Live-Bedienseite", () => {
     await user.click(screen.getByRole("gridcell", { name: "Feld 9" }));
 
     act(() => {
-      resolvers[0]?.(new Response(JSON.stringify({ board: bingoBoard({ marks: ["cell-0"], markRevision: 8 }) }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }));
+      resolvers[0]?.(jsonResponse({ board: bingoBoard({ marks: ["cell-0"], markRevision: 8 }) }));
     });
     await waitFor(() => expect(dockRequestBodies("/api/bingo/dock/mark")).toHaveLength(2));
     expect(dockRequestBodies("/api/bingo/dock/mark")).toEqual([
@@ -273,18 +280,12 @@ describe("Live-Bedienseite", () => {
     ]);
 
     act(() => {
-      resolvers[1]?.(new Response(JSON.stringify({ board: bingoBoard({ marks: ["cell-0", "cell-4"], markRevision: 9 }) }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }));
+      resolvers[1]?.(jsonResponse({ board: bingoBoard({ marks: ["cell-0", "cell-4"], markRevision: 9 }) }));
     });
     await waitFor(() => expect(dockRequestBodies("/api/bingo/dock/mark")).toHaveLength(3));
 
     act(() => {
-      resolvers[2]?.(new Response(JSON.stringify({ board: bingoBoard({ marks: ["cell-0", "cell-4", "cell-8"], markRevision: 10 }) }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }));
+      resolvers[2]?.(jsonResponse({ board: bingoBoard({ marks: ["cell-0", "cell-4", "cell-8"], markRevision: 10 }) }));
     });
 
     expect(dockRequestBodies("/api/bingo/dock/mark")).toEqual([
@@ -299,11 +300,7 @@ describe("Live-Bedienseite", () => {
 
   it("wiederholt eine wartende Live-Markierung nach einem Revisionskonflikt mit der frischen Revision", async () => {
     const user = userEvent.setup();
-    const resolvers: Array<(response: Response) => void> = [];
-    vi.mocked(fetch).mockImplementation((input) => {
-      if (input === "/api/bingo/dock/mark") return new Promise((resolve) => { resolvers.push(resolve); });
-      return Promise.resolve(new Response(null, { status: 200 }));
-    });
+    const resolvers = deferDockMarkRequests();
     render(<LiveApp />);
     connectDockSocket();
     emitUpdate();
@@ -312,25 +309,22 @@ describe("Live-Bedienseite", () => {
     await user.click(await screen.findByRole("gridcell", { name: "Feld 1" }));
     await user.click(screen.getByRole("gridcell", { name: "Feld 2" }));
     act(() => {
-      resolvers[0]?.(new Response(JSON.stringify({ board: bingoBoard({ marks: ["cell-0"], markRevision: 8 }) }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }));
+      resolvers[0]?.(jsonResponse({ board: bingoBoard({ marks: ["cell-0"], markRevision: 8 }) }));
     });
     await waitFor(() => expect(dockRequestBodies("/api/bingo/dock/mark")).toHaveLength(2));
 
     const conflictBoard = bingoBoard({ marks: ["cell-0", "cell-8"], markRevision: 9 });
     act(() => {
-      resolvers[1]?.(new Response(JSON.stringify({
+      resolvers[1]?.(jsonResponse({
         error: { code: "revision_conflict", message: "Das Bingo-Board wurde inzwischen geändert.", currentSnapshot: conflictBoard },
-      }), { status: 409, headers: { "content-type": "application/json" } }));
+      }, 409));
     });
     await waitFor(() => expect(dockRequestBodies("/api/bingo/dock/mark")).toHaveLength(3));
 
     act(() => {
-      resolvers[2]?.(new Response(JSON.stringify({
+      resolvers[2]?.(jsonResponse({
         board: bingoBoard({ marks: ["cell-0", "cell-8", "cell-1"], markRevision: 10 }),
-      }), { status: 200, headers: { "content-type": "application/json" } }));
+      }));
     });
 
     expect(dockRequestBodies("/api/bingo/dock/mark")).toEqual([
@@ -343,11 +337,7 @@ describe("Live-Bedienseite", () => {
 
   it("verwirft einen Live-Markierungskonflikt lautlos, wenn das Feld inzwischen den Zielzustand hat", async () => {
     const user = userEvent.setup();
-    const resolvers: Array<(response: Response) => void> = [];
-    vi.mocked(fetch).mockImplementation((input) => {
-      if (input === "/api/bingo/dock/mark") return new Promise((resolve) => { resolvers.push(resolve); });
-      return Promise.resolve(new Response(null, { status: 200 }));
-    });
+    const resolvers = deferDockMarkRequests();
     render(<LiveApp />);
     connectDockSocket();
     emitUpdate();
@@ -356,21 +346,18 @@ describe("Live-Bedienseite", () => {
     await user.click(await screen.findByRole("gridcell", { name: "Feld 1" }));
     await user.click(screen.getByRole("gridcell", { name: "Feld 2" }));
     act(() => {
-      resolvers[0]?.(new Response(JSON.stringify({ board: bingoBoard({ marks: ["cell-0"], markRevision: 8 }) }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }));
+      resolvers[0]?.(jsonResponse({ board: bingoBoard({ marks: ["cell-0"], markRevision: 8 }) }));
     });
     await waitFor(() => expect(dockRequestBodies("/api/bingo/dock/mark")).toHaveLength(2));
 
     act(() => {
-      resolvers[1]?.(new Response(JSON.stringify({
+      resolvers[1]?.(jsonResponse({
         error: {
           code: "revision_conflict",
           message: "Das Bingo-Board wurde inzwischen geändert.",
           currentSnapshot: bingoBoard({ marks: ["cell-0", "cell-1"], markRevision: 9 }),
         },
-      }), { status: 409, headers: { "content-type": "application/json" } }));
+      }, 409));
     });
 
     expect(dockRequestBodies("/api/bingo/dock/mark")).toHaveLength(2);
@@ -403,10 +390,7 @@ describe("Live-Bedienseite", () => {
 
     expect(confirm).toHaveBeenCalledWith("Alle Bingo-Kreuze zurücksetzen?");
     act(() => {
-      resolveMark?.(new Response(JSON.stringify({ board: bingoBoard({ marks: ["cell-0"], markRevision: 8 }) }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }));
+      resolveMark?.(jsonResponse({ board: bingoBoard({ marks: ["cell-0"], markRevision: 8 }) }));
     });
     await waitFor(() => expect(dockRequestBodies("/api/bingo/dock/reset")).toEqual([{ expectedMarkRevision: 8 }]));
 
