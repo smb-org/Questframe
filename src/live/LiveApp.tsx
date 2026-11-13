@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Challenge, ChallengeUpdate, GlobalTimer } from "../shared/contracts/win-challenges";
 import { DOCK_SOCKET_PROTOCOL } from "../shared/contracts/protocol";
@@ -17,6 +17,7 @@ import { parseChallengeMessage, tokenFromLocation } from "../challenges/wire";
 import { parseBingoMessage } from "../bingo/wire";
 import { BingoBoard } from "../bingo/BingoBoard";
 import type { BingoBoardState } from "../modules/bingo/contracts/schemas";
+import { BingoMarkQueue } from "../modules/bingo/domain/mark-queue";
 import { nextReconnectDelayMs, startSocketHeartbeat } from "../shared/reconnect";
 import "./live.css";
 
@@ -29,6 +30,8 @@ type CommandFailure = {
   code: string;
   message: string;
 };
+
+type BingoFailure = CommandFailure & { currentSnapshot?: unknown };
 
 class LiveCommandError extends Error {
   public readonly code: string;
@@ -78,6 +81,27 @@ const readCommandFailure = async (response: Response): Promise<CommandFailure> =
     }
   } catch {
     // Der öffentliche Fallback darf keine rohen Antwortdaten anzeigen.
+  }
+  return {
+    code: "request_failed",
+    message: `Anfrage fehlgeschlagen (${String(response.status)}).`,
+  };
+};
+
+const readBingoFailure = async (response: Response): Promise<BingoFailure> => {
+  try {
+    const body: unknown = await response.json();
+    if (isRecord(body) && isRecord(body.error)) {
+      return {
+        code: typeof body.error.code === "string" ? body.error.code : "request_failed",
+        message: typeof body.error.message === "string"
+          ? body.error.message
+          : `Anfrage fehlgeschlagen (${String(response.status)}).`,
+        ...(body.error.currentSnapshot === undefined ? {} : { currentSnapshot: body.error.currentSnapshot }),
+      };
+    }
+  } catch {
+    // Die feste Meldungsfläche zeigt nur einen sicheren Fallback an.
   }
   return {
     code: "request_failed",
@@ -470,6 +494,7 @@ export const LiveApp = () => {
   const [update, setUpdate] = useState<ChallengeUpdate | null>(null);
   const [bingoBoard, setBingoBoard] = useState<BingoBoardState | null>(null);
   const [bingoPending, setBingoPending] = useState(false);
+  const [bingoResetting, setBingoResetting] = useState(false);
   const [bingoError, setBingoError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [connection, setConnection] = useState<"loading" | "connected" | "offline" | "invalid" | "revoked">(
@@ -482,6 +507,15 @@ export const LiveApp = () => {
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [deletedNotice, setDeletedNotice] = useState<DeletedNotice | null>(null);
   const knownChallengesRef = useRef(new Map<string, Challenge>());
+  const bingoBoardRef = useRef<BingoBoardState | null>(null);
+  const bingoMarkQueueRef = useRef(new BingoMarkQueue());
+  const resettingBingoMarksRef = useRef(false);
+
+  const applyBingoBoard = useCallback((incoming: BingoBoardState): void => {
+    const next = mergeBingoBoardByRevision(bingoBoardRef.current, incoming);
+    bingoBoardRef.current = next;
+    setBingoBoard(next);
+  }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
@@ -520,6 +554,7 @@ export const LiveApp = () => {
           revoked = true;
           setConnection("revoked");
           setUpdate(null);
+          bingoBoardRef.current = null;
           setBingoBoard(null);
           socket?.close();
           return;
@@ -538,11 +573,12 @@ export const LiveApp = () => {
           revoked = true;
           setConnection("revoked");
           setUpdate(null);
+          bingoBoardRef.current = null;
           setBingoBoard(null);
           socket?.close();
           return;
         }
-        setBingoBoard((current) => mergeBingoBoardByRevision(current, bingoMessage.board));
+        applyBingoBoard(bingoMessage.board);
         setBingoError(null);
       });
       socket.addEventListener("close", () => {
@@ -564,7 +600,7 @@ export const LiveApp = () => {
       if (retryTimer !== null) window.clearTimeout(retryTimer);
       socket?.close();
     };
-  }, [token]);
+  }, [applyBingoBoard, token]);
 
   const runCommand = (command: Command, challengeId?: string): void => {
     if (token === null) return;
@@ -602,65 +638,108 @@ export const LiveApp = () => {
     });
   };
 
-  const runBingoMutation = async (path: "/api/bingo/dock/mark" | "/api/bingo/dock/reset", body: unknown): Promise<void> => {
-    if (token === null || bingoBoard === null || connection !== "connected" || bingoPending) return;
-    setBingoPending(true);
-    setBingoError(null);
+  const sendBingoMark = async (cellId: string, marked: boolean, expectedMarkRevision: number): Promise<{ ok: true } | { ok: false; failure: BingoFailure }> => {
+    if (token === null) return { ok: false, failure: { code: "request_failed", message: "Die Bingo-Änderung konnte nicht gespeichert werden." } };
     try {
-      const response = await fetch(path, {
+      const response = await fetch("/api/bingo/dock/mark", {
         method: "POST",
         headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify(body),
+        body: JSON.stringify({ cellId, marked, expectedMarkRevision }),
       });
       if (!response.ok) {
-        let failure: CommandFailure = { code: "request_failed", message: `Anfrage fehlgeschlagen (${String(response.status)}).` };
-        try {
-          const payload: unknown = await response.json();
-          if (isRecord(payload) && isRecord(payload.error)) {
-            failure = {
-              code: typeof payload.error.code === "string" ? payload.error.code : "request_failed",
-              message: typeof payload.error.message === "string" ? payload.error.message : failure.message,
-            };
-            if (failure.code === "revision_conflict") {
-              const current = parseBingoMessage({ type: "bingo_update", board: payload.error.currentSnapshot });
-              if (current !== null && current.type === "bingo_update") {
-                setBingoBoard((latest) => mergeBingoBoardByRevision(latest, current.board));
-              }
-            }
-          }
-        } catch {
-          // Die feste Meldungsflaeche zeigt nur einen sicheren Fallback an.
+        const failure = await readBingoFailure(response);
+        if (failure.code === "revision_conflict" && failure.currentSnapshot !== undefined) {
+          const current = parseBingoMessage({ type: "bingo_update", board: failure.currentSnapshot });
+          if (current !== null && current.type === "bingo_update") applyBingoBoard(current.board);
         }
-        setBingoError(failure.message);
-        return;
+        return { ok: false, failure };
       }
       const payload: unknown = await response.json();
       if (isRecord(payload) && "board" in payload) {
         const current = parseBingoMessage({ type: "bingo_update", board: payload.board });
-        if (current !== null && current.type === "bingo_update") {
-          setBingoBoard((latest) => mergeBingoBoardByRevision(latest, current.board));
-        }
+        if (current !== null && current.type === "bingo_update") applyBingoBoard(current.board);
       }
+      return { ok: true };
     } catch {
-      setBingoError("Die Bingo-Änderung konnte nicht gespeichert werden.");
-    } finally {
-      setBingoPending(false);
+      return { ok: false, failure: { code: "request_failed", message: "Die Bingo-Änderung konnte nicht gespeichert werden." } };
     }
   };
 
+  const processBingoMark = async (cellId: string, marked: boolean, wasQueued: boolean): Promise<void> => {
+    const current = bingoBoardRef.current;
+    if (current === null || token === null || resettingBingoMarksRef.current) return;
+    const expectedMarkRevision = current.markRevision;
+    const result = await sendBingoMark(cellId, marked, expectedMarkRevision);
+    if (result.ok) return;
+    if (result.failure.code === "revision_conflict" && wasQueued) {
+      const latest = bingoBoardRef.current;
+      if (latest?.marks.includes(cellId) === marked) return;
+      if (latest !== null && latest.markRevision > expectedMarkRevision) {
+        const retry = await sendBingoMark(cellId, marked, latest.markRevision);
+        if (retry.ok) return;
+        setBingoError(retry.failure.message);
+        return;
+      }
+    }
+    setBingoError(result.failure.message);
+  };
+
   const markBingoCell = (cellId: string, marked: boolean): void => {
-    if (bingoBoard === null) return;
-    void runBingoMutation("/api/bingo/dock/mark", {
-      cellId,
-      marked,
-      expectedMarkRevision: bingoBoard.markRevision,
+    if (bingoBoardRef.current === null || connection !== "connected" || resettingBingoMarksRef.current) return;
+    setBingoPending(true);
+    setBingoError(null);
+    const wasQueued = bingoMarkQueueRef.current.hasWork;
+    void bingoMarkQueueRef.current.enqueue(() => processBingoMark(cellId, marked, wasQueued)).then(() => {
+      if (!bingoMarkQueueRef.current.hasWork) setBingoPending(false);
+    }, () => {
+      if (!bingoMarkQueueRef.current.hasWork) setBingoPending(false);
     });
   };
 
-  const resetBingoMarks = (): void => {
-    if (bingoBoard === null || !window.confirm("Alle Bingo-Kreuze zurücksetzen?")) return;
-    void runBingoMutation("/api/bingo/dock/reset", { expectedMarkRevision: bingoBoard.markRevision });
+  const resetBingoMarks = async (): Promise<void> => {
+    const currentBoard = bingoBoardRef.current;
+    if (currentBoard === null || connection !== "connected" || resettingBingoMarksRef.current || !window.confirm("Alle Bingo-Kreuze zurücksetzen?")) return;
+    resettingBingoMarksRef.current = true;
+    setBingoResetting(true);
+    setBingoPending(true);
+    bingoMarkQueueRef.current.pauseAndClear();
+    setBingoError(null);
+    try {
+      await bingoMarkQueueRef.current.waitForActive();
+      const latest = bingoBoardRef.current;
+      if (latest === null || token === null) return;
+      try {
+        const response = await fetch("/api/bingo/dock/reset", {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ expectedMarkRevision: latest.markRevision }),
+        });
+        if (!response.ok) {
+          const failure = await readBingoFailure(response);
+          if (failure.code === "revision_conflict" && failure.currentSnapshot !== undefined) {
+            const current = parseBingoMessage({ type: "bingo_update", board: failure.currentSnapshot });
+            if (current !== null && current.type === "bingo_update") applyBingoBoard(current.board);
+          }
+          setBingoError(failure.message);
+          return;
+        }
+        const payload: unknown = await response.json();
+        if (isRecord(payload) && "board" in payload) {
+          const current = parseBingoMessage({ type: "bingo_update", board: payload.board });
+          if (current !== null && current.type === "bingo_update") applyBingoBoard(current.board);
+        }
+      } catch {
+        setBingoError("Die Bingo-Änderung konnte nicht gespeichert werden.");
+      }
+    } finally {
+      resettingBingoMarksRef.current = false;
+      setBingoResetting(false);
+      void bingoMarkQueueRef.current.resume().then(() => {
+        if (!bingoMarkQueueRef.current.hasWork) setBingoPending(false);
+      });
+    }
   };
 
   if (token === null) {
@@ -683,7 +762,7 @@ export const LiveApp = () => {
         <div className="live-page__skeleton" aria-label="Challenges werden geladen">
           <span /><span /><span />
         </div>
-        <LiveBingoTile board={bingoBoard} disabled={connection !== "connected" || bingoPending || bingoBoard === null} error={bingoError} onReset={resetBingoMarks} onToggleCell={markBingoCell} pending={bingoPending} />
+        <LiveBingoTile board={bingoBoard} disabled={connection !== "connected" || bingoResetting || bingoBoard === null} error={bingoError} onReset={() => void resetBingoMarks()} onToggleCell={markBingoCell} pending={bingoPending} />
         {connection === "revoked" && <p role="alert">Der Dock-Token wurde widerrufen.</p>}
       </main>
     );
@@ -723,7 +802,7 @@ export const LiveApp = () => {
           pending={globalPending}
           timer={update.settings.globalTimer}
         />}
-      <LiveBingoTile board={bingoBoard} disabled={connection !== "connected" || bingoPending || bingoBoard === null} error={bingoError} onReset={resetBingoMarks} onToggleCell={markBingoCell} pending={bingoPending} />
+      <LiveBingoTile board={bingoBoard} disabled={connection !== "connected" || bingoResetting || bingoBoard === null} error={bingoError} onReset={() => void resetBingoMarks()} onToggleCell={markBingoCell} pending={bingoPending} />
       {hasRows ? (
         <section aria-label="Challenges" className="live-page__challenge-list">
           {visibleRows.map((challenge) => (
