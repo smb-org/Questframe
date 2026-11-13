@@ -1,7 +1,7 @@
 {
   "overlayUrl": {
     "type": "text",
-    "label": "Overlay-URL (HUD, Challenges oder Kombi; inkl. #token=…)",
+    "label": "Overlay-URL (HUD, Challenges, Bingo oder Kombi; inkl. #token=…)",
     "value": "https://hud.example.invalid/overlay#token=DEIN_TOKEN",
     "group": "🧭 Questframe"
   }
