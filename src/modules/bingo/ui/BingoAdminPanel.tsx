@@ -18,6 +18,7 @@ import {
   type MarkCellPayload,
 } from "../contracts/schemas";
 import { decodeBingoCard } from "../domain/card-codec";
+import { BingoMarkQueue } from "../domain/mark-queue";
 import { loadBingoStyle } from "../../../bingo/style-loader";
 import { BingoBoard } from "../../../bingo/BingoBoard";
 
@@ -183,6 +184,10 @@ export const BingoAdminPanel = ({
   const [renameName, setRenameName] = useState("");
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  const [markPending, setMarkPending] = useState(false);
+  const [resettingMarks, setResettingMarks] = useState(false);
+  const markQueueRef = useRef(new BingoMarkQueue());
+  const resettingMarksRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [conflicted, setConflicted] = useState(false);
   const [settingsConflicted, setSettingsConflicted] = useState(false);
@@ -405,19 +410,60 @@ export const BingoAdminPanel = ({
     setMessage("");
   };
 
-  const markCell = async (cellId: string, marked: boolean): Promise<void> => {
+  const processMarkCell = async (cellId: string, marked: boolean, wasQueued: boolean): Promise<void> => {
     const current = boardRef.current;
-    if (current === null || busy || !online) return;
-    setBusySync(true);
+    if (current === null || !online || resettingMarksRef.current) return;
+    const expectedMarkRevision = current.markRevision;
+    try {
+      applyMutation(await api.markBingoCell({ cellId, marked, expectedMarkRevision }));
+      return;
+    } catch (caught) {
+      const errorValue = typeof caught === "object" && caught !== null
+        ? caught as { code?: unknown; currentSnapshot?: unknown }
+        : {};
+      if (errorValue.code !== "revision_conflict") {
+        showError(caught, "Bingo-Feld konnte nicht geändert werden.");
+        return;
+      }
+      const freshBoard = responseBoard(errorValue.currentSnapshot);
+      if (!wasQueued) {
+        if (freshBoard !== null) applyBoard(freshBoard);
+        showError(caught, "Bingo-Feld konnte nicht geändert werden.");
+        return;
+      }
+
+      if (freshBoard !== null) applyBoard(freshBoard);
+      const latest = boardRef.current;
+      if (latest?.marks.includes(cellId) === marked) return;
+      if (latest === null || latest.markRevision <= expectedMarkRevision) {
+        showError(caught, "Bingo-Feld konnte nicht geändert werden.");
+        return;
+      }
+
+      try {
+        applyMutation(await api.markBingoCell({ cellId, marked, expectedMarkRevision: latest.markRevision }));
+      } catch (retryError) {
+        const retryValue = typeof retryError === "object" && retryError !== null
+          ? retryError as { currentSnapshot?: unknown }
+          : {};
+        const retryBoard = responseBoard(retryValue.currentSnapshot);
+        if (retryBoard !== null) applyBoard(retryBoard);
+        showError(retryError, "Bingo-Feld konnte nicht geändert werden.");
+      }
+    }
+  };
+
+  const markCell = (cellId: string, marked: boolean): void => {
+    if (boardRef.current === null || !online || resettingMarksRef.current) return;
     setError("");
     setMessage("");
-    try {
-      applyMutation(await api.markBingoCell({ cellId, marked, expectedMarkRevision: current.markRevision }));
-    } catch (caught) {
-      showError(caught, "Bingo-Feld konnte nicht geändert werden.");
-    } finally {
-      setBusySync(false);
-    }
+    setMarkPending(true);
+    const wasQueued = markQueueRef.current.hasWork;
+    void markQueueRef.current.enqueue(() => processMarkCell(cellId, marked, wasQueued)).then(() => {
+      if (!markQueueRef.current.hasWork) setMarkPending(false);
+    }, () => {
+      if (!markQueueRef.current.hasWork) setMarkPending(false);
+    });
   };
 
   const changeStyle = async (style: BingoStyleId): Promise<void> => {
@@ -438,17 +484,31 @@ export const BingoAdminPanel = ({
 
   const resetMarks = async (): Promise<void> => {
     const current = boardRef.current;
-    if (current === null || busy || !online || !window.confirm("Alle Bingo-Kreuze zurücksetzen?")) return;
-    setBusySync(true);
+    if (current === null || busyRef.current || resettingMarksRef.current || !online || !window.confirm("Alle Bingo-Kreuze zurücksetzen?")) return;
+    resettingMarksRef.current = true;
+    setResettingMarks(true);
+    markQueueRef.current.pauseAndClear();
     setError("");
     setMessage("");
     try {
-      applyMutation(await api.resetBingoMarks(current.markRevision));
-      setMessage("Alle Bingo-Kreuze wurden zurückgesetzt.");
-    } catch (caught) {
-      showError(caught, "Die Bingo-Kreuze konnten nicht zurückgesetzt werden.");
+      await markQueueRef.current.waitForActive();
+      const latest = boardRef.current;
+      if (latest === null) return;
+      setBusySync(true);
+      try {
+        applyMutation(await api.resetBingoMarks(latest.markRevision));
+        setMessage("Alle Bingo-Kreuze wurden zurückgesetzt.");
+      } catch (caught) {
+        showError(caught, "Die Bingo-Kreuze konnten nicht zurückgesetzt werden.");
+      } finally {
+        setBusySync(false);
+      }
     } finally {
-      setBusySync(false);
+      resettingMarksRef.current = false;
+      setResettingMarks(false);
+      void markQueueRef.current.resume().then(() => {
+        if (!markQueueRef.current.hasWork) setMarkPending(false);
+      });
     }
   };
 
@@ -722,28 +782,28 @@ export const BingoAdminPanel = ({
   };
 
   return (
-    <section aria-busy={busy || loading} className="bingo-admin-panel">
+    <section aria-busy={busy || markPending || loading} className="bingo-admin-panel">
       <header className="bingo-admin-heading">
         <div><span className="eyebrow">Bingo-Modul</span><h1>Bingo</h1></div>
         <span className={`bingo-admin-connection ${online ? "is-online" : "is-offline"}`}><i aria-hidden="true" />{online ? "Live verbunden" : "Offline"}</span>
       </header>
 
-      <div aria-live="polite" className={`bingo-admin-message-slot ${conflicted || settingsConflicted || error !== "" ? "has-error" : message !== "" ? "has-message" : ""}`}>
+      <div aria-live="polite" className={`bingo-admin-message-slot ${conflicted || settingsConflicted || error !== "" ? "has-error" : message !== "" || markPending ? "has-message" : ""}`}>
         {conflicted || settingsConflicted ? <>
           <span role="alert">{error || "Die Bingo-Karte wurde parallel geändert. Dein Entwurf bleibt erhalten."}</span>
           {board !== null && <button className="button button--quiet bingo-admin-message-action" onClick={takeServerCard} type="button">Aktuelle Karte übernehmen</button>}
-        </> : error !== "" ? <span role="alert">{error}</span> : message !== "" ? <span>{message}</span> : dirty ? <span>Stil erst nach dem Speichern des Kartenentwurfs ändern.</span> : settingsDirty ? <span>Darstellungsentwurf ungespeichert.</span> : <span aria-hidden="true">&nbsp;</span>}
+        </> : error !== "" ? <span role="alert">{error}</span> : markPending ? <span>Bingo-Kreuz wird übernommen …</span> : message !== "" ? <span>{message}</span> : dirty ? <span>Stil erst nach dem Speichern des Kartenentwurfs ändern.</span> : settingsDirty ? <span>Darstellungsentwurf ungespeichert.</span> : <span aria-hidden="true">&nbsp;</span>}
       </div>
 
       <section aria-labelledby="bingo-live-heading" className="bingo-admin-live-card">
         <div className="bingo-admin-section-heading">
           <div><span className="eyebrow">Regie</span><h2 id="bingo-live-heading">Kartenkachel</h2></div>
-          <button className="button button--quiet" disabled={board === null || busy || !online} onClick={() => void resetMarks()} type="button">Kreuze zurücksetzen</button>
+          <button className="button button--quiet" disabled={board === null || busy || resettingMarks || !online} onClick={() => void resetMarks()} type="button">Kreuze zurücksetzen</button>
         </div>
         <div className="bingo-admin-board-slot">
           {board === null
             ? <div aria-hidden="true" className="bingo-admin-card-placeholder" />
-            : <BingoBoard board={settingsDraft === null ? board : { ...board, settings: settingsDraft }} onToggleCell={(cellId, marked) => void markCell(cellId, marked)} textSizeFactor={1} width={350} />}
+            : <BingoBoard board={settingsDraft === null ? board : { ...board, settings: settingsDraft }} {...(resettingMarks ? {} : { onToggleCell: (cellId: string, marked: boolean) => markCell(cellId, marked) })} textSizeFactor={1} width={350} />}
         </div>
         {canUndo && (
           <details className="bingo-admin-undo" open>

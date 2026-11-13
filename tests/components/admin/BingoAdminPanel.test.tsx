@@ -276,6 +276,133 @@ describe("Bingo-Regie und Editor", () => {
     expect(await screen.findByRole("gridcell", { name: "Ereignis 0, angekreuzt" })).toHaveAttribute("data-marked", "true");
   });
 
+  it("sendet drei schnelle Markierungen nacheinander mit den jeweils neuesten Revisionen", async () => {
+    const user = userEvent.setup();
+    const resolvers: Array<(result: BingoMutationResponse) => void> = [];
+    const api = createApi({
+      markBingoCell: vi.fn(() => new Promise<BingoMutationResponse>((resolve) => { resolvers.push(resolve); })),
+    });
+    renderPanel(api);
+
+    await user.click(await screen.findByRole("gridcell", { name: "Ereignis 0" }));
+    await user.click(screen.getByRole("gridcell", { name: "Ereignis 4" }));
+    await user.click(screen.getByRole("gridcell", { name: "Ereignis 8" }));
+
+    act(() => {
+      resolvers[0]?.(mutation({ ...createBoard(), marks: ["cell-0"], markRevision: 5 }));
+    });
+    await waitFor(() => expect(api.markBingoCell).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(api.markBingoCell).mock.calls.map(([request]) => request.expectedMarkRevision)).toEqual([4, 5]);
+
+    act(() => {
+      resolvers[1]?.(mutation({ ...createBoard(), marks: ["cell-0", "cell-4"], markRevision: 6 }));
+    });
+    await waitFor(() => expect(api.markBingoCell).toHaveBeenCalledTimes(3));
+    expect(vi.mocked(api.markBingoCell).mock.calls.map(([request]) => request.expectedMarkRevision)).toEqual([4, 5, 6]);
+
+    act(() => {
+      resolvers[2]?.(mutation({ ...createBoard(), marks: ["cell-0", "cell-4", "cell-8"], markRevision: 7 }));
+    });
+
+    expect(await screen.findByRole("gridcell", { name: "Ereignis 0, angekreuzt" })).toHaveAttribute("data-marked", "true");
+    expect(screen.getByRole("gridcell", { name: "Ereignis 4, angekreuzt" })).toHaveAttribute("data-marked", "true");
+    expect(screen.getByRole("gridcell", { name: "Ereignis 8, angekreuzt" })).toHaveAttribute("data-marked", "true");
+  });
+
+  it("wiederholt eine wartende Markierung nach einem Revisionskonflikt mit der frischen Revision", async () => {
+    const user = userEvent.setup();
+    const resolvers: Array<(result: BingoMutationResponse) => void> = [];
+    const rejectSecond: Array<(reason: unknown) => void> = [];
+    const api = createApi({
+      markBingoCell: vi.fn((request: MarkCellPayload) => {
+        void request;
+        return new Promise<BingoMutationResponse>((resolve, reject) => {
+          resolvers.push(resolve);
+          rejectSecond.push(reject);
+        });
+      }),
+    });
+    renderPanel(api);
+
+    await user.click(await screen.findByRole("gridcell", { name: "Ereignis 0" }));
+    await user.click(screen.getByRole("gridcell", { name: "Ereignis 1" }));
+    act(() => {
+      resolvers[0]?.(mutation({ ...createBoard(), marks: ["cell-0"], markRevision: 5 }));
+    });
+    await waitFor(() => expect(api.markBingoCell).toHaveBeenCalledTimes(2));
+
+    const conflictBoard = { ...createBoard(), marks: ["cell-0", "cell-8"], markRevision: 6 };
+    act(() => {
+      rejectSecond[1]?.(Object.assign(new Error("Bingo wurde parallel geändert."), {
+        code: "revision_conflict",
+        currentSnapshot: conflictBoard,
+      }));
+    });
+    await waitFor(() => expect(api.markBingoCell).toHaveBeenCalledTimes(3));
+    expect(vi.mocked(api.markBingoCell).mock.calls.map(([request]) => request.expectedMarkRevision)).toEqual([4, 5, 6]);
+
+    act(() => {
+      resolvers[2]?.(mutation({ ...conflictBoard, marks: [...conflictBoard.marks, "cell-1"], markRevision: 7 }));
+    });
+    expect(await screen.findByRole("gridcell", { name: "Ereignis 1, angekreuzt" })).toHaveAttribute("data-marked", "true");
+  });
+
+  it("verwirft einen Markierungskonflikt lautlos, wenn das Feld inzwischen den Zielzustand hat", async () => {
+    const user = userEvent.setup();
+    const resolvers: Array<(result: BingoMutationResponse) => void> = [];
+    const rejecters: Array<(reason: unknown) => void> = [];
+    const api = createApi({
+      markBingoCell: vi.fn(() => new Promise<BingoMutationResponse>((resolve, reject) => {
+        resolvers.push(resolve);
+        rejecters.push(reject);
+      })),
+    });
+    renderPanel(api);
+
+    await user.click(await screen.findByRole("gridcell", { name: "Ereignis 0" }));
+    await user.click(screen.getByRole("gridcell", { name: "Ereignis 1" }));
+    act(() => {
+      resolvers[0]?.(mutation({ ...createBoard(), marks: ["cell-0"], markRevision: 5 }));
+    });
+    await waitFor(() => expect(api.markBingoCell).toHaveBeenCalledTimes(2));
+
+    act(() => {
+      rejecters[1]?.(Object.assign(new Error("Bingo wurde parallel geändert."), {
+        code: "revision_conflict",
+        currentSnapshot: { ...createBoard(), marks: ["cell-0", "cell-1"], markRevision: 6 },
+      }));
+    });
+
+    expect(api.markBingoCell).toHaveBeenCalledTimes(2);
+    expect(await screen.findByRole("gridcell", { name: "Ereignis 1, angekreuzt" })).toHaveAttribute("data-marked", "true");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("verwirft wartende Markierungen beim Zurücksetzen der Kreuze", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    let resolveFirst: ((result: BingoMutationResponse) => void) | undefined;
+    const api = createApi({
+      markBingoCell: vi.fn(() => new Promise<BingoMutationResponse>((resolve) => { resolveFirst = resolve; })),
+      resetBingoMarks: vi.fn((revision: number) => Promise.resolve(mutation({ ...createBoard(), markRevision: revision + 1 }))),
+    });
+    renderPanel(api);
+
+    await user.click(await screen.findByRole("gridcell", { name: "Ereignis 0" }));
+    await user.click(screen.getByRole("gridcell", { name: "Ereignis 1" }));
+    await user.click(screen.getByRole("button", { name: "Kreuze zurücksetzen" }));
+
+    expect(confirm).toHaveBeenCalledWith("Alle Bingo-Kreuze zurücksetzen?");
+    act(() => {
+      resolveFirst?.(mutation({ ...createBoard(), marks: ["cell-0"], markRevision: 5 }));
+    });
+    await waitFor(() => expect(api.resetBingoMarks).toHaveBeenCalledWith(5));
+
+    expect(api.markBingoCell).toHaveBeenCalledTimes(1);
+    expect(await screen.findByRole("gridcell", { name: "Ereignis 0" })).toHaveAttribute("data-marked", "false");
+    expect(screen.getByRole("gridcell", { name: "Ereignis 1" })).toHaveAttribute("data-marked", "false");
+  });
+
   it("zeigt einen Markierungskonflikt im reservierten Nachrichtenfeld", async () => {
     const user = userEvent.setup();
     const api = createApi({ markBingoCell: vi.fn((request: MarkCellPayload) => { void request; return Promise.reject(new Error("Jemand anderes hat Bingo verändert.")); }) });
