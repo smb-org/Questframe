@@ -84,6 +84,7 @@ import { PreviewPanel } from "./ui/PreviewPanel";
 import { createChallengeObsSources } from "./ui/obsSetup";
 import { PIXELS_PER_HUD_UNIT, PIXELS_PER_RASTER_UNIT, stagePixelsToRaster } from "./ui/placement";
 import "./admin.css";
+import "../modules/bingo/ui/bingo-admin.css";
 
 export type BingoAdminPanelLoader = () => Promise<{ default: ComponentType<BingoAdminPanelProps> }>;
 

@@ -80,6 +80,9 @@ if (bingoAdminKeys.length !== 1) {
   throw new Error(`Expected one lazy Bingo-Admin-Chunk, found ${String(bingoAdminKeys.length)}.`);
 }
 const [bingoAdminEntryKey] = bingoAdminKeys;
+if ((manifest[bingoAdminEntryKey]?.css ?? []).length > 0) {
+  throw new Error("Der lazy Bingo-Editor-Chunk darf kein eigenes CSS enthalten.");
+}
 const sharedChallengeLoaderKeys = [
   "src/challenges/style-loader.ts",
 ].filter((key) => manifest[key] !== undefined);

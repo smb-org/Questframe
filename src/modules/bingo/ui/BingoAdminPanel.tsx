@@ -19,7 +19,6 @@ import {
 import { decodeBingoCard } from "../domain/card-codec";
 import { loadBingoStyle } from "../../../bingo/style-loader";
 import { BingoBoard } from "../../../bingo/BingoBoard";
-import "./bingo-admin.css";
 
 type BingoCardDraft = Pick<BingoCard, "title" | "size" | "cells"> & {
   placement: ChallengePlacement;
@@ -99,6 +98,18 @@ const cellsForSize = (cells: BingoCard["cells"], size: BingoCard["size"]): Bingo
 
 const updateFromBoard = (board: BingoBoardState): BingoUpdateMessage => ({ type: "bingo_update", board });
 
+const mergeBoardRevisions = (current: BingoBoardState | null, incoming: BingoBoardState): BingoBoardState => {
+  if (current === null) return incoming;
+  const cardBoard = incoming.cardRevision >= current.cardRevision ? incoming : current;
+  const marksBoard = incoming.markRevision >= current.markRevision ? incoming : current;
+  return {
+    ...cardBoard,
+    marks: marksBoard.marks,
+    markRevision: marksBoard.markRevision,
+    generation: marksBoard.generation,
+  };
+};
+
 const fileNameFor = (title: string): string => {
   const safe = title.normalize("NFKD").replace(/[^\p{Letter}\p{Number}-]+/gu, "-").replace(/^-+|-+$/gu, "").toLowerCase();
   return `${safe || "bingo-karte"}.json`;
@@ -163,24 +174,27 @@ export const BingoAdminPanel = ({
 
   const applyBoard = useCallback((nextBoard: BingoBoardState, nextUpdate = updateFromBoard(nextBoard), syncDraft = false): void => {
     const current = boardRef.current;
-    if (current !== null && (
-      nextBoard.cardRevision < current.cardRevision
-      || nextBoard.markRevision < current.markRevision
-    )) return;
+    const reconciledBoard = mergeBoardRevisions(current, nextBoard);
+    const responseCardIsCurrent = current === null || nextBoard.cardRevision >= current.cardRevision;
     const currentDraft = draftRef.current;
-    const editorWasClean = syncDraft || current === null || sameDraft(currentDraft, currentDraft ?? draftFromBoard(current), current);
-    boardRef.current = nextBoard;
-    setBoard(nextBoard);
-    if (editorWasClean) {
-      const nextDraft = draftFromBoard(nextBoard);
+    const editorWasClean = current === null || sameDraft(currentDraft, currentDraft ?? draftFromBoard(current), current);
+    const draftMatchesBoard = currentDraft !== null && sameDraft(currentDraft, currentDraft, reconciledBoard);
+    boardRef.current = reconciledBoard;
+    setBoard(reconciledBoard);
+    if ((syncDraft && responseCardIsCurrent) || editorWasClean || draftMatchesBoard) {
+      const nextDraft = draftFromBoard(reconciledBoard);
       draftRef.current = nextDraft;
       setDraft(nextDraft);
-      draftBaseCardRevisionRef.current = nextBoard.cardRevision;
+      draftBaseCardRevisionRef.current = reconciledBoard.cardRevision;
       setConflicted(false);
       setError("");
       onPlacementDraftChange?.(nextDraft.placement);
+    } else if (reconciledBoard.cardRevision > current.cardRevision) {
+      setConflicted(true);
+      setError("Die Bingo-Karte wurde parallel geändert. Dein Entwurf bleibt erhalten.");
+      setMessage("");
     }
-    onBoardUpdate(nextUpdate);
+    onBoardUpdate(nextUpdate.board === reconciledBoard ? nextUpdate : { ...nextUpdate, board: reconciledBoard });
   }, [onBoardUpdate, onPlacementDraftChange]);
 
   const showError = useCallback((caught: unknown, fallback: string): void => {
@@ -209,21 +223,12 @@ export const BingoAdminPanel = ({
     let disposed = false;
     void api.getBingoBoard().then((initial) => {
       if (disposed) return;
-      const current = boardRef.current;
-      if (current !== null && current.cardRevision >= initial.cardRevision && current.markRevision >= initial.markRevision) return;
-      boardRef.current = initial;
-      setBoard(initial);
-      const nextDraft = draftFromBoard(initial);
-      draftRef.current = nextDraft;
-      setDraft(nextDraft);
-      draftBaseCardRevisionRef.current = initial.cardRevision;
-      onPlacementDraftChange?.(nextDraft.placement);
-      onBoardUpdate(updateFromBoard(initial));
+      applyBoard(initial);
     }).catch((caught: unknown) => showError(caught, "Bingo-Board konnte nicht geladen werden."))
       .finally(() => { if (!disposed) setLoading(false); });
     void api.listBingoSets().then(({ sets }) => { if (!disposed) setServerSets(sets); }).catch(() => undefined);
     return () => { disposed = true; };
-  }, [api, onBoardUpdate, onPlacementDraftChange, showError]);
+  }, [api, applyBoard, showError]);
 
   useEffect(() => {
     if (update === null) return;
