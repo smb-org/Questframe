@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { BingoAdminPanel, type BingoAdminApi } from "../../../src/modules/bingo/ui/BingoAdminPanel";
+import { BingoAdminPanel, type BingoAdminApi, type BingoAdminSaveHandle } from "../../../src/modules/bingo/ui/BingoAdminPanel";
 import type {
   BingoBoardState,
   BingoCardSaveRequest,
@@ -17,6 +17,7 @@ import type {
   MarkCellPayload,
 } from "../../../src/modules/bingo/contracts/schemas";
 import type { BingoUndoBaseRevisions } from "../../../src/shared/contracts/api";
+import type { ChallengePlacement } from "../../../src/shared/contracts/win-challenges";
 
 const createBoard = (): BingoBoardState => ({
   card: {
@@ -366,6 +367,111 @@ describe("Bingo-Regie und Editor", () => {
     const list = container.querySelector(".bingo-admin-editor-grid");
     expect(list).not.toBeNull();
     expect(save.compareDocumentPosition(list as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("behält eine nach dem Absenden gezogene Platzierung und rebased sie auf die Rückgabe-Revision", async () => {
+    const user = userEvent.setup();
+    let resolveFirstSave: ((response: BingoMutationResponse) => void) | undefined;
+    let saveCount = 0;
+    const api = createApi({
+      saveBingoCard: vi.fn((request: BingoCardSaveRequest) => {
+        saveCount += 1;
+        if (saveCount === 1) return new Promise<BingoMutationResponse>((resolve) => { resolveFirstSave = resolve; });
+        return Promise.resolve(mutation({
+          ...createBoard(),
+          card: { title: request.title, size: request.size, cells: request.cells },
+          cardRevision: 9,
+          placement: request.placement,
+        }));
+      }),
+    });
+    let setPlacementDraft: ((placement: ChallengePlacement | null) => void) | undefined;
+    const Harness = () => {
+      const [placement, setPlacement] = useState<ChallengePlacement | null>(null);
+      setPlacementDraft = setPlacement;
+      return <BingoAdminPanel
+        api={api}
+        canUndo
+        initialUndoTargets={[]}
+        onBoardUpdate={vi.fn()}
+        onPlacementDraftChange={setPlacement}
+        onUndoTargetsChange={vi.fn()}
+        online
+        placementDraft={placement}
+        update={null}
+      />;
+    };
+    render(<Harness />);
+    await screen.findByRole("grid", { name: "Testkarte" });
+
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Platzierung X" }), { target: { value: "20" } });
+    await user.click(screen.getByRole("button", { name: "Karte speichern" }));
+    await waitFor(() => expect(api.saveBingoCard).toHaveBeenCalledOnce());
+    const firstRequest = vi.mocked(api.saveBingoCard).mock.calls[0]?.[0];
+    expect(firstRequest?.placement.x).toBe(20);
+
+    act(() => setPlacementDraft?.({ x: 30, y: 8, scale: 1 }));
+    await waitFor(() => expect(screen.getByRole("spinbutton", { name: "Platzierung X" })).toHaveValue(30));
+    await act(async () => {
+      resolveFirstSave?.(mutation({ ...createBoard(), cardRevision: 8, placement: firstRequest?.placement ?? createBoard().placement }));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("spinbutton", { name: "Platzierung X" })).toHaveValue(30);
+    expect(screen.getByRole("button", { name: "Karte speichern" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Karte speichern" }));
+    await waitFor(() => expect(api.saveBingoCard).toHaveBeenCalledTimes(2));
+    expect(api.saveBingoCard).toHaveBeenLastCalledWith(expect.objectContaining({
+      placement: { x: 30, y: 8, scale: 1 },
+      expectedCardRevision: 8,
+    }));
+  });
+
+  it("behält bei einer verspäteten Einstellungsantwort den neuesten Broadcast und dessen Revision", async () => {
+    const api = createApi({
+      saveBingoSettings: vi.fn((request: BingoSettingsSaveRequest) => {
+        if (vi.mocked(api.saveBingoSettings).mock.calls.length === 1) {
+          return new Promise<BingoMutationResponse>((resolve) => { resolveSettingsSave = resolve; });
+        }
+        return Promise.resolve(mutation({ ...createBoard(), settings: request.settings, settingsRevision: 4 }));
+      }),
+    });
+    let resolveSettingsSave: ((response: BingoMutationResponse) => void) | undefined;
+    let settingsHandle: BingoAdminSaveHandle | null = null;
+    const props = {
+      api,
+      canUndo: true,
+      initialUndoTargets: [],
+      onBoardUpdate: vi.fn(),
+      onSettingsHandleChange: (handle: BingoAdminSaveHandle) => { settingsHandle = handle; },
+      onUndoTargetsChange: vi.fn(),
+      online: true,
+    };
+    const { rerender } = render(<BingoAdminPanel {...props} update={null} />);
+    await screen.findByRole("grid", { name: "Testkarte" });
+
+    fireEvent.change(screen.getByRole("slider", { name: "Textgröße" }), { target: { value: "1.5" } });
+    await waitFor(() => expect(settingsHandle?.dirty).toBe(true));
+    let savePromise: Promise<{ ok: boolean; conflict: boolean; message?: string }> | undefined;
+    act(() => { savePromise = settingsHandle?.save(); });
+    await waitFor(() => expect(api.saveBingoSettings).toHaveBeenCalledOnce());
+
+    const responseBoard = { ...createBoard(), settings: { ...createBoard().settings, textScale: 1.5 }, settingsRevision: 2 };
+    const latestBoard: BingoBoardState = { ...createBoard(), settings: { ...createBoard().settings, backgroundOpacity: 75, textScale: 1.25 }, settingsRevision: 3 };
+    rerender(<BingoAdminPanel {...props} update={update(responseBoard)} />);
+    rerender(<BingoAdminPanel {...props} update={update(latestBoard)} />);
+
+    await act(async () => {
+      resolveSettingsSave?.(mutation(responseBoard));
+      await savePromise;
+    });
+
+    expect(screen.getByRole("slider", { name: "Textgröße" })).toHaveValue("1.25");
+    expect(screen.getByRole("combobox", { name: "Hintergrund" })).toHaveValue("75");
+    fireEvent.change(screen.getByRole("slider", { name: "Textgröße" }), { target: { value: "1.4" } });
+    await waitFor(() => expect(settingsHandle?.dirty).toBe(true));
+    await act(async () => { await settingsHandle?.save(); });
+    expect(api.saveBingoSettings).toHaveBeenLastCalledWith(expect.objectContaining({ baseSettingsRevision: 3 }));
   });
 
   it("verdrahtet Dateiimport und Download-Export", async () => {

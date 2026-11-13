@@ -15,6 +15,11 @@ Quellen heilen sich dabei bewusst unterschiedlich; `src/shared/reconnect.ts` tr�
 nur die gemeinsamen Marker- und Backoff-Bausteine, die eigentliche
 Watchdog-Ablaufsteuerung bleibt in jeder App:
 
+Das Bingo-Wire überträgt jetzt auch `settings` und `settingsRevision`. Nach diesem
+Deploy müssen bereits geöffnete OBS-Quellen mit dem bisherigen Bingo-Bundle einmal
+neu geladen werden; dieses Bundle lief bislang nur auf Staging. Production erhält
+direkt das neue Format.
+
 - `/overlay` (`src/overlay/OverlayApp.tsx`): Ein Parse-Fehler bei einer
   zustandstragenden Nachricht löst nach 1 Sekunde Verzögerung höchstens einen
   Reload-Versuch pro Störung aus; ein Parse-Fehler bei `challenge_update`

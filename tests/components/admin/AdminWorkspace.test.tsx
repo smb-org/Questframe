@@ -2376,6 +2376,23 @@ describe("Admin workspace publication boundary", () => {
     }));
   });
 
+  it("speichert Bingo-Darstellung und Kartenentwurf nacheinander über Alle speichern", async () => {
+    const user = userEvent.setup();
+    const harness = await renderBingoComposition();
+    const panel = within(document.querySelector("#admin-composition-panel-bingo") as HTMLElement);
+
+    fireEvent.change(panel.getByRole("slider", { name: "Textgröße" }), { target: { value: "1.5" } });
+    fireEvent.change(panel.getByRole("textbox", { name: "Kartentitel" }), { target: { value: "Neue Karte" } });
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
+
+    await waitFor(() => {
+      expect(harness.saveBingoSettings).toHaveBeenCalledOnce();
+      expect(harness.saveBingoCard).toHaveBeenCalledOnce();
+    });
+    expect(harness.saveBingoSettings.mock.calls[0]?.[0].settings.textScale).toBe(1.5);
+    expect(harness.saveBingoCard).toHaveBeenCalledWith(expect.objectContaining({ title: "Neue Karte" }));
+  });
+
   it("behält die gezogene Bingo-Platzierung beim Editieren im Kartendraft", async () => {
     const user = userEvent.setup();
     const harness = await renderBingoComposition();
