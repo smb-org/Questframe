@@ -30,3 +30,22 @@ wie der Code technisch zugestellt wird. Das ist der leichte Teil.
 
 **Hängt ab von:** Runde 1 (Format und Codec müssen stehen) und davon, dass
 Sets sich im Alltag überhaupt bewähren.
+
+---
+
+## Erste echte Bingo-Karte aus dem Chat
+
+**Was:** Im nächsten Stream den Chat nach Bingo-Feldern fragen und die 16
+besten als erste echte Karte festhalten. Die exportierte Datei dient danach
+als Codec-Fixture für die Import-Tests.
+
+**Warum:** Die vier Startvorlagen stammen aus einer Ideenliste, nicht aus dem
+Chat. Eine Karte, die der Chat selbst geschrieben hat, ist der eigentliche
+Test, ob das Format im Stream trägt.
+
+**Kontext:** Planpunkt aus `docs/designs/bingo-board.md`, beim Ship des
+Bingo-Branches als Folgeaufgabe festgelegt. Nach dem Deploy zusätzlich prüfen:
+Export und Import in einen zweiten Staging-Kanal ergeben dieselbe Karte, und
+bestehende HUD- und Composite-Quellen laufen mit dem neuen State-Feld weiter.
+
+**Hängt ab von:** Merge und Deploy des Bingo-Moduls.
