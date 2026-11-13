@@ -435,6 +435,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS bg_sets_user_name_idx
 CREATE INDEX IF NOT EXISTS bg_sets_order_idx ON bg_sets(sort_order, updated_at DESC);
 `;
 
+const BINGO_PRESENTATION_DEFAULTS_JSON = "'{\"backgroundOpacity\":100,\"textScale\":1,\"fontFamily\":\"theme\",\"textEmphasis\":\"auto\",\"ceremonyMode\":\"on\",\"soundOnLine\":false,\"soundOnFullCard\":false,\"showTitle\":true,\"showBingo\":true}'";
+const MIGRATION_2_BINGO_SETTINGS_REVISION = "ALTER TABLE bg_board ADD COLUMN settings_revision INTEGER NOT NULL DEFAULT 1 CHECK (settings_revision >= 0);";
+const MIGRATION_2_BINGO_SETTINGS_JSON = `ALTER TABLE bg_board ADD COLUMN settings_json TEXT NOT NULL DEFAULT ${BINGO_PRESENTATION_DEFAULTS_JSON};`;
+
+const hasBingoBoardColumn = (sql: SqlStorage, name: string): boolean =>
+  sql
+    .exec<{ name: string }>("PRAGMA table_info(bg_board)")
+    .toArray()
+    .some((column) => column.name === name);
+
 const migrateBingo1 = (sql: SqlStorage): void => {
   for (const statement of splitSqlStatements(MIGRATION_1_BINGO_CREATE)) sql.exec(statement);
   const decoded = decodeBingoTemplates(JSON.stringify(bingoTemplates));
@@ -731,6 +741,8 @@ const MIGRATIONS: readonly Migration[] = [
   { namespace: "challenges", version: 19, guard: hasChallengeSetsTable, statements: splitSqlStatements(MIGRATION_19_SETS) },
   { namespace: "challenges", version: 20, statements: [MIGRATION_20_THEME_MODE] },
   { namespace: "bingo", version: 1, run: migrateBingo1 },
+  { namespace: "bingo", version: 2, guard: (sql) => hasBingoBoardColumn(sql, "settings_revision"), statements: [MIGRATION_2_BINGO_SETTINGS_REVISION] },
+  { namespace: "bingo", version: 2, guard: (sql) => hasBingoBoardColumn(sql, "settings_json"), statements: [MIGRATION_2_BINGO_SETTINGS_JSON] },
 ];
 
 const migrationLedgerColumns = (sql: SqlStorage): readonly string[] =>

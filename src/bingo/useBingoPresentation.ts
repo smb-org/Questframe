@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { BingoStyleId, BingoUpdateMessage } from "../modules/bingo/contracts/schemas";
+import { createCeremonyAudioPolicy, type CeremonyAudioPolicy } from "../challenges/audio";
 import { bingoCeremonyFor, type BingoCeremony } from "./ceremonies";
 import { loadBingoStyle, type BingoStyleLoader } from "./style-loader";
 
@@ -25,9 +26,11 @@ export type BingoPresentation = {
 export const useBingoPresentation = ({
   update,
   loadStyle = loadBingoStyle,
+  createAudio,
 }: {
   update: BingoUpdateMessage | null;
   loadStyle?: BingoStyleLoader;
+  createAudio?: (source: string) => HTMLAudioElement;
 }): BingoPresentation => {
   const [reducedMotion, setReducedMotion] = useState(readPrefersReducedMotion);
   const [styleLoadState, setStyleLoadState] = useState<{ key: BingoStyleId | null; state: ChunkLoadState }>({
@@ -40,6 +43,7 @@ export const useBingoPresentation = ({
   const styleRetryRef = useRef<{ styleId: BingoStyleId | null; retries: number }>({ styleId: null, retries: 0 });
   const lastCeremonyRevisionRef = useRef(-1);
   const ceremonyTimerRef = useRef<number | null>(null);
+  const audioPolicyRef = useRef<CeremonyAudioPolicy | null>(null);
   const styleId = update?.board.style ?? null;
 
   useEffect(() => {
@@ -49,6 +53,16 @@ export const useBingoPresentation = ({
     query.addEventListener("change", onChange);
     return () => { query.removeEventListener("change", onChange); };
   }, []);
+
+  useEffect(() => {
+    const policy = createCeremonyAudioPolicy(createAudio === undefined ? {} : { createAudio });
+    audioPolicyRef.current = policy;
+    policy.preload();
+    return () => {
+      policy.stop();
+      if (audioPolicyRef.current === policy) audioPolicyRef.current = null;
+    };
+  }, [createAudio]);
 
   useEffect(() => {
     if (styleId === null) return;
@@ -90,8 +104,12 @@ export const useBingoPresentation = ({
     lastCeremonyRevisionRef.current = markRevision;
     const ceremony = bingoCeremonyFor(nextUpdate.board.style, nextUpdate);
     clearCeremony();
-    if (ceremony === null) return;
+    if (ceremony === null || nextUpdate.board.settings.ceremonyMode === "off") return;
     setActiveCeremony(ceremony);
+    const sound = ceremony.type === "line"
+      ? nextUpdate.board.settings.soundOnLine ? "complete" : null
+      : nextUpdate.board.settings.soundOnFullCard ? "quest-complete" : null;
+    audioPolicyRef.current?.play(sound);
     ceremonyTimerRef.current = window.setTimeout(() => {
       setActiveCeremony(null);
       ceremonyTimerRef.current = null;
@@ -100,6 +118,7 @@ export const useBingoPresentation = ({
 
   useEffect(() => () => {
     if (ceremonyTimerRef.current !== null) window.clearTimeout(ceremonyTimerRef.current);
+    audioPolicyRef.current?.stop();
   }, []);
 
   return {

@@ -64,6 +64,8 @@ import type {
   BingoSetListResponse,
   BingoSetResponse,
   BingoStyleId,
+  BingoSettingsSaveRequest,
+  BingoPresentationSettings,
   BingoUpdateMessage,
   MarkCellPayload,
 } from "../modules/bingo/contracts/schemas";
@@ -161,6 +163,7 @@ export type AdminApi = {
   resetBingoMarks?: ((expectedMarkRevision: number) => Promise<BingoMutationResponse>) | undefined;
   saveBingoCard?: ((request: BingoCardSaveRequest) => Promise<BingoMutationResponse>) | undefined;
   setBingoStyle?: ((style: BingoStyleId, expectedCardRevision: number) => Promise<BingoMutationResponse>) | undefined;
+  saveBingoSettings?: ((request: BingoSettingsSaveRequest) => Promise<BingoMutationResponse>) | undefined;
   listBingoSets?: (() => Promise<BingoSetListResponse>) | undefined;
   getBingoSet?: ((setId: string) => Promise<BingoSetResponse>) | undefined;
   saveBingoSet?: ((name: string) => Promise<BingoSetResponse>) | undefined;
@@ -734,19 +737,23 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
   const [bingoUpdate, setBingoUpdate] = useState<BingoUpdateMessage | null>(null);
   const [bingoCss, setBingoCss] = useState<{ style: BingoStyleId | null }>({ style: null });
   const [bingoPlacementDraft, setBingoPlacementDraft] = useState<ChallengePlacement | null>(null);
+  const [bingoSettingsDraft, setBingoSettingsDraft] = useState<BingoPresentationSettings | null>(null);
   const [bingoPanelOpened, setBingoPanelOpened] = useState(initialTab === "bingo");
   const [challengeSettingsDraft, setChallengeSettingsDraft] = useState<ChallengeSettingsDraft | null>(null);
   const [challengePlacementDraft, setChallengePlacementDraft] = useState<ChallengePlacement | null>(null);
   const [previewZoom, setPreviewZoom] = useState(100);
   const [dragging, setDragging] = useState<"hud" | "challenges" | "bingo" | null>(null);
+  const [resizingBingo, setResizingBingo] = useState(false);
   const [activeTab, setActiveTab] = useState<AdminWorkspaceId>(initialTab);
   const draggingRef = useRef<{ kind: "hud" | "challenges" | "bingo"; pointerId: number } | null>(null);
   const dragOffsetRef = useRef<{ x: number; y: number } | null>(null);
+  const bingoResizeRef = useRef<{ pointerId: number; startX: number; startY: number; startScale: number; width: number; height: number } | null>(null);
   const [challengeCss, setChallengeCss] = useState<{ style: string | null }>({ style: null });
   const obsSetupTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [settingsHandle, setSettingsHandle] = useState<ModuleSaveHandle | null>(null);
   const [boardHandle, setBoardHandle] = useState<ChallengeBoardSaveHandle | null>(null);
   const [bingoHandle, setBingoHandle] = useState<BingoAdminSaveHandle | null>(null);
+  const [bingoSettingsHandle, setBingoSettingsHandle] = useState<BingoAdminSaveHandle | null>(null);
   const [clockOffsetMs, setClockOffsetMs] = useState(0);
   const state = useHudEditorState({ initialBootstrap, api, onChallengeUpdate: setChallengeUpdate, onBingoUpdate: setBingoUpdate, onChallengeUndoTargets: setChallengeUndoTargets, onBingoUndoTargets: setBingoUndoTargets, onTimeOffset: setClockOffsetMs });
   const changeWorkspace = (tab: AdminWorkspaceId): void => {
@@ -827,8 +834,54 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
   };
   const moveDrag = (kind: "hud" | "challenges" | "bingo", event: React.PointerEvent<HTMLElement>) => { const drag = draggingRef.current; if (drag?.kind === kind && drag.pointerId === event.pointerId) updatePlacementFromPointer(kind, event); };
   const stopDrag = (kind: "hud" | "challenges" | "bingo", event: React.PointerEvent<HTMLElement>) => { const drag = draggingRef.current; if (drag?.kind !== kind || drag.pointerId !== event.pointerId) return; draggingRef.current = null; dragOffsetRef.current = null; setDragging(null); callPointerCapture(event.currentTarget, "releasePointerCapture", event.pointerId); };
+  const snapBingoScale = (scale: number): number => Math.min(2, Math.max(0.75, Number((Math.round(scale / 0.05) * 0.05).toFixed(2))));
+  const setBingoScale = (scale: number): void => {
+    const placement = getPlacementForDrag("bingo");
+    setBingoPlacementDraft({ ...placement, scale: snapBingoScale(scale) });
+    setBingoPanelOpened(true);
+  };
+  const beginBingoResize = (event: React.PointerEvent<HTMLButtonElement>): void => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.button !== 0 || !state.online) return;
+    const stage = event.currentTarget.closest(".bingo-source-ceremony");
+    if (!(stage instanceof HTMLElement)) return;
+    const current = getPlacementForDrag("bingo");
+    const rect = stage.getBoundingClientRect();
+    bingoResizeRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startScale: current.scale,
+      width: rect.width / current.scale,
+      height: rect.height / current.scale,
+    };
+    setResizingBingo(true);
+    setBingoPanelOpened(true);
+    callPointerCapture(event.currentTarget, "setPointerCapture", event.pointerId);
+  };
+  const moveBingoResize = (event: React.PointerEvent<HTMLButtonElement>): void => {
+    const resize = bingoResizeRef.current;
+    if (resize === null || resize.pointerId !== event.pointerId) return;
+    const horizontal = (event.clientX - resize.startX) / Math.max(1, resize.width);
+    const vertical = (event.clientY - resize.startY) / Math.max(1, resize.height);
+    setBingoScale(resize.startScale + (horizontal + vertical) / 2);
+  };
+  const stopBingoResize = (event: React.PointerEvent<HTMLButtonElement>): void => {
+    const resize = bingoResizeRef.current;
+    if (resize === null || resize.pointerId !== event.pointerId) return;
+    bingoResizeRef.current = null;
+    setResizingBingo(false);
+    callPointerCapture(event.currentTarget, "releasePointerCapture", event.pointerId);
+  };
   const movePlacementWithKeyboard = (kind: "hud" | "challenges" | "bingo", event: React.KeyboardEvent<HTMLElement>) => {
     if (!state.online) return;
+    if (kind === "bingo" && (event.key === "+" || event.key === "Add" || event.key === "-") ) {
+      event.preventDefault();
+      const current = getPlacementForDrag("bingo");
+      setBingoScale(current.scale + (event.key === "-" ? -0.05 : 0.05));
+      return;
+    }
     const step = event.shiftKey ? 10 : 1;
     let delta: { x: number; y: number } | null = null;
     if (event.key === "ArrowLeft") delta = { x: -step, y: 0 };
@@ -877,6 +930,7 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
     if (
       api.getBingoBoard === undefined || api.markBingoCell === undefined || api.resetBingoMarks === undefined
       || api.saveBingoCard === undefined || api.setBingoStyle === undefined || api.listBingoSets === undefined || api.getBingoSet === undefined
+      || api.saveBingoSettings === undefined
       || api.saveBingoSet === undefined || api.deleteBingoSet === undefined || api.loadBingoSet === undefined
       || api.importBingoCard === undefined || api.exportBingoCard === undefined
     ) return null;
@@ -887,6 +941,7 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
       resetBingoMarks: api.resetBingoMarks,
       saveBingoCard: api.saveBingoCard,
       setBingoStyle: api.setBingoStyle,
+      saveBingoSettings: api.saveBingoSettings,
       listBingoSets: api.listBingoSets,
       getBingoSet: api.getBingoSet,
       saveBingoSet: api.saveBingoSet,
@@ -902,10 +957,13 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
   // Sammel-Overlay-Ausgabe bleibt unverändert; /overlay und /overlay/challenges
   // funktionieren als Einzel-URLs unabhängig vom Sammel-Overlay.
   const challengePreview = displayedChallengeUpdate === null || !challengeReady ? null : <ChallengeLogPreview ariaLabel="Challenge-Log verschieben, Pfeiltasten" className={`composition-draggable-module composition-draggable-module--challenge ${!state.draft.compositeChallengesVisible ? "is-module-muted" : ""} ${dragging === "challenges" ? "is-dragging" : ""}`} onKeyDown={(event) => movePlacementWithKeyboard("challenges", event)} onLostPointerCapture={(event) => stopDrag("challenges", event)} onPointerCancel={(event) => stopDrag("challenges", event)} onPointerDown={(event) => startDrag("challenges", event)} onPointerMove={(event) => moveDrag("challenges", event)} onPointerUp={(event) => stopDrag("challenges", event)} placement={effectiveChallengePlacement ?? displayedChallengeUpdate.settings.placement} rootTag="section" update={displayedChallengeUpdate} />;
-  const bingoPreview = bingoUpdate === null || bingoCss.style !== bingoUpdate.board.style ? null : <BingoCeremonyStage
-    ariaLabel="Bingo-Karte verschieben, Pfeiltasten"
-    board={bingoUpdate.board}
-    className={`composition-draggable-module composition-draggable-module--bingo admin-bingo-live-preview ${!state.draft.compositeBingoVisible ? "is-module-muted" : ""} ${dragging === "bingo" ? "is-dragging" : ""}`}
+  const displayedBingoBoard = bingoUpdate === null || bingoSettingsDraft === null
+    ? bingoUpdate?.board ?? null
+    : { ...bingoUpdate.board, settings: bingoSettingsDraft };
+  const bingoPreview = bingoUpdate === null || displayedBingoBoard === null || bingoCss.style !== bingoUpdate.board.style ? null : <BingoCeremonyStage
+    ariaLabel="Bingo-Karte verschieben, Pfeiltasten, + und - skalieren"
+    board={displayedBingoBoard}
+    className={`composition-draggable-module composition-draggable-module--bingo admin-bingo-live-preview ${!state.draft.compositeBingoVisible ? "is-module-muted" : ""} ${dragging === "bingo" ? "is-dragging" : ""} ${resizingBingo ? "is-resizing" : ""}`}
     placement={bingoPlacementDraft ?? bingoUpdate.board.placement}
     presentation={{ activeCeremony: null, reducedMotion: false }}
     rootProps={{
@@ -916,6 +974,13 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
       onPointerMove: (event) => moveDrag("bingo", event),
       onPointerUp: (event) => stopDrag("bingo", event),
       tabIndex: 0,
+    }}
+    resizeHandleProps={{
+      onLostPointerCapture: stopBingoResize,
+      onPointerCancel: stopBingoResize,
+      onPointerDown: beginBingoResize,
+      onPointerMove: moveBingoResize,
+      onPointerUp: stopBingoResize,
     }}
   />;
   // Die Interaktion bleibt auch bei ausgeschaltetem Sammel-Overlay-Schalter in
@@ -928,6 +993,7 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
   const saveAllModules: SaveAllModule[] = [{ key: "hud", label: "HUD", tab: "hud", dirty: state.dirty, save: state.save }];
   if (settingsHandle !== null) saveAllModules.push({ key: "settings", label: "Einstellungen", tab: "challenges", dirty: settingsHandle.dirty, save: settingsHandle.save });
   if (boardHandle !== null) saveAllModules.push({ key: "board", label: "Board", tab: "challenges", dirty: boardHandle.dirty, save: boardHandle.save });
+  if (bingoSettingsHandle !== null) saveAllModules.push({ key: "bingo-settings", label: "Bingo-Darstellung", tab: "bingo", dirty: bingoSettingsHandle.dirty, save: bingoSettingsHandle.save });
   if (bingoHandle !== null) saveAllModules.push({ key: "bingo", label: "Bingo", tab: "bingo", dirty: bingoHandle.dirty, save: bingoHandle.save });
   return (
     <div className="admin-app admin-app--composition">
@@ -977,6 +1043,8 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
                 onBoardUpdate={setBingoUpdate}
                 onPlacementDraftChange={setBingoPlacementDraft}
                 onSaveHandleChange={setBingoHandle}
+                onSettingsDraftChange={setBingoSettingsDraft}
+                onSettingsHandleChange={setBingoSettingsHandle}
                 onUndoTargetsChange={setBingoUndoTargets}
                 online={state.online}
                 placementDraft={bingoPlacementDraft}

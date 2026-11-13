@@ -2,10 +2,12 @@ import { auditEntrySchema, type AuditEntry } from "../../../shared/contracts/api
 import {
   bingoBoardStateSchema,
   bingoCardSaveRequestSchema,
+  bingoSettingsSaveRequestSchema,
   bingoStyleRequestSchema,
   markCellPayloadSchema,
   resetMarksPayloadSchema,
   type BingoBoardState,
+  type BingoPresentationSettings,
   type BingoUpdateMessage,
 } from "../contracts/schemas";
 import { newlyCompleted, type NewlyCompletedResult } from "../domain/lines";
@@ -44,7 +46,7 @@ const createAudit = (
   createdAt: string,
 ): AuditEntry => auditEntrySchema.parse({
   id: crypto.randomUUID(),
-  revision: Math.max(board.cardRevision, board.markRevision, 1),
+  revision: Math.max(board.cardRevision, board.markRevision, board.settingsRevision, 1),
   action,
   actor,
   summary,
@@ -72,9 +74,9 @@ const serializeFailure = (message: string): never => {
 const requireBoardRevision = (
   board: BingoBoardState,
   expectedRevision: number,
-  kind: "card" | "marks",
+  kind: "card" | "marks" | "settings",
 ): void => {
-  const actualRevision = kind === "card" ? board.cardRevision : board.markRevision;
+  const actualRevision = kind === "card" ? board.cardRevision : kind === "marks" ? board.markRevision : board.settingsRevision;
   if (expectedRevision !== actualRevision) throw new BingoRevisionConflictError(board, kind);
 };
 
@@ -331,6 +333,34 @@ export class BingoService {
       return { board: after, update: createUpdate(after), ceremony: null, auditEntry };
     });
   }
+
+  public saveSettings(settings: BingoPresentationSettings, baseSettingsRevision: number): BingoCommandResult {
+    const parsed = bingoSettingsSaveRequestSchema.safeParse({ settings, baseSettingsRevision });
+    if (!parsed.success) return serializeFailure("Ungültige Bingo-Darstellung.");
+
+    return this.repository.transaction((transaction) => {
+      const before = transaction.readBoard();
+      requireBoardRevision(before, parsed.data.baseSettingsRevision, "settings");
+      if (JSON.stringify(before.settings) === JSON.stringify(parsed.data.settings)) {
+        return { board: before, update: null, ceremony: null, auditEntry: null };
+      }
+      const after = bingoBoardStateSchema.parse({
+        ...before,
+        settings: parsed.data.settings,
+        settingsRevision: before.settingsRevision + 1,
+      });
+      const now = this.clock();
+      const auditEntry = recordBoardMutation(
+        transaction,
+        before,
+        after,
+        this.actor,
+        "Bingo-Darstellung gespeichert",
+        now,
+      );
+      return { board: after, update: createUpdate(after), ceremony: null, auditEntry };
+    });
+  }
 }
 
 export const createBingoService = (options: BingoServiceOptions): BingoService =>
@@ -355,12 +385,15 @@ export const applyBingoUndo = (
     const cardChanged = JSON.stringify(before.card) !== JSON.stringify(targetBoard.card);
     const styleChanged = before.style !== targetBoard.style;
     const placementChanged = JSON.stringify(before.placement) !== JSON.stringify(targetBoard.placement);
+    const settingsChanged = JSON.stringify(before.settings) !== JSON.stringify(targetBoard.settings);
     const after = bingoBoardStateSchema.parse({
       ...before,
       card: targetBoard.card,
       marks: targetBoard.marks,
       style: targetBoard.style,
       placement: targetBoard.placement,
+      settings: targetBoard.settings,
+      settingsRevision: before.settingsRevision + (settingsChanged ? 1 : 0),
       cardRevision: before.cardRevision + (cardChanged || styleChanged || placementChanged ? 1 : 0),
       markRevision: before.markRevision + 1,
       generation: before.generation + (cardChanged ? 1 : 0),

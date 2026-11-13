@@ -1,6 +1,18 @@
 import { MAX_BINGO_CELL_ID_LENGTH } from "../modules/bingo/contracts/constants";
-import type { BingoLine, BingoUpdateMessage } from "../modules/bingo/contracts/schemas";
-import { isChallengeSetName, normalizeChallengeText } from "../modules/win-challenges/contracts/predicates";
+import {
+  type BingoLine,
+  type BingoPresentationSettings,
+  type BingoUpdateMessage,
+} from "../modules/bingo/contracts/schemas";
+import { DEFAULT_BINGO_PRESENTATION_SETTINGS } from "../modules/bingo/contracts/presentation-settings";
+import {
+  isChallengeFontFamily,
+  isChallengeFontScale,
+  isChallengeSetName,
+  isChallengeSurfaceOpacity,
+  isChallengeTextEmphasis,
+  normalizeChallengeText,
+} from "../modules/win-challenges/contracts/predicates";
 
 export type BingoMessage = BingoUpdateMessage | { type: "token_revoked" };
 
@@ -18,6 +30,36 @@ const exactKeys = (value: Record<string, unknown>, keys: readonly string[]): boo
 const isRevision = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 
+const parseBingoPresentationSettings = (input: unknown): BingoPresentationSettings | null => {
+  const keys = [
+    "backgroundOpacity", "textScale", "fontFamily", "textEmphasis", "ceremonyMode",
+    "soundOnLine", "soundOnFullCard", "showTitle", "showBingo",
+  ];
+  if (!isRecord(input) || !exactKeys(input, keys)) return null;
+  if (
+    !isChallengeSurfaceOpacity(input.backgroundOpacity)
+    || !isChallengeFontScale(input.textScale)
+    || !isChallengeFontFamily(input.fontFamily)
+    || !isChallengeTextEmphasis(input.textEmphasis)
+    || (input.ceremonyMode !== "on" && input.ceremonyMode !== "subtle" && input.ceremonyMode !== "off")
+    || typeof input.soundOnLine !== "boolean"
+    || typeof input.soundOnFullCard !== "boolean"
+    || typeof input.showTitle !== "boolean"
+    || typeof input.showBingo !== "boolean"
+  ) return null;
+  return {
+    backgroundOpacity: input.backgroundOpacity,
+    textScale: input.textScale,
+    fontFamily: input.fontFamily,
+    textEmphasis: input.textEmphasis,
+    ceremonyMode: input.ceremonyMode,
+    soundOnLine: input.soundOnLine,
+    soundOnFullCard: input.soundOnFullCard,
+    showTitle: input.showTitle,
+    showBingo: input.showBingo,
+  };
+};
+
 const normalizeCellText = (value: unknown): string | null => {
   if (typeof value !== "string") return null;
   const normalized = normalizeChallengeText(value);
@@ -31,19 +73,24 @@ const parseBingoUpdate = (input: unknown): BingoUpdateMessage | null => {
   if (!exactKeys(input, messageKeys) || !isRecord(input.board)) return null;
 
   const board = input.board;
-  const boardKeys = Object.hasOwn(board, "style")
-    ? ["card", "marks", "cardRevision", "markRevision", "generation", "style", "placement"]
-    : ["card", "marks", "cardRevision", "markRevision", "generation", "placement"];
+  const boardKeys = ["card", "marks", "cardRevision", "markRevision", "generation", "style", "placement", "settingsRevision", "settings"];
+  const requiredBoardKeys = ["card", "marks", "cardRevision", "markRevision", "generation", "placement"];
   if (
-    !exactKeys(board, boardKeys)
+    !Object.keys(board).every((key) => boardKeys.includes(key))
+    || !requiredBoardKeys.every((key) => Object.hasOwn(board, key))
     || !isRecord(board.card)
     || !Array.isArray(board.marks)
     || !isRevision(board.cardRevision)
     || !isRevision(board.markRevision)
     || !isRevision(board.generation)
+    || (board.settingsRevision !== undefined && !isRevision(board.settingsRevision))
     || (board.style !== undefined && board.style !== "marker" && board.style !== "broadcast")
     || !isRecord(board.placement)
   ) return null;
+  const settings = board.settings === undefined
+    ? DEFAULT_BINGO_PRESENTATION_SETTINGS
+    : parseBingoPresentationSettings(board.settings);
+  if (settings === null) return null;
 
   const card = board.card;
   if (
@@ -113,6 +160,8 @@ const parseBingoUpdate = (input: unknown): BingoUpdateMessage | null => {
       cardRevision: board.cardRevision,
       markRevision: board.markRevision,
       generation: board.generation,
+      settingsRevision: board.settingsRevision === undefined ? 1 : board.settingsRevision,
+      settings,
       style: board.style === undefined ? "marker" : board.style,
       placement: { x: placement.x, y: placement.y, scale: placement.scale },
     },

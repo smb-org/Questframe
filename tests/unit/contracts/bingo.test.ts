@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  bingoPresentationSettingsSchema,
   bingoBoardStateSchema,
   bingoCardSchema,
   bingoCardSaveRequestSchema,
@@ -98,12 +99,57 @@ describe("Bingo-Verträge", () => {
       placement: { x: 300, y: 8, scale: 1 },
     };
     expect(bingoBoardStateSchema.parse(base).style).toBe("marker");
+    expect(bingoBoardStateSchema.parse(base)).toMatchObject({
+      settingsRevision: 1,
+      settings: {
+        backgroundOpacity: 100,
+        textScale: 1,
+        fontFamily: "theme",
+        textEmphasis: "auto",
+        ceremonyMode: "on",
+        soundOnLine: false,
+        soundOnFullCard: false,
+        showTitle: true,
+        showBingo: true,
+      },
+    });
     expect(bingoBoardStateSchema.safeParse({ ...base, marks: ["unknown"] }).success).toBe(false);
     expect(bingoBoardStateSchema.safeParse({ ...base, marks: ["cell-0", "cell-0"] }).success).toBe(false);
     expect(bingoBoardStateSchema.safeParse({ ...base, cardRevision: -1 }).success).toBe(false);
     expect(bingoBoardStateSchema.safeParse({ ...base, markRevision: 1.5 }).success).toBe(false);
     expect(bingoBoardStateSchema.safeParse({ ...base, generation: -1 }).success).toBe(false);
     expect(bingoBoardStateSchema.safeParse({ ...base, style: "plain-list" }).success).toBe(false);
+  });
+
+  it("begrenzt Bingo-Darstellungswerte und übernimmt bei alten Wire-Boards heutige Defaults", () => {
+    expect(bingoPresentationSettingsSchema.safeParse({
+      backgroundOpacity: 50,
+      textScale: 1.35,
+      fontFamily: "serif",
+      textEmphasis: "strong",
+      ceremonyMode: "subtle",
+      soundOnLine: true,
+      soundOnFullCard: false,
+      showTitle: false,
+      showBingo: true,
+    }).success).toBe(true);
+    expect(bingoPresentationSettingsSchema.safeParse({
+      backgroundOpacity: 37,
+      textScale: 2.05,
+      fontFamily: "comic",
+      textEmphasis: "strong",
+      ceremonyMode: "subtle",
+      soundOnLine: true,
+      soundOnFullCard: false,
+      showTitle: false,
+      showBingo: true,
+    }).success).toBe(false);
+    const legacyBoard = bingoBoardStateSchema.parse({
+      card: card(), marks: [], cardRevision: 0, markRevision: 0, generation: 0,
+      placement: { x: 8, y: 80, scale: 1 },
+    });
+    expect(legacyBoard.settingsRevision).toBe(1);
+    expect(legacyBoard.settings.ceremonyMode).toBe("on");
   });
 
   it("validiert Markier-, Reset- und Karten-Speicher-Payloads", () => {

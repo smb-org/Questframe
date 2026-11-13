@@ -28,6 +28,7 @@ import {
   bingoSetResponseSchema,
   bingoSetSaveRequestSchema,
   bingoStyleRequestSchema,
+  bingoSettingsSaveRequestSchema,
   bingoUndoResponseSchema,
   bingoUpdateMessageSchema,
   markCellPayloadSchema,
@@ -135,6 +136,7 @@ const createBrowserAdminUndo = (requestJson: BrowserAdminRequestJson): BrowserAd
       baseMarkRevision: baseRevision.markRevision,
       baseGeneration: baseRevision.generation,
       baseStyle: baseRevision.style,
+      baseSettingsRevision: baseRevision.settingsRevision,
     });
     return bingoUndoResponseSchema.parse(await response.json());
   }
@@ -218,6 +220,12 @@ export class BrowserAdminApi implements AdminApi {
   setBingoStyle = async (style: BingoStyleId, expectedCardRevision: number): Promise<BingoMutationResponse> => {
     const request = bingoStyleRequestSchema.parse({ style, expectedCardRevision });
     const response = await this.requestJson("/api/bingo/style", "PUT", request);
+    return bingoMutationResponseSchema.parse(await response.json());
+  };
+
+  saveBingoSettings = async (input: Parameters<NonNullable<AdminApi["saveBingoSettings"]>>[0]): Promise<BingoMutationResponse> => {
+    const request = bingoSettingsSaveRequestSchema.parse(input);
+    const response = await this.requestJson("/api/bingo/settings", "PUT", request);
     return bingoMutationResponseSchema.parse(await response.json());
   };
 

@@ -85,6 +85,7 @@ describe("BingoSourceApp", () => {
     expect(await screen.findByRole("grid", { name: "Diagonale" })).toBeInTheDocument();
     expect(screen.getAllByRole("gridcell").filter((cell) => cell.getAttribute("data-line-complete") === "true")).toHaveLength(3);
     expect(document.querySelector(".bingo-source-ceremony")).not.toHaveAttribute("data-ceremony-type");
+    expect(screen.queryByRole("button", { name: "Bingo-Karte skalieren" })).not.toBeInTheDocument();
     expect(loadStyle).toHaveBeenCalledWith("marker");
     expect(socket?.url).toContain("/ws/bingo");
     expect(socket?.protocols).toEqual([OVERLAY_SOCKET_PROTOCOL, token]);

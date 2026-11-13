@@ -9,6 +9,7 @@ import {
   type BingoCard,
   type BingoCardSaveRequest,
   type BingoMutationResponse,
+  type BingoPresentationSettings,
   type BingoSetResponse,
   type BingoSetSummary,
   type BingoStyleId,
@@ -29,6 +30,7 @@ export type BingoAdminApi = {
   markBingoCell: (request: MarkCellPayload) => Promise<BingoMutationResponse>;
   resetBingoMarks: (expectedMarkRevision: number) => Promise<BingoMutationResponse>;
   saveBingoCard: (request: BingoCardSaveRequest) => Promise<BingoMutationResponse>;
+  saveBingoSettings: (request: { baseSettingsRevision: number; settings: BingoPresentationSettings }) => Promise<BingoMutationResponse>;
   setBingoStyle: (style: BingoStyleId, expectedCardRevision: number) => Promise<BingoMutationResponse>;
   listBingoSets: () => Promise<{ sets: BingoSetSummary[] }>;
   getBingoSet: (setId: string) => Promise<BingoSetResponse>;
@@ -53,6 +55,8 @@ export type BingoAdminPanelProps = {
   placementDraft?: ChallengePlacement | null;
   onPlacementDraftChange?: (placement: ChallengePlacement) => void;
   onSaveHandleChange?: (handle: BingoAdminSaveHandle) => void;
+  onSettingsDraftChange?: (settings: BingoPresentationSettings | null) => void;
+  onSettingsHandleChange?: (handle: BingoAdminSaveHandle) => void;
 };
 
 const segmenter = new Intl.Segmenter("de", { granularity: "grapheme" });
@@ -114,11 +118,14 @@ const mergeBoardRevisions = (current: BingoBoardState | null, incoming: BingoBoa
   if (current === null) return incoming;
   const cardBoard = incoming.cardRevision >= current.cardRevision ? incoming : current;
   const marksBoard = incoming.markRevision >= current.markRevision ? incoming : current;
+  const settingsBoard = incoming.settingsRevision >= current.settingsRevision ? incoming : current;
   return {
     ...cardBoard,
     marks: marksBoard.marks,
     markRevision: marksBoard.markRevision,
     generation: marksBoard.generation,
+    settings: settingsBoard.settings,
+    settingsRevision: settingsBoard.settingsRevision,
   };
 };
 
@@ -154,23 +161,30 @@ export const BingoAdminPanel = ({
   placementDraft,
   onPlacementDraftChange,
   onSaveHandleChange,
+  onSettingsDraftChange,
+  onSettingsHandleChange,
 }: BingoAdminPanelProps) => {
   const [board, setBoard] = useState<BingoBoardState | null>(null);
   const [draft, setDraft] = useState<BingoCardDraft | null>(null);
+  const [settingsDraft, setSettingsDraft] = useState<BingoPresentationSettings | null>(null);
   const [serverSets, setServerSets] = useState<BingoSetSummary[]>([]);
   const [selectedSet, setSelectedSet] = useState("");
   const [setName, setSetName] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [conflicted, setConflicted] = useState(false);
+  const [settingsConflicted, setSettingsConflicted] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const boardRef = useRef<BingoBoardState | null>(null);
   const draftRef = useRef<BingoCardDraft | null>(null);
+  const settingsDraftRef = useRef<BingoPresentationSettings | null>(null);
   const placementDraftRef = useRef<ChallengePlacement | null>(placementDraft ?? null);
   const draftBaseCardRevisionRef = useRef<number | null>(null);
+  const draftBaseSettingsRevisionRef = useRef<number | null>(null);
   const saveCardRef = useRef<() => Promise<BingoAdminSaveOutcome>>(() => Promise.resolve({ ok: false, conflict: false, message: "Nicht speicherbar." }));
+  const saveSettingsRef = useRef<() => Promise<BingoAdminSaveOutcome>>(() => Promise.resolve({ ok: false, conflict: false, message: "Nicht speicherbar." }));
   const boardStyle = board?.style;
   const effectivePlacement = placementDraft ?? draft?.placement ?? board?.placement ?? null;
   const dirty = useMemo(() => draft !== null && board !== null && (
@@ -181,6 +195,8 @@ export const BingoAdminPanel = ({
       || effectivePlacement.scale !== board.placement.scale
     ))
   ), [board, draft, effectivePlacement]);
+  const settingsDirty = settingsDraft !== null && board !== null
+    && JSON.stringify(settingsDraft) !== JSON.stringify(board.settings);
   const undoTargets = initialUndoTargets
     .filter((target) => target.moduleId === "bingo")
     .sort((left, right) => right.channelSeq - left.channelSeq)
@@ -188,6 +204,8 @@ export const BingoAdminPanel = ({
 
   useEffect(() => { boardRef.current = board; }, [board]);
   useEffect(() => { draftRef.current = draft; }, [draft]);
+  useEffect(() => { settingsDraftRef.current = settingsDraft; }, [settingsDraft]);
+  useEffect(() => { onSettingsDraftChange?.(settingsDraft); }, [onSettingsDraftChange, settingsDraft]);
   useEffect(() => {
     const externalPlacement = placementDraft ?? null;
     placementDraftRef.current = externalPlacement;
@@ -208,10 +226,25 @@ export const BingoAdminPanel = ({
     const reconciledBoard = mergeBoardRevisions(current, nextBoard);
     const responseCardIsCurrent = current === null || nextBoard.cardRevision >= current.cardRevision;
     const currentDraft = draftRef.current;
+    const currentSettingsDraft = settingsDraftRef.current;
     const editorWasClean = current === null || sameDraft(currentDraft, currentDraft ?? draftFromBoard(current), current);
     const draftMatchesBoard = currentDraft !== null && sameDraft(currentDraft, currentDraft, reconciledBoard);
+    const settingsWereClean = current === null || currentSettingsDraft === null
+      || JSON.stringify(currentSettingsDraft) === JSON.stringify(current.settings);
+    const settingsMatchBoard = currentSettingsDraft !== null
+      && JSON.stringify(currentSettingsDraft) === JSON.stringify(reconciledBoard.settings);
     boardRef.current = reconciledBoard;
     setBoard(reconciledBoard);
+    if (settingsWereClean || settingsMatchBoard) {
+      settingsDraftRef.current = reconciledBoard.settings;
+      setSettingsDraft(reconciledBoard.settings);
+      draftBaseSettingsRevisionRef.current = reconciledBoard.settingsRevision;
+      setSettingsConflicted(false);
+    } else if (reconciledBoard.settingsRevision > current.settingsRevision) {
+      setSettingsConflicted(true);
+      setError("Die Bingo-Darstellung wurde parallel geändert. Dein Entwurf bleibt erhalten.");
+      setMessage("");
+    }
     if ((syncDraft && responseCardIsCurrent) || editorWasClean || draftMatchesBoard) {
       const externalPlacement = placementDraftRef.current;
       const draggedPlacement = syncDraft ? null : localPlacementDraft(externalPlacement, current, reconciledBoard);
@@ -238,10 +271,13 @@ export const BingoAdminPanel = ({
     const current = errorValue.code === "revision_conflict" ? responseBoard(errorValue.currentSnapshot) : null;
     const baseCardRevision = draftBaseCardRevisionRef.current ?? boardRef.current?.cardRevision ?? current?.cardRevision ?? 0;
     if (current !== null && current.cardRevision > baseCardRevision) setConflicted(true);
+    const baseSettingsRevision = draftBaseSettingsRevisionRef.current ?? boardRef.current?.settingsRevision ?? current?.settingsRevision ?? 1;
+    if (current !== null && current.settingsRevision > baseSettingsRevision) setSettingsConflicted(true);
     const latest = boardRef.current;
     if (current !== null && (latest === null || (
       current.cardRevision >= latest.cardRevision
       && current.markRevision >= latest.markRevision
+      && current.settingsRevision >= latest.settingsRevision
     ))) {
       boardRef.current = current;
       setBoard(current);
@@ -269,31 +305,45 @@ export const BingoAdminPanel = ({
   useEffect(() => {
     if (update === null) return;
     const current = boardRef.current;
-    if (current !== null && (
-      update.board.cardRevision < current.cardRevision
-      || update.board.markRevision < current.markRevision
-      || (update.board.cardRevision === current.cardRevision && update.board.markRevision === current.markRevision)
-    )) return;
+    if (current !== null && update.board.cardRevision <= current.cardRevision
+      && update.board.markRevision <= current.markRevision
+      && update.board.settingsRevision <= current.settingsRevision) return;
+    const incomingBoard = mergeBoardRevisions(current, update.board);
     const localDraft = draftRef.current;
     const wasDirty = current !== null && !sameDraft(localDraft, localDraft ?? draftFromBoard(current), current);
-    const draftMatchesUpdate = localDraft !== null && sameDraft(localDraft, localDraft, update.board);
-    boardRef.current = update.board;
-    setBoard(update.board);
+    const draftMatchesUpdate = localDraft !== null && sameDraft(localDraft, localDraft, incomingBoard);
+    const localSettingsDraft = settingsDraftRef.current;
+    const settingsWereDirty = current !== null && localSettingsDraft !== null
+      && JSON.stringify(localSettingsDraft) !== JSON.stringify(current.settings);
+    const settingsMatchUpdate = localSettingsDraft !== null
+      && JSON.stringify(localSettingsDraft) === JSON.stringify(incomingBoard.settings);
+    boardRef.current = incomingBoard;
+    setBoard(incomingBoard);
+    if (!settingsWereDirty || settingsMatchUpdate) {
+      settingsDraftRef.current = incomingBoard.settings;
+      setSettingsDraft(incomingBoard.settings);
+      draftBaseSettingsRevisionRef.current = incomingBoard.settingsRevision;
+      setSettingsConflicted(false);
+    } else if (incomingBoard.settingsRevision > current.settingsRevision) {
+      setSettingsConflicted(true);
+      setError("Die Bingo-Darstellung wurde parallel geändert. Dein Entwurf bleibt erhalten.");
+      setMessage("");
+    }
     if (!wasDirty || draftMatchesUpdate) {
       const externalPlacement = placementDraftRef.current;
-      const draggedPlacement = localPlacementDraft(externalPlacement, current, update.board);
+      const draggedPlacement = localPlacementDraft(externalPlacement, current, incomingBoard);
       const nextDraft = {
-        ...draftFromBoard(update.board),
+        ...draftFromBoard(incomingBoard),
         ...(draggedPlacement === null ? {} : { placement: draggedPlacement }),
       };
       draftRef.current = nextDraft;
       setDraft(nextDraft);
-      draftBaseCardRevisionRef.current = update.board.cardRevision;
+      draftBaseCardRevisionRef.current = incomingBoard.cardRevision;
       setConflicted(false);
       setError("");
       setMessage("");
       onPlacementDraftChange?.(nextDraft.placement);
-    } else if (update.board.cardRevision > current.cardRevision) {
+    } else if (incomingBoard.cardRevision > current.cardRevision) {
       setConflicted(true);
       setError("Die Bingo-Karte wurde parallel geändert. Dein Entwurf bleibt erhalten.");
       setMessage("");
@@ -312,6 +362,13 @@ export const BingoAdminPanel = ({
     setDraft(withPlacement);
     onPlacementDraftChange?.(placement);
     if (!conflicted) setError("");
+    setMessage("");
+  };
+
+  const changeSettings = (next: BingoPresentationSettings): void => {
+    settingsDraftRef.current = next;
+    setSettingsDraft(next);
+    if (!settingsConflicted) setError("");
     setMessage("");
   };
 
@@ -386,10 +443,45 @@ export const BingoAdminPanel = ({
     }
   };
 
+  const saveSettings = async (): Promise<BingoAdminSaveOutcome> => {
+    const current = boardRef.current;
+    const editing = settingsDraftRef.current;
+    if (current === null || editing === null || busy || !online || settingsConflicted) {
+      return { ok: false, conflict: false, message: "Nicht speicherbar." };
+    }
+    if (JSON.stringify(editing) === JSON.stringify(current.settings)) return { ok: true, conflict: false };
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await api.saveBingoSettings({
+        baseSettingsRevision: draftBaseSettingsRevisionRef.current ?? current.settingsRevision,
+        settings: editing,
+      });
+      applyMutation(result);
+      settingsDraftRef.current = result.board.settings;
+      setSettingsDraft(result.board.settings);
+      draftBaseSettingsRevisionRef.current = result.board.settingsRevision;
+      setMessage(`Darstellung gespeichert · Revision ${String(result.board.settingsRevision)}.`);
+      return { ok: true, conflict: false };
+    } catch (caught) {
+      const errorValue = typeof caught === "object" && caught !== null ? caught as { message?: unknown; code?: unknown } : {};
+      const messageText = typeof errorValue.message === "string" ? errorValue.message : "Die Bingo-Darstellung konnte nicht gespeichert werden.";
+      showError(caught, "Die Bingo-Darstellung konnte nicht gespeichert werden.");
+      return { ok: false, conflict: errorValue.code === "revision_conflict", message: messageText };
+    } finally {
+      setBusy(false);
+    }
+  };
+
   useEffect(() => { saveCardRef.current = saveCard; });
+  useEffect(() => { saveSettingsRef.current = saveSettings; });
   useEffect(() => {
     onSaveHandleChange?.({ dirty, save: () => saveCardRef.current() });
   }, [dirty, onSaveHandleChange]);
+  useEffect(() => {
+    onSettingsHandleChange?.({ dirty: settingsDirty, save: () => saveSettingsRef.current() });
+  }, [onSettingsHandleChange, settingsDirty]);
 
   const loadSet = async (setId: string): Promise<void> => {
     const current = boardRef.current;
@@ -495,6 +587,7 @@ export const BingoAdminPanel = ({
         markRevision: current.markRevision,
         generation: current.generation,
         style: current.style,
+        settingsRevision: current.settingsRevision,
       });
       const restored = bingoBoardStateSchema.parse(result.board);
       applyBoard(restored);
@@ -515,8 +608,12 @@ export const BingoAdminPanel = ({
     const nextDraft = draftFromBoard(current);
     draftRef.current = nextDraft;
     draftBaseCardRevisionRef.current = current.cardRevision;
+    draftBaseSettingsRevisionRef.current = current.settingsRevision;
+    settingsDraftRef.current = current.settings;
+    setSettingsDraft(current.settings);
     setDraft(nextDraft);
     setConflicted(false);
+    setSettingsConflicted(false);
     setError("");
     setMessage("Aktuelle Bingo-Karte geladen.");
     onPlacementDraftChange?.(nextDraft.placement);
@@ -529,11 +626,11 @@ export const BingoAdminPanel = ({
         <span className={`bingo-admin-connection ${online ? "is-online" : "is-offline"}`}><i aria-hidden="true" />{online ? "Live verbunden" : "Offline"}</span>
       </header>
 
-      <div aria-live="polite" className={`bingo-admin-message-slot ${conflicted || error !== "" ? "has-error" : message !== "" ? "has-message" : ""}`}>
-        {conflicted ? <>
+      <div aria-live="polite" className={`bingo-admin-message-slot ${conflicted || settingsConflicted || error !== "" ? "has-error" : message !== "" ? "has-message" : ""}`}>
+        {conflicted || settingsConflicted ? <>
           <span role="alert">{error || "Die Bingo-Karte wurde parallel geändert. Dein Entwurf bleibt erhalten."}</span>
           {board !== null && <button className="button button--quiet bingo-admin-message-action" onClick={takeServerCard} type="button">Aktuelle Karte übernehmen</button>}
-        </> : error !== "" ? <span role="alert">{error}</span> : message !== "" ? <span>{message}</span> : dirty ? <span>Stil erst nach dem Speichern des Kartenentwurfs ändern.</span> : <span aria-hidden="true">&nbsp;</span>}
+        </> : error !== "" ? <span role="alert">{error}</span> : message !== "" ? <span>{message}</span> : dirty ? <span>Stil erst nach dem Speichern des Kartenentwurfs ändern.</span> : settingsDirty ? <span>Darstellungsentwurf ungespeichert.</span> : <span aria-hidden="true">&nbsp;</span>}
       </div>
 
       <section aria-labelledby="bingo-live-heading" className="bingo-admin-live-card">
@@ -544,7 +641,7 @@ export const BingoAdminPanel = ({
         <div className="bingo-admin-board-slot">
           {board === null
             ? <div aria-hidden="true" className="bingo-admin-card-placeholder" />
-            : <BingoBoard board={board} onToggleCell={(cellId, marked) => void markCell(cellId, marked)} width={350} />}
+            : <BingoBoard board={settingsDraft === null ? board : { ...board, settings: settingsDraft }} onToggleCell={(cellId, marked) => void markCell(cellId, marked)} width={350} />}
         </div>
         {canUndo && (
           <details className="bingo-admin-undo" open>
@@ -568,6 +665,39 @@ export const BingoAdminPanel = ({
           <label><span>Stil</span><select aria-label="Bingo-Stil" disabled={board === null || busy || !online || conflicted || dirty} onChange={(event) => void changeStyle(event.currentTarget.value as BingoStyleId)} value={board?.style ?? "marker"}><option value="marker">Marker</option><option value="broadcast">Broadcast</option></select></label>
         </div>
 
+        <section aria-label="Bingo-Darstellung" className="bingo-admin-settings">
+          <fieldset disabled={settingsDraft === null || busy || !online || settingsConflicted}>
+            <legend>Schnelleinstellungen</legend>
+            <div className="bingo-admin-settings-grid">
+              <label><span>Hintergrund <output>{settingsDraft?.backgroundOpacity ?? 100} %</output></span><select aria-label="Hintergrund" onChange={(event) => { if (settingsDraft !== null) changeSettings({ ...settingsDraft, backgroundOpacity: Number(event.currentTarget.value) as BingoPresentationSettings["backgroundOpacity"] }); }} value={settingsDraft?.backgroundOpacity ?? 100}>{[100, 75, 50, 25, 0].map((value) => <option key={value} value={value}>{value} %</option>)}</select></label>
+              <label><span>Textgröße <output>{Math.round((settingsDraft?.textScale ?? 1) * 100)} %</output></span><input aria-label="Textgröße" max={2} min={0.75} onChange={(event) => { if (settingsDraft !== null) changeSettings({ ...settingsDraft, textScale: Number(event.currentTarget.value) }); }} step={0.05} type="range" value={settingsDraft?.textScale ?? 1} /></label>
+              <label><span>Quellengröße <output>{Math.round((effectivePlacement?.scale ?? 1) * 100)} %</output></span><input aria-label="Quellengröße" max={2} min={0.75} onChange={(event) => { if (draft !== null) changeDraft({ ...draft, placement: { ...placement, scale: Number(event.currentTarget.value) } }); }} step={0.05} type="range" value={effectivePlacement?.scale ?? draft?.placement.scale ?? placement.scale} /></label>
+            </div>
+          </fieldset>
+          <fieldset disabled={settingsDraft === null || busy || !online || settingsConflicted}>
+            <legend>Schrift</legend>
+            <div className="bingo-admin-settings-grid">
+              <label><span>Schriftart</span><select aria-label="Schriftart" onChange={(event) => { if (settingsDraft !== null) changeSettings({ ...settingsDraft, fontFamily: event.currentTarget.value as BingoPresentationSettings["fontFamily"] }); }} value={settingsDraft?.fontFamily ?? "theme"}><option value="theme">Wie Theme</option><option value="atkinson">Atkinson Hyperlegible</option><option value="serif">Serif</option><option value="sans">Sans</option><option value="mono">Mono</option></select></label>
+              <label><span>Schrifteffekt</span><select aria-label="Schrifteffekt" onChange={(event) => { if (settingsDraft !== null) changeSettings({ ...settingsDraft, textEmphasis: event.currentTarget.value as BingoPresentationSettings["textEmphasis"] }); }} value={settingsDraft?.textEmphasis ?? "auto"}><option value="auto">automatisch</option><option value="strong">kräftig (fett + Schatten)</option><option value="plain">schlicht</option></select></label>
+            </div>
+          </fieldset>
+          <fieldset disabled={settingsDraft === null || busy || !online || settingsConflicted}>
+            <legend>Animationen und Töne</legend>
+            <div className="bingo-admin-settings-grid">
+              <label><span>Zeremonie</span><select aria-label="Zeremonie" onChange={(event) => { if (settingsDraft !== null) changeSettings({ ...settingsDraft, ceremonyMode: event.currentTarget.value as BingoPresentationSettings["ceremonyMode"] }); }} value={settingsDraft?.ceremonyMode ?? "on"}><option value="on">an</option><option value="subtle">dezent</option><option value="off">aus</option></select></label>
+              <label className="bingo-admin-toggle"><input aria-label="Ton bei Linie" checked={settingsDraft?.soundOnLine ?? false} onChange={(event) => { if (settingsDraft !== null) changeSettings({ ...settingsDraft, soundOnLine: event.currentTarget.checked }); }} type="checkbox" /><span>Ton bei Linie</span></label>
+              <label className="bingo-admin-toggle"><input aria-label="Ton bei voller Karte" checked={settingsDraft?.soundOnFullCard ?? false} onChange={(event) => { if (settingsDraft !== null) changeSettings({ ...settingsDraft, soundOnFullCard: event.currentTarget.checked }); }} type="checkbox" /><span>Ton bei voller Karte</span></label>
+            </div>
+          </fieldset>
+          <fieldset disabled={settingsDraft === null || busy || !online || settingsConflicted}>
+            <legend>Titel &amp; BINGO</legend>
+            <div className="bingo-admin-settings-grid">
+              <label className="bingo-admin-toggle"><input aria-label="Kartentitel anzeigen" checked={settingsDraft?.showTitle ?? true} onChange={(event) => { if (settingsDraft !== null) changeSettings({ ...settingsDraft, showTitle: event.currentTarget.checked }); }} type="checkbox" /><span>Kartentitel anzeigen</span></label>
+              <label className="bingo-admin-toggle"><input aria-label="BINGO anzeigen" checked={settingsDraft?.showBingo ?? true} onChange={(event) => { if (settingsDraft !== null) changeSettings({ ...settingsDraft, showBingo: event.currentTarget.checked }); }} type="checkbox" /><span>BINGO anzeigen</span></label>
+            </div>
+          </fieldset>
+        </section>
+
         <div className="bingo-admin-set-tools">
           <label className="bingo-admin-set-select"><span>Vorlage oder gespeichertes Set</span><select disabled={busy || !online || board === null} onChange={(event) => { setSelectedSet(event.currentTarget.value); void loadSet(event.currentTarget.value); }} value={selectedSet}><option value="">Set laden …</option>{serverSets.map((set) => <option key={set.id} value={set.id}>{set.type === "template" ? "Vorlage · " : "Gespeichert · "}{set.name}</option>)}</select></label>
           <label><span>Als Set speichern</span><input disabled={busy || !online || dirty} maxLength={24} onChange={(event) => setSetName(event.currentTarget.value)} placeholder="Name des Sets" type="text" value={setName} /></label>
@@ -581,7 +711,6 @@ export const BingoAdminPanel = ({
         <div className="bingo-admin-placement" aria-label="Bingo-Platzierung">
           <label><span>Platzierung X</span><input disabled={draft === null || busy || !online} max={384} min={0} onChange={(event) => { if (draft !== null) changeDraft({ ...draft, placement: { ...placement, x: Number(event.currentTarget.value) } }); }} type="number" value={effectivePlacement?.x ?? draft?.placement.x ?? placement.x} /></label>
           <label><span>Platzierung Y</span><input disabled={draft === null || busy || !online} max={216} min={0} onChange={(event) => { if (draft !== null) changeDraft({ ...draft, placement: { ...placement, y: Number(event.currentTarget.value) } }); }} type="number" value={effectivePlacement?.y ?? draft?.placement.y ?? placement.y} /></label>
-          <label><span>Skalierung</span><select disabled={draft === null || busy || !online} onChange={(event) => { if (draft !== null) changeDraft({ ...draft, placement: { ...placement, scale: Number(event.currentTarget.value) } }); }} value={effectivePlacement?.scale ?? draft?.placement.scale ?? placement.scale}>{[0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2].map((scale) => <option key={scale} value={scale}>{Math.round(scale * 100)}%</option>)}</select></label>
         </div>
 
         <div className="bingo-admin-editor-grid">

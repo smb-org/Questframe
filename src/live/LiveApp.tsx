@@ -55,11 +55,14 @@ const mergeBingoBoardByRevision = (
   if (current === null) return incoming;
   const cardSource = incoming.cardRevision >= current.cardRevision ? incoming : current;
   const marksSource = incoming.markRevision >= current.markRevision ? incoming : current;
+  const settingsSource = incoming.settingsRevision >= current.settingsRevision ? incoming : current;
   return {
     ...cardSource,
     marks: marksSource.marks,
     markRevision: marksSource.markRevision,
     generation: marksSource.generation,
+    settings: settingsSource.settings,
+    settingsRevision: settingsSource.settingsRevision,
   };
 };
 

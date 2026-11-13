@@ -48,6 +48,11 @@ const bingoBoard = (): BingoBoardState => ({
   cardRevision: 7,
   markRevision: 4,
   generation: 2,
+  settingsRevision: 1,
+  settings: {
+    backgroundOpacity: 100, textScale: 1, fontFamily: "theme", textEmphasis: "auto",
+    ceremonyMode: "on", soundOnLine: false, soundOnFullCard: false, showTitle: true, showBingo: true,
+  },
   style: "marker",
   placement: { x: 12, y: 8, scale: 1 },
 });
@@ -76,6 +81,7 @@ const createBingoAdminApi = (overrides: Partial<AdminApi> = {}): AdminApi => {
       cardRevision: initial.cardRevision + 1,
     }))),
     setBingoStyle: vi.fn(() => Promise.resolve(bingoMutation({ ...initial, cardRevision: initial.cardRevision + 1 }))),
+    saveBingoSettings: vi.fn<NonNullable<AdminApi["saveBingoSettings"]>>((request) => Promise.resolve(bingoMutation({ ...initial, settings: request.settings, settingsRevision: initial.settingsRevision + 1 }))),
     listBingoSets: vi.fn(() => Promise.resolve({ sets: [] })),
     getBingoSet: vi.fn(() => Promise.resolve({ summary: { id: "set-1", type: "user" as const, name: "Set", sortOrder: 0, createdAt: "2026-08-29T12:00:00.000Z", updatedAt: "2026-08-29T12:00:00.000Z" }, card: initial.card })),
     saveBingoSet: vi.fn(() => Promise.resolve({ summary: { id: "set-1", type: "user" as const, name: "Set", sortOrder: 0, createdAt: "2026-08-29T12:00:00.000Z", updatedAt: "2026-08-29T12:00:00.000Z" }, card: initial.card })),
@@ -202,6 +208,11 @@ describe("Kompositions-Workspace", () => {
       board: {
         card: { title: "Vorschau-Karte", size: 3, cells: Array.from({ length: 9 }, (_, index) => ({ id: `cell-${String(index)}`, text: `Feld ${String(index + 1)}` })) },
         marks: [], cardRevision: 1, markRevision: 0, generation: 0, style: "marker", placement: { x: 8, y: 4, scale: 1 },
+        settingsRevision: 1,
+        settings: {
+          backgroundOpacity: 100, textScale: 1, fontFamily: "theme", textEmphasis: "auto",
+          ceremonyMode: "on", soundOnLine: false, soundOnFullCard: false, showTitle: true, showBingo: true,
+        },
       },
     };
     act(() => onBingoUpdate?.(bingoUpdate));

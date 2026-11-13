@@ -9,6 +9,7 @@ import {
   bingoSetResponseSchema,
   bingoSetSaveRequestSchema,
   bingoStyleRequestSchema,
+  bingoSettingsSaveRequestSchema,
   bingoBoardStateSchema,
   markCellPayloadSchema,
   resetMarksPayloadSchema,
@@ -76,7 +77,7 @@ export const bingoHistory: ModuleHistory = {
   snapshot: (ctx) => {
     const board = bingoRepository(ctx).readBoard();
     return {
-      revision: Math.max(board.cardRevision, board.markRevision),
+      revision: Math.max(board.cardRevision, board.markRevision, board.settingsRevision),
       json: JSON.stringify(board),
       createdAt: ctx.now(),
     };
@@ -149,6 +150,11 @@ export const createBingoHttpHandler = (socketTags: readonly SocketTag[]): Module
       const session = await requireEditorMutation(request, ctx);
       const input = bingoStyleRequestSchema.parse(await readJson(request, 2_048));
       return mutationResponse(ctx, socketTags, bingoService(ctx, session).setStyle(input.style, input.expectedCardRevision));
+    }
+    if (request.method === "PUT" && url.pathname === "/bingo/settings") {
+      const session = await requireEditorMutation(request, ctx);
+      const input = bingoSettingsSaveRequestSchema.parse(await readJson(request, 4_096));
+      return mutationResponse(ctx, socketTags, bingoService(ctx, session).saveSettings(input.settings, input.baseSettingsRevision));
     }
     if (request.method === "GET" && url.pathname === "/bingo/export") {
       requireEditorSession(request, ctx);

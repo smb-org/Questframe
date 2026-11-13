@@ -96,6 +96,11 @@ const bingoBoard = (overrides: Partial<BingoBoardState> = {}): BingoBoardState =
   cardRevision: 2,
   markRevision: 7,
   generation: 1,
+  settingsRevision: 1,
+  settings: {
+    backgroundOpacity: 100, textScale: 1, fontFamily: "theme", textEmphasis: "auto",
+    ceremonyMode: "on", soundOnLine: false, soundOnFullCard: false, showTitle: true, showBingo: true,
+  },
   style: "marker",
   placement: { x: 8, y: 80, scale: 1 },
   ...overrides,
@@ -230,6 +235,21 @@ describe("Live-Bedienseite", () => {
     await user.click(await screen.findByRole("gridcell", { name: "Feld 1" }));
 
     expectDockRequest("/api/bingo/dock/mark", JSON.stringify({ cellId: "cell-0", marked: true, expectedMarkRevision: 7 }));
+  });
+
+  it("übernimmt reine Darstellungsupdates für die Bingo-Kachel", async () => {
+    render(<LiveApp />);
+    connectDockSocket();
+    emitUpdate();
+    emitBingoUpdate();
+
+    expect(await screen.findByRole("heading", { name: "Stream-Bingo" })).toBeVisible();
+    emitBingoUpdate(bingoBoard({
+      settingsRevision: 2,
+      settings: { ...bingoBoard().settings, showTitle: false },
+    }));
+
+    await waitFor(() => expect(document.querySelector(".live-page__bingo-board .bingo-source__title")).toHaveStyle({ visibility: "hidden" }));
   });
 
   it("zeigt einen Bingo-Konflikt im festen Meldungsfeld", async () => {

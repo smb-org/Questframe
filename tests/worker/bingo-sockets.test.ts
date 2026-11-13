@@ -131,7 +131,8 @@ describe("Bingo-Sockets", () => {
       state.storage.sql.exec("DELETE FROM overlay_tokens");
       state.storage.sql.exec(
         `UPDATE bg_board SET marks_json = '[]', card_revision = 0, mark_revision = 0,
-          generation = 0, style = 'marker', placement_x = 8, placement_y = 8, placement_scale = 1
+          generation = 0, style = 'marker', placement_x = 8, placement_y = 8, placement_scale = 1,
+          settings_revision = 1
          WHERE singleton = 1`,
       );
     });
@@ -197,6 +198,7 @@ describe("Bingo-Sockets", () => {
         markRevision: number;
         generation: number;
         style: "marker" | "broadcast";
+        settingsRevision: number;
       }>();
       const history = await runInDurableObject(stub, (_instance, state) =>
         state.storage.sql.exec<{ channel_seq: number }>(
@@ -214,6 +216,7 @@ describe("Bingo-Sockets", () => {
           baseMarkRevision: board.markRevision,
           baseGeneration: board.generation,
           baseStyle: board.style,
+          baseSettingsRevision: board.settingsRevision,
         }),
       });
       expect(undone.status).toBe(200);

@@ -59,7 +59,7 @@
   overflow: hidden;
   border: 1px solid var(--bingo-line);
   border-radius: 0;
-  background: rgba(10, 12, 15, 0.62);
+  background: rgb(10 12 15 / calc(0.62 * var(--bingo-background-opacity, 1)));
   color: inherit;
   font: inherit;
   text-align: center;
@@ -155,6 +155,23 @@
   font-size: 66px;
 }
 
+.bingo-source[data-bingo-font="atkinson"] { font-family: "Atkinson Hyperlegible Next", system-ui, sans-serif; }
+.bingo-source[data-bingo-font="serif"] { font-family: Georgia, serif; }
+.bingo-source[data-bingo-font="sans"] { font-family: system-ui, sans-serif; }
+.bingo-source[data-bingo-font="mono"] { font-family: ui-monospace, monospace; }
+.bingo-source[data-bingo-font="atkinson"] .bingo-source__title,
+.bingo-source[data-bingo-font="serif"] .bingo-source__title,
+.bingo-source[data-bingo-font="sans"] .bingo-source__title,
+.bingo-source[data-bingo-font="mono"] .bingo-source__title { font-family: inherit; }
+.bingo-source[data-bingo-emphasis="strong"] .bingo-source__text,
+.bingo-source[data-bingo-emphasis="strong"] .bingo-source__title { font-weight: 850; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85); }
+.bingo-source[data-bingo-text-emphasis="plain"] .bingo-source__text { text-shadow: none; }
+.bingo-source[data-bingo-text-emphasis="plain"] .bingo-source__title { text-shadow: none; }
+
+.bingo-source-ceremony[data-style="marker"][data-ceremony-motion="subtle"] .bingo-source__line-outline[data-ceremony-line="true"] { animation: bingo-marker-subtle 520ms ease-out both; }
+.bingo-source-ceremony[data-style="marker"][data-ceremony-type="full-card"][data-ceremony-motion="subtle"] .bingo-source__line-outline,
+.bingo-source-ceremony[data-style="marker"][data-ceremony-type="full-card"][data-ceremony-motion="subtle"] .bingo-source__mark { animation: bingo-marker-subtle 620ms ease-out both; }
+
 @keyframes bingo-marker-circle {
   to { stroke-dashoffset: 0; }
 }
@@ -163,6 +180,11 @@
   0% { opacity: 0.2; transform: scale(0.85) rotate(-4deg); }
   65% { opacity: 1; transform: scale(1.05) rotate(2deg); }
   100% { opacity: 0.95; transform: scale(1) rotate(0); }
+}
+
+@keyframes bingo-marker-subtle {
+  0% { opacity: 0.65; }
+  100% { opacity: 0.93; }
 }
 
 @media (prefers-reduced-motion: reduce) {
