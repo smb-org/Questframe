@@ -143,13 +143,14 @@ Das Skript meldet sich über `/auth/dev` an, lädt die beiden Beispielportraits 
 
 ## Cloudflare Free Tier
 
-Die Architektur benötigt nur Workers Static Assets und ein SQLite Durable Object; R2, D1, KV und kostenpflichtige Cloudflare-Dienste sind nicht erforderlich. Die vorgesehene Nutzung ist auf konservative Grenzen ausgelegt (ein Kanal, zehn Overlay- und zehn Editor-Verbindungen, fünf Gäste, acht Effekte, begrenzte Historie). Das ist bewusst **keine** Zusage unbegrenzter dynamischer Nutzung: Cloudflare kann Quoten ändern, und ungewöhnlich hoher oder missbräuchlicher Traffic kann Limits erreichen. Statische, fingerprinted App-Bundles werden am CDN langfristig gecacht; HUD-Grafiken revalidieren über ETags.
+Die Architektur benötigt nur Workers Static Assets und ein SQLite Durable Object; R2, D1, KV und kostenpflichtige Cloudflare-Dienste sind nicht erforderlich. Die vorgesehene Nutzung ist auf konservative Grenzen ausgelegt (ein Kanal, je 15 Overlay-, Editor-, Composite-, Challenge-, Dock- und Bingo-Verbindungen, fünf Gäste, acht Effekte, begrenzte Historie). Das ist bewusst **keine** Zusage unbegrenzter dynamischer Nutzung: Cloudflare kann Quoten ändern, und ungewöhnlich hoher oder missbräuchlicher Traffic kann Limits erreichen. Statische, fingerprinted App-Bundles werden am CDN langfristig gecacht; HUD-Grafiken revalidieren über ETags.
 
 ## Weitere Dokumentation
 
 - [Designsystem](DESIGN.md)
 - [Architektur](docs/ARCHITECTURE.md)
 - [Betrieb, Rehearsal und Rollback](docs/OPERATIONS.md)
+- [Bingo-Design](docs/designs/bingo-board.md)
 - [StreamElements-Widget](docs/streamelements/README.md)
 - [Release-Report-Vorlage](docs/RELEASE_REPORT.md)
 - [Visual-Asset-Provenienz](src/assets/provenance/README.md)

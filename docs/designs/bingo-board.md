@@ -5,6 +5,7 @@ Branch: entwurf/layout-impeccable
 Repo: smb-org/Questframe
 Status: APPROVED
 Mode: Builder
+Umsetzung: Branch feat/bingo-board (Schritte 1–7 erledigt, siehe Next Steps)
 
 ## Problem Statement
 
@@ -189,6 +190,13 @@ Datei; kein Hosting fremder Inhalte (Begründung siehe TODOS.md, Teil-Code).
 
 ## Next Steps
 
+**Stand:** Alle sieben Schritte sind umgesetzt. Schritt 1 lief als eigener PR
+(#10), die übrigen im Branch `feat/bingo-board`. Abweichungen vom Plan:
+Export und Import laufen über eigene Endpunkte (`/api/bingo/export`,
+`/api/bingo/import`) statt über den Set-Datei-Weg; die Startplatzierung liegt
+bei (8, 80), damit die Karte in 1080p passt; ein FREE-Feld gibt es in v1 nicht.
+Offen bleibt nur „The Assignment“ (siehe auch TODOS.md).
+
 1. **Vorab-Fix, eigener PR:** Migrations-Shortcut in
    `src/channel/migrations.ts:735` auf `host/1` beschränken, Namespace-Typ
    (`:19`) erweitern; Test: zweiter Lauf eines Namespace-Version-1 ändert
@@ -235,3 +243,7 @@ Findings below are retained from the last completed review; the current document
 
 No unresolved findings.
 <!-- gstack:office-hours:concerns:end -->
+
+Nachtrag: Der Design-Review blieb aus dem genannten Grund unreviewed. Der Code
+selbst wurde vor dem Merge zweimal unabhängig geprüft und im Ship-Review
+abgenommen.

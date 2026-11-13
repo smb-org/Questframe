@@ -1,6 +1,6 @@
 # Questframe in StreamElements
 
-Das Widget bettet eine der drei Overlay-Flächen per iframe ein. Wenn OBS erreichbar
+Das Widget bettet eine Overlay-Fläche oder die Sammelquelle per iframe ein. Wenn OBS erreichbar
 ist, ist eine eigene **Browserquelle** der einfachere Weg; diese Dateien sind für den
 Fall gedacht, dass nur StreamElements zur Verfügung steht.
 
@@ -10,12 +10,13 @@ Im Feld *Overlay-URL* darf jede der folgenden URLs stehen:
 
 - HUD: `https://hud.example.invalid/overlay#token=…` — zeigt ausschließlich das veröffentlichte HUD.
 - Challenges: `https://hud.example.invalid/overlay/challenges#token=…&placement=origin` — zeigt ausschließlich das Challenge-Log und überlässt die Positionierung dem Widget.
-- Kombi: `https://hud.example.invalid/overlay/all#token=…` — zeigt HUD und Challenge-Log gemeinsam als Sammelquelle.
+- Bingo: `https://hud.example.invalid/overlay/bingo#token=…&placement=origin` — zeigt ausschließlich das Bingo-Board und überlässt die Positionierung dem Widget.
+- Kombi: `https://hud.example.invalid/overlay/all#token=…` — zeigt HUD und Challenge-Log gemeinsam; Bingo erscheint zusätzlich, wenn es in `/admin` für die Sammelquelle aktiviert ist.
 
 1. In StreamElements: Overlay öffnen → *Add Widget* → *Static/Custom* → *Custom Widget*.
 2. Die Tabs füllen: `widget.html` → HTML, `widget.js` → JS, `fields.json` → Fields.
    Der CSS-Tab bleibt leer, die Styles stehen im HTML.
-3. Im Feld *Overlay-URL* eine der drei vollständigen URLs samt Overlay-Token eintragen,
+3. Im Feld *Overlay-URL* eine der vollständigen URLs samt Overlay-Token eintragen,
    **nicht** nur die Domain.
    Der Token steht im Hash, nicht in der Query (`tokenFromLocation` in
    `src/challenges/wire.ts` liest ausschließlich `location.hash`). Die Wurzel `/`
@@ -60,7 +61,7 @@ Daraus folgen zwei Dinge, die die Overlay-Auslieferung berücksichtigen muss:
 
 ## Socket-Plätze
 
-Die Challenge-Quelle hat zehn Socket-Plätze (`MAX_CHALLENGE_SOCKETS`).
+Die Challenge-Quelle hat 15 Socket-Plätze (`MAX_CHALLENGE_SOCKETS`).
 Hibernierende WebSockets verschwinden nur bei sauberem Schließen, eine
 abgestürzte Quelle oder ein neu eingehängtes Widget-iframe hinterlässt also
 einen belegten Platz. Deshalb sortiert das Durable Object beim Verbinden alle
