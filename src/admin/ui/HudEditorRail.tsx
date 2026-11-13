@@ -461,6 +461,7 @@ export const useHudEditorState = ({
   api,
   onChallengeUpdate,
   onBingoUpdate,
+  onBingoSetsUpdate,
   onChallengeUndoTargets,
   onBingoUndoTargets,
   onTimeOffset,
@@ -469,6 +470,7 @@ export const useHudEditorState = ({
   api: AdminApi;
   onChallengeUpdate?: (update: ChallengeUpdate) => void;
   onBingoUpdate?: (update: BingoUpdateMessage) => void;
+  onBingoSetsUpdate?: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onBingoSetsUpdate"];
   onChallengeUndoTargets?: (targets: UndoTarget[]) => void;
   onBingoUndoTargets?: (targets: UndoTarget[]) => void;
   onTimeOffset?: (offsetMs: number) => void;
@@ -575,9 +577,10 @@ export const useHudEditorState = ({
     };
     if (onChallengeUpdate !== undefined) callbacks.onChallengeUpdate = onChallengeUpdate;
     if (onBingoUpdate !== undefined) callbacks.onBingoUpdate = onBingoUpdate;
+    if (onBingoSetsUpdate !== undefined) callbacks.onBingoSetsUpdate = onBingoSetsUpdate;
     if (onTimeOffset !== undefined) callbacks.onTimeOffset = onTimeOffset;
     return api.subscribe(callbacks);
-  }, [addAuditEntry, api, applyUndoTargets, onBingoUndoTargets, onBingoUpdate, onChallengeUndoTargets, onChallengeUpdate, onTimeOffset]);
+  }, [addAuditEntry, api, applyUndoTargets, onBingoUndoTargets, onBingoUpdate, onBingoSetsUpdate, onChallengeUndoTargets, onChallengeUpdate, onTimeOffset]);
 
   const pendingLeaseHashes = useMemo(() => {
     const committedHashes = new Set(uploadedHashes(committed));

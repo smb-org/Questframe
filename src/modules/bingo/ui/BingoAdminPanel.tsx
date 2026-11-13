@@ -1,5 +1,5 @@
-import { Download, Trash2, Undo2, Upload } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, Download, Pencil, Trash2, Undo2, Upload, X } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 
 import type { BingoUndoBaseRevisions, UndoTarget } from "../../../shared/contracts/api";
 import type { ChallengePlacement } from "../../../shared/contracts/win-challenges";
@@ -34,7 +34,8 @@ export type BingoAdminApi = {
   setBingoStyle: (style: BingoStyleId, expectedCardRevision: number) => Promise<BingoMutationResponse>;
   listBingoSets: () => Promise<{ sets: BingoSetSummary[] }>;
   getBingoSet: (setId: string) => Promise<BingoSetResponse>;
-  saveBingoSet: (name: string) => Promise<BingoSetResponse>;
+  saveBingoSet: (name: string, overwriteSetId?: string) => Promise<BingoSetResponse>;
+  renameBingoSet: (setId: string, name: string) => Promise<BingoSetResponse>;
   deleteBingoSet: (setId: string) => Promise<string>;
   loadBingoSet: (setId: string, expectedCardRevision: number) => Promise<BingoMutationResponse>;
   importBingoCard: (file: string, expectedCardRevision: number) => Promise<BingoMutationResponse>;
@@ -50,6 +51,8 @@ export type BingoAdminPanelProps = {
   canUndo: boolean;
   initialUndoTargets: UndoTarget[];
   update: BingoUpdateMessage | null;
+  serverSets?: BingoSetSummary[];
+  onServerSetsChange?: (sets: SetStateAction<BingoSetSummary[]>) => void;
   onBoardUpdate: (update: BingoUpdateMessage) => void;
   onUndoTargetsChange: (targets: UndoTarget[]) => void;
   placementDraft?: ChallengePlacement | null;
@@ -156,6 +159,8 @@ export const BingoAdminPanel = ({
   canUndo,
   initialUndoTargets,
   update,
+  serverSets: externalServerSets,
+  onServerSetsChange,
   onBoardUpdate,
   onUndoTargetsChange,
   placementDraft,
@@ -167,9 +172,15 @@ export const BingoAdminPanel = ({
   const [board, setBoard] = useState<BingoBoardState | null>(null);
   const [draft, setDraft] = useState<BingoCardDraft | null>(null);
   const [settingsDraft, setSettingsDraft] = useState<BingoPresentationSettings | null>(null);
-  const [serverSets, setServerSets] = useState<BingoSetSummary[]>([]);
+  const [localServerSets, setLocalServerSets] = useState<BingoSetSummary[]>([]);
+  const serverSets = externalServerSets ?? localServerSets;
+  const setServerSets = onServerSetsChange ?? setLocalServerSets;
+  const serverSetsRef = useRef(serverSets);
   const [selectedSet, setSelectedSet] = useState("");
   const [setName, setSetName] = useState("");
+  const [renamingSet, setRenamingSet] = useState(false);
+  const [renamingSetId, setRenamingSetId] = useState<string | null>(null);
+  const [renameName, setRenameName] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [conflicted, setConflicted] = useState(false);
@@ -203,6 +214,7 @@ export const BingoAdminPanel = ({
     .slice(0, 6);
 
   useEffect(() => { boardRef.current = board; }, [board]);
+  useLayoutEffect(() => { serverSetsRef.current = serverSets; }, [serverSets]);
   useEffect(() => { draftRef.current = draft; }, [draft]);
   useEffect(() => { settingsDraftRef.current = settingsDraft; }, [settingsDraft]);
   useEffect(() => { onSettingsDraftChange?.(settingsDraft); }, [onSettingsDraftChange, settingsDraft]);
@@ -298,9 +310,16 @@ export const BingoAdminPanel = ({
       applyBoard(initial);
     }).catch((caught: unknown) => showError(caught, "Bingo-Board konnte nicht geladen werden."))
       .finally(() => { if (!disposed) setLoading(false); });
-    void api.listBingoSets().then(({ sets }) => { if (!disposed) setServerSets(sets); }).catch(() => undefined);
     return () => { disposed = true; };
   }, [api, applyBoard, showError]);
+
+  const controlledSetList = externalServerSets !== undefined && onServerSetsChange !== undefined;
+  useEffect(() => {
+    if (controlledSetList || !online) return;
+    let disposed = false;
+    void api.listBingoSets().then(({ sets }) => { if (!disposed) setServerSets(sets); }).catch(() => undefined);
+    return () => { disposed = true; };
+  }, [api, controlledSetList, online, setServerSets]);
 
   useEffect(() => {
     if (update === null) return;
@@ -503,14 +522,32 @@ export const BingoAdminPanel = ({
   };
 
   const saveSet = async (): Promise<void> => {
-    if (setName.trim() === "" || busy || !online || dirty) return;
+    if (setName.trim() === "" || busy || !online || dirty || renamingSet) return;
+    const normalizedName = setName.normalize("NFC").trim().toLocaleLowerCase("de-DE");
+    const duplicateUserSet = serverSets.find((set) => set.type === "user" && set.name.normalize("NFC").trim().toLocaleLowerCase("de-DE") === normalizedName);
+    const duplicateTemplate = serverSets.find((set) => set.type === "template" && set.name.normalize("NFC").trim().toLocaleLowerCase("de-DE") === normalizedName);
+    if (duplicateUserSet !== undefined && !window.confirm(`Set „${duplicateUserSet.name}“ überschreiben?`)) return;
+    if (duplicateUserSet === undefined && duplicateTemplate !== undefined) {
+      setError("Bingo-Vorlagen können nicht überschrieben werden. Bitte wähle einen anderen Namen.");
+      setMessage("");
+      return;
+    }
+    const startingSetList = serverSetsRef.current;
     setBusy(true);
     setError("");
     setMessage("");
     try {
-      const saved = await api.saveBingoSet(setName.trim());
-      setServerSets((sets) => [...sets.filter((set) => set.id !== saved.summary.id), saved.summary]);
-      setSelectedSet(saved.summary.id);
+      const saved = duplicateUserSet === undefined
+        ? await api.saveBingoSet(setName.trim())
+        : await api.saveBingoSet(setName.trim(), duplicateUserSet.id);
+      if (serverSetsRef.current === startingSetList) {
+        setServerSets((sets) => sets === startingSetList
+          ? [...sets.filter((set) => set.id !== saved.summary.id), saved.summary]
+          : sets);
+        setSelectedSet(saved.summary.id);
+      } else {
+        setSelectedSet(serverSetsRef.current.some((set) => set.id === saved.summary.id) ? saved.summary.id : "");
+      }
       setSetName("");
       setMessage("Bingo-Set gespeichert.");
     } catch (caught) {
@@ -520,15 +557,68 @@ export const BingoAdminPanel = ({
     }
   };
 
+  const beginRenameSet = (): void => {
+    const selected = serverSets.find((set) => set.id === selectedSet);
+    if (selected === undefined || busy || !online) return;
+    setRenameName(selected.name);
+    setRenamingSetId(selected.id);
+    setRenamingSet(true);
+    setError("");
+    setMessage("");
+  };
+
+  const cancelRenameSet = (): void => {
+    setRenamingSet(false);
+    setRenamingSetId(null);
+    setRenameName("");
+  };
+
+  const saveRenameSet = async (): Promise<void> => {
+    const selected = serverSets.find((set) => set.id === renamingSetId);
+    const trimmedName = renameName.normalize("NFC").trim();
+    if (selected === undefined || busy || !online) return;
+    if (trimmedName === "") {
+      setError("Set-Name muss 1–24 Zeichen lang sein.");
+      setMessage("");
+      return;
+    }
+    const startingSetList = serverSetsRef.current;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const renamed = await api.renameBingoSet(selected.id, trimmedName);
+      if (serverSetsRef.current === startingSetList) {
+        setServerSets((sets) => sets === startingSetList
+          ? sets.map((set) => set.id === renamed.summary.id ? renamed.summary : set)
+          : sets);
+        setSelectedSet(renamed.summary.id);
+      } else {
+        setSelectedSet(serverSetsRef.current.some((set) => set.id === renamed.summary.id) ? renamed.summary.id : "");
+      }
+      setMessage("Bingo-Set umbenannt.");
+      setRenamingSet(false);
+      setRenamingSetId(null);
+      setRenameName("");
+    } catch (caught) {
+      showError(caught, "Bingo-Set konnte nicht umbenannt werden.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const deleteSet = async (): Promise<void> => {
     const selected = serverSets.find((set) => set.id === selectedSet);
-    if (selected?.type !== "user" || busy || !online || !window.confirm(`Set „${selected.name}“ löschen?`)) return;
+    if (selected?.type !== "user" || busy || !online || renamingSet || !window.confirm(`Set „${selected.name}“ löschen?`)) return;
+    const startingSetList = serverSetsRef.current;
     setBusy(true);
     setError("");
     setMessage("");
     try {
       await api.deleteBingoSet(selected.id);
-      setServerSets((sets) => sets.filter((set) => set.id !== selected.id));
+      if (serverSetsRef.current === startingSetList) {
+        setServerSets((sets) => sets === startingSetList ? sets.filter((set) => set.id !== selected.id) : sets);
+      }
       setSelectedSet("");
       setMessage("Bingo-Set gelöscht.");
     } catch (caught) {
@@ -699,10 +789,20 @@ export const BingoAdminPanel = ({
         </section>
 
         <div className="bingo-admin-set-tools">
-          <label className="bingo-admin-set-select"><span>Vorlage oder gespeichertes Set</span><select disabled={busy || !online || board === null} onChange={(event) => { setSelectedSet(event.currentTarget.value); void loadSet(event.currentTarget.value); }} value={selectedSet}><option value="">Set laden …</option>{serverSets.map((set) => <option key={set.id} value={set.id}>{set.type === "template" ? "Vorlage · " : "Gespeichert · "}{set.name}</option>)}</select></label>
-          <label><span>Als Set speichern</span><input disabled={busy || !online || dirty} maxLength={24} onChange={(event) => setSetName(event.currentTarget.value)} placeholder="Name des Sets" type="text" value={setName} /></label>
-          <button className="button button--quiet" disabled={setName.trim() === "" || dirty || busy || !online} onClick={() => void saveSet()} type="button">Set speichern</button>
-          <button className="button button--quiet" disabled={selectedSetRecord?.type !== "user" || busy || !online} onClick={() => void deleteSet()} type="button"><Trash2 size={15} /> Set löschen</button>
+          <div className="bingo-admin-set-select-row">
+            <label className="bingo-admin-set-select"><span>Vorlage oder gespeichertes Set</span><select disabled={busy || !online || board === null || renamingSet} onChange={(event) => { setSelectedSet(event.currentTarget.value); void loadSet(event.currentTarget.value); }} value={selectedSet}><option value="">Set laden …</option>{serverSets.map((set) => <option key={set.id} value={set.id}>{set.type === "template" ? "Vorlage · " : "Gespeichert · "}{set.name}</option>)}</select></label>
+            <button aria-label="Set umbenennen" className="button button--quiet bingo-admin-rename-trigger" disabled={selectedSetRecord === undefined || busy || !online || renamingSet} onClick={beginRenameSet} title="Set umbenennen" type="button"><Pencil size={15} /></button>
+          </div>
+          <div className="bingo-admin-rename-slot">
+            {renamingSet ? <form className="bingo-admin-rename-form" onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); cancelRenameSet(); } }} onSubmit={(event) => { event.preventDefault(); void saveRenameSet(); }}>
+              <input aria-label="Neuer Setname" autoFocus maxLength={24} onChange={(event) => setRenameName(event.currentTarget.value)} type="text" value={renameName} />
+              <button className="button button--quiet" disabled={busy || !online} type="submit"><Check size={15} /> Speichern</button>
+              <button className="button button--quiet" disabled={busy} onClick={cancelRenameSet} type="button"><X size={15} /> Abbrechen</button>
+            </form> : <span aria-hidden="true">&nbsp;</span>}
+          </div>
+          <label><span>Als Set speichern</span><input disabled={busy || !online || dirty || renamingSet} maxLength={24} onChange={(event) => setSetName(event.currentTarget.value)} placeholder="Name des Sets" type="text" value={setName} /></label>
+          <button className="button button--quiet" disabled={setName.trim() === "" || dirty || busy || !online || renamingSet} onClick={() => void saveSet()} type="button">Set speichern</button>
+          <button className="button button--quiet" disabled={selectedSetRecord?.type !== "user" || busy || !online || renamingSet} onClick={() => void deleteSet()} type="button"><Trash2 size={15} /> Set löschen</button>
           <input accept="application/json,.json" aria-label="Bingo-Karte importieren" hidden onChange={(event) => void importFile(event.currentTarget.files?.[0])} ref={fileInputRef} type="file" />
           <button className="button button--quiet" disabled={busy || !online} onClick={() => fileInputRef.current?.click()} type="button"><Upload size={15} /> Importieren</button>
           <button className="button button--quiet" disabled={board === null || busy} onClick={() => void exportCard()} type="button"><Download size={15} /> Karte exportieren</button>

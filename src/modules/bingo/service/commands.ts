@@ -285,13 +285,34 @@ export class BingoService {
     });
   }
 
-  public saveSet(name: string): BingoSetRecord {
+  public saveSet(name: string, overwriteSetId?: string): BingoSetRecord {
     return this.repository.transaction((transaction) => {
       const board = transaction.readBoard();
       const now = this.clock();
-      const set = transaction.createSet(name, board.card, now);
-      transaction.recordAudit(createAudit(board, this.actor, "save", `Bingo-Set „${set.summary.name}“ gespeichert`, now));
+      const set = overwriteSetId === undefined
+        ? transaction.createSet(name, board.card, now)
+        : transaction.overwriteSet(overwriteSetId, name, board.card, now);
+      transaction.recordAudit(createAudit(
+        board,
+        this.actor,
+        "save",
+        overwriteSetId === undefined
+          ? `Bingo-Set „${set.summary.name}“ gespeichert`
+          : `Bingo-Set „${set.summary.name}“ überschrieben`,
+        now,
+      ));
       return set;
+    });
+  }
+
+  public renameSet(setId: string, name: string): { set: BingoSetRecord; auditEntry: AuditEntry } {
+    return this.repository.transaction((transaction) => {
+      const board = transaction.readBoard();
+      const now = this.clock();
+      const set = transaction.renameSet(setId, name, now);
+      const auditEntry = createAudit(board, this.actor, "save", `Bingo-Set „${set.summary.name}“ umbenannt`, now);
+      transaction.recordAudit(auditEntry);
+      return { set, auditEntry };
     });
   }
 

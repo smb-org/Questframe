@@ -15,7 +15,7 @@ import {
   Settings2,
   Undo2,
 } from "lucide-react";
-import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
+import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode, type SetStateAction } from "react";
 
 import type {
   AuditEntry,
@@ -62,6 +62,8 @@ import type {
   BingoCardSaveRequest,
   BingoMutationResponse,
   BingoSetListResponse,
+  BingoSetListUpdateMessage,
+  BingoSetSummary,
   BingoSetResponse,
   BingoStyleId,
   BingoSettingsSaveRequest,
@@ -166,12 +168,13 @@ export type AdminApi = {
   saveBingoSettings?: ((request: BingoSettingsSaveRequest) => Promise<BingoMutationResponse>) | undefined;
   listBingoSets?: (() => Promise<BingoSetListResponse>) | undefined;
   getBingoSet?: ((setId: string) => Promise<BingoSetResponse>) | undefined;
-  saveBingoSet?: ((name: string) => Promise<BingoSetResponse>) | undefined;
+  saveBingoSet?: ((name: string, overwriteSetId?: string) => Promise<BingoSetResponse>) | undefined;
+  renameBingoSet?: ((setId: string, name: string) => Promise<BingoSetResponse>) | undefined;
   deleteBingoSet?: ((setId: string) => Promise<string>) | undefined;
   loadBingoSet?: ((setId: string, expectedCardRevision: number) => Promise<BingoMutationResponse>) | undefined;
   importBingoCard?: ((file: string, expectedCardRevision: number) => Promise<BingoMutationResponse>) | undefined;
   exportBingoCard?: (() => Promise<string>) | undefined;
-  subscribe?: ((callbacks: { onState: (state: ChannelState) => void; onOnlineChange: (online: boolean) => void; onOverlayPresence: (connectedSockets: number) => void; onAudit: (entry: AuditEntry, moduleId: UndoModuleId, undoTargets: UndoTarget[]) => void; onUndoTargets: (moduleId: UndoModuleId, undoTargets: UndoTarget[]) => void; onChallengeUpdate?: (update: ChallengeUpdate) => void; onBingoUpdate?: (update: BingoUpdateMessage) => void; onTimeOffset?: (offsetMs: number) => void }) => () => void) | undefined;
+  subscribe?: ((callbacks: { onState: (state: ChannelState) => void; onOnlineChange: (online: boolean) => void; onOverlayPresence: (connectedSockets: number) => void; onAudit: (entry: AuditEntry, moduleId: UndoModuleId, undoTargets: UndoTarget[]) => void; onUndoTargets: (moduleId: UndoModuleId, undoTargets: UndoTarget[]) => void; onChallengeUpdate?: (update: ChallengeUpdate) => void; onBingoUpdate?: (update: BingoUpdateMessage) => void; onBingoSetsUpdate?: (update: BingoSetListUpdateMessage) => void; onTimeOffset?: (offsetMs: number) => void }) => () => void) | undefined;
   logout?: (() => Promise<void>) | undefined;
 };
 
@@ -735,6 +738,8 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
   const [challengeUndoTargets, setChallengeUndoTargets] = useState(initialBootstrap.challengeUndoTargets);
   const [bingoUndoTargets, setBingoUndoTargets] = useState(initialBootstrap.bingoUndoTargets);
   const [bingoUpdate, setBingoUpdate] = useState<BingoUpdateMessage | null>(null);
+  const [bingoSetSummaries, setBingoSetSummaries] = useState<BingoSetSummary[]>([]);
+  const bingoSetSummariesRevisionRef = useRef(0);
   const [bingoCss, setBingoCss] = useState<{ style: BingoStyleId | null }>({ style: null });
   const [bingoPlacementDraft, setBingoPlacementDraft] = useState<ChallengePlacement | null>(null);
   const [bingoSettingsDraft, setBingoSettingsDraft] = useState<BingoPresentationSettings | null>(null);
@@ -755,7 +760,14 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
   const [bingoHandle, setBingoHandle] = useState<BingoAdminSaveHandle | null>(null);
   const [bingoSettingsHandle, setBingoSettingsHandle] = useState<BingoAdminSaveHandle | null>(null);
   const [clockOffsetMs, setClockOffsetMs] = useState(0);
-  const state = useHudEditorState({ initialBootstrap, api, onChallengeUpdate: setChallengeUpdate, onBingoUpdate: setBingoUpdate, onChallengeUndoTargets: setChallengeUndoTargets, onBingoUndoTargets: setBingoUndoTargets, onTimeOffset: setClockOffsetMs });
+  const updateBingoSetSummaries = useCallback((summaries: SetStateAction<BingoSetSummary[]>) => {
+    bingoSetSummariesRevisionRef.current += 1;
+    setBingoSetSummaries(summaries);
+  }, []);
+  const handleBingoSetsUpdate = useCallback((update: BingoSetListUpdateMessage) => {
+    updateBingoSetSummaries(update.sets);
+  }, [updateBingoSetSummaries]);
+  const state = useHudEditorState({ initialBootstrap, api, onChallengeUpdate: setChallengeUpdate, onBingoUpdate: setBingoUpdate, onBingoSetsUpdate: handleBingoSetsUpdate, onChallengeUndoTargets: setChallengeUndoTargets, onBingoUndoTargets: setBingoUndoTargets, onTimeOffset: setClockOffsetMs });
   const changeWorkspace = (tab: AdminWorkspaceId): void => {
     setActiveTab(tab);
     if (tab === "bingo") setBingoPanelOpened(true);
@@ -774,6 +786,15 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
     }).catch(() => undefined);
     return () => { disposed = true; };
   }, [api]);
+  useEffect(() => {
+    if (api.listBingoSets === undefined || !state.online) return;
+    let disposed = false;
+    const startingRevision = bingoSetSummariesRevisionRef.current;
+    void api.listBingoSets().then(({ sets }) => {
+      if (!disposed && startingRevision === bingoSetSummariesRevisionRef.current) setBingoSetSummaries(sets);
+    }).catch(() => undefined);
+    return () => { disposed = true; };
+  }, [api, state.online]);
   const displayedChallengeUpdate = useMemo(() => challengeUpdate === null ? null : { ...challengeUpdate, settings: challengeSettingsWithDraft(challengeUpdate.settings, challengeSettingsDraft) }, [challengeSettingsDraft, challengeUpdate]);
   useEffect(() => {
     const styleId = displayedChallengeUpdate?.settings.styleId ?? null;
@@ -931,7 +952,7 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
       api.getBingoBoard === undefined || api.markBingoCell === undefined || api.resetBingoMarks === undefined
       || api.saveBingoCard === undefined || api.setBingoStyle === undefined || api.listBingoSets === undefined || api.getBingoSet === undefined
       || api.saveBingoSettings === undefined
-      || api.saveBingoSet === undefined || api.deleteBingoSet === undefined || api.loadBingoSet === undefined
+      || api.saveBingoSet === undefined || api.renameBingoSet === undefined || api.deleteBingoSet === undefined || api.loadBingoSet === undefined
       || api.importBingoCard === undefined || api.exportBingoCard === undefined
     ) return null;
     const undoBingo = api.undo;
@@ -945,6 +966,7 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
       listBingoSets: api.listBingoSets,
       getBingoSet: api.getBingoSet,
       saveBingoSet: api.saveBingoSet,
+      renameBingoSet: api.renameBingoSet,
       deleteBingoSet: api.deleteBingoSet,
       loadBingoSet: api.loadBingoSet,
       importBingoCard: api.importBingoCard,
@@ -1037,6 +1059,8 @@ const CompositionWorkspace = ({ initialBootstrap, api, initialTab, loadBingoPane
             ? <section className="bingo-admin-unavailable" role="alert">Bingo-Editor ist in dieser Sitzung nicht verfügbar.</section>
             : <RetryableBingoAdminPanel
                 api={bingoAdminApi}
+                serverSets={bingoSetSummaries}
+                onServerSetsChange={updateBingoSetSummaries}
                 canUndo={initialBootstrap.capabilities.undo}
                 initialUndoTargets={bingoUndoTargets}
                 loader={loadBingoPanel}

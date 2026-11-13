@@ -27,6 +27,8 @@ import {
   bingoSetLoadRequestSchema,
   bingoSetResponseSchema,
   bingoSetSaveRequestSchema,
+  bingoSetRenameRequestSchema,
+  bingoSetListUpdateMessageSchema,
   bingoStyleRequestSchema,
   bingoSettingsSaveRequestSchema,
   bingoUndoResponseSchema,
@@ -239,9 +241,15 @@ export class BrowserAdminApi implements AdminApi {
     return bingoSetResponseSchema.parse(await response.json());
   };
 
-  saveBingoSet = async (name: string) => {
-    const request = bingoSetSaveRequestSchema.parse({ name });
+  saveBingoSet = async (name: string, overwriteSetId?: string) => {
+    const request = bingoSetSaveRequestSchema.parse({ name, ...(overwriteSetId === undefined ? {} : { overwriteSetId }) });
     const response = await this.requestJson("/api/bingo/sets", "POST", request);
+    return bingoSetResponseSchema.parse(await response.json());
+  };
+
+  renameBingoSet = async (setId: string, name: string) => {
+    const request = bingoSetRenameRequestSchema.parse({ name });
+    const response = await this.requestJson(`/api/bingo/sets/${encodeURIComponent(setId)}`, "PATCH", request);
     return bingoSetResponseSchema.parse(await response.json());
   };
 
@@ -373,6 +381,7 @@ export class BrowserAdminApi implements AdminApi {
     onUndoTargets: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onUndoTargets"];
     onChallengeUpdate?: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onChallengeUpdate"];
     onBingoUpdate?: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onBingoUpdate"];
+    onBingoSetsUpdate?: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onBingoSetsUpdate"];
     onTimeOffset?: Parameters<NonNullable<AdminApi["subscribe"]>>[0]["onTimeOffset"];
   }): () => void => {
     let disposed = false;
@@ -417,6 +426,11 @@ export class BrowserAdminApi implements AdminApi {
         const bingoUpdate = bingoUpdateMessageSchema.safeParse(input);
         if (bingoUpdate.success) {
           callbacks.onBingoUpdate?.(bingoUpdate.data);
+          return;
+        }
+        const bingoSetsUpdate = bingoSetListUpdateMessageSchema.safeParse(input);
+        if (bingoSetsUpdate.success) {
+          callbacks.onBingoSetsUpdate?.(bingoSetsUpdate.data);
           return;
         }
         const message = serverMessageSchema.safeParse(input);

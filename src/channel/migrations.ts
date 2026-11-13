@@ -476,7 +476,7 @@ const migrateBingo1 = (sql: SqlStorage): void => {
     sql.exec(
       `INSERT INTO bg_sets(id, type, name, normalized_name, sort_order, created_at, updated_at, payload)
        VALUES (?, 'template', ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
-      `template-${suffix}`,
+      index === 0 && card.title === "Gaming-Fails" ? "template-sterben-und-spielen" : `template-${suffix}`,
       card.title,
       normalizeChallengeSetName(card.title),
       index,
@@ -485,6 +485,39 @@ const migrateBingo1 = (sql: SqlStorage): void => {
       JSON.stringify(card),
     );
   }
+};
+
+const migrateBingo2TemplateRename = (sql: SqlStorage): void => {
+  const templateId = "template-sterben-und-spielen";
+  const oldTitle = "Sterben und Spielen";
+  const newTitle = "Gaming-Fails";
+  const template = sql.exec<{ name: string; payload: string }>(
+    "SELECT name, payload FROM bg_sets WHERE id = ? AND type = 'template'",
+    templateId,
+  ).toArray()[0];
+  if (template?.name === oldTitle) {
+    const card = (() => {
+      try {
+        return bingoCardSchema.parse(JSON.parse(template.payload) as unknown);
+      } catch {
+        return null;
+      }
+    })();
+    const renamedCard = card?.title === oldTitle ? { ...card, title: newTitle } : card;
+    sql.exec(
+      "UPDATE bg_sets SET name = ?, normalized_name = ?, payload = ? WHERE id = ? AND type = 'template' AND name = ?",
+      newTitle,
+      normalizeChallengeSetName(newTitle),
+      renamedCard === null ? template.payload : JSON.stringify(renamedCard),
+      templateId,
+      oldTitle,
+    );
+  }
+  sql.exec(
+    "UPDATE bg_board SET title = ? WHERE singleton = 1 AND title = ? AND card_revision = 0",
+    newTitle,
+    oldTitle,
+  );
 };
 
 const hasStateHistoryModuleColumns = (sql: SqlStorage): boolean => {
@@ -743,6 +776,7 @@ const MIGRATIONS: readonly Migration[] = [
   { namespace: "bingo", version: 1, run: migrateBingo1 },
   { namespace: "bingo", version: 2, guard: (sql) => hasBingoBoardColumn(sql, "settings_revision"), statements: [MIGRATION_2_BINGO_SETTINGS_REVISION] },
   { namespace: "bingo", version: 2, guard: (sql) => hasBingoBoardColumn(sql, "settings_json"), statements: [MIGRATION_2_BINGO_SETTINGS_JSON] },
+  { namespace: "bingo", version: 2, run: migrateBingo2TemplateRename },
 ];
 
 const migrationLedgerColumns = (sql: SqlStorage): readonly string[] =>

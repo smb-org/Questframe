@@ -2,7 +2,7 @@
   "format": "questframe-bingo-vorlagen",
   "version": 1,
   "sets": [
-    { "title": "Sterben und Spielen", "size": 4, "cells": [
+    { "title": "Gaming-Fails", "size": 4, "cells": [
       {"id":"g01","text":"Stirbt bei 90 % Boss-Leben"},
       {"id":"g02","text":"„Kein Mana!“"},
       {"id":"g03","text":"Dummer Death"},

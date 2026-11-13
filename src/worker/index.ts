@@ -639,7 +639,9 @@ const worker = {
     const bingoRoute = bingoRoutes[`${request.method} ${url.pathname}`]
       ?? (bingoSetIdPath && request.method === "GET"
         ? { pathname: `/bingo/sets/${url.pathname.slice("/api/bingo/sets/".length)}`, protection: "read" as const }
-        : bingoSetIdPath && request.method === "DELETE"
+        : bingoSetIdPath && request.method === "PATCH"
+          ? { pathname: `/bingo/sets/${url.pathname.slice("/api/bingo/sets/".length)}`, protection: "editor" as const }
+          : bingoSetIdPath && request.method === "DELETE"
           ? { pathname: `/bingo/sets/${url.pathname.slice("/api/bingo/sets/".length)}`, protection: "editor" as const }
           : bingoSetIdPath && request.method === "POST" && url.pathname.endsWith("/load")
             ? { pathname: `/bingo/sets/${url.pathname.slice("/api/bingo/sets/".length)}`, protection: "editor" as const }

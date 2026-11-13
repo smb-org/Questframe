@@ -65,6 +65,50 @@ beforeEach(async () => {
 });
 
 describe("Bingo migration", () => {
+  it("benennt bingo/2 die Vorlage idempotent um und ändert nur den unangetasteten Boardtitel", async () => {
+    const untouchedStub = env.CHANNEL.get(env.CHANNEL.idFromName(`bingo-template-rename-${crypto.randomUUID()}`));
+    const touchedStub = env.CHANNEL.get(env.CHANNEL.idFromName(`bingo-template-rename-touched-${crypto.randomUUID()}`));
+    const migrateFixture = async (stub: typeof untouchedStub, cardRevision: number) => runInDurableObject(stub, (_instance, state) => {
+      const sql = state.storage.sql;
+      runMigrations(sql, "bingo-template-rename-prepare");
+      const templateId = "template-sterben-und-spielen";
+      const template = sql.exec<{ payload: string }>("SELECT payload FROM bg_sets WHERE id = ? AND type = 'template'", templateId).toArray()[0];
+      if (template === undefined) throw new Error("Erste Bingo-Vorlage fehlt.");
+      const oldCard = { ...(JSON.parse(template.payload) as BingoCard), title: "Sterben und Spielen" };
+      sql.exec("UPDATE bg_sets SET name = ?, normalized_name = ?, payload = ? WHERE id = ? AND type = 'template'", "Sterben und Spielen", "sterben und spielen", JSON.stringify(oldCard), templateId);
+      sql.exec("UPDATE bg_board SET title = 'Sterben und Spielen', card_revision = ? WHERE singleton = 1", cardRevision);
+      sql.exec(
+        `INSERT INTO bg_sets(id, type, name, normalized_name, sort_order, created_at, updated_at, payload)
+         VALUES ('legacy-user-set', 'user', 'Sterben und Spielen', 'sterben und spielen', 99, ?, ?, ?)`,
+        now,
+        now,
+        JSON.stringify(oldCard),
+      );
+      sql.exec("DELETE FROM _sql_schema_migrations WHERE namespace = 'bingo' AND version = 2");
+      runMigrations(sql, "bingo-template-rename-applied");
+      const first = {
+        template: sql.exec<{ id: string; name: string; payload: string }>("SELECT id, name, payload FROM bg_sets WHERE id = ?", templateId).toArray()[0],
+        user: sql.exec<{ name: string; payload: string }>("SELECT name, payload FROM bg_sets WHERE id = 'legacy-user-set'").toArray()[0],
+        board: sql.exec<{ title: string; card_revision: number }>("SELECT title, card_revision FROM bg_board WHERE singleton = 1").toArray()[0],
+      };
+      runMigrations(sql, "bingo-template-rename-repeat");
+      const second = {
+        template: sql.exec<{ id: string; name: string; payload: string }>("SELECT id, name, payload FROM bg_sets WHERE id = ?", templateId).toArray()[0],
+        board: sql.exec<{ title: string; card_revision: number }>("SELECT title, card_revision FROM bg_board WHERE singleton = 1").toArray()[0],
+      };
+      return { first, second };
+    });
+
+    const [untouched, touched] = await Promise.all([migrateFixture(untouchedStub, 0), migrateFixture(touchedStub, 1)]);
+    expect(untouched.first.template).toMatchObject({ id: "template-sterben-und-spielen", name: "Gaming-Fails" });
+    expect(JSON.parse(untouched.first.template?.payload ?? "null")).toMatchObject({ title: "Gaming-Fails" });
+    expect(untouched.first.user?.name).toBe("Sterben und Spielen");
+    expect(JSON.parse(untouched.first.user?.payload ?? "null")).toMatchObject({ title: "Sterben und Spielen" });
+    expect(untouched.first.board).toEqual({ title: "Gaming-Fails", card_revision: 0 });
+    expect(untouched.second).toEqual({ template: untouched.first.template, board: untouched.first.board });
+    expect(touched.first.board).toEqual({ title: "Sterben und Spielen", card_revision: 1 });
+  });
+
   it("fügt bingo/2 mit unveränderten Darstellungsdefaults idempotent hinzu", async () => {
     const result = await runInDurableObject(migrationStub, (_instance, state) => {
       const sql = state.storage.sql;
@@ -136,7 +180,7 @@ describe("Bingo migration", () => {
 
     expect(result.firstSets).toHaveLength(4);
     expect(result.firstSets.map(({ name }) => name)).toEqual([
-      "Sterben und Spielen",
+      "Gaming-Fails",
       "Brudi-Sprüche",
       "Chat und Stream",
       "IRL",
@@ -147,7 +191,7 @@ describe("Bingo migration", () => {
         && "cells" in parsed && Array.isArray(parsed.cells) && parsed.cells.length === 16;
     });
     expect(templatePayloadsValid).toBe(true);
-    expect(result.firstBoard).toMatchObject({ title: "Sterben und Spielen", marks_json: '["g01"]', card_revision: 0, mark_revision: 0, generation: 0, placement_x: 8, placement_y: 80 });
+    expect(result.firstBoard).toMatchObject({ title: "Gaming-Fails", marks_json: '["g01"]', card_revision: 0, mark_revision: 0, generation: 0, placement_x: 8, placement_y: 80 });
     expect(result.secondCount).toBe(4);
     expect(result.secondSets).toStrictEqual(result.firstSets);
     expect(result.secondBoard).toStrictEqual(result.firstBoard);

@@ -85,6 +85,8 @@ export interface BingoRepositoryTransaction {
   getSet(setId: string): BingoSetRecord | null;
   listSets(): BingoSetSummary[];
   createSet(name: string, card: BingoCard, now: string): BingoSetRecord;
+  overwriteSet(setId: string, name: string, card: BingoCard, now: string): BingoSetRecord;
+  renameSet(setId: string, name: string, now: string): BingoSetRecord;
   deleteSet(setId: string): void;
   recordHistory(board: BingoBoardState, summary: string, createdAt: string): void;
   recordAudit(entry: AuditEntry): void;
@@ -96,6 +98,8 @@ export interface BingoRepository {
   getSet(setId: string): BingoSetRecord | null;
   listSets(): BingoSetSummary[];
   createSet(name: string, card: BingoCard, now: string): BingoSetRecord;
+  overwriteSet(setId: string, name: string, card: BingoCard, now: string): BingoSetRecord;
+  renameSet(setId: string, name: string, now: string): BingoSetRecord;
   deleteSet(setId: string): void;
 }
 
@@ -223,6 +227,14 @@ export class SqlStorageBingoRepository implements BingoRepository {
     return this.transaction((transaction) => transaction.createSet(name, card, now));
   }
 
+  public overwriteSet(setId: string, name: string, card: BingoCard, now: string): BingoSetRecord {
+    return this.transaction((transaction) => transaction.overwriteSet(setId, name, card, now));
+  }
+
+  public renameSet(setId: string, name: string, now: string): BingoSetRecord {
+    return this.transaction((transaction) => transaction.renameSet(setId, name, now));
+  }
+
   public deleteSet(setId: string): void {
     this.transaction((transaction) => {
       transaction.deleteSet(setId);
@@ -238,6 +250,8 @@ export class SqlStorageBingoRepository implements BingoRepository {
       getSet: (setId) => this.getSetInternal(setId),
       listSets: () => this.listSetsInternal(),
       createSet: (name, card, now) => this.createSetInternal(name, card, now),
+      overwriteSet: (setId, name, card, now) => this.overwriteSetInternal(setId, name, card, now),
+      renameSet: (setId, name, now) => this.renameSetInternal(setId, name, now),
       deleteSet: (setId) => {
         this.deleteSetInternal(setId);
       },
@@ -326,6 +340,13 @@ export class SqlStorageBingoRepository implements BingoRepository {
     }
     const parsedCard = bingoCardSchema.parse(card);
     const normalizedKey = normalizeChallengeSetName(normalizedName);
+    const templateDuplicate = this.sql.exec<{ id: string }>(
+      "SELECT id FROM bg_sets WHERE type = 'template' AND normalized_name = ?",
+      normalizedKey,
+    ).toArray()[0];
+    if (templateDuplicate !== undefined) {
+      throw new BingoValidationError("Bingo-Vorlagen können nicht überschrieben werden. Bitte wähle einen anderen Namen.");
+    }
     const count = this.sql.exec<{ count: number }>(
       "SELECT COUNT(*) AS count FROM bg_sets WHERE type = 'user'",
     ).toArray()[0]?.count;
@@ -365,6 +386,67 @@ export class SqlStorageBingoRepository implements BingoRepository {
       },
       card: parsedCard,
     };
+  }
+
+  private overwriteSetInternal(setId: string, name: string, card: BingoCard, now: string): BingoSetRecord {
+    const normalizedName = name.normalize("NFC").trim();
+    if (!isChallengeSetName(normalizedName)) {
+      throw new BingoValidationError("Set-Name muss normalisiert 1–24 Zeichen lang sein.");
+    }
+    const existing = this.getSetInternal(setId);
+    if (existing === null) throw new BingoNotFoundError();
+    if (existing.summary.type === "template") {
+      throw new BingoValidationError("Bingo-Vorlagen können nicht überschrieben werden.");
+    }
+    if (existing.summary.name.normalize("NFC").trim().toLocaleLowerCase("de-DE")
+      !== normalizedName.toLocaleLowerCase("de-DE")) {
+      throw new BingoValidationError("Das ausgewählte Bingo-Set hat inzwischen einen anderen Namen.");
+    }
+    const parsedCard = bingoCardSchema.parse(card);
+    this.sql.exec(
+      "UPDATE bg_sets SET payload = ?, updated_at = ? WHERE id = ? AND type = 'user'",
+      JSON.stringify(parsedCard),
+      now,
+      setId,
+    );
+    const updated = this.getSetInternal(setId);
+    if (updated === null) throw new BingoNotFoundError();
+    return updated;
+  }
+
+  private renameSetInternal(setId: string, name: string, now: string): BingoSetRecord {
+    const normalizedName = name.normalize("NFC").trim();
+    if (!isChallengeSetName(normalizedName)) {
+      throw new BingoValidationError("Set-Name muss normalisiert 1–24 Zeichen lang sein.");
+    }
+    const existing = this.getSetInternal(setId);
+    if (existing === null) throw new BingoNotFoundError();
+    const normalizedKey = normalizeChallengeSetName(normalizedName);
+    const duplicate = this.sql.exec<{ id: string }>(
+      "SELECT id FROM bg_sets WHERE type = ? AND normalized_name = ? AND id <> ?",
+      existing.summary.type,
+      normalizedKey,
+      setId,
+    ).toArray()[0];
+    if (duplicate !== undefined) {
+      throw new BingoValidationError(existing.summary.type === "template"
+        ? "Eine Bingo-Vorlage mit diesem Namen gibt es bereits."
+        : "Ein Bingo-Set mit diesem Namen gibt es bereits.");
+    }
+    const renamedCard = existing.summary.type === "template" && existing.card.title === existing.summary.name
+      ? { ...existing.card, title: normalizedName }
+      : existing.card;
+    this.sql.exec(
+      "UPDATE bg_sets SET name = ?, normalized_name = ?, payload = ?, updated_at = ? WHERE id = ?",
+      normalizedName,
+      normalizedKey,
+      JSON.stringify(renamedCard),
+      now,
+      setId,
+    );
+    const renamed = this.getSetInternal(setId);
+    if (renamed === null) throw new BingoNotFoundError();
+    return renamed;
   }
 
   private deleteSetInternal(setId: string): void {

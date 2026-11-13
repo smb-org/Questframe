@@ -111,6 +111,7 @@ const createBingoAdminApi = (initialBoard: BingoBoardState) => {
     listBingoSets: vi.fn(() => Promise.resolve({ sets: [] })),
     getBingoSet: vi.fn(),
     saveBingoSet: vi.fn(),
+    renameBingoSet: vi.fn(),
     deleteBingoSet: vi.fn(),
     loadBingoSet: vi.fn(),
     importBingoCard: vi.fn(),
