@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { BingoAdminPanel, type BingoAdminApi } from "../../../src/modules/bingo/ui/BingoAdminPanel";
@@ -9,6 +10,7 @@ import type {
   BingoMutationResponse,
   BingoSettingsSaveRequest,
   BingoSetResponse,
+  BingoSetSummary,
   BingoStyleId,
   BingoUndoResponse,
   BingoUpdateMessage,
@@ -59,6 +61,7 @@ const createApi = (overrides: Partial<BingoAdminApi> = {}) => ({
   listBingoSets: vi.fn(() => Promise.resolve({ sets: [] })),
   getBingoSet: vi.fn((setId: string) => { void setId; return Promise.resolve({ summary: { id: "set-1", type: "template" as const, name: "Vorlage", sortOrder: 0, createdAt: "2026-11-12T12:00:00.000Z", updatedAt: "2026-11-12T12:00:00.000Z" }, card: createBoard().card } satisfies BingoSetResponse); }),
   saveBingoSet: vi.fn((name: string) => { void name; return Promise.resolve({ summary: { id: "set-1", type: "user" as const, name: "Mein Set", sortOrder: 0, createdAt: "2026-11-12T12:00:00.000Z", updatedAt: "2026-11-12T12:00:00.000Z" }, card: createBoard().card } satisfies BingoSetResponse); }),
+  renameBingoSet: vi.fn((setId: string, name: string) => Promise.resolve({ summary: { id: setId, type: "template" as const, name, sortOrder: 0, createdAt: "2026-11-12T12:00:00.000Z", updatedAt: "2026-11-13T12:00:00.000Z" }, card: createBoard().card } satisfies BingoSetResponse)),
   deleteBingoSet: vi.fn((id: string) => Promise.resolve(id)),
   loadBingoSet: vi.fn((setId: string, revision: number) => { void setId; void revision; return Promise.resolve(mutation(createBoard())); }),
   importBingoCard: vi.fn((file: string, revision: number) => { void file; void revision; return Promise.resolve(mutation(createBoard())); }),
@@ -432,6 +435,140 @@ describe("Bingo-Regie und Editor", () => {
     expect(confirm).toHaveBeenCalledWith('Set „Mein Set“ löschen?');
     await waitFor(() => expect(api.deleteBingoSet).toHaveBeenCalledWith("user-1"));
     expect(screen.queryByRole("option", { name: "Gespeichert · Mein Set" })).not.toBeInTheDocument();
+  });
+
+  it("benennt das ausgewählte Set inline um und übernimmt die Antwort in die Setliste", async () => {
+    const user = userEvent.setup();
+    const api = createApi({
+      listBingoSets: vi.fn(() => Promise.resolve({ sets: [{ id: "template-1", type: "template" as const, name: "Vorlage", sortOrder: 0, createdAt: "2026-11-12T12:00:00.000Z", updatedAt: "2026-11-12T12:00:00.000Z" }] })),
+    });
+    renderPanel(api);
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Vorlage oder gespeichertes Set" }), "template-1");
+    await user.click(await screen.findByRole("button", { name: "Set umbenennen" }));
+    const input = await screen.findByRole("textbox", { name: "Neuer Setname" });
+    await user.clear(input);
+    await user.type(input, "Gaming-Abend");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(api.renameBingoSet).toHaveBeenCalledWith("template-1", "Gaming-Abend"));
+    expect(await screen.findByRole("option", { name: "Vorlage · Gaming-Abend" })).toBeInTheDocument();
+  });
+
+  it("behält eine neuere Setlisten-Übertragung bei einer verspäteten Umbenennungsantwort", async () => {
+    const user = userEvent.setup();
+    const timestamp = "2026-11-12T12:00:00.000Z";
+    let resolveRename: ((response: BingoSetResponse) => void) | undefined;
+    const api = createApi({
+      renameBingoSet: vi.fn(() => new Promise<BingoSetResponse>((resolve) => { resolveRename = resolve; })),
+    });
+    const props = {
+      api,
+      canUndo: true,
+      initialUndoTargets: [],
+      onBoardUpdate: vi.fn(),
+      onUndoTargetsChange: vi.fn(),
+      online: true,
+      update: null,
+      onServerSetsChange: vi.fn(),
+    };
+    const initialSet = { id: "template-1", type: "template" as const, name: "Vorlage", sortOrder: 0, createdAt: timestamp, updatedAt: timestamp };
+    const initialSets = [initialSet];
+    const { rerender } = render(<BingoAdminPanel {...props} serverSets={initialSets} />);
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Vorlage oder gespeichertes Set" }), "template-1");
+    await user.click(await screen.findByRole("button", { name: "Set umbenennen" }));
+    const input = await screen.findByRole("textbox", { name: "Neuer Setname" });
+    await user.clear(input);
+    await user.type(input, "Gaming-Neu");
+    await user.click(screen.getByRole("button", { name: "Speichern" }));
+
+    const newerSets = [{ ...initialSet, name: "Gaming-Aktuell", updatedAt: "2026-11-13T12:00:00.000Z" }];
+    rerender(<BingoAdminPanel {...props} serverSets={newerSets} />);
+    await act(async () => {
+      resolveRename?.({
+        summary: { ...initialSet, name: "Gaming-Neu", updatedAt: "2026-11-13T11:00:00.000Z" },
+        card: createBoard().card,
+      });
+      await Promise.resolve();
+    });
+
+    expect(props.onServerSetsChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("option", { name: "Vorlage · Gaming-Aktuell" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Vorlage · Gaming-Neu" })).not.toBeInTheDocument();
+  });
+
+  it("verwirft eine Umbenennungsantwort, wenn Broadcast und Antwort im selben React-Batch eintreffen", async () => {
+    const user = userEvent.setup();
+    const timestamp = "2026-11-12T12:00:00.000Z";
+    let resolveRename: ((response: BingoSetResponse) => void) | undefined;
+    const api = createApi({
+      renameBingoSet: vi.fn(() => new Promise<BingoSetResponse>((resolve) => { resolveRename = resolve; })),
+    });
+    const initialSet = { id: "template-1", type: "template" as const, name: "Vorlage", sortOrder: 0, createdAt: timestamp, updatedAt: timestamp };
+    const initialSets = [initialSet];
+    let publishSets: (sets: BingoSetSummary[]) => void = () => undefined;
+    const Harness = () => {
+      const [sets, setSets] = useState<BingoSetSummary[]>(initialSets);
+      publishSets = setSets;
+      return <BingoAdminPanel
+        api={api}
+        canUndo
+        initialUndoTargets={[]}
+        onBoardUpdate={vi.fn()}
+        onUndoTargetsChange={vi.fn()}
+        online
+        serverSets={sets}
+        onServerSetsChange={setSets}
+        update={null}
+      />;
+    };
+    render(<Harness />);
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Vorlage oder gespeichertes Set" }), "template-1");
+    await user.click(await screen.findByRole("button", { name: "Set umbenennen" }));
+    const input = await screen.findByRole("textbox", { name: "Neuer Setname" });
+    await user.clear(input);
+    await user.type(input, "Gaming-Spät");
+    await user.click(screen.getByRole("button", { name: "Speichern" }));
+
+    await act(async () => {
+      publishSets([{ ...initialSet, name: "Gaming-Aktuell", updatedAt: "2026-11-13T12:00:00.000Z" }]);
+      resolveRename?.({
+        summary: { ...initialSet, name: "Gaming-Spät", updatedAt: "2026-11-13T11:00:00.000Z" },
+        card: createBoard().card,
+      });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("option", { name: "Vorlage · Gaming-Aktuell" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Vorlage · Gaming-Spät" })).not.toBeInTheDocument();
+  });
+
+  it("fragt vor dem Überschreiben eines eigenen Sets nach und bricht Vorlagenüberschreibungen klar ab", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const timestamp = "2026-11-12T12:00:00.000Z";
+    const api = createApi({
+      listBingoSets: vi.fn(() => Promise.resolve({ sets: [
+        { id: "user-1", type: "user" as const, name: "Mein Set", sortOrder: 1, createdAt: timestamp, updatedAt: timestamp },
+        { id: "template-1", type: "template" as const, name: "Vorlage", sortOrder: 0, createdAt: timestamp, updatedAt: timestamp },
+      ] })),
+    });
+    renderPanel(api);
+    await screen.findByRole("grid", { name: "Testkarte" });
+
+    await user.type(screen.getByRole("textbox", { name: "Als Set speichern" }), "Mein Set");
+    await user.click(screen.getByRole("button", { name: "Set speichern" }));
+    expect(confirm).toHaveBeenCalledWith('Set „Mein Set“ überschreiben?');
+    await waitFor(() => expect(api.saveBingoSet).toHaveBeenCalledWith("Mein Set", "user-1"));
+
+    const nameInput = screen.getByRole("textbox", { name: "Als Set speichern" });
+    await user.clear(nameInput);
+    await user.type(nameInput, "Vorlage");
+    await user.click(screen.getByRole("button", { name: "Set speichern" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(/Vorlage.*nicht überschrieben/i);
+    expect(api.saveBingoSet).toHaveBeenCalledTimes(1);
   });
 
   it("setzt Kreuze erst nach Bestätigung zurück", async () => {

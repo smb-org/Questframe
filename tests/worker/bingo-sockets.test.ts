@@ -230,6 +230,37 @@ describe("Bingo-Sockets", () => {
     }
   });
 
+  it("broadcasts the updated Bingo set list to editor sockets after renaming a set", async () => {
+    const editor = await openSocket(`/ws/editor?tab=${tabId}`);
+    const bingo = await openSocket("/ws/bingo", await createOverlayToken());
+    try {
+      await waitForMessage(editor, (value) => value.type === "snapshot");
+      await waitForMessage(bingo, (value) => value.type === "bingo_update");
+      const created = await fetchWorker("/api/bingo/sets", {
+        method: "POST",
+        headers: authenticatedHeaders(),
+        body: JSON.stringify({ name: "Socket-Set" }),
+      });
+      expect(created.status).toBe(200);
+      const createdBody = await created.json<{ summary: { id: string } }>();
+      const createdList = await waitForMessage(editor, (value) => value.type === "bingo_sets_update");
+      expect(createdList?.sets).toEqual(expect.arrayContaining([expect.objectContaining({ id: createdBody.summary.id, name: "Socket-Set" })]));
+      expect(await waitForMessage(bingo, (value) => value.type === "bingo_sets_update", 50)).toBeNull();
+
+      const renamed = await fetchWorker(`/api/bingo/sets/${createdBody.summary.id}`, {
+        method: "PATCH",
+        headers: authenticatedHeaders(),
+        body: JSON.stringify({ name: "Socket-Set neu" }),
+      });
+      expect(renamed.status).toBe(200);
+      const update = await waitForMessage(editor, (value) => value.type === "bingo_sets_update");
+      expect(update?.sets).toEqual(expect.arrayContaining([expect.objectContaining({ id: createdBody.summary.id, name: "Socket-Set neu" })]));
+    } finally {
+      editor.close();
+      bingo.close();
+    }
+  });
+
   it("sendet Bingo-Updates an den Dock und liefert beim Reconnect einen zeremoniefreien Stand", async () => {
     const dockToken = await createDockToken();
     const dock = await openSocket("/ws/dock", dockToken, DOCK_SOCKET_PROTOCOL);

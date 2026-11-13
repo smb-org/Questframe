@@ -6,7 +6,7 @@ import type { BootstrapResponse, SaveResponse } from "../../../src/shared/contra
 import type { ChallengeBoardSnapshot } from "../../../src/modules/win-challenges/contracts/schemas";
 import { createDefaultState, getReleaseCapabilities, twitchUserIdSchema } from "../../../src/shared/contracts/state";
 import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
-import type { BingoBoardState, BingoMutationResponse, BingoUpdateMessage } from "../../../src/modules/bingo/contracts/schemas";
+import type { BingoBoardState, BingoMutationResponse, BingoSetListResponse, BingoSetListUpdateMessage, BingoUpdateMessage } from "../../../src/modules/bingo/contracts/schemas";
 import { loadBingoStyle } from "../../../src/bingo/style-loader";
 import { AdminWorkspace, type AdminApi, type BingoAdminPanelLoader } from "../../../src/admin/AdminWorkspace";
 import { PreviewPanel } from "../../../src/admin/ui/PreviewPanel";
@@ -85,6 +85,7 @@ const createBingoAdminApi = (overrides: Partial<AdminApi> = {}): AdminApi => {
     listBingoSets: vi.fn(() => Promise.resolve({ sets: [] })),
     getBingoSet: vi.fn(() => Promise.resolve({ summary: { id: "set-1", type: "user" as const, name: "Set", sortOrder: 0, createdAt: "2026-08-29T12:00:00.000Z", updatedAt: "2026-08-29T12:00:00.000Z" }, card: initial.card })),
     saveBingoSet: vi.fn(() => Promise.resolve({ summary: { id: "set-1", type: "user" as const, name: "Set", sortOrder: 0, createdAt: "2026-08-29T12:00:00.000Z", updatedAt: "2026-08-29T12:00:00.000Z" }, card: initial.card })),
+    renameBingoSet: vi.fn((setId: string, name: string) => Promise.resolve({ summary: { id: setId, type: "user" as const, name, sortOrder: 0, createdAt: "2026-08-29T12:00:00.000Z", updatedAt: "2026-08-29T12:00:00.000Z" }, card: initial.card })),
     deleteBingoSet: vi.fn((setId: string) => Promise.resolve(setId)),
     loadBingoSet: vi.fn(() => Promise.resolve(bingoMutation(initial))),
     importBingoCard: vi.fn(() => Promise.resolve(bingoMutation(initial))),
@@ -134,6 +135,57 @@ describe("Kompositions-Workspace", () => {
     expect(await screen.findByRole("heading", { name: "Bingo" })).toBeInTheDocument();
     expect(container.querySelector(".bingo-admin-load-error")).toBeNull();
     reportError.mockRestore();
+  });
+
+  it("behält eine neuere Setlisten-Übertragung statt einer verspäteten ersten GET-Antwort", async () => {
+    let publishSetList: ((update: BingoSetListUpdateMessage) => void) | undefined;
+    let resolveInitialList: ((value: BingoSetListResponse) => void) | undefined;
+    const timestamp = "2026-08-29T12:00:00.000Z";
+    const api = createBingoAdminApi({
+      listBingoSets: vi.fn(() => new Promise<BingoSetListResponse>((resolve) => { resolveInitialList = resolve; })),
+      subscribe: (callbacks) => {
+        callbacks.onOnlineChange(true);
+        publishSetList = callbacks.onBingoSetsUpdate;
+        return () => { publishSetList = undefined; };
+      },
+    });
+    render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="bingo" />);
+    const selector = await screen.findByRole("combobox", { name: "Vorlage oder gespeichertes Set" });
+
+    act(() => publishSetList?.({
+      type: "bingo_sets_update",
+      sets: [{ id: "new-template", type: "template", name: "Neuer Stand", sortOrder: 0, createdAt: timestamp, updatedAt: timestamp }],
+    }));
+    act(() => resolveInitialList?.({
+      sets: [{ id: "old-template", type: "template", name: "Alter Stand", sortOrder: 0, createdAt: timestamp, updatedAt: timestamp }],
+    }));
+
+    expect(within(selector).getByRole("option", { name: "Vorlage · Neuer Stand" })).toBeInTheDocument();
+    expect(within(selector).queryByRole("option", { name: "Vorlage · Alter Stand" })).not.toBeInTheDocument();
+  });
+
+  it("aktualisiert die Setliste nach einer Offlinephase erneut", async () => {
+    let setOnline: ((online: boolean) => void) | undefined;
+    const timestamp = "2026-08-29T12:00:00.000Z";
+    const api = createBingoAdminApi({
+      listBingoSets: vi.fn()
+        .mockResolvedValueOnce({ sets: [{ id: "old-template", type: "template" as const, name: "Vorher", sortOrder: 0, createdAt: timestamp, updatedAt: timestamp }] })
+        .mockResolvedValueOnce({ sets: [{ id: "new-template", type: "template" as const, name: "Nachher", sortOrder: 0, createdAt: timestamp, updatedAt: timestamp }] }),
+      subscribe: (callbacks) => {
+        setOnline = callbacks.onOnlineChange;
+        callbacks.onOnlineChange(true);
+        return () => { setOnline = undefined; };
+      },
+    });
+    render(<AdminWorkspace api={api} initialBootstrap={bootstrap()} workspace="bingo" />);
+    const selector = await screen.findByRole("combobox", { name: "Vorlage oder gespeichertes Set" });
+    expect(await within(selector).findByRole("option", { name: "Vorlage · Vorher" })).toBeInTheDocument();
+
+    act(() => setOnline?.(false));
+    act(() => setOnline?.(true));
+
+    expect(await within(selector).findByRole("option", { name: "Vorlage · Nachher" })).toBeInTheDocument();
+    expect(api.listBingoSets).toHaveBeenCalledTimes(2);
   });
 
   it("speichert HUD und Bingo gemeinsam über Alle speichern", async () => {

@@ -152,6 +152,7 @@ describe("Bingo-API", () => {
       ["GET", "/api/bingo"],
       ["GET", "/api/bingo/sets"],
       ["POST", "/api/bingo/sets", JSON.stringify({ name: "Dock-Set" })],
+      ["PATCH", "/api/bingo/sets/owned-set", JSON.stringify({ name: "Dock-Set" })],
       ["GET", "/api/bingo/sets/template-crashout"],
       ["DELETE", "/api/bingo/sets/owned-set"],
       ["POST", "/api/bingo/sets/owned-set/load", JSON.stringify({ expectedCardRevision: 0 })],
@@ -291,6 +292,111 @@ describe("Bingo-API", () => {
       headers: authenticatedHeaders(),
     });
     expect(userDelete.status).toBe(200);
+  });
+
+  it("benennt eigene Bingo-Sets und Vorlagen um und lehnt normalisierte Namenskonflikte ab", async () => {
+    const created = await fetchWorker("/api/bingo/sets", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({ name: "Abendkarte" }),
+    });
+    const createdBody = await created.json<{ summary: { id: string; name: string } }>();
+
+    const renamed = await fetchWorker(`/api/bingo/sets/${createdBody.summary.id}`, {
+      method: "PATCH",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({ name: "  Neue Karte  " }),
+    });
+    expect(renamed.status).toBe(200);
+    await expect(renamed.json()).resolves.toMatchObject({ summary: { id: createdBody.summary.id, name: "Neue Karte", type: "user" } });
+    const audit = await runInDurableObject(stub, (_instance, state) => state.storage.sql.exec<{ summary: string }>(
+      "SELECT summary FROM audit_log WHERE summary = ? ORDER BY created_at DESC LIMIT 1",
+      "Bingo-Set „Neue Karte“ umbenannt",
+    ).toArray()[0]?.summary);
+    expect(audit).toBe("Bingo-Set „Neue Karte“ umbenannt");
+
+    const secondSet = await fetchWorker("/api/bingo/sets", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({ name: "Zweite Karte" }),
+    });
+    const secondSetBody = await secondSet.json<{ summary: { id: string } }>();
+
+    const duplicate = await fetchWorker(`/api/bingo/sets/${secondSetBody.summary.id}`, {
+      method: "PATCH",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({ name: "neue karte" }),
+    });
+    expect(duplicate.status).toBe(422);
+    await expect(duplicate.json()).resolves.toMatchObject({ error: { code: "validation_failed" } });
+
+    const list = await fetchWorker("/api/bingo/sets", { headers: authenticatedHeaders() });
+    const sets = await list.json<{ sets: { id: string; name: string; type: string }[] }>();
+    expect(sets.sets).toContainEqual(expect.objectContaining({ id: createdBody.summary.id, name: "Neue Karte", type: "user" }));
+    const template = sets.sets.find((set) => set.type === "template" && set.name === "Gaming-Fails");
+    if (template === undefined) throw new Error("Umbenannte Bingo-Vorlage fehlt.");
+    const otherTemplate = sets.sets.find((set) => set.type === "template" && set.id !== template.id);
+    if (otherTemplate === undefined) throw new Error("Weitere Bingo-Vorlage fehlt.");
+    const duplicateTemplate = await fetchWorker(`/api/bingo/sets/${otherTemplate.id}`, {
+      method: "PATCH",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({ name: "gaming-fails" }),
+    });
+    expect(duplicateTemplate.status).toBe(422);
+
+    const renamedTemplate = await fetchWorker(`/api/bingo/sets/${template.id}`, {
+      method: "PATCH",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({ name: "Gaming-Abend" }),
+    });
+    expect(renamedTemplate.status).toBe(200);
+    await expect(renamedTemplate.json()).resolves.toMatchObject({
+      summary: { id: template.id, name: "Gaming-Abend", type: "template" },
+      card: { title: "Gaming-Abend" },
+    });
+    const restoredTemplate = await fetchWorker(`/api/bingo/sets/${template.id}`, {
+      method: "PATCH",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({ name: "Gaming-Fails" }),
+    });
+    expect(restoredTemplate.status).toBe(200);
+  });
+
+  it("überschreibt ein eigenes Set nur mit gesetzter Ziel-ID und lehnt Vorlagen ab", async () => {
+    const initial = await fetchWorker("/api/bingo/sets", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({ name: "Wiederverwenden" }),
+    });
+    const initialBody = await initial.json<{ summary: { id: string } }>();
+
+    const savedCard = await saveCard(card("Neue Bingo-Karte", "overwrite"), 0);
+    expect(savedCard.status).toBe(200);
+
+    const overwritten = await fetchWorker("/api/bingo/sets", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({ name: "Wiederverwenden", overwriteSetId: initialBody.summary.id }),
+    });
+    expect(overwritten.status).toBe(200);
+    await expect(overwritten.json()).resolves.toMatchObject({
+      summary: { id: initialBody.summary.id, name: "Wiederverwenden", type: "user" },
+      card: { title: "Neue Bingo-Karte" },
+    });
+
+    const template = (await (await fetchWorker("/api/bingo/sets", { headers: authenticatedHeaders() })).json<{
+      sets: { id: string; name: string; type: string }[];
+    }>()).sets.find((set) => set.type === "template" && set.name === "Gaming-Fails");
+    if (template === undefined) throw new Error("Bingo-Vorlage fehlt.");
+    const templateOverwrite = await fetchWorker("/api/bingo/sets", {
+      method: "POST",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({ name: template.name }),
+    });
+    expect(templateOverwrite.status).toBe(422);
+    const templateOverwriteBody = await templateOverwrite.json<{ error: { code: string; message: string } }>();
+    expect(templateOverwriteBody.error.code).toBe("validation_failed");
+    expect(templateOverwriteBody.error.message).toMatch(/Vorlage.*nicht überschrieben/i);
   });
 
   it("saves, styles, lists and loads cards independently, keeping presentation settings out of portable files", async () => {

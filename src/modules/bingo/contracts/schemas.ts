@@ -172,7 +172,18 @@ export const bingoStyleRequestSchema = z.strictObject({
 });
 
 export const bingoSetSaveRequestSchema = z.strictObject({
-  name: z.string().min(1).max(MAX_BINGO_TITLE_LENGTH),
+  name: z.preprocess(
+    (value) => typeof value === "string" ? value.normalize("NFC").trim() : value,
+    z.string().min(1).max(MAX_BINGO_TITLE_LENGTH),
+  ),
+  overwriteSetId: z.string().min(1).max(64).optional(),
+});
+
+export const bingoSetRenameRequestSchema = z.strictObject({
+  name: z.preprocess(
+    (value) => typeof value === "string" ? value.normalize("NFC").trim() : value,
+    z.string().min(1).max(MAX_BINGO_TITLE_LENGTH),
+  ),
 });
 
 export const bingoSetLoadRequestSchema = z.strictObject({
@@ -189,6 +200,11 @@ export const bingoSetSummarySchema = z.strictObject({
 });
 
 export const bingoSetListResponseSchema = z.strictObject({
+  sets: z.array(bingoSetSummarySchema).max(64),
+});
+
+export const bingoSetListUpdateMessageSchema = z.strictObject({
+  type: z.literal("bingo_sets_update"),
   sets: z.array(bingoSetSummarySchema).max(64),
 });
 
@@ -275,5 +291,6 @@ export type BingoCardSaveRequest = z.infer<typeof bingoCardSaveRequestSchema>;
 export type BingoSettingsSaveRequest = z.infer<typeof bingoSettingsSaveRequestSchema>;
 export type BingoSetSummary = z.infer<typeof bingoSetSummarySchema>;
 export type BingoUpdateMessage = z.infer<typeof bingoUpdateMessageSchema>;
+export type BingoSetListUpdateMessage = z.infer<typeof bingoSetListUpdateMessageSchema>;
 export type BingoUndoResponse = z.infer<typeof bingoUndoResponseSchema>;
 export type BingoMutationResponse = z.infer<typeof bingoMutationResponseSchema>;

@@ -452,8 +452,9 @@ describe("BrowserAdminApi", () => {
     const onOverlayPresence = vi.fn();
     const onAudit = vi.fn();
     const onUndoTargets = vi.fn();
+    const onBingoSetsUpdate = vi.fn();
     const api = new BrowserAdminApi();
-    const dispose = api.subscribe({ onState, onOnlineChange, onOverlayPresence, onAudit, onUndoTargets });
+    const dispose = api.subscribe({ onState, onOnlineChange, onOverlayPresence, onAudit, onUndoTargets, onBingoSetsUpdate });
     const socket = FakeWebSocket.instances[0];
     expect(socket?.url).toContain("/ws/editor?tab=");
 
@@ -470,11 +471,14 @@ describe("BrowserAdminApi", () => {
     socket?.emit("message", JSON.stringify({ type: "audit_appended", moduleId: "hud", entry: auditEntry, undoTargets }));
     socket?.emit("message", JSON.stringify({ type: "snapshot", state: state() }));
     socket?.emit("message", JSON.stringify({ type: "overlay_presence", connectedSockets: 1 }));
+    const bingoSetsUpdate = { type: "bingo_sets_update", sets: [{ id: "set-1", type: "user", name: "Bingo-Abend", sortOrder: 1, createdAt: now, updatedAt: now }] };
+    socket?.emit("message", JSON.stringify(bingoSetsUpdate));
     expect(onOnlineChange).toHaveBeenCalledWith(true);
     expect(onUndoTargets).toHaveBeenCalledWith("challenges", undoTargets);
     expect(onAudit).toHaveBeenCalledWith(auditEntry, "hud", undoTargets);
     expect(onState).toHaveBeenCalledWith(state());
     expect(onOverlayPresence).toHaveBeenCalledWith(1);
+    expect(onBingoSetsUpdate).toHaveBeenCalledWith(bingoSetsUpdate);
 
     socket?.emit("close");
     expect(onOnlineChange).toHaveBeenCalledWith(false);

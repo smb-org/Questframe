@@ -7,6 +7,7 @@ import {
   bingoSetListResponseSchema,
   bingoSetLoadRequestSchema,
   bingoSetResponseSchema,
+  bingoSetRenameRequestSchema,
   bingoSetSaveRequestSchema,
   bingoStyleRequestSchema,
   bingoSettingsSaveRequestSchema,
@@ -126,8 +127,18 @@ export const createBingoHttpHandler = (socketTags: readonly SocketTag[]): Module
     if (request.method === "POST" && url.pathname === "/bingo/sets") {
       const session = await requireEditorMutation(request, ctx);
       const input = bingoSetSaveRequestSchema.parse(await readJson(request, 2_048));
-      const record = bingoService(ctx, session).saveSet(input.name);
+      const record = bingoService(ctx, session).saveSet(input.name, input.overwriteSetId);
+      ctx.broadcast(["editor"], { type: "bingo_sets_update", sets: repository.listSets() });
       return jsonResponse(bingoSetResponseSchema.parse({ summary: record.summary, card: record.card }));
+    }
+    if (request.method === "PATCH" && url.pathname.startsWith("/bingo/sets/")) {
+      const session = await requireEditorMutation(request, ctx);
+      const setId = decodeSetId(url.pathname.slice("/bingo/sets/".length));
+      const input = bingoSetRenameRequestSchema.parse(await readJson(request, 2_048));
+      const { set, auditEntry } = bingoService(ctx, session).renameSet(setId, input.name);
+      ctx.broadcast(["editor"], { type: "bingo_sets_update", sets: repository.listSets() });
+      ctx.broadcastAudit(auditEntry, ctx.getUndoTargets());
+      return jsonResponse(bingoSetResponseSchema.parse({ summary: set.summary, card: set.card }));
     }
     if (request.method === "POST" && url.pathname === "/bingo/mark") {
       const session = await requireEditorMutation(request, ctx);
@@ -192,6 +203,7 @@ export const createBingoHttpHandler = (socketTags: readonly SocketTag[]): Module
       const session = await requireEditorMutation(request, ctx);
       const setId = decodeSetId(url.pathname.slice("/bingo/sets/".length));
       bingoService(ctx, session).deleteSet(setId);
+      ctx.broadcast(["editor"], { type: "bingo_sets_update", sets: repository.listSets() });
       return jsonResponse(bingoSetDeleteResponseSchema.parse({ id: setId, deleted: true }));
     }
     return null;

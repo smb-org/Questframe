@@ -107,7 +107,13 @@
   margin: 10px 0;
 }
 
-.bingo-admin-set-select { grid-column: 1 / -1; }
+.bingo-admin-set-select-row { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) 40px; align-items: end; gap: 8px; }
+.bingo-admin-set-select { min-width: 0; }
+.bingo-admin-rename-trigger { width: 40px; height: 38px; padding: 0; }
+.bingo-admin-rename-slot { grid-column: 1 / -1; height: 42px; min-height: 42px; }
+.bingo-admin-rename-form { height: 42px; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: end; gap: 8px; }
+.bingo-admin-rename-form .button { min-height: 38px; }
+.bingo-admin-rename-slot > span { visibility: hidden; }
 .bingo-admin-set-tools .button { min-width: 0; min-height: 38px; padding: 0 8px; font-size: 11px; }
 .bingo-admin-set-tools .button svg { flex: 0 0 auto; }
 
