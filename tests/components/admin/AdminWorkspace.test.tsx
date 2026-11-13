@@ -12,7 +12,7 @@ import type { ChallengeBoardSnapshot, Command } from "../../../src/modules/win-c
 import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
 import { AdminWorkspace, type AdminApi } from "../../../src/admin/AdminWorkspace";
 import { BingoAdminPanel } from "../../../src/modules/bingo/ui/BingoAdminPanel";
-import type { BingoBoardState, BingoCardSaveRequest, BingoMutationResponse, BingoUpdateMessage } from "../../../src/modules/bingo/contracts/schemas";
+import type { BingoBoardState, BingoCardSaveRequest, BingoMutationResponse, BingoSettingsSaveRequest, BingoUpdateMessage } from "../../../src/modules/bingo/contracts/schemas";
 
 vi.mock("qrcode", () => ({
   toDataURL: vi.fn(() => Promise.resolve("data:image/png;base64,challenge-qr")),
@@ -68,6 +68,11 @@ const bingoBoard = (placement: BingoBoardState["placement"] = { x: 8, y: 80, sca
   cardRevision: 0,
   markRevision: 0,
   generation: 0,
+  settingsRevision: 1,
+  settings: {
+    backgroundOpacity: 100, textScale: 1, fontFamily: "theme", textEmphasis: "auto",
+    ceremonyMode: "on", soundOnLine: false, soundOnFullCard: false, showTitle: true, showBingo: true,
+  },
   style: "marker",
   placement,
 });
@@ -89,6 +94,11 @@ const createBingoAdminApi = (initialBoard: BingoBoardState) => {
     cardRevision: initialBoard.cardRevision + 1,
     placement: request.placement,
   })));
+  const saveBingoSettings = vi.fn((request: BingoSettingsSaveRequest) => Promise.resolve(bingoMutation({
+    ...initialBoard,
+    settings: request.settings,
+    settingsRevision: initialBoard.settingsRevision + 1,
+  })));
   const api: AdminApi = {
     save: vi.fn(),
     setVisibility: vi.fn(),
@@ -97,6 +107,7 @@ const createBingoAdminApi = (initialBoard: BingoBoardState) => {
     resetBingoMarks: vi.fn(() => Promise.resolve(bingoMutation(initialBoard))),
     saveBingoCard,
     setBingoStyle: vi.fn(() => Promise.resolve(bingoMutation(initialBoard))),
+    saveBingoSettings,
     listBingoSets: vi.fn(() => Promise.resolve({ sets: [] })),
     getBingoSet: vi.fn(),
     saveBingoSet: vi.fn(),
@@ -114,6 +125,7 @@ const createBingoAdminApi = (initialBoard: BingoBoardState) => {
     api,
     publish: (update: BingoUpdateMessage) => publishBingoUpdate?.(update),
     saveBingoCard,
+    saveBingoSettings,
   };
 };
 
@@ -2278,7 +2290,7 @@ describe("Admin workspace publication boundary", () => {
     if (!(preview instanceof HTMLElement)) throw new Error("Bingo-Vorschau fehlt.");
 
     expect(preview).toHaveAttribute("tabindex", "0");
-    expect(preview).toHaveAccessibleName("Bingo-Karte verschieben, Pfeiltasten");
+    expect(preview).toHaveAccessibleName("Bingo-Karte verschieben, Pfeiltasten, + und - skalieren");
     fireEvent.pointerDown(preview, { button: 0, pointerId: 7, clientX: 40, clientY: 400 });
     fireEvent.pointerMove(preview, { pointerId: 7, clientX: 55, clientY: 415 });
     fireEvent.pointerUp(preview, { pointerId: 7, clientX: 55, clientY: 415 });
@@ -2309,6 +2321,58 @@ describe("Admin workspace publication boundary", () => {
     const panel = within(document.querySelector("#admin-composition-panel-bingo") as HTMLElement);
     expect(panel.getByLabelText("Platzierung X")).toHaveValue(9);
     expect(panel.getByLabelText("Platzierung Y")).toHaveValue(90);
+  });
+
+  it("skaliert Bingo per Eckgriff in 0,05-Schritten, begrenzt den Wert und markiert den Kartenentwurf als dirty", async () => {
+    const harness = await renderBingoComposition();
+    const preview = document.querySelector(".admin-bingo-live-preview");
+    if (!(preview instanceof HTMLElement)) throw new Error("Bingo-Vorschau fehlt.");
+    vi.spyOn(preview, "getBoundingClientRect").mockReturnValue({ x: 0, y: 0, left: 0, top: 0, right: 520, bottom: 520, width: 520, height: 520, toJSON: () => ({}) });
+    const handle = screen.getByRole("button", { name: "Bingo-Karte skalieren" });
+
+    fireEvent.pointerDown(handle, { button: 0, pointerId: 51, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(handle, { pointerId: 51, clientX: 126, clientY: 126 });
+    fireEvent.pointerUp(handle, { pointerId: 51, clientX: 126, clientY: 126 });
+    expect(screen.getByRole("slider", { name: "Quellengröße" })).toHaveValue("1.05");
+    expect(screen.getByRole("button", { name: "Alle speichern" })).toBeInTheDocument();
+    expect(harness.saveBingoCard).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(handle, { button: 0, pointerId: 52, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(handle, { pointerId: 52, clientX: 2_000, clientY: 2_000 });
+    fireEvent.pointerUp(handle, { pointerId: 52, clientX: 2_000, clientY: 2_000 });
+    expect(screen.getByRole("slider", { name: "Quellengröße" })).toHaveValue("2");
+
+    fireEvent.pointerDown(handle, { button: 0, pointerId: 53, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(handle, { pointerId: 53, clientX: -2_000, clientY: -2_000 });
+    fireEvent.pointerUp(handle, { pointerId: 53, clientX: -2_000, clientY: -2_000 });
+    expect(screen.getByRole("slider", { name: "Quellengröße" })).toHaveValue("0.75");
+  });
+
+  it("skaliert die fokussierte Bingo-Vorschau mit Plus und Minus in 0,05-Schritten", async () => {
+    await renderBingoComposition();
+    const preview = document.querySelector(".admin-bingo-live-preview");
+    if (!(preview instanceof HTMLElement)) throw new Error("Bingo-Vorschau fehlt.");
+
+    fireEvent.keyDown(preview, { key: "+" });
+    expect(screen.getByRole("slider", { name: "Quellengröße" })).toHaveValue("1.05");
+    fireEvent.keyDown(preview, { key: "-" });
+    expect(screen.getByRole("slider", { name: "Quellengröße" })).toHaveValue("1");
+  });
+
+  it("meldet den Bingo-Textgrößenentwurf für Alle speichern an und sendet ihn", async () => {
+    const user = userEvent.setup();
+    const harness = await renderBingoComposition();
+    const panel = within(document.querySelector("#admin-composition-panel-bingo") as HTMLElement);
+
+    fireEvent.change(panel.getByRole("slider", { name: "Textgröße" }), { target: { value: "1.5" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Alle speichern" })).toBeInTheDocument());
+    expect(document.querySelector(".global-save-bar")).toHaveTextContent("Bingo-Darstellung");
+    await user.click(screen.getByRole("button", { name: "Alle speichern" }));
+
+    await waitFor(() => expect(harness.saveBingoSettings).toHaveBeenCalledWith({
+      baseSettingsRevision: 1,
+      settings: { ...bingoBoard().settings, textScale: 1.5 },
+    }));
   });
 
   it("behält die gezogene Bingo-Platzierung beim Editieren im Kartendraft", async () => {

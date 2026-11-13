@@ -361,6 +361,18 @@ describe("BrowserAdminApi", () => {
       markRevision: 6,
       generation: 2,
       style: "marker",
+      settingsRevision: 5,
+      settings: {
+        backgroundOpacity: 100,
+        textScale: 1,
+        fontFamily: "theme",
+        textEmphasis: "auto",
+        ceremonyMode: "on",
+        soundOnLine: false,
+        soundOnFullCard: false,
+        showTitle: true,
+        showBingo: true,
+      },
       placement: { x: 8, y: 8, scale: 1 },
     };
     const response = { board, undoTargets: [], serverTime: now };
@@ -370,7 +382,7 @@ describe("BrowserAdminApi", () => {
     const undo = api.undo as unknown as (
       moduleId: string,
       channelSeq: number,
-      revisions: { cardRevision: number; markRevision: number; generation: number; style: "marker" },
+      revisions: { cardRevision: number; markRevision: number; generation: number; style: "marker"; settingsRevision: number },
     ) => Promise<unknown>;
 
     await expect(undo("bingo", 7, {
@@ -378,6 +390,7 @@ describe("BrowserAdminApi", () => {
       markRevision: 6,
       generation: 2,
       style: "marker",
+      settingsRevision: 5,
     })).resolves.toEqual(response);
 
     const request = new Request("https://example.test", fetcher.mock.calls[0]?.[1]);
@@ -388,6 +401,7 @@ describe("BrowserAdminApi", () => {
       baseMarkRevision: 6,
       baseGeneration: 2,
       baseStyle: "marker",
+      baseSettingsRevision: 5,
     });
   });
 

@@ -7,6 +7,7 @@ import type {
   BingoBoardState,
   BingoCardSaveRequest,
   BingoMutationResponse,
+  BingoSettingsSaveRequest,
   BingoSetResponse,
   BingoStyleId,
   BingoUndoResponse,
@@ -25,6 +26,11 @@ const createBoard = (): BingoBoardState => ({
   cardRevision: 7,
   markRevision: 4,
   generation: 2,
+  settingsRevision: 1,
+  settings: {
+    backgroundOpacity: 100, textScale: 1, fontFamily: "theme", textEmphasis: "auto",
+    ceremonyMode: "on", soundOnLine: false, soundOnFullCard: false, showTitle: true, showBingo: true,
+  },
   style: "marker",
   placement: { x: 12, y: 8, scale: 1 },
 });
@@ -49,6 +55,7 @@ const createApi = (overrides: Partial<BingoAdminApi> = {}) => ({
   markBingoCell: vi.fn((request: MarkCellPayload) => { void request; return Promise.resolve(mutation({ ...createBoard(), marks: ["cell-0"], markRevision: 5 })); }),
   resetBingoMarks: vi.fn((expectedMarkRevision: number) => { void expectedMarkRevision; return Promise.resolve(mutation({ ...createBoard(), markRevision: 5 })); }),
   saveBingoCard: vi.fn((request: BingoCardSaveRequest) => { void request; return Promise.resolve(mutation(createBoard())); }),
+  saveBingoSettings: vi.fn((request: BingoSettingsSaveRequest) => Promise.resolve(mutation({ ...createBoard(), settings: request.settings, settingsRevision: createBoard().settingsRevision + 1 }))),
   listBingoSets: vi.fn(() => Promise.resolve({ sets: [] })),
   getBingoSet: vi.fn((setId: string) => { void setId; return Promise.resolve({ summary: { id: "set-1", type: "template" as const, name: "Vorlage", sortOrder: 0, createdAt: "2026-11-12T12:00:00.000Z", updatedAt: "2026-11-12T12:00:00.000Z" }, card: createBoard().card } satisfies BingoSetResponse); }),
   saveBingoSet: vi.fn((name: string) => { void name; return Promise.resolve({ summary: { id: "set-1", type: "user" as const, name: "Mein Set", sortOrder: 0, createdAt: "2026-11-12T12:00:00.000Z", updatedAt: "2026-11-12T12:00:00.000Z" }, card: createBoard().card } satisfies BingoSetResponse); }),

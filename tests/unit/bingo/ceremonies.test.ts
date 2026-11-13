@@ -15,6 +15,11 @@ const update = (ceremony?: BingoUpdateMessage["ceremony"]): BingoUpdateMessage =
     cardRevision: 1,
     markRevision: 2,
     generation: 0,
+    settingsRevision: 1,
+    settings: {
+      backgroundOpacity: 100, textScale: 1, fontFamily: "theme", textEmphasis: "auto",
+      ceremonyMode: "on", soundOnLine: false, soundOnFullCard: false, showTitle: true, showBingo: true,
+    },
     style: "broadcast",
     placement: { x: 8, y: 80, scale: 1 },
   },

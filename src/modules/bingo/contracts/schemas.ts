@@ -1,7 +1,15 @@
 import { z } from "zod";
 import { auditEntrySchema, undoTargetSchema } from "../../../shared/contracts/api";
+import {
+  DEFAULT_BINGO_PRESENTATION_SETTINGS,
+} from "./presentation-settings";
+import type { BingoPresentationSettings as BingoPresentationSettingsContract } from "./presentation-settings";
 
 import {
+  isChallengeFontFamily,
+  isChallengeFontScale,
+  isChallengeSurfaceOpacity,
+  isChallengeTextEmphasis,
   isChallengeSetName,
   MAX_CHALLENGE_SET_NAME_GRAPHEMES,
   normalizeChallengeText,
@@ -112,6 +120,30 @@ export const bingoLineSchema = z.strictObject({
 
 export const bingoStyleIdSchema = z.enum(["marker", "broadcast"]);
 
+export { DEFAULT_BINGO_PRESENTATION_SETTINGS } from "./presentation-settings";
+
+const challengeSurfaceOpacitySchema = z.custom<0 | 25 | 50 | 75 | 100>(isChallengeSurfaceOpacity);
+const challengeFontFamilySchema = z.custom<"theme" | "atkinson" | "serif" | "sans" | "mono">(isChallengeFontFamily);
+const challengeTextEmphasisSchema = z.custom<"auto" | "strong" | "plain">(isChallengeTextEmphasis);
+const fontScaleSchema = z.custom<number>(isChallengeFontScale);
+
+export const bingoPresentationSettingsSchema = z.strictObject({
+  backgroundOpacity: challengeSurfaceOpacitySchema,
+  textScale: fontScaleSchema,
+  fontFamily: challengeFontFamilySchema,
+  textEmphasis: challengeTextEmphasisSchema,
+  ceremonyMode: z.enum(["on", "subtle", "off"]),
+  soundOnLine: z.boolean(),
+  soundOnFullCard: z.boolean(),
+  showTitle: z.boolean(),
+  showBingo: z.boolean(),
+}) satisfies z.ZodType<BingoPresentationSettingsContract>;
+
+export const bingoSettingsSaveRequestSchema = z.strictObject({
+  baseSettingsRevision: nonNegativeIntegerSchema,
+  settings: bingoPresentationSettingsSchema,
+});
+
 export const markCellPayloadSchema = z.strictObject({
   cellId: bingoCellIdSchema,
   marked: z.boolean(),
@@ -177,6 +209,8 @@ export const bingoBoardStateSchema = z.strictObject({
   cardRevision: nonNegativeIntegerSchema,
   markRevision: nonNegativeIntegerSchema,
   generation: nonNegativeIntegerSchema,
+  settingsRevision: nonNegativeIntegerSchema.default(1),
+  settings: bingoPresentationSettingsSchema.default(DEFAULT_BINGO_PRESENTATION_SETTINGS),
   style: bingoStyleIdSchema.default(DEFAULT_BINGO_STYLE_ID),
   placement: challengePlacementSchema,
 }).superRefine((board, context) => {
@@ -234,9 +268,11 @@ export type BingoSetListResponse = z.infer<typeof bingoSetListResponseSchema>;
 export type BingoSetResponse = z.infer<typeof bingoSetResponseSchema>;
 export type BingoLine = z.infer<typeof bingoLineSchema>;
 export type BingoBoardState = z.infer<typeof bingoBoardStateSchema>;
+export type BingoPresentationSettings = z.infer<typeof bingoPresentationSettingsSchema>;
 export type MarkCellPayload = z.infer<typeof markCellPayloadSchema>;
 export type ResetMarksPayload = z.infer<typeof resetMarksPayloadSchema>;
 export type BingoCardSaveRequest = z.infer<typeof bingoCardSaveRequestSchema>;
+export type BingoSettingsSaveRequest = z.infer<typeof bingoSettingsSaveRequestSchema>;
 export type BingoSetSummary = z.infer<typeof bingoSetSummarySchema>;
 export type BingoUpdateMessage = z.infer<typeof bingoUpdateMessageSchema>;
 export type BingoUndoResponse = z.infer<typeof bingoUndoResponseSchema>;

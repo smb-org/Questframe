@@ -210,6 +210,7 @@ export const undoRequestSchema = z.strictObject({
   baseMarkRevision: z.number().int().nonnegative(),
   baseGeneration: z.number().int().nonnegative(),
   baseStyle: z.enum(["marker", "broadcast"]),
+  baseSettingsRevision: z.number().int().nonnegative(),
 }));
 
 export const visibilityRequestSchema = z.strictObject({
@@ -343,6 +344,7 @@ export type BingoUndoBaseRevisions = {
   markRevision: number;
   generation: number;
   style: "marker" | "broadcast";
+  settingsRevision: number;
 };
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
 export type ClientMessage = z.infer<typeof clientMessageSchema>;

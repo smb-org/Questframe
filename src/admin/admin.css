@@ -196,6 +196,11 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .composition-draggable-module--challenge { z-index: 4; }
 .admin-bingo-live-preview { z-index: 5; }
 .composition-draggable-module--bingo { z-index: 5; }
+.composition-draggable-module--bingo .bingo-preview-resize-handle { position: absolute; z-index: 8; right: -14px; bottom: -14px; width: 32px; height: 32px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-3); color: var(--text); cursor: nwse-resize !important; opacity: 0; pointer-events: none; transition: opacity 120ms ease; }
+.composition-draggable-module--bingo:hover .bingo-preview-resize-handle,
+.composition-draggable-module--bingo:focus-within .bingo-preview-resize-handle,
+.composition-draggable-module--bingo.is-resizing .bingo-preview-resize-handle { opacity: 1; pointer-events: auto; }
+.composition-draggable-module--bingo .bingo-preview-resize-handle:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 2px; }
 .is-module-muted { opacity: 0.38; outline: 1px dashed var(--muted); outline-offset: 5px; pointer-events: auto !important; }
 .is-module-muted::after { content: "Nicht im Sammel-Overlay"; position: absolute; z-index: 2; top: 4px; right: 4px; padding: 3px 6px; border: 1px solid var(--muted); border-radius: 3px; background: var(--surface-2); color: var(--muted); font-size: 9px; font-weight: 700; letter-spacing: 0.03em; line-height: 1.1; pointer-events: none; white-space: nowrap; }
 

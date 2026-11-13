@@ -5,11 +5,11 @@ import type { BingoBoardState, BingoLine, BingoStyleId } from "../modules/bingo/
 
 const segmenter = new Intl.Segmenter("de", { granularity: "grapheme" });
 
-const cellFontSize = (text: string, size: BingoBoardState["card"]["size"], width: number): string => {
+const cellFontSize = (text: string, size: BingoBoardState["card"]["size"], width: number, scale: number): string => {
   const graphemes = [...segmenter.segment(text)].length;
   const cellExtent = width / size;
   const innerExtent = cellExtent * 0.86;
-  for (let fontSize = 28; fontSize >= 8; fontSize -= 1) {
+  for (let fontSize = 28 * scale; fontSize >= 8; fontSize -= scale) {
     const graphemesPerLine = Math.max(1, Math.floor(innerExtent / fontSize));
     const lineCount = Math.ceil(graphemes / graphemesPerLine);
     if (lineCount * fontSize * 1.08 <= innerExtent) return `${String(fontSize)}px`;
@@ -54,6 +54,9 @@ export const BingoBoard = ({
   const full = board.marks.length === board.card.cells.length;
   const markedCount = board.marks.length;
   const totalCount = board.card.cells.length;
+  const textEmphasis = board.settings.textEmphasis === "auto"
+    ? board.settings.backgroundOpacity < 50 ? "strong" : "plain"
+    : board.settings.textEmphasis;
   const badgeLine = lines[0];
   const badgeX = badgeLine?.kind === "col" ? ((badgeLine.index + 0.5) / board.card.size) * 100 : 50;
   const style = {
@@ -62,6 +65,7 @@ export const BingoBoard = ({
     "--bingo-cell-extent": `${String(width / board.card.size)}px`,
     "--bingo-progress": `${String(totalCount === 0 ? 0 : (markedCount / totalCount) * 100)}%`,
     "--bingo-badge-x": `${String(badgeX)}%`,
+    "--bingo-background-opacity": String(board.settings.backgroundOpacity / 100),
   } as CSSProperties;
 
   return (
@@ -70,10 +74,13 @@ export const BingoBoard = ({
       className="bingo-source"
       data-style={styleId}
       data-full={full ? "true" : undefined}
+      data-bingo-font={board.settings.fontFamily}
+      data-bingo-emphasis={textEmphasis}
+      data-bingo-text-emphasis={board.settings.textEmphasis}
       style={style}
     >
       <header className="bingo-source__header">
-        <h2 className="bingo-source__title">{board.card.title}</h2>
+        <h2 aria-hidden={!board.settings.showTitle} className="bingo-source__title" style={{ visibility: board.settings.showTitle ? "visible" : "hidden" }}>{board.card.title}</h2>
         <span className="bingo-source__counter">{String(markedCount)}/{String(totalCount)}</span>
         <div
           aria-label="Bingo-Fortschritt"
@@ -84,12 +91,12 @@ export const BingoBoard = ({
           role="progressbar"
         ><span className="bingo-source__progress-fill" /></div>
       </header>
-      {lines.length > 0 && <span aria-hidden="true" className="bingo-source__bingo-badge">BINGO</span>}
+      {board.settings.showBingo && lines.length > 0 && <span aria-hidden="true" className="bingo-source__bingo-badge">BINGO</span>}
       <div aria-label={board.card.title} className="bingo-source__grid" role="grid">
         {board.card.cells.map((cell, index) => {
           const isMarked = marked.has(cell.id);
           const lineComplete = completedCells.has(cell.id);
-          const cellStyle = { "--bingo-cell-font-size": cellFontSize(cell.text, board.card.size, width) } as CSSProperties;
+          const cellStyle = { "--bingo-cell-font-size": cellFontSize(cell.text, board.card.size, width, board.settings.textScale) } as CSSProperties;
           return (
             <button
               aria-label={`${cell.text}${isMarked ? ", angekreuzt" : ""}`}

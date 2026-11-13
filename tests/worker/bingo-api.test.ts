@@ -246,6 +246,7 @@ describe("Bingo-API", () => {
         baseMarkRevision: afterStyle.markRevision,
         baseGeneration: afterStyle.generation,
         baseStyle: afterStyle.style,
+        baseSettingsRevision: afterStyle.settingsRevision,
       }),
     });
     expect(undo.status).toBe(200);
@@ -292,7 +293,7 @@ describe("Bingo-API", () => {
     expect(userDelete.status).toBe(200);
   });
 
-  it("saves, styles, lists, loads, exports and imports cards independently of challenges", async () => {
+  it("saves, styles, lists and loads cards independently, keeping presentation settings out of portable files", async () => {
     const challengesBefore = await (await fetchWorker("/api/challenges", { headers: authenticatedHeaders() })).json();
     expect((await saveCard(card(), 0)).status).toBe(200);
 
@@ -316,6 +317,18 @@ describe("Bingo-API", () => {
       error: { code: "revision_conflict", currentSnapshot: { style: "broadcast", cardRevision: 2 } },
     });
 
+    const beforeSettings = await readBingo();
+    const settings = await fetchWorker("/api/bingo/settings", {
+      method: "PUT",
+      headers: authenticatedHeaders(),
+      body: JSON.stringify({
+        baseSettingsRevision: beforeSettings.settingsRevision,
+        settings: { ...beforeSettings.settings, showTitle: false },
+      }),
+    });
+    expect(settings.status).toBe(200);
+    const presentation = await readBingo();
+
     const savedSet = await fetchWorker("/api/bingo/sets", {
       method: "POST",
       headers: authenticatedHeaders(),
@@ -331,6 +344,11 @@ describe("Bingo-API", () => {
     const fileResponse = await fetchWorker("/api/bingo/export", { headers: authenticatedHeaders() });
     expect(fileResponse.status).toBe(200);
     const file = await fileResponse.text();
+    expect(JSON.parse(file)).toEqual({
+      format: "questframe-bingo",
+      version: 1,
+      card: savedSetBody.card,
+    });
     const changed = await saveCard(card("Andere Karte", "other"), first.cardRevision);
     expect(changed.status).toBe(200);
     const beforeImport = await readBingo();
@@ -348,6 +366,7 @@ describe("Bingo-API", () => {
     expect(imported.status).toBe(200);
     const importedBoard = await readBingo();
     expect(importedBoard.card).toEqual(savedSetBody.card);
+    expect(importedBoard.settings).toEqual(presentation.settings);
     expect(importedBoard.marks).toEqual([]);
     expect(importedBoard.generation).toBe(current.generation + 1);
 

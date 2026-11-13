@@ -4,7 +4,19 @@ type BingoStyle = "marker" | "broadcast";
 type BingoBoard = {
   cardRevision: number;
   markRevision: number;
+  settingsRevision: number;
   style: BingoStyle;
+  settings: {
+    backgroundOpacity: 0 | 25 | 50 | 75 | 100;
+    textScale: number;
+    fontFamily: "theme" | "atkinson" | "serif" | "sans" | "mono";
+    textEmphasis: "auto" | "strong" | "plain";
+    ceremonyMode: "on" | "subtle" | "off";
+    soundOnLine: boolean;
+    soundOnFullCard: boolean;
+    showTitle: boolean;
+    showBingo: boolean;
+  };
   card: { title: string; size: number; cells: { id: string; text: string }[] };
 };
 type BingoMutation = {
@@ -105,12 +117,19 @@ const enableCompositeBingo = async (page: Page): Promise<void> => {
 
 const saveGeometryBoard = async (page: Page, size: number, style: BingoStyle): Promise<BingoBoard> => {
   const current = await apiJson<BingoBoard>(page, "/api/bingo", "GET");
+  const resetSettings = await apiJson<BingoMutation>(page, "/api/bingo/settings", "PUT", {
+    baseSettingsRevision: current.settingsRevision,
+    settings: {
+      backgroundOpacity: 100, textScale: 1, fontFamily: "theme", textEmphasis: "auto",
+      ceremonyMode: "on", soundOnLine: false, soundOnFullCard: false, showTitle: true, showBingo: true,
+    },
+  });
   const saved = await apiJson<BingoMutation>(page, "/api/bingo/board", "PUT", {
     title: `Geometrie ${String(size)}×${String(size)}`,
     size,
     cells: Array.from({ length: size * size }, (_, index) => ({ id: `geo-${String(index)}`, text: `Feld ${String(index + 1)}` })),
     placement: { x: 8, y: 80, scale: 1 },
-    expectedCardRevision: current.cardRevision,
+    expectedCardRevision: resetSettings.board.cardRevision,
   });
   const reset = await apiJson<BingoMutation>(page, "/api/bingo/reset", "POST", {
     expectedMarkRevision: saved.board.markRevision,
@@ -120,6 +139,14 @@ const saveGeometryBoard = async (page: Page, size: number, style: BingoStyle): P
     expectedCardRevision: reset.board.cardRevision,
   });
   return styled.board;
+};
+
+const saveLargestTextSettings = async (page: Page, board: BingoBoard): Promise<BingoBoard> => {
+  const saved = await apiJson<BingoMutation>(page, "/api/bingo/settings", "PUT", {
+    baseSettingsRevision: board.settingsRevision,
+    settings: { ...board.settings, textScale: 2, showTitle: true },
+  });
+  return saved.board;
 };
 
 const completeFirstRow = async (page: Page, size: number, start: BingoBoard): Promise<BingoMutation> => {
@@ -182,7 +209,8 @@ test("hält Bingo-Titel, Karte und Abschlussbadge bei allen Größen und Stilen 
   const markerHudOverlapBySize = new Map<number, number>();
   for (const style of ["marker", "broadcast"] as const) {
     for (const size of [3, 4, 5]) {
-      const board = await saveGeometryBoard(page, size, style);
+      let board = await saveGeometryBoard(page, size, style);
+      if (size === 5) board = await saveLargestTextSettings(page, board);
       const completed = await completeFirstRow(page, size, board);
       expect(completed.update?.ceremony?.lines.length).toBeGreaterThan(0);
 
@@ -193,6 +221,18 @@ test("hält Bingo-Titel, Karte und Abschlussbadge bei allen Größen und Stilen 
       await assertInsideStage(composite, ".bingo-source");
       await assertInsideStage(composite, ".bingo-source__header");
       await assertInsideStage(composite, ".bingo-source__title");
+      if (size === 5) {
+        expect(await visibleBoard.locator(".bingo-source__text").evaluateAll((texts) => texts.every((text) => {
+          const textRect = text.getBoundingClientRect();
+          const cellRect = text.parentElement?.getBoundingClientRect();
+          return cellRect !== undefined
+            && textRect.left >= cellRect.left
+            && textRect.top >= cellRect.top
+            && textRect.right <= cellRect.right
+            && textRect.bottom <= cellRect.bottom;
+        }))).toBe(true);
+        expect(await composite.locator(".bingo-source-ceremony").evaluate((stage) => getComputedStyle(stage).getPropertyValue("--bingo-scale").trim())).toBe("1");
+      }
 
       if (style === "broadcast") {
         await expect(visibleBoard.locator(".bingo-source__bingo-badge")).toBeVisible();

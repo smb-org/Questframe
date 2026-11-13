@@ -236,6 +236,7 @@ describe("API contracts", () => {
       baseMarkRevision: 9,
       baseGeneration: 2,
       baseStyle: "marker",
+      baseSettingsRevision: 4,
     })).toEqual({
       moduleId: "bingo",
       channelSeq: 3,
@@ -243,6 +244,7 @@ describe("API contracts", () => {
       baseMarkRevision: 9,
       baseGeneration: 2,
       baseStyle: "marker",
+      baseSettingsRevision: 4,
     });
     expect(() => serverMessageSchema.parse({
       type: "audit_appended",

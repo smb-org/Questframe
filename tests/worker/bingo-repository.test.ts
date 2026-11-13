@@ -65,6 +65,40 @@ beforeEach(async () => {
 });
 
 describe("Bingo migration", () => {
+  it("fügt bingo/2 mit unveränderten Darstellungsdefaults idempotent hinzu", async () => {
+    const result = await runInDurableObject(migrationStub, (_instance, state) => {
+      const sql = state.storage.sql;
+      runMigrations(sql, "bingo-settings-first-run");
+      const initial = sql.exec<{ settings_revision: number; settings_json: string }>(
+        "SELECT settings_revision, settings_json FROM bg_board WHERE singleton = 1",
+      ).toArray()[0];
+      sql.exec("UPDATE bg_board SET settings_revision = 4, settings_json = ? WHERE singleton = 1", JSON.stringify({ showTitle: false }));
+      runMigrations(sql, "bingo-settings-second-run");
+      return {
+        initial,
+        persisted: sql.exec<{ settings_revision: number; settings_json: string }>(
+          "SELECT settings_revision, settings_json FROM bg_board WHERE singleton = 1",
+        ).toArray()[0],
+        versions: sql.exec<{ version: number }>("SELECT version FROM _sql_schema_migrations WHERE namespace = 'bingo' ORDER BY version").toArray(),
+      };
+    });
+
+    expect(result.initial?.settings_revision).toBe(1);
+    expect(JSON.parse(result.initial?.settings_json ?? "null")).toEqual({
+      backgroundOpacity: 100,
+      textScale: 1,
+      fontFamily: "theme",
+      textEmphasis: "auto",
+      ceremonyMode: "on",
+      soundOnLine: false,
+      soundOnFullCard: false,
+      showTitle: true,
+      showBingo: true,
+    });
+    expect(result.persisted).toEqual({ settings_revision: 4, settings_json: JSON.stringify({ showTitle: false }) });
+    expect(result.versions).toEqual([{ version: 1 }, { version: 2 }]);
+  });
+
   it("seeds four templates once and preserves marks and deleted sets on repeated runs", async () => {
     const result = await runInDurableObject(migrationStub, (_instance, state) => {
       const sql = state.storage.sql;
@@ -119,11 +153,32 @@ describe("Bingo migration", () => {
     expect(result.secondBoard).toStrictEqual(result.firstBoard);
     expect(result.afterDeleteCount).toBe(3);
     expect(result.remainingIds).not.toContain(result.firstSets[0]?.id);
-    expect(result.versions).toEqual([{ version: 1 }]);
+    expect(result.versions).toEqual([{ version: 1 }, { version: 2 }]);
   });
 });
 
 describe("Bingo repository and service", () => {
+  it("speichert Darstellungseinstellungen mit eigener Revision und stellt sie per Bingo-Undo wieder her", async () => {
+    await inRepository((repository, sql) => {
+      const service = serviceFor(repository);
+      const before = service.readBoard();
+      const changed = service.saveSettings({ ...before.settings, showTitle: false, textScale: 1.5 }, before.settingsRevision);
+      expect(changed.board.settingsRevision).toBe(before.settingsRevision + 1);
+      expect(changed.board.settings).toMatchObject({ showTitle: false, textScale: 1.5 });
+
+      const previous = sql.exec<{ snapshot_json: string }>(
+        "SELECT snapshot_json FROM state_history WHERE module_id = 'bingo' ORDER BY channel_seq DESC LIMIT 1",
+      ).toArray()[0]?.snapshot_json;
+      expect(previous).toBeDefined();
+      const next = service.saveSettings({ ...changed.board.settings, showBingo: false }, changed.board.settingsRevision);
+      const undone = applyBingoUndo({ repository, actor, clock: () => now }, previous ?? "{}");
+
+      expect(undone.board.settings).toEqual(before.settings);
+      expect(undone.board.settingsRevision).toBe(next.board.settingsRevision + 1);
+      expect(undone.update?.ceremony).toBeUndefined();
+    });
+  });
+
   it("marks cells and returns the completed diagonal as ceremony information", async () => {
     await inRepository((repository) => {
       const service = serviceFor(repository);

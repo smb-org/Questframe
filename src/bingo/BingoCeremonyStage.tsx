@@ -1,4 +1,5 @@
 import type { CSSProperties, HTMLAttributes } from "react";
+import { MoveDiagonal2 } from "lucide-react";
 
 import type { BingoBoardState } from "../modules/bingo/contracts/schemas";
 import type { ChallengePlacement } from "../shared/contracts/win-challenges";
@@ -13,6 +14,7 @@ export const BingoCeremonyStage = ({
   ariaLabel,
   rootProps,
   placementAtOrigin = false,
+  resizeHandleProps,
 }: {
   board: BingoBoardState;
   presentation: Pick<BingoPresentation, "activeCeremony" | "reducedMotion">;
@@ -21,6 +23,7 @@ export const BingoCeremonyStage = ({
   ariaLabel?: string;
   rootProps?: Omit<HTMLAttributes<HTMLDivElement>, "children" | "className" | "style">;
   placementAtOrigin?: boolean;
+  resizeHandleProps?: Pick<HTMLAttributes<HTMLButtonElement>, "onPointerDown" | "onPointerMove" | "onPointerUp" | "onPointerCancel" | "onLostPointerCapture">;
 }) => {
   const activePlacement = placement ?? board.placement;
   const style = {
@@ -34,14 +37,22 @@ export const BingoCeremonyStage = ({
       {...rootProps}
       aria-label={ariaLabel}
       className={`bingo-source-ceremony ${className ?? ""}`.trim()}
-      data-ceremony-motion={presentation.activeCeremony === null ? undefined : presentation.reducedMotion ? "static" : "animated"}
+      data-ceremony-motion={presentation.activeCeremony === null ? undefined : presentation.reducedMotion ? "static" : board.settings.ceremonyMode === "subtle" ? "subtle" : "animated"}
       data-style={board.style}
       data-ceremony-type={presentation.activeCeremony?.type}
       style={style}
     >
       <BingoBoard board={board} ceremonyLines={presentation.activeCeremony?.lines ?? []} />
-      {presentation.activeCeremony !== null && (
+      {presentation.activeCeremony !== null && board.settings.showBingo && (
         <div aria-live="polite" className="bingo-source__bingo-callout">BINGO!</div>
+      )}
+      {resizeHandleProps !== undefined && (
+        <button
+          aria-label="Bingo-Karte skalieren"
+          className="bingo-preview-resize-handle"
+          type="button"
+          {...resizeHandleProps}
+        ><MoveDiagonal2 aria-hidden="true" size={16} /></button>
       )}
     </div>
   );

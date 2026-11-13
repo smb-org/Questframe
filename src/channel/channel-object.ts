@@ -698,6 +698,7 @@ export class ChannelObject extends DurableObject<AppEnv> {
         || input.baseMarkRevision !== current.markRevision
         || input.baseGeneration !== current.generation
         || input.baseStyle !== current.style
+        || input.baseSettingsRevision !== current.settingsRevision
       ) {
         throw new RequestError(409, "revision_conflict", "Das Bingo-Board wurde inzwischen geändert.", {
           currentSnapshot: current,

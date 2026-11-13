@@ -9,6 +9,7 @@ import {
 import {
   bingoBoardStateSchema,
   bingoCardSchema,
+  bingoPresentationSettingsSchema,
   type BingoBoardState,
   type BingoCard,
 } from "../contracts/schemas";
@@ -67,10 +68,12 @@ export class BingoValidationError extends BingoRepositoryError {
 export class BingoRevisionConflictError extends BingoRepositoryError {
   public readonly board: BingoBoardState;
 
-  public constructor(board: BingoBoardState, kind: "card" | "marks") {
+  public constructor(board: BingoBoardState, kind: "card" | "marks" | "settings") {
     super("revision_conflict", kind === "card"
       ? "Die Bingo-Karte wurde inzwischen geändert."
-      : "Die Bingo-Markierungen wurden inzwischen geändert.");
+      : kind === "marks"
+        ? "Die Bingo-Markierungen wurden inzwischen geändert."
+        : "Die Bingo-Darstellung wurde inzwischen geändert.");
     this.name = "BingoRevisionConflictError";
     this.board = board;
   }
@@ -114,6 +117,8 @@ type BoardRow = {
   placement_y: number;
   placement_scale: number;
   style: string;
+  settings_revision: number;
+  settings_json: string;
   created_at: string;
   updated_at: string;
 };
@@ -142,6 +147,8 @@ const boardRowSchema = z.strictObject({
   placement_y: z.number().int(),
   placement_scale: z.number(),
   style: z.string(),
+  settings_revision: z.number().int(),
+  settings_json: z.string(),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -257,6 +264,8 @@ export class SqlStorageBingoRepository implements BingoRepository {
       cardRevision: parsed.card_revision,
       markRevision: parsed.mark_revision,
       generation: parsed.generation,
+      settingsRevision: parsed.settings_revision,
+      settings: bingoPresentationSettingsSchema.parse(parseJson(parsed.settings_json, "Bingo-Darstellung")),
       style: parsed.style,
       placement: {
         x: parsed.placement_x,
@@ -271,7 +280,8 @@ export class SqlStorageBingoRepository implements BingoRepository {
     this.sql.exec(
       `UPDATE bg_board SET
         title = ?, size = ?, cells_json = ?, marks_json = ?, card_revision = ?, mark_revision = ?,
-        generation = ?, placement_x = ?, placement_y = ?, placement_scale = ?, style = ?, updated_at = ?
+        generation = ?, placement_x = ?, placement_y = ?, placement_scale = ?, style = ?,
+        settings_revision = ?, settings_json = ?, updated_at = ?
        WHERE singleton = 1`,
       parsed.card.title,
       parsed.card.size,
@@ -284,6 +294,8 @@ export class SqlStorageBingoRepository implements BingoRepository {
       parsed.placement.y,
       parsed.placement.scale,
       parsed.style,
+      parsed.settingsRevision,
+      JSON.stringify(parsed.settings),
       updatedAt,
     );
   }
@@ -374,7 +386,7 @@ export class SqlStorageBingoRepository implements BingoRepository {
       `INSERT INTO state_history(channel_seq, module_id, revision, snapshot_json, created_at, summary)
        VALUES (?, 'bingo', ?, ?, ?, ?)`,
       channelSeq,
-      Math.max(parsed.cardRevision, parsed.markRevision),
+      Math.max(parsed.cardRevision, parsed.markRevision, parsed.settingsRevision),
       JSON.stringify(parsed),
       createdAt,
       summary,

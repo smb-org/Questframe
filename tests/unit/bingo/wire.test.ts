@@ -23,7 +23,31 @@ describe("Bingo-Overlay-Wire", () => {
     const parsed = parseBingoMessage({ type: "bingo_update", board });
 
     expect(parsed).not.toBeNull();
+    expect(parsed?.type === "bingo_update" ? parsed.board.settings.showTitle : null).toBe(true);
     expect(bingoCeremonyFor("marker", parsed as BingoUpdateMessage)).toBeNull();
+  });
+
+  it("liest neue Darstellungseinstellungen und lehnt unbekannte Schlüssel weiter ab", () => {
+    const next = {
+      ...board,
+      settingsRevision: 3,
+      settings: {
+        backgroundOpacity: 50,
+        textScale: 1.5,
+        fontFamily: "serif",
+        textEmphasis: "strong",
+        ceremonyMode: "subtle",
+        soundOnLine: true,
+        soundOnFullCard: false,
+        showTitle: false,
+        showBingo: true,
+      },
+    };
+    const parsed = parseBingoMessage({ type: "bingo_update", board: next });
+
+    expect(parsed?.type === "bingo_update" ? parsed.board.settings : null).toEqual(next.settings);
+    expect(parseBingoMessage({ type: "bingo_update", board: { ...next, extra: true } })).toBeNull();
+    expect(parseBingoMessage({ type: "bingo_update", board: { ...next, settings: { ...next.settings, extra: true } } })).toBeNull();
   });
 
   it("nimmt die Zeremonie ausschließlich aus dem Update-Payload und priorisiert die Vollkarte", () => {

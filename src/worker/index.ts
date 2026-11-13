@@ -631,6 +631,7 @@ const worker = {
       "POST /api/bingo/reset": { pathname: "/bingo/reset", protection: "editor" },
       "PUT /api/bingo/board": { pathname: "/bingo/board", protection: "editor" },
       "PUT /api/bingo/style": { pathname: "/bingo/style", protection: "editor" },
+      "PUT /api/bingo/settings": { pathname: "/bingo/settings", protection: "editor" },
       "GET /api/bingo/export": { pathname: "/bingo/export", protection: "read" },
       "POST /api/bingo/import": { pathname: "/bingo/import", protection: "editor" },
     };
