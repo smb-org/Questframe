@@ -1,11 +1,13 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createDefaultState, twitchUserIdSchema } from "../../../src/shared/contracts/state";
 import { HudRenderer } from "../../../src/overlay/HudRenderer";
 import { getHealthTier } from "../../../src/overlay/health";
 
 const actor = { twitchUserId: "123", displayName: "Moderator" };
+
+afterEach(() => cleanup());
 
 describe("HUD renderer", () => {
   it("uses the exact requested health thresholds", () => {

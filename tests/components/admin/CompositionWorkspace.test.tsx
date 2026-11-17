@@ -132,6 +132,11 @@ describe("Kompositions-Workspace", () => {
     expect(hudPanel().getByRole("slider", { name: "Gesundheit", hidden: true })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Erneut laden" }));
 
+    expect(loadBingoPanel).toHaveBeenCalledTimes(2);
+    const retryLoad = loadBingoPanel.mock.results[1];
+    if (retryLoad?.type !== "return") throw new Error("Der erneute Bingo-Import wurde nicht gestartet.");
+    await act(async () => { await retryLoad.value; });
+
     expect(await screen.findByRole("heading", { name: "Bingo" })).toBeInTheDocument();
     expect(container.querySelector(".bingo-admin-load-error")).toBeNull();
     reportError.mockRestore();
