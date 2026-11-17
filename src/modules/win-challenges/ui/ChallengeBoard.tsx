@@ -11,7 +11,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 import type { ChallengeUpdate } from "../../../shared/contracts/win-challenges";
 import { decodeChallengeSet, encodeChallengeSet } from "../domain/set-codec";
@@ -1525,7 +1525,7 @@ export const ChallengeBoard = ({
   // damit der registrierte Handle nur bei Dirty-Wechsel neu erzeugt wird (sonst
   // Endlosschleife, da save() bei jedem Render eine neue Funktionsreferenz waere).
   const saveRef = useRef(save);
-  useEffect(() => { saveRef.current = save; });
+  useLayoutEffect(() => { saveRef.current = save; });
   useEffect(() => {
     onHandleChange?.({ dirty, save: () => saveRef.current() });
   }, [dirty, onHandleChange]);

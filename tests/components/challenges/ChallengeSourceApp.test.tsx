@@ -6,6 +6,8 @@ import { ChallengeLog } from "../../../src/modules/win-challenges/ui/ChallengeLo
 import type { ChallengeStyleId, ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
 import { OVERLAY_SOCKET_PROTOCOL } from "../../../src/shared/contracts/protocol";
 
+vi.mock("../../../src/challenges/style-loader", () => ({ loadChallengeStyle: () => Promise.resolve() }));
+
 const token = "A".repeat(43);
 
 const messageType = (value: string): unknown => {

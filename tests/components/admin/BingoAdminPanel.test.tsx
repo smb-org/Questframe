@@ -668,7 +668,9 @@ describe("Bingo-Regie und Editor", () => {
     });
     renderPanel(api);
 
+    await screen.findByRole("grid", { name: "Testkarte" });
     await user.selectOptions(await screen.findByRole("combobox", { name: "Vorlage oder gespeichertes Set" }), "template-1");
+    await screen.findByText("Bingo-Set geladen.");
     await user.click(await screen.findByRole("button", { name: "Set umbenennen" }));
     const input = await screen.findByRole("textbox", { name: "Neuer Setname" });
     await user.clear(input);
@@ -700,7 +702,9 @@ describe("Bingo-Regie und Editor", () => {
     const initialSets = [initialSet];
     const { rerender } = render(<BingoAdminPanel {...props} serverSets={initialSets} />);
 
+    await screen.findByRole("grid", { name: "Testkarte" });
     await user.selectOptions(await screen.findByRole("combobox", { name: "Vorlage oder gespeichertes Set" }), "template-1");
+    await screen.findByText("Bingo-Set geladen.");
     await user.click(await screen.findByRole("button", { name: "Set umbenennen" }));
     const input = await screen.findByRole("textbox", { name: "Neuer Setname" });
     await user.clear(input);
@@ -749,7 +753,9 @@ describe("Bingo-Regie und Editor", () => {
     };
     render(<Harness />);
 
+    await screen.findByRole("grid", { name: "Testkarte" });
     await user.selectOptions(await screen.findByRole("combobox", { name: "Vorlage oder gespeichertes Set" }), "template-1");
+    await screen.findByText("Bingo-Set geladen.");
     await user.click(await screen.findByRole("button", { name: "Set umbenennen" }));
     const input = await screen.findByRole("textbox", { name: "Neuer Setname" });
     await user.clear(input);
