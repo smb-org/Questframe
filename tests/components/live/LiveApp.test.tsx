@@ -2,6 +2,9 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { challengeUpdateSettings } from "../../support/challenge-fixtures";
+import { FakeWebSocket, setLocationToken, stubFakeWebSocket } from "../../support/fake-websocket";
+
 import { LiveApp } from "../../../src/live/LiveApp";
 import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
 import { DOCK_SOCKET_PROTOCOL } from "../../../src/shared/contracts/protocol";
@@ -9,31 +12,6 @@ import type { BingoBoardState } from "../../../src/modules/bingo/contracts/schem
 
 const token = "D".repeat(43);
 const now = "2026-08-31T12:00:00.000Z";
-
-class FakeWebSocket {
-  static instances: FakeWebSocket[] = [];
-  readonly url: string;
-  readonly protocols: string[];
-  private readonly listeners = new Map<string, Array<(event: Event & { data?: unknown }) => void>>();
-
-  constructor(url: string, protocols?: string | string[]) {
-    this.url = url;
-    this.protocols = protocols === undefined ? [] : Array.isArray(protocols) ? protocols : [protocols];
-    FakeWebSocket.instances.push(this);
-  }
-
-  addEventListener(type: string, callback: (event: Event & { data?: unknown }) => void): void {
-    const listeners = this.listeners.get(type) ?? [];
-    listeners.push(callback);
-    this.listeners.set(type, listeners);
-  }
-
-  emit(type: string, data?: unknown): void {
-    for (const callback of this.listeners.get(type) ?? []) callback({ type, data } as Event & { data?: unknown });
-  }
-
-  close(): void {}
-}
 
 const challenge = (
   currentCount = 3,
@@ -64,24 +42,7 @@ const message = (currentCount = 3): ChallengeUpdate => ({
   eventSeq: currentCount === 3 ? 0 : 1,
   boardRevision: 1,
   settingsRevision: 1,
-  settings: {
-    styleId: "plain-list",
-    themeMode: "own",
-    surfaceOpacity: 100,
-    headerStyle: "default",
-    textEmphasis: "auto",
-    fontFamily: "theme",
-    fontScale: 1,
-    headerTitle: "CHALLENGES",
-    penaltyLabel: "STRAFE",
-    penaltyText: "",
-    effectsEnabled: true,
-    maxVisible: 5,
-    overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end",
-    globalTimerMode: "down",
-    globalTimer: null,
-    placement: { x: 300, y: 8, scale: 1 },
-  },
+  settings: challengeUpdateSettings(),
   challenges: [challenge(currentCount)],
   event: null,
 });
@@ -153,10 +114,9 @@ const emitUpdate = (value = message()): void => {
 };
 
 beforeEach(() => {
-  FakeWebSocket.instances = [];
-  vi.stubGlobal("WebSocket", FakeWebSocket);
+  stubFakeWebSocket();
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 200 })));
-  window.history.replaceState({}, "", `/live/challenges#token=${token}`);
+  setLocationToken("/live/challenges", token);
   Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024, writable: true });
 });
 

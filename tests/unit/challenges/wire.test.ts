@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { challengeUpdateSettings } from "../../support/challenge-fixtures";
 import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
 import { challengeSchema } from "../../../src/modules/win-challenges/contracts/schemas";
 import {
@@ -13,24 +14,7 @@ const update = (): ChallengeUpdate => ({
   eventSeq: 3,
   boardRevision: 2,
   settingsRevision: 1,
-  settings: {
-    styleId: "plain-list",
-    themeMode: "own",
-    surfaceOpacity: 100,
-    headerStyle: "default",
-    textEmphasis: "auto",
-    fontFamily: "theme",
-    fontScale: 1,
-    headerTitle: "CHALLENGES",
-    penaltyLabel: "STRAFE",
-    penaltyText: "",
-    effectsEnabled: true,
-    maxVisible: 5,
-    overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end",
-    globalTimerMode: "down",
-    globalTimer: null,
-    placement: { x: 300, y: 8, scale: 1 },
-  },
+  settings: challengeUpdateSettings(),
   challenges: [{
     id: "challenge-1",
     title: "Eine Challenge",
