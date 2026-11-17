@@ -1,6 +1,8 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { FakeWebSocket, stubFakeWebSocket } from "../../support/fake-websocket";
+
 import { OverlayApp } from "../../../src/overlay/OverlayApp";
 import { isStateBearingMessage } from "../../../src/overlay/message-policy";
 import {
@@ -31,46 +33,10 @@ const timedChannelState = () => ({
   featuredEffectId: "effect-1",
 });
 
-class FakeWebSocket {
-  static instances: FakeWebSocket[] = [];
-  readonly url: string;
-  readonly protocols: string[];
-  readonly sentMessages: string[] = [];
-  closed = false;
-  private readonly listeners = new Map<string, Array<(event: Event & { data?: unknown }) => void>>();
-
-  constructor(url: string, protocols?: string | string[]) {
-    this.url = url;
-    this.protocols = protocols === undefined ? [] : Array.isArray(protocols) ? protocols : [protocols];
-    FakeWebSocket.instances.push(this);
-  }
-
-  addEventListener(type: string, callback: (event: Event & { data?: unknown }) => void) {
-    const listeners = this.listeners.get(type) ?? [];
-    listeners.push(callback);
-    this.listeners.set(type, listeners);
-  }
-
-  emit(type: string, data?: unknown) {
-    for (const callback of this.listeners.get(type) ?? []) {
-      callback({ type, data } as Event & { data?: unknown });
-    }
-  }
-
-  close() {
-    this.closed = true;
-  }
-
-  send(data: string) {
-    this.sentMessages.push(data);
-  }
-}
-
 beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
-  FakeWebSocket.instances = [];
-  vi.stubGlobal("WebSocket", FakeWebSocket);
+  stubFakeWebSocket({ tracksClose: true, sendMode: "record" });
   window.history.replaceState({}, "", `/overlay#token=${token}`);
 });
 

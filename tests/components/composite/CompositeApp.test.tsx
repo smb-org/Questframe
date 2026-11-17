@@ -2,6 +2,8 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ComponentType } from "react";
 
+import { deliverRequiredWebSocketMessage, FakeWebSocket, setLocationToken, stubFakeWebSocket } from "../../support/fake-websocket";
+
 import { CompositeApp } from "../../../src/composite/CompositeApp";
 import type { BingoStyleLoader } from "../../../src/bingo/style-loader";
 import { createDefaultState } from "../../../src/shared/contracts/state";
@@ -9,31 +11,6 @@ import type { ChallengeUpdate } from "../../../src/shared/contracts/win-challeng
 import { OVERLAY_SOCKET_PROTOCOL } from "../../../src/shared/contracts/protocol";
 
 const token = "A".repeat(43);
-
-class FakeWebSocket {
-  static instances: FakeWebSocket[] = [];
-  readonly url: string;
-  readonly protocols: string[];
-  private readonly listeners = new Map<string, Array<(event: Event & { data?: unknown }) => void>>();
-
-  constructor(url: string, protocols?: string | string[]) {
-    this.url = url;
-    this.protocols = protocols === undefined ? [] : Array.isArray(protocols) ? protocols : [protocols];
-    FakeWebSocket.instances.push(this);
-  }
-
-  addEventListener(type: string, callback: (event: Event & { data?: unknown }) => void): void {
-    const listeners = this.listeners.get(type) ?? [];
-    listeners.push(callback);
-    this.listeners.set(type, listeners);
-  }
-
-  emit(type: string, data?: unknown): void {
-    for (const callback of this.listeners.get(type) ?? []) callback({ type, data } as Event & { data?: unknown });
-  }
-
-  close(): void {}
-}
 
 class FakeAudio {
   static instances: FakeAudio[] = [];
@@ -99,17 +76,9 @@ const update: ChallengeUpdate = {
   event: null,
 };
 
-const deliver = async (socket: FakeWebSocket, input: unknown): Promise<void> => {
-  await act(async () => {
-    socket.emit("message", JSON.stringify(input));
-    await Promise.resolve();
-  });
-};
-
 beforeEach(() => {
-  FakeWebSocket.instances = [];
+  stubFakeWebSocket();
   FakeAudio.instances = [];
-  vi.stubGlobal("WebSocket", FakeWebSocket);
   vi.stubGlobal("Audio", FakeAudio);
   vi.stubGlobal("matchMedia", () => ({
     matches: false,
@@ -119,7 +88,7 @@ beforeEach(() => {
   }));
   window.sessionStorage.clear();
   window.localStorage.clear();
-  window.history.replaceState({}, "", `/overlay/all#token=${token}`);
+  setLocationToken("/overlay/all", token);
 });
 
 afterEach(() => {
@@ -139,7 +108,7 @@ describe("CompositeApp", () => {
     const setTimeoutSpy = vi.spyOn(window, "setTimeout");
     render(<CompositeApp loadBingoSource={loadBingoSource} loadStyle={() => Promise.resolve()} />);
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
-    await deliver(FakeWebSocket.instances[0] as FakeWebSocket, {
+    await deliverRequiredWebSocketMessage(FakeWebSocket.instances[0], {
       type: "snapshot",
       state: { ...state, compositeHudVisible: true, compositeBingoVisible: true, compositeChallengesVisible: false },
     });
@@ -163,14 +132,14 @@ describe("CompositeApp", () => {
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
     const socket = FakeWebSocket.instances[0] as FakeWebSocket;
 
-    await deliver(socket, {
+    await deliverRequiredWebSocketMessage(socket, {
       type: "snapshot",
       state: { ...state, compositeBingoVisible: true, compositeChallengesVisible: false },
     });
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2));
     const bingoSocket = FakeWebSocket.instances.find(({ url }) => url.includes("/ws/bingo"));
     expect(bingoSocket).toBeDefined();
-    await deliver(bingoSocket as FakeWebSocket, {
+    await deliverRequiredWebSocketMessage(bingoSocket, {
       type: "bingo_update",
       board: {
         card: {
@@ -197,7 +166,7 @@ describe("CompositeApp", () => {
     const reloadPage = vi.fn();
     render(<CompositeApp loadBingoStyle={() => Promise.resolve()} loadStyle={() => Promise.resolve()} reloadPage={reloadPage} />);
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
-    await deliver(FakeWebSocket.instances[0] as FakeWebSocket, {
+    await deliverRequiredWebSocketMessage(FakeWebSocket.instances[0], {
       type: "snapshot",
       state: { ...state, compositeBingoVisible: true, compositeChallengesVisible: false },
     });
@@ -205,7 +174,7 @@ describe("CompositeApp", () => {
     const bingoSocket = FakeWebSocket.instances.find(({ url }) => url.includes("/ws/bingo"));
     expect(bingoSocket).toBeDefined();
 
-    await deliver(bingoSocket as FakeWebSocket, { type: "bingo_update", board: {} });
+    await deliverRequiredWebSocketMessage(bingoSocket, { type: "bingo_update", board: {} });
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(3));
 
     expect(reloadPage).not.toHaveBeenCalled();
@@ -217,8 +186,8 @@ describe("CompositeApp", () => {
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
     const socket = FakeWebSocket.instances[0] as FakeWebSocket;
 
-    await deliver(socket, { type: "snapshot", state: {} });
-    await deliver(socket, update);
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state: {} });
+    await deliverRequiredWebSocketMessage(socket, update);
 
     await waitFor(() => expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument());
   });
@@ -230,8 +199,8 @@ describe("CompositeApp", () => {
     expect(socket?.url).toMatch(/\/ws\/composite$/);
     expect(socket?.protocols).toEqual([OVERLAY_SOCKET_PROTOCOL, token]);
 
-    await deliver(socket as FakeWebSocket, { type: "snapshot", state: { ...state, placement: { ...state.placement, x: 42, y: 24 } } });
-    await deliver(socket as FakeWebSocket, update);
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state: { ...state, placement: { ...state.placement, x: 42, y: 24 } } });
+    await deliverRequiredWebSocketMessage(socket, update);
 
     await waitFor(() => expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument());
     expect(document.querySelector(".hud-root")).toHaveStyle({ "--hud-x": "42px", "--hud-y": "24px" });
@@ -243,14 +212,14 @@ describe("CompositeApp", () => {
     render(<CompositeApp loadStyle={() => Promise.resolve()} reloadPage={reloadPage} />);
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
     const socket = FakeWebSocket.instances[0] as FakeWebSocket;
-    await deliver(socket, update);
-    await deliver(socket, { type: "snapshot", state: { ...state, compositeHudVisible: false } });
+    await deliverRequiredWebSocketMessage(socket, update);
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state: { ...state, compositeHudVisible: false } });
 
     await waitFor(() => expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument());
     expect(document.querySelector(".hud-stage")).toBeNull();
     expect(reloadPage).not.toHaveBeenCalled();
 
-    await deliver(socket, { type: "snapshot", state: { ...state, overlayEnabled: false, compositeHudVisible: true } });
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state: { ...state, overlayEnabled: false, compositeHudVisible: true } });
     expect(document.querySelector(".hud-stage")).toBeNull();
     expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument();
   });
@@ -259,8 +228,8 @@ describe("CompositeApp", () => {
     render(<CompositeApp loadStyle={() => Promise.resolve()} />);
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
     const socket = FakeWebSocket.instances[0] as FakeWebSocket;
-    await deliver(socket, { type: "snapshot", state: { ...state, compositeChallengesVisible: false } });
-    await deliver(socket, {
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state: { ...state, compositeChallengesVisible: false } });
+    await deliverRequiredWebSocketMessage(socket, {
       ...update,
       eventSeq: 1,
       event: { scope: "challenge", type: "progressed", challengeId: "challenge-1", delta: 1, previousCount: 1, currentCount: 2 },
@@ -269,7 +238,7 @@ describe("CompositeApp", () => {
     expect(screen.queryByText("Komposit sichtbar")).not.toBeInTheDocument();
     expect(FakeAudio.instances.every((audio) => audio.play.mock.calls.length === 0)).toBe(true);
 
-    await deliver(socket, { type: "snapshot", state });
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state });
     await waitFor(() => expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument());
     expect(document.querySelector("[data-ceremony-type]")).toBeNull();
   });
@@ -278,8 +247,8 @@ describe("CompositeApp", () => {
     render(<CompositeApp loadStyle={() => Promise.resolve()} />);
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
     const socket = FakeWebSocket.instances[0] as FakeWebSocket;
-    await deliver(socket, { type: "snapshot", state });
-    await deliver(socket, {
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state });
+    await deliverRequiredWebSocketMessage(socket, {
       ...update,
       eventSeq: 1,
       event: { scope: "challenge", type: "progressed", challengeId: "challenge-1", delta: 1, previousCount: 1, currentCount: 2 },
@@ -288,7 +257,7 @@ describe("CompositeApp", () => {
     const tick = FakeAudio.instances.find((audio) => audio.src.endsWith("/tick.mp3"));
     expect(tick?.play).toHaveBeenCalledTimes(1);
 
-    await deliver(socket, { type: "snapshot", state: { ...state, compositeChallengesVisible: false } });
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state: { ...state, compositeChallengesVisible: false } });
     expect(document.querySelector("[data-ceremony-type]")).toBeNull();
     expect(tick?.pause).toHaveBeenCalledTimes(1);
   });
@@ -299,8 +268,8 @@ describe("CompositeApp", () => {
     render(<CompositeApp loadStyle={() => Promise.resolve()} />);
     await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
     const first = FakeWebSocket.instances[0] as FakeWebSocket;
-    await deliver(first, { type: "snapshot", state });
-    await deliver(first, update);
+    await deliverRequiredWebSocketMessage(first, { type: "snapshot", state });
+    await deliverRequiredWebSocketMessage(first, update);
     await vi.waitFor(() => expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument());
 
     act(() => { first.emit("close"); });
@@ -310,7 +279,7 @@ describe("CompositeApp", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(750); });
     expect(FakeWebSocket.instances).toHaveLength(2);
     const second = FakeWebSocket.instances[1] as FakeWebSocket;
-    await deliver(second, { type: "snapshot", state: { ...state, compositeHudVisible: false } });
+    await deliverRequiredWebSocketMessage(second, { type: "snapshot", state: { ...state, compositeHudVisible: false } });
     expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument();
     expect(document.querySelector(".hud-stage")).toBeNull();
   });
@@ -321,11 +290,11 @@ describe("CompositeApp", () => {
     render(<CompositeApp loadStyle={() => Promise.resolve()} reloadPage={reloadPage} />);
     await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
     const socket = FakeWebSocket.instances[0] as FakeWebSocket;
-    await deliver(socket, { type: "snapshot", state });
-    await deliver(socket, update);
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state });
+    await deliverRequiredWebSocketMessage(socket, update);
     await vi.waitFor(() => expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument());
 
-    await deliver(socket, { eventSeq: 1 });
+    await deliverRequiredWebSocketMessage(socket, { eventSeq: 1 });
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
     expect(reloadPage).not.toHaveBeenCalled();
     expect(document.querySelector(".hud-stage")).not.toBeNull();
@@ -337,11 +306,11 @@ describe("CompositeApp", () => {
     render(<CompositeApp loadStyle={() => Promise.resolve()} reloadPage={reloadPage} />);
     await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
     const socket = FakeWebSocket.instances[0] as FakeWebSocket;
-    await deliver(socket, { type: "snapshot", state });
-    await deliver(socket, update);
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state });
+    await deliverRequiredWebSocketMessage(socket, update);
     await vi.waitFor(() => expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument());
 
-    await deliver(socket, { type: "snapshot", state: {} });
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state: {} });
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
     expect(reloadPage).not.toHaveBeenCalled();
     expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument();
@@ -353,12 +322,12 @@ describe("CompositeApp", () => {
     render(<CompositeApp loadStyle={() => Promise.resolve()} reloadPage={reloadPage} />);
     await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
     const socket = FakeWebSocket.instances[0] as FakeWebSocket;
-    await deliver(socket, { type: "snapshot", state });
-    await deliver(socket, update);
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state });
+    await deliverRequiredWebSocketMessage(socket, update);
     await vi.waitFor(() => expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument());
 
-    await deliver(socket, { eventSeq: 1 });
-    await deliver(socket, { type: "snapshot", state: {} });
+    await deliverRequiredWebSocketMessage(socket, { eventSeq: 1 });
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state: {} });
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
     expect(reloadPage).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument();
@@ -370,14 +339,14 @@ describe("CompositeApp", () => {
     render(<CompositeApp loadStyle={() => Promise.resolve()} reloadPage={reloadPage} />);
     await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
     const socket = FakeWebSocket.instances[0] as FakeWebSocket;
-    await deliver(socket, { type: "snapshot", state });
-    await deliver(socket, update);
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state });
+    await deliverRequiredWebSocketMessage(socket, update);
     await vi.waitFor(() => expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument());
 
     // HUD bleibt dauerhaft kaputt, Challenges parsen währenddessen weiter.
-    await deliver(socket, { type: "snapshot", state: {} });
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state: {} });
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
-    await deliver(socket, { ...update, eventSeq: 1 });
+    await deliverRequiredWebSocketMessage(socket, { ...update, eventSeq: 1 });
     expect(reloadPage).not.toHaveBeenCalled();
 
     await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
@@ -390,13 +359,13 @@ describe("CompositeApp", () => {
     render(<CompositeApp loadStyle={() => Promise.resolve()} reloadPage={reloadPage} />);
     await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
     const socket = FakeWebSocket.instances[0] as FakeWebSocket;
-    await deliver(socket, { type: "snapshot", state });
-    await deliver(socket, update);
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state });
+    await deliverRequiredWebSocketMessage(socket, update);
     await vi.waitFor(() => expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument());
 
     // Einzelner Fehlschlag des HUD, danach erholt es sich sofort wieder.
-    await deliver(socket, { type: "snapshot", state: {} });
-    await deliver(socket, { type: "snapshot", state });
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state: {} });
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state });
     await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
     expect(reloadPage).not.toHaveBeenCalled();
   });
@@ -408,16 +377,16 @@ describe("CompositeApp", () => {
     await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
     const socket = FakeWebSocket.instances[0] as FakeWebSocket;
 
-    await deliver(socket, { eventSeq: 1 });
-    await deliver(socket, { type: "snapshot", state: {} });
+    await deliverRequiredWebSocketMessage(socket, { eventSeq: 1 });
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state: {} });
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
     expect(reloadPage).toHaveBeenCalledTimes(1);
     expect(window.sessionStorage.getItem("irl-stream-hud:composite-watchdog-reload-at")).not.toBeNull();
 
-    await deliver(socket, update);
+    await deliverRequiredWebSocketMessage(socket, update);
     expect(window.sessionStorage.getItem("irl-stream-hud:composite-watchdog-reload-at")).not.toBeNull();
 
-    await deliver(socket, { type: "snapshot", state });
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state });
     expect(window.sessionStorage.getItem("irl-stream-hud:composite-watchdog-reload-at")).toBeNull();
   });
 
@@ -427,19 +396,19 @@ describe("CompositeApp", () => {
     render(<CompositeApp loadStyle={() => Promise.resolve()} reloadPage={reloadPage} />);
     await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
     const socket = FakeWebSocket.instances[0] as FakeWebSocket;
-    await deliver(socket, { type: "snapshot", state });
-    await deliver(socket, update);
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state });
+    await deliverRequiredWebSocketMessage(socket, update);
     await vi.waitFor(() => expect(screen.getByText("Komposit sichtbar")).toBeInTheDocument());
 
-    await deliver(socket, { eventSeq: 1 });
-    await deliver(socket, { type: "snapshot", state: {} });
+    await deliverRequiredWebSocketMessage(socket, { eventSeq: 1 });
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state: {} });
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
     expect(reloadPage).toHaveBeenCalledTimes(1);
 
-    await deliver(socket, update);
-    await deliver(socket, { type: "snapshot", state });
-    await deliver(socket, { eventSeq: 2 });
-    await deliver(socket, { type: "snapshot", state: {} });
+    await deliverRequiredWebSocketMessage(socket, update);
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state });
+    await deliverRequiredWebSocketMessage(socket, { eventSeq: 2 });
+    await deliverRequiredWebSocketMessage(socket, { type: "snapshot", state: {} });
     await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
     expect(reloadPage).toHaveBeenCalledTimes(2);
   });

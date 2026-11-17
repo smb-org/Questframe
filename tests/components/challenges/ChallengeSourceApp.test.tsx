@@ -1,6 +1,9 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { challengeUpdateSettings } from "../../support/challenge-fixtures";
+import { deliverWebSocketMessage, FakeWebSocket, setLocationToken, stubFakeWebSocket } from "../../support/fake-websocket";
+
 import { ChallengeSourceApp } from "../../../src/challenges/ChallengeSourceApp";
 import { ChallengeLog } from "../../../src/modules/win-challenges/ui/ChallengeLog";
 import type { ChallengeStyleId, ChallengeUpdate } from "../../../src/shared/contracts/win-challenges";
@@ -15,38 +18,6 @@ const messageType = (value: string): unknown => {
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
   return "type" in parsed ? parsed.type : null;
 };
-
-class FakeWebSocket {
-  static instances: FakeWebSocket[] = [];
-  readonly url: string;
-  readonly protocols: string[];
-  readonly sentMessages: string[] = [];
-  readonly readyState = 1;
-  private readonly listeners = new Map<string, Array<(event: Event & { data?: unknown }) => void>>();
-
-  constructor(url: string, protocols?: string | string[]) {
-    this.url = url;
-    this.protocols = protocols === undefined ? [] : Array.isArray(protocols) ? protocols : [protocols];
-    FakeWebSocket.instances.push(this);
-    queueMicrotask(() => this.emit("open"));
-  }
-
-  addEventListener(type: string, callback: (event: Event & { data?: unknown }) => void): void {
-    const listeners = this.listeners.get(type) ?? [];
-    listeners.push(callback);
-    this.listeners.set(type, listeners);
-  }
-
-  emit(type: string, data?: unknown): void {
-    for (const callback of this.listeners.get(type) ?? []) callback({ type, data } as Event & { data?: unknown });
-  }
-
-  close(): void {}
-
-  send(data: string): void {
-    this.sentMessages.push(data);
-  }
-}
 
 class FakeAudio {
   static instances: FakeAudio[] = [];
@@ -97,24 +68,7 @@ const message = (): ChallengeUpdate => ({
   eventSeq: 0,
   boardRevision: 1,
   settingsRevision: 1,
-  settings: {
-    styleId: "plain-list",
-    themeMode: "own",
-    surfaceOpacity: 100,
-    headerStyle: "default",
-    textEmphasis: "auto",
-    fontFamily: "theme",
-    fontScale: 1,
-    headerTitle: "CHALLENGES",
-    penaltyLabel: "STRAFE",
-    penaltyText: "",
-    effectsEnabled: true,
-    maxVisible: 5,
-    overflowMode: "cut", overflowTempo: "medium", numbered: false, keyVisible: false, doneOrder: "end",
-    globalTimerMode: "down",
-    globalTimer: null,
-    placement: { x: 300, y: 8, scale: 1 },
-  },
+  settings: challengeUpdateSettings(),
   challenges: [
     challenge("done", "Erledigt unten", "done", 0),
     challenge("open", "Offene Challenge", "pending", 1),
@@ -140,13 +94,6 @@ const sourceUpdate = (overrides: Partial<ChallengeUpdate> = {}): ChallengeUpdate
   },
 });
 
-const deliver = async (socket: FakeWebSocket | undefined, update: ChallengeUpdate): Promise<void> => {
-  await act(async () => {
-    socket?.emit("message", JSON.stringify(update));
-    await Promise.resolve();
-  });
-};
-
 const deferred = (): { promise: Promise<void>; resolve: () => void; reject: (reason?: Error) => void } => {
   let resolvePromise: () => void = () => undefined;
   let rejectPromise: (reason?: Error) => void = () => undefined;
@@ -158,9 +105,8 @@ const deferred = (): { promise: Promise<void>; resolve: () => void; reject: (rea
 };
 
 beforeEach(() => {
-  FakeWebSocket.instances = [];
+  stubFakeWebSocket({ opensOnCreate: true, readyState: 1, sendMode: "record" });
   FakeAudio.instances = [];
-  vi.stubGlobal("WebSocket", FakeWebSocket);
   vi.stubGlobal("Audio", FakeAudio);
   vi.stubGlobal("matchMedia", () => ({
     matches: false,
@@ -169,7 +115,7 @@ beforeEach(() => {
     removeEventListener: vi.fn(),
   }));
   window.sessionStorage.clear();
-  window.history.replaceState({}, "", `/overlay/challenges#token=${token}`);
+  setLocationToken("/overlay/challenges", token);
 });
 
 afterEach(() => {
@@ -186,7 +132,7 @@ describe("ChallengeSourceApp", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    await deliver(socket, sourceUpdate({
+    await deliverWebSocketMessage(socket, sourceUpdate({
       challenges: [{
         ...timedChallenge("running", { state: "active", timerEndsAt: new Date(fixedNow + 5_000).toISOString() }),
         title: "Läuft weiter",
@@ -211,7 +157,7 @@ describe("ChallengeSourceApp", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    await deliver(socket, sourceUpdate({
+    await deliverWebSocketMessage(socket, sourceUpdate({
       challenges: [{
         ...timedChallenge("running", { state: "active", timerEndsAt: new Date(fixedNow + 5_000).toISOString() }),
         title: "Korrigierte Uhr",
@@ -287,7 +233,7 @@ describe("ChallengeSourceApp", () => {
     expect(socket?.url).toMatch(/\/ws\/challenge$/);
     expect(socket?.protocols).toEqual([OVERLAY_SOCKET_PROTOCOL, token]);
 
-    await deliver(socket, message());
+    await deliverWebSocketMessage(socket, message());
     await waitFor(() => expect(screen.getByText("CHALLENGES")).toBeInTheDocument());
     expect(screen.getByText("CHALLENGES")).toBeInTheDocument();
     expect(screen.getByRole("main", { name: "Challenge-Quelle" })).toHaveStyle({
@@ -305,7 +251,7 @@ describe("ChallengeSourceApp", () => {
     // klingt, zu sehen ist nichts. Bei 0 bleibt die Zeile aber bewusst leer.
     render(<ChallengeSourceApp />);
     const socket = FakeWebSocket.instances[0];
-    await deliver(socket, sourceUpdate({
+    await deliverWebSocketMessage(socket, sourceUpdate({
       challenges: [
         { ...timedChallenge("gezaehlt"), title: "Ohne Ziel", currentCount: 4 },
         { ...timedChallenge("frisch"), title: "Noch nichts", currentCount: 0 },
@@ -426,7 +372,7 @@ describe("ChallengeSourceApp", () => {
     const reloadPage = vi.fn();
     render(<ChallengeSourceApp reloadPage={reloadPage} />);
     const socket = FakeWebSocket.instances[0];
-    await deliver(socket, message());
+    await deliverWebSocketMessage(socket, message());
     await waitFor(() => expect(screen.getByText("CHALLENGES")).toBeInTheDocument());
 
     await act(async () => {
@@ -443,17 +389,17 @@ describe("ChallengeSourceApp", () => {
     const socket = FakeWebSocket.instances[0];
     const ownSettings = { ...message().settings, themeMode: "own" as const };
 
-    await deliver(socket, sourceUpdate({ eventSeq: 7, event: null, settings: ownSettings }));
+    await deliverWebSocketMessage(socket, sourceUpdate({ eventSeq: 7, event: null, settings: ownSettings }));
     expect(document.querySelector(".challenge-source-ceremony")?.getAttribute("data-ceremony-type") ?? null).toBeNull();
 
-    await deliver(socket, sourceUpdate({
+    await deliverWebSocketMessage(socket, sourceUpdate({
       eventSeq: 8,
       event: { scope: "challenge", type: "progressed", challengeId: "open", delta: 1, previousCount: 3, currentCount: 4 },
       settings: ownSettings,
     }));
     expect(document.querySelector(".challenge-source-ceremony")).toHaveAttribute("data-ceremony-type", "progressed");
 
-    await deliver(socket, sourceUpdate({
+    await deliverWebSocketMessage(socket, sourceUpdate({
       eventSeq: 8,
       event: { scope: "challenge", type: "progressed", challengeId: "open", delta: 1, previousCount: 3, currentCount: 4 },
       settings: ownSettings,
@@ -466,7 +412,7 @@ describe("ChallengeSourceApp", () => {
   it("lässt die ganze Zeremonie bei deaktivierten Effekten aus", async () => {
     render(<ChallengeSourceApp />);
     const socket = FakeWebSocket.instances[0];
-    await deliver(socket, sourceUpdate({
+    await deliverWebSocketMessage(socket, sourceUpdate({
       eventSeq: 1,
       settings: { ...message().settings, themeMode: "own", effectsEnabled: false },
       event: { scope: "challenge", type: "completed", challengeId: "open" },
@@ -486,7 +432,7 @@ describe("ChallengeSourceApp", () => {
     const completed = challenge("open", "Offene Challenge", "done", 0);
     render(<ChallengeSourceApp />);
     const socket = FakeWebSocket.instances[0];
-    await deliver(socket, sourceUpdate({
+    await deliverWebSocketMessage(socket, sourceUpdate({
       eventSeq: 1,
       challenges: [completed],
       settings: { ...message().settings, themeMode: "own" },
@@ -515,7 +461,7 @@ describe("ChallengeSourceApp", () => {
     };
     render(<ChallengeSourceApp />);
     const socket = FakeWebSocket.instances[0];
-    await deliver(socket, sourceUpdate({
+    await deliverWebSocketMessage(socket, sourceUpdate({
       challenges: [streak],
       settings: { ...message().settings, themeMode: "own" },
       event: { scope: "challenge", type: "streak-reset", challengeId: "open" },
@@ -535,7 +481,7 @@ describe("ChallengeSourceApp", () => {
     const tick = FakeAudio.instances.find((audio) => audio.src.endsWith("/tick.mp3"));
     tick?.play.mockRejectedValueOnce(new Error("Autoplay verweigert"));
 
-    await expect(deliver(socket, sourceUpdate({
+    await expect(deliverWebSocketMessage(socket, sourceUpdate({
       eventSeq: 1,
       settings: { ...message().settings, themeMode: "own" },
       event: { scope: "challenge", type: "progressed", challengeId: "open", delta: 1, previousCount: 3, currentCount: 4 },
@@ -551,7 +497,7 @@ describe("ChallengeSourceApp", () => {
     async (styleId) => {
       render(<ChallengeSourceApp />);
       const socket = FakeWebSocket.instances[0];
-      await deliver(socket, sourceUpdate({
+      await deliverWebSocketMessage(socket, sourceUpdate({
         eventSeq: 1,
         settings: { ...message().settings, styleId, themeMode: "own" },
         event: { scope: "challenge", type: "completed", challengeId: "open" },
@@ -566,7 +512,7 @@ describe("ChallengeSourceApp", () => {
   it("ordnet quest-log den eigenen Abschlussklang zu", async () => {
     render(<ChallengeSourceApp />);
     const socket = FakeWebSocket.instances[0];
-    await deliver(socket, sourceUpdate({
+    await deliverWebSocketMessage(socket, sourceUpdate({
       eventSeq: 1,
       settings: { ...message().settings, styleId: "quest-log", themeMode: "own" },
       event: { scope: "challenge", type: "completed", challengeId: "open" },
@@ -584,8 +530,8 @@ describe("ChallengeSourceApp", () => {
     const socket = FakeWebSocket.instances[0];
     const settings = { ...message().settings, themeMode: "own" as const };
     const progressed = { scope: "challenge" as const, type: "progressed" as const, challengeId: "open", delta: 1, previousCount: 3, currentCount: 4 };
-    await deliver(socket, sourceUpdate({ eventSeq: 1, settings, event: progressed }));
-    await deliver(socket, sourceUpdate({ eventSeq: 2, settings, event: { ...progressed, previousCount: 4, currentCount: 5 } }));
+    await deliverWebSocketMessage(socket, sourceUpdate({ eventSeq: 1, settings, event: progressed }));
+    await deliverWebSocketMessage(socket, sourceUpdate({ eventSeq: 2, settings, event: { ...progressed, previousCount: 4, currentCount: 5 } }));
 
     const tick = FakeAudio.instances.find((audio) => audio.src.endsWith("/tick.mp3"));
     expect(tick?.play.mock.calls.length ?? 0).toBe(1);
@@ -597,12 +543,12 @@ describe("ChallengeSourceApp", () => {
     const settings = { ...message().settings, themeMode: "own" as const };
     const progressed = { scope: "challenge" as const, type: "progressed" as const, challengeId: "open", delta: 1, previousCount: 3, currentCount: 4 };
 
-    await deliver(socket, sourceUpdate({ eventSeq: 1, settings, event: progressed }));
+    await deliverWebSocketMessage(socket, sourceUpdate({ eventSeq: 1, settings, event: progressed }));
     const firstCeremony = document.querySelector(".challenge-source-ceremony");
     const firstSource = document.querySelector(".challenge-source");
     const firstRow = document.querySelector('[data-challenge-id="open"]');
     const firstCount = document.querySelector('[data-challenge-id="open"] .challenge-source__count');
-    await deliver(socket, sourceUpdate({ eventSeq: 2, settings, event: { ...progressed, previousCount: 4, currentCount: 5 } }));
+    await deliverWebSocketMessage(socket, sourceUpdate({ eventSeq: 2, settings, event: { ...progressed, previousCount: 4, currentCount: 5 } }));
 
     expect(document.querySelector(".challenge-source-ceremony")).toBe(firstCeremony);
     expect(document.querySelector(".challenge-source")).toBe(firstSource);
@@ -628,10 +574,10 @@ describe("ChallengeSourceApp", () => {
       currentCount: 4,
     };
 
-    await deliver(socket, sourceUpdate({ eventSeq: 1, settings, event: progressed }));
+    await deliverWebSocketMessage(socket, sourceUpdate({ eventSeq: 1, settings, event: progressed }));
     expect(document.querySelector(".challenge-source-ceremony")).not.toBeNull();
 
-    await deliver(socket, sourceUpdate({
+    await deliverWebSocketMessage(socket, sourceUpdate({
       eventSeq: 2,
       settings,
       event: { scope: "board", type: "set_switched" },
@@ -676,7 +622,7 @@ describe("ChallengeSourceApp", () => {
       challenge("fifth", "Fünfte Challenge", "pending", 4),
       challenge("target", "Ziel außerhalb der Auswahl", "pending", 5),
     ];
-    await deliver(socket, sourceUpdate({
+    await deliverWebSocketMessage(socket, sourceUpdate({
       eventSeq: 1,
       challenges,
       settings: { ...message().settings, themeMode: "own" },
@@ -692,12 +638,12 @@ describe("ChallengeSourceApp", () => {
     const reloadPage = vi.fn();
     render(<ChallengeSourceApp reloadPage={reloadPage} />);
     const socket = FakeWebSocket.instances[0];
-    await deliver(socket, message());
+    await deliverWebSocketMessage(socket, message());
     expect(screen.getByText("Offene Challenge")).toBeInTheDocument();
     act(() => socket?.emit("message", JSON.stringify({ ...message(), settings: { ...message().settings, overflowMode: "invalid" } })));
     expect(document.body).not.toHaveTextContent("Offene Challenge");
     expect(reloadPage).toHaveBeenCalledTimes(1);
-    await deliver(socket, message());
+    await deliverWebSocketMessage(socket, message());
     expect(screen.getByText("Offene Challenge")).toBeInTheDocument();
   });
 
@@ -754,7 +700,7 @@ describe("ChallengeSourceApp", () => {
       currentCount: 4,
     };
 
-    await deliver(socket, sourceUpdate({
+    await deliverWebSocketMessage(socket, sourceUpdate({
       eventSeq: 1,
       challenges: [challenge("done", "Erledigt unten", "done", 0), hiddenChallenge],
       settings,
@@ -764,7 +710,7 @@ describe("ChallengeSourceApp", () => {
     const tick = FakeAudio.instances.find((audio) => audio.src.endsWith("/tick.mp3"));
     expect(tick?.play).not.toHaveBeenCalled();
 
-    await deliver(socket, sourceUpdate({
+    await deliverWebSocketMessage(socket, sourceUpdate({
       eventSeq: 2,
       challenges: [challenge("done", "Erledigt unten", "done", 0), { ...hiddenChallenge, hidden: false }],
       settings,
@@ -780,7 +726,7 @@ describe("ChallengeSourceApp", () => {
     render(<ChallengeSourceApp loadStyle={loadStyle} />);
     const socket = FakeWebSocket.instances[0];
 
-    await deliver(socket, sourceUpdate({ settings: { ...message().settings, themeMode: "own" } }));
+    await deliverWebSocketMessage(socket, sourceUpdate({ settings: { ...message().settings, themeMode: "own" } }));
     expect(document.body).not.toHaveTextContent("Offene Challenge");
     expect(loadStyle).toHaveBeenCalledWith("plain-list");
 
@@ -797,7 +743,7 @@ describe("ChallengeSourceApp", () => {
     render(<ChallengeSourceApp loadStyle={loadStyle} />);
     const socket = FakeWebSocket.instances[0];
 
-    await deliver(socket, sourceUpdate({ settings: { ...message().settings, themeMode: "own" } }));
+    await deliverWebSocketMessage(socket, sourceUpdate({ settings: { ...message().settings, themeMode: "own" } }));
     await act(async () => {
       style.reject(new Error("Style-Chunk fehlgeschlagen"));
       await expect(style.promise).rejects.toThrow("Style-Chunk fehlgeschlagen");
@@ -815,8 +761,8 @@ describe("ChallengeSourceApp", () => {
     render(<ChallengeSourceApp loadStyle={loadStyle} />);
     const socket = FakeWebSocket.instances[0];
 
-    await deliver(socket, sourceUpdate({ settings: { ...message().settings, themeMode: "own" } }));
-    await deliver(socket, sourceUpdate({
+    await deliverWebSocketMessage(socket, sourceUpdate({ settings: { ...message().settings, themeMode: "own" } }));
+    await deliverWebSocketMessage(socket, sourceUpdate({
       settings: { ...message().settings, styleId: "quest-log", themeMode: "own" },
     }));
 

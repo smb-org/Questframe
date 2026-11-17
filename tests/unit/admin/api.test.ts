@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { FakeWebSocket, stubFakeWebSocket } from "../../support/fake-websocket";
+
 import { AdminApiError, BrowserAdminApi } from "../../../src/admin/api";
 import type { Command } from "../../../src/modules/win-challenges/contracts/schemas";
 import {
@@ -56,39 +58,10 @@ const auditEntry = {
   createdAt: now,
 };
 
-class FakeWebSocket {
-  static instances: FakeWebSocket[] = [];
-  readonly url: string;
-  closed = false;
-  private readonly listeners = new Map<string, Array<(event: Event & { data?: unknown }) => void>>();
-
-  constructor(url: string) {
-    this.url = url;
-    FakeWebSocket.instances.push(this);
-  }
-
-  addEventListener(type: string, callback: (event: Event & { data?: unknown }) => void) {
-    const current = this.listeners.get(type) ?? [];
-    current.push(callback);
-    this.listeners.set(type, current);
-  }
-
-  emit(type: string, data?: unknown) {
-    for (const callback of this.listeners.get(type) ?? []) {
-      callback({ type, data } as Event & { data?: unknown });
-    }
-  }
-
-  close() {
-    this.closed = true;
-  }
-}
-
 beforeEach(() => {
   sessionStorage.clear();
   localStorage.clear();
-  FakeWebSocket.instances = [];
-  vi.stubGlobal("WebSocket", FakeWebSocket);
+  stubFakeWebSocket({ tracksClose: true });
 });
 
 afterEach(() => {
